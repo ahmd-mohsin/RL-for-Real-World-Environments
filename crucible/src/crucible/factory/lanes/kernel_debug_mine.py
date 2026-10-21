@@ -152,8 +152,8 @@ def backend_tree(repo: Path, sha: str, cache: Path, layout: ko.Layout = ko.GGML_
             break
         try:
             kw.export_tree(repo, sha, dest, paths=layout.paths())
-        except RuntimeError:
-            if attempt == 3:
+        except RuntimeError as e:
+            if attempt == 3 or "did not match any files" in str(e):  # a missing path is the layout, not the network
                 raise
             time.sleep(20 * (attempt + 1))
     return dest
@@ -213,7 +213,11 @@ def mine(repo: Path, name: str, *, since: str = SINCE, until: str = "HEAD", layo
             names |= changed
             reach |= changed & {n.rsplit("::", 1)[-1] for n, _a, _b in cuda.find_funcs(before or "")}
             kernels |= set(cuda.PROFILE.kernels(after or "")) & changed
-        omap = ko.op_map(backend_tree(repo, sha, cache, layout), layout) if cache is not None else {}
+        try:
+            omap = ko.op_map(backend_tree(repo, sha, cache, layout), layout) if cache is not None else {}
+        except RuntimeError:  # the commit predates this layout (the backend's files sat elsewhere): its op map cannot be read
+            drops.append({**row, "kind": kind, "reason": "older source layout (the dispatch file is not where this layout keeps it)"})
+            continue
         ops = ko.ops_for(omap, src, sorted(reach)) if omap else []
         lic, lic_src = licence_for(repo, sha, src)
         ch = KernelChange(repo=name, sha=sha, parent=par[0], date=cdate, author_date=adate, subject=subject, body=body, files=files, kind=kind,

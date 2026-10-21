@@ -46,6 +46,15 @@ CMAKE_COMMON = ("-DGGML_NATIVE=OFF", "-DLLAMA_CURL=OFF", "-DLLAMA_OPENSSL=OFF", 
                 "-DLLAMA_BUILD_SERVER=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_TOOLS=OFF")
 CMAKE_CUDA = ("-DGGML_CUDA=ON", *CMAKE_COMMON, "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DGGML_CUDA_FA_ALL_QUANTS=OFF")
 CMAKE_CPU = ("-DGGML_CUDA=OFF", *CMAKE_COMMON)
+# layouts whose CPU backend does not build without x86 SIMD (ik_llama.cpp's 2024 layout: iqk needs AVX2); the grader's
+# reference and candidate builds and the CPU gates all add these, keyed by the layout's dispatch file
+HOST_CPU_FLAGS = {"ggml/src/ggml-cuda.cu": ("-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_FMA=ON", "-DGGML_F16C=ON")}
+
+
+def cmake_ccache() -> tuple[str, ...]:
+    """Compiler-launcher flags for a build cache (gate runs of the grader's own patches only: a cache shared with
+    candidate builds would let one candidate's objects reach another's)."""
+    return tuple(f"-DCMAKE_{lang}_COMPILER_LAUNCHER=ccache" for lang in ("C", "CXX", "CUDA"))
 
 
 TESTS_CMAKE = "tests/CMakeLists.txt"
@@ -66,11 +75,21 @@ def ggml_header(tree: Path) -> str | None:
 
 
 def prepare_tree(tree: Path, harness_text: str) -> None:
-    """The grader's tree: the patched harness in place and its target declared."""
+    """The grader's tree: the patched harness in place and its target declared; in trees that generate
+    ``common/build-info.cpp`` from git into the (read-only) source directory (llama.cpp before mid 2025), the file is
+    written once from its template, newer than the template, so the build never runs git."""
     harness_file(tree).write_text(harness_text)
     cm = Path(tree) / TESTS_CMAKE
     if cm.is_file():
         cm.write_text(ensure_target(cm.read_text(errors="replace")))
+    tpl, out = Path(tree) / "common" / "build-info.cpp.in", Path(tree) / "common" / "build-info.cpp"
+    ccm = Path(tree) / "common" / "CMakeLists.txt"
+    if tpl.is_file() and ccm.is_file():
+        text = ccm.read_text(errors="replace")
+        gen = re.compile(r'add_custom_command\(\s*OUTPUT\s+"\$\{CMAKE_CURRENT_SOURCE_DIR\}/build-info\.cpp".*?\n\)', re.DOTALL)
+        if gen.search(text):
+            ccm.write_text(gen.sub("# crucible: build-info.cpp is written by the grader (no git, read-only sources)", text, count=1))
+            out.write_text(re.sub(r"@\w+@", "unknown", tpl.read_text(errors="replace").replace("@BUILD_NUMBER@", "0")))
 
 
 def cuda_arch_flag(arches: Sequence[str]) -> str:
@@ -427,6 +446,17 @@ def compare_dumps(cand: Sequence[Mapping], ref: Sequence[Mapping], *, cases: Seq
 CASE_LINE = re.compile(r"^\s*(?P<case>[A-Z][A-Z0-9_]*\(.*?\)):\s*(?:\S*\[[^\]]*\]\s*)*(?:\x1b\[[0-9;]*m)?(?P<status>OK|FAIL|not supported)\b",
                        re.MULTILINE)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def crashed_case(stdout: str) -> str | None:
+    """The case the harness was running when its process died: the last case line with no verdict (a backend that
+    claims an op and then aborts on it, ik_llama.cpp's CPU flash attention with f32 K/V)."""
+    last = None
+    for ln in ANSI.sub("", stdout).splitlines():
+        m = re.match(r"^\s*([A-Z][A-Z0-9_]*\(.*\)):\s*(.*)$", ln)
+        if m:
+            last = m.group(1) if not re.search(r"\b(OK|FAIL|SUPPORTED|not supported)\b", m.group(2), re.IGNORECASE) else None
+    return last
 
 
 def case_status(stdout: str) -> dict[str, str]:

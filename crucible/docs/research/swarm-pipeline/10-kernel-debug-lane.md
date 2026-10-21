@@ -225,6 +225,28 @@ Verified GPU-less: the staged GPU plan run in the verifier image without a GPU r
 (`no GPU visible (nvidia-smi)`, reward `None`), never a 0. Tests: `test_m17_kd_*` 28 functions, kernel lane total 53; m17
 non-Docker 623 passed, 1 skipped; ruff on the lane files and lint-imports (4 kept) clean.
 
+### 8.1 GPU gates on the lab RTX 5090 (2026-10-20/21, halted by the user before the perf family)
+
+More supply first: llama.cpp mined back to 2024-06-01 (7 more training groups) and ik_llama.cpp back to 2025-06-01
+(6 more held-out bug groups, 2 perf; contamination `fallback`). Results ingested from `data/kernel_debug/gpu_results_5090`
+(funnel: `runs/kernel_debug_funnel.json`, field `gpu_failed_gate` per task).
+
+| family : split | through the CPU gates | GPU: survive every gate | dropped at |
+|---|---|---|---|
+| kernel-bug : train | 18 | **2** (kd-bug-llamacpp-1b8b8fb1, kd-bug-llamacpp-ca21f3a1) | S1 executed 9, calibration 6 (one milestone left), S8 mutants 1 |
+| kernel-bug : held out | 11 | 0 | host CPU gates 2 (no op-test case for a milestone's ops), S1 executed 3, calibration 6 |
+| kernel-migration : train | 5 | **2** (km-cuda13-hecbench-591f311-4, km-cuda13-hecbench-ba3a30a-3) | S5 oracle 3 |
+| kernel-perf : train / held out | 3 / 2 | pending (not run) | |
+
+What the drops mean. S1 executed: the start (every fault in) passes every case of the repository's op test on sm_120,
+swept in full on fixed seeds, and every sanitizer check: the fixes are real but not visible on this GPU (Hopper/Ampere
+code paths, int32 overflow at sizes the tests never use, multi-GPU). Calibration: fewer than two milestones keep a stable
+owned case (a revert that breaks no case, or B itself failing the case on a fresh seed). S8: kd-bug-llamacpp-3af2e58d's
+race milestone is caught on 59 of 60 runs (S10 also fails). Migration: the cudahandbook originals (CUDA 11.8 PTX
+JIT-compiled for sm_120) write zeros through legacy surface references, print timings, or copy >256 MB; one HeCBench
+program's output differs run to run. Survivors have no executed cross edges (each revert breaks only its own cases).
+The 5090 is not the GPU for most of this supply: the H100 (sm_90) calibration on Marlowe is the next lever.
+
 ## 9. Open issues
 
 1. **Every GPU gate is pending** (`PENDING.json`): S1 executed (B passes, each single revert fails its milestone),

@@ -40,6 +40,7 @@ from typing import Any, Protocol
 
 from crucible.factory.lanes import kernel as K
 from crucible.factory.lanes import kernel_debug_ops as ko
+from crucible.factory.lanes import kernel_harness as kh
 from crucible.factory.lanes.kernel_debug_mine import CLASSES, SINCE, KernelChange
 from crucible.factory.lanes.kernel_harness import HARNESS
 from crucible.factory.langs import cuda
@@ -270,7 +271,8 @@ def kdspec(rec: Mapping[str, Any]) -> dict[str, Any]:
             "milestones": [{"id": m["id"], "kind": m["kind"], "checks": m["checks"], "cases": list(m.get("cases") or m.get("cases_added") or []) ,
                             "case_pool": list(m.get("case_pool") or []), "ops": m["ops"], "repeat": m.get("repeat", 1),
                             "perf_cases": list(m.get("perf_cases") or perf_candidates(m))} for m in rec["milestones"]],
-            "seeds": {"fixed": [7, 123456], "fresh": 1}, "perf_bars": rec.get("perf_bars") or {}, "perf": {"r": 3, "rounds": 3}}
+            "seeds": {"fixed": [7, 123456], "fresh": 1}, "perf_bars": rec.get("perf_bars") or {}, "perf": {"r": 3, "rounds": 3},
+            "cmake_extra": list(kh.HOST_CPU_FLAGS.get(rec["layout"]["dispatch_file"], ()))}
 
 
 def perf_candidates(m: Mapping[str, Any], *, k: int = 8) -> list[str]:

@@ -1046,6 +1046,17 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
   (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
   and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
+- **GPU calibration rules (lab 5090 run):** S1 executed starts with a sweep of A' (every fault in) over every case of every
+  pool on the fixed seeds; the cases it fails join the 1,000-case sample the rest of the calibration grades; if A' passes
+  every pool case and every sanitizer check, no fault shows on this GPU and the task drops; a milestone owns the pool cases its single revert
+  breaks (or, when the revert does not apply at B, the cases its fix alone repairs); the oracle is re-graded three times on
+  the calibrated cases with fresh seeds and any case B fails leaves (input-sensitive); half-fix mutants are graded over
+  the pool: one that breaks cases adds them to its milestone, one that is whitespace-only or breaks nothing is recorded as
+  equivalent on the op tests and leaves S8, as does one that does not build. The grader builds statically (sealing removes
+  symlinks), names nvcc, splits outputs into chunks of 96 cases, and drops a case the reference crashes on; gate runs share
+  a ccache (task grades never do); x86-only CPU gates (ik_llama.cpp) run on the GPU host first (`cpu_host.json`).
+  The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
+  under the same program name (a program that prints its argv[0] failed the oracle).
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

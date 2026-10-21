@@ -204,7 +204,7 @@ CPU_AMD64_IMAGE = "crucible-lh-k:cpu-amd64"
 CPU_AMD64_DOCKERFILE = ("FROM ubuntu:24.04\nENV DEBIAN_FRONTEND=noninteractive\nRUN apt-get update && apt-get install -y --no-install-recommends "
                         "build-essential cmake ninja-build git python3 ca-certificates ccache && rm -rf /var/lib/apt/lists/*\n")
 CPU_GATE = {"ggml/src/ggml-cuda.cu": {"image": CPU_AMD64_IMAGE, "platform": "linux/amd64", "runnable_here": False,  # Rosetta: no AVX
-                                      "extra": ("-DGGML_NATIVE=OFF", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_FMA=ON", "-DGGML_F16C=ON")}}
+                                      "extra": ("-DGGML_NATIVE=OFF", *kh.HOST_CPU_FLAGS["ggml/src/ggml-cuda.cu"])}}
 CPU_GATE_EXTRA = {k: v["extra"] for k, v in CPU_GATE.items()}  # older name, kept for callers
 
 

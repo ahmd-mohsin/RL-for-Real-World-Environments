@@ -179,3 +179,24 @@ def test_grader_cmake_builds_sass_only():
     flags = kh.cmake_cuda(["90", "120"])
     assert "-DCMAKE_CUDA_ARCHITECTURES=90-real;120-real" in flags and "-DGGML_CUDA=ON" in flags and "-DGGML_NATIVE=OFF" in flags
     assert "-DGGML_CUDA=OFF" in kh.CMAKE_CPU
+
+
+def test_crashed_case_names_the_case_the_process_died_on():
+    log = ("  FLASH_ATTN_EXT(hs=40,type_KV=f16): \x1b[1;32mOK\x1b[0m\n  FLASH_ATTN_EXT(hs=40,type_KV=f32): \n"
+           "K cache f32 coupled with V cache f32 is not a supported combination on the CPU backend.\niqk_flash_attn.cpp:298: Fatal error\n")
+    assert kh.crashed_case(log) == "FLASH_ATTN_EXT(hs=40,type_KV=f32)"
+    assert kh.crashed_case("  ADD(type=f32): OK\n  1/1 tests passed\n") is None
+
+
+def test_prepare_tree_writes_build_info_instead_of_running_git(tmp_path):
+    (tmp_path / "common").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "common" / "build-info.cpp.in").write_text('int LLAMA_BUILD_NUMBER = @BUILD_NUMBER@;\nchar const *LLAMA_COMMIT = "@BUILD_COMMIT@";\n')
+    (tmp_path / "common" / "CMakeLists.txt").write_text(
+        'add_custom_command(\n    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/build-info.cpp"\n    COMMAND ${CMAKE_COMMAND} -P gen.cmake\n    VERBATIM\n)\n'
+        "add_library(build_info OBJECT build-info.cpp)\n")
+    (tmp_path / kh.HARNESS).write_text("")
+    kh.prepare_tree(tmp_path, "// harness")
+    assert (tmp_path / "common" / "build-info.cpp").read_text() == 'int LLAMA_BUILD_NUMBER = 0;\nchar const *LLAMA_COMMIT = "unknown";\n'
+    cm = (tmp_path / "common" / "CMakeLists.txt").read_text()
+    assert "add_custom_command" not in cm and "add_library(build_info OBJECT build-info.cpp)" in cm

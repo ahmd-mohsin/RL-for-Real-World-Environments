@@ -118,6 +118,9 @@ def cmd_build(a: argparse.Namespace) -> None:
             continue
         mined = json.loads((ROOT / "mine" / f"{name}.json").read_text())
         changes = kdm.as_changes(mined["changes"])
+        if a.unused_only:  # more supply: only changes no stored record uses, so existing records and their faults stay as they are
+            used = {f["sha"] for rec in kd.records(store) for f in rec["faults"]}
+            changes = [c for c in changes if c.sha not in used]
         clone = ROOT / "clones" / name
         derived = gb.derived_clone(clone, ROOT / "derived" / name)
         layout = kdm.layout_at(clone)
@@ -446,6 +449,30 @@ GPU_PENDING = ["S1_executed real-fix check (B passes, each single revert fails i
                "S10 flake: 60 oracle grades at concurrency 1 and 4", "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"]
 
 
+def alone_probers(rec: dict[str, Any]) -> dict[str, str]:
+    """milestone -> the patch A' -> A' + its fix alone, for each milestone whose single revert does not apply at B (a
+    later fix rewrote its lines): the GPU calibration owns such a milestone's cases by what its fix alone repairs (A'
+    fails, A' + the fix passes, B passes) instead of what its revert breaks."""
+    from crucible.factory.generators import base as gb
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.lanes import kernel_debug_mine as kdm
+    from crucible.factory.lanes import kernel_debug_ops as ko
+
+    have = {mu["milestone"] for mu in rec.get("mutants") or [] if mu["kind"] == "revert"}
+    need = [m for m in rec["milestones"] if m["id"] not in have and (rec.get("fix_alone_applies") or {}).get(m["fault"])]
+    if not need:
+        return {}
+    derived, layout = ROOT / "derived" / rec["source_clone"], ko.Layout(**rec["layout"])
+    by_sha = {f.sha: f for f in kdm.as_changes(rec["faults"])}
+    out = {}
+    for m in need:
+        f = by_sha[m["fault"]]
+        trees, bad = gb.apply_chain(derived, rec["a"], [(gb.full_patch(derived, f.parent, f.sha, kd.backend_paths(f, layout, with_harness=False)), False)])
+        if bad is None:
+            out[m["id"]] = gb.git(derived, "diff", "--full-index", "--binary", gb.tree_of(derived, rec["a"]), trees[-1], "--", *layout.paths()).stdout.decode("utf-8", "replace")
+    return out
+
+
 def cmd_stage_gpu(a: argparse.Namespace) -> None:
     import tarfile
 
@@ -481,13 +508,16 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
             (d / f"floor_{k}.patch").write_text(v)
         for mu in rec.get("mutants") or []:
             (d / f"mutant_{mu['id']}.patch").write_text(mu["patch"])
+        probers = alone_probers(rec)
+        for mid, p in probers.items():
+            (d / f"prober_alone-{mid}.patch").write_text(p)
         jdump(d / "milestones.json", [{k: m.get(k) for k in ("id", "kind", "class", "ops", "checks", "repeat", "cases_added")} for m in rec["milestones"]])
         index.append({"id": rec["id"], "family": rec["family"], "split": rec["split"], "kind": rec["kind"], "milestones": [m["id"] for m in rec["milestones"]],
-                      "cpu_pending_host": gc.get("cpu_pending_host") or [],
+                      "cpu_pending_host": gc.get("cpu_pending_host") or [], "probers": {f"alone-{k}": k for k in probers},
                       "mutants": {mu["id"]: mu["milestone"] for mu in rec.get("mutants") or []}})
     jdump(out / "index.json", index)
     shutil.copy(Path(__file__).with_name("lh_kernel_debug_gpu.py"), out / "run_gpu.py")
-    (out / "Dockerfile").write_text(kw.dockerfile(kw.BASE_FROM))
+    (out / "Dockerfile").write_text(kw.dockerfile(kw.BASE_FROM, extra=("ccache",)))  # ccache: the gate runs only
     (out / "run_gpu.sh").write_text(RUNNER)
     jdump(out / "PENDING.json", {"gates_pending_gpu": GPU_PENDING, "tasks": [i["id"] for i in index], "staged_at": now()})
     print(f"staged {len(index)} tasks in {out}")
@@ -519,9 +549,34 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
     store = ROOT / "store"
     for rec in kd.records(store):
         res_p, cal_p = bundle / "results" / f"{rec['id']}.json", bundle / "tasks" / rec["id"] / "kdspec.calibrated.json"
-        if not res_p.exists() or not cal_p.exists():
+        if not res_p.exists():
             continue
-        res, cal = json.loads(res_p.read_text()), json.loads(cal_p.read_text())
+        res = json.loads(res_p.read_text())
+        if res.get("cpu_host"):  # the CPU gates the GPU host ran (x86 AVX2): the pools, the seeding, the fixes' own cases
+            g, host = rec["gates"]["cpu"], res["cpu_host"]
+            pooled = {m["id"]: m for m in json.loads((bundle / "tasks" / rec["id"] / "kdspec.json").read_text())["milestones"]}
+            added = {m["id"]: m.get("cases_added") or [] for m in json.loads((bundle / "tasks" / rec["id"] / "milestones.json").read_text())}
+            for m in rec["milestones"]:
+                if host.get("ok"):
+                    m["case_pool"], m["cases_added"] = pooled[m["id"]].get("case_pool") or [], added.get(m["id"]) or []
+            g.pop("harness_runs", None)
+            g.pop("cpu_pending_host", None)
+            g.update(host_cpu=host, harness_runs_on="x86 GPU host", seeded=host.get("seeded"), pools=host.get("pools") if host.get("ok") else None,
+                     harness_build_a={"ok": bool((host.get("build_a") or {}).get("ok"))})
+            verdict(rec, g)
+        gpu = res.get("gpu", "unknown")
+        summary = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone", "S8_mutants_excluded", "S10", "flake", "calibration", "at",
+                                            "arch", "error")}
+        summary["reference_ok"] = (res.get("reference") or {}).get("ok")
+        summary["gradable"] = bool((res.get("calibration") or {}).get("gradable"))
+        summary["pass"] = bool(summary["gradable"] and res.get("S5_oracle") and res.get("S8_floors") and res.get("S10")
+                               and all((res.get("S8_mutants_fail_their_milestone") or {}).values()))
+        rec.setdefault("gates", {}).setdefault("gpu", {})[gpu] = summary
+        if not cal_p.exists() or not summary["gradable"]:
+            kd.save(store, rec)
+            print(rec["id"], "not gradable on", gpu, res.get("error") or (res.get("reference") or {}).get("ok"), flush=True)
+            continue
+        cal = json.loads(cal_p.read_text())
         kept = {m["id"]: m for m in cal["milestones"]}
         ms = []
         for m in rec["milestones"]:
@@ -534,8 +589,6 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         rec["dropped_milestones"] = sorted({m["id"] for m in rec["milestones"]} - {m["id"] for m in ms} | set(rec.get("dropped_milestones") or []))
         rec["milestones"] = ms
         rec["perf_bars"] = {**(rec.get("perf_bars") or {}), **(cal.get("perf_bars") or {})}
-        rec.setdefault("gates", {}).setdefault("gpu", {})[res.get("gpu", "unknown")] = {k: res.get(k) for k in ("S5_oracle", "S8_floors", "S8_mutants_fail_their_milestone",
-                                                                                                                "S10", "flake", "calibration", "at", "arch")}
         kd.save(store, rec)
         print(rec["id"], "milestones", [m["id"] for m in ms], "edges", [(m["id"], m["requires"]) for m in ms if m["requires"]], flush=True)
 
@@ -556,7 +609,16 @@ def migration_family(fam: dict[str, Any], rows: list[dict[str, Any]]) -> None:
     f["authored_clean"] = sum(1 for w in ok if w.get("prompt") and not (w.get("lint") or {}).get("prompt") and not (w.get("lint") or {}).get("ledger"))
     for w in ws:
         g = w.get("gates") or {}
-        rows.append({"id": w["id"], "family": "kernel-migration", "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
+        gpu = next(iter((g.get("gpu") or {}).items()), (None, None))
+        failed, why = (gpu[1].get("failed_gate"), gpu[1].get("why")) if gpu[1] else ("pending", "not run on a GPU")
+        if g.get("cpu_pass") and (g.get("kit_compile") or {}).get("ok"):
+            f.setdefault("gpu_drops", collections.Counter())
+            if failed is None:
+                f["gpu_pass"] = f.get("gpu_pass", 0) + 1
+            else:
+                f["gpu_drops"][failed] += 1
+        rows.append({"id": w["id"], "family": "kernel-migration", "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "flake": (gpu[1] or {}).get("flake"), "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
                      "generation": w["generation"], "commits": len((w.get("source") or {}).get("commits") or []), "programs": len(w["programs"]),
                      "milestones": len(w["milestones"]), "kinds": g.get("graded_kinds") or sorted(w.get("kinds") or {}), "rung": w.get("rung"),
                      "executed_cross_edges": len(g.get("executed_cross_edges") or []),
@@ -588,6 +650,31 @@ def sealing_report(recs: list[dict[str, Any]]) -> dict[str, Any]:
             "cutoff_violations": len(d["cutoff_violations"]), "counts": d["counts"]}
 
 
+GPU_GATES = ("gpu_reference", "S1_executed", "calibration", "S5_oracle", "S8_floors", "S8_mutants", "S10_flake")
+
+
+def gpu_verdict(g: dict[str, Any]) -> tuple[str | None, str]:
+    """(the first GPU gate a record failed, or None when it passed all; why) from one GPU model's ingested summary."""
+    cal = g.get("calibration") or {}
+    if not g.get("reference_ok"):
+        return "gpu_reference", g.get("error") or "the reference build failed"
+    if not g.get("gradable"):
+        why = cal.get("error") or ""
+        if why.startswith("not real on this GPU"):
+            return "S1_executed", why
+        kept = cal.get("kept_milestones") or []
+        return "calibration", why or f"{len(kept)} milestone(s) kept after calibration (owned {cal.get('owned')}, unstable {list(cal.get('unstable_cases') or {})})"
+    if not g.get("S5_oracle"):
+        return "S5_oracle", "the oracle does not score 1 on the calibrated spec"
+    if not g.get("S8_floors"):
+        return "S8_floors", "a floor scores above 0"
+    if not all((g.get("S8_mutants_fail_their_milestone") or {}).values()):
+        return "S8_mutants", "a mutant passes its milestone: " + ", ".join(k for k, v in (g.get("S8_mutants_fail_their_milestone") or {}).items() if not v)
+    if not g.get("S10"):
+        return "S10_flake", f"flake {g.get('flake')}"
+    return None, ""
+
+
 def cmd_report(a: argparse.Namespace) -> None:
     from crucible.factory.lanes import kernel_debug as kd
 
@@ -617,7 +704,23 @@ def cmd_report(a: argparse.Namespace) -> None:
         f["cpu_pass"] = f.get("cpu_pass", 0) + int(bool(g.get("cpu_pass")))
         f["cpu_structural_pass"] = f.get("cpu_structural_pass", 0) + int(bool(g.get("cpu_structural_pass")))
         f["authored_clean"] = f.get("authored_clean", 0) + int(bool(r.get("prompt")) and not (r.get("lint") or {}).get("findings"))
+        gpu = next(iter(((r.get("gates") or {}).get("gpu") or {}).items()), (None, None))
+        failed, why = gpu_verdict(gpu[1]) if gpu[1] else ("pending", "not run on a GPU")
+        host = ((g.get("host_cpu") or {}).get("ok"))
+        if g.get("host_cpu") and not host:  # the x86 host's CPU gates (listing, seeding) failed before any GPU gate
+            failed, why = "host_cpu_gates", f"pools {g['host_cpu'].get('pools')}, seeding {(g['host_cpu'].get('seeded') or {}).get('ok')}"
+            f.setdefault("gpu_drops", collections.Counter())["host_cpu_gates"] += 1
+        if g.get("cpu_pass") or host:
+            f.setdefault("gpu_drops", collections.Counter())
+            if failed is None:
+                f["gpu_pass"] = f.get("gpu_pass", 0) + 1
+            else:
+                f["gpu_drops"][failed] += 1
         rows.append({"id": r["id"], "family": r["family"], "split": r["split"], "repo": r["repo"], "faults": len(r["milestones"]),
+                     "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "gpu_kept_milestones": ((gpu[1] or {}).get("calibration") or {}).get("kept_milestones"),
+                     "gpu_executed_edges": {k: v for k, v in (((gpu[1] or {}).get("calibration") or {}).get("executed_edges") or {}).items() if v},
+                     "gpu_mutants_excluded": (gpu[1] or {}).get("S8_mutants_excluded"), "flake": (gpu[1] or {}).get("flake"),
                      "classes": [m["class"] for m in r["milestones"]], "ops": sorted({o for m in r["milestones"] for o in m["ops"]}),
                      "claimed_edges": [(m["id"], q) for m in r["milestones"] for q in m.get("claimed_requires") or []], "cpu_pass": bool(g.get("cpu_pass")),
                      "cpu_structural_pass": bool(g.get("cpu_structural_pass")), "cpu_pending_host": g.get("cpu_pending_host"), "pools": g.get("pools"), "authored": bool(r.get("prompt")), "lint": (r.get("lint") or {}).get("findings"), "contamination": r.get("contamination"),
@@ -625,10 +728,48 @@ def cmd_report(a: argparse.Namespace) -> None:
     migration_family(fam, rows)
     for f in fam.values():
         f["drop_reasons"] = dict(f["drop_reasons"])
+        if "gpu_drops" in f:
+            f["gpu_drops"] = dict(f["gpu_drops"])
     rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING,
            "sealing": sealing_report(recs)}
     jdump(Path(a.out), rep)
     print(json.dumps({"families": fam, "cpu_pass": sum(1 for x in rows if x["cpu_pass"])}, indent=1, default=str))
+
+
+def cmd_observe(a: argparse.Namespace) -> None:
+    """The report (``report`` first) into one ``crucible-factory`` run: the per-family funnel (CPU stages, then each GPU
+    gate in order) as the factory funnel view, and one row per candidate with its first failed gate. Offline unless
+    ``CRUCIBLE_WANDB_MODE=online``; ``scripts/observe.py sync`` uploads it."""
+    from crucible.observe import ObsRun, factory_views, naming
+
+    rep = json.loads(Path(a.report).read_text())
+    lanes: dict[str, dict[str, Any]] = {}
+    for fam_key, f in rep["families"].items():
+        stages: dict[str, Any] = {"mined_commits": f.get("mined_commits", 0), "real_changes": f.get("real_changes", 0), "grouped": f.get("grouped", 0),
+                                  "cpu_pass": {"in": f.get("grouped", 0), "pass": f.get("cpu_pass", 0) or f.get("cpu_structural_pass", 0)}}
+        n = stages["cpu_pass"]["pass"]
+        drops = f.get("gpu_drops") or {}
+        for gate in ("pending", *GPU_GATES):
+            if gate == "pending" and not drops.get("pending"):
+                continue
+            stages[gate] = {"in": n, "pass": n - drops.get(gate, 0)}
+            n -= drops.get(gate, 0)
+        lanes[f"kernel_debug/{fam_key}"] = stages
+    name = f"factory-kernel_debug-gpu-gates-{time.strftime('%Y%m%d-%H%M')}"
+    run = ObsRun(naming.project("factory"), name, group="kernel_debug", job_type="gpu-gates", tags=["lane:kernel_debug", "gpu:rtx-5090"],
+                 config={"report": a.report, "at": rep.get("at")})
+    factory_views.funnel(run, lanes, key="kernel_debug_funnel")
+    cols = ["id", "family", "split", "faults", "cpu_pass", "gpu", "gpu_pass", "gpu_failed_gate", "gpu_why", "kept_milestones", "executed_edges", "flake_false_neg",
+            "contamination"]
+    rows = [[x["id"], x["family"], x["split"], x.get("faults") or x.get("programs"), x.get("cpu_pass"), x.get("gpu"), x.get("gpu_pass"), x.get("gpu_failed_gate"),
+             (x.get("gpu_why") or "")[:300], json.dumps(x.get("gpu_kept_milestones")), json.dumps(x.get("gpu_executed_edges")),
+             (x.get("flake") or {}).get("false_negatives"), x.get("contamination")] for x in rep["tasks"]]
+    run.table("kernel_debug_tasks", cols, rows)
+    surv = [x for x in rep["tasks"] if x.get("gpu_pass")]
+    run.summary({"survivors_train": sum(1 for x in surv if x["split"] == "train"), "survivors_heldout": sum(1 for x in surv if x["split"] == "heldout"),
+                 "candidates": len(rep["tasks"])})
+    run.finish()
+    print(name, run.dir)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -641,6 +782,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--repos", nargs="*")
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")
+    s.add_argument("--unused-only", action="store_true", help="group only changes no stored record uses (adding supply)")
     s = sub.add_parser("gates")
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")
@@ -653,10 +795,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("ingest-gpu")
     s.add_argument("--bundle")
+    s = sub.add_parser("observe")
+    s.add_argument("--report", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report, "observe": cmd_observe}[a.cmd](a)
     return 0
 
 
