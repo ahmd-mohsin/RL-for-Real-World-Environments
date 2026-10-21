@@ -134,6 +134,17 @@ refresh.
 - **Update**: `forward_backward(loss_fn)` with `importance_sampling` (default), `ppo` or `cispo` and `loss_fn_config`
   (PPO's clip thresholds), `optim_step(Adam, lr 4e-5 by default)`, `save_weights_for_sampler` (version = step, the path
   table in `versions.json`), `save_state` every `save_every` steps.
+- **Quarantine** (`train.quarantine`, backend-neutral, so a vLLM or DeltaAI trainer reuses it; pattern from
+  rl-env-use `climb.py` 267-276, MIT): tasks are sampled round-robin, and a task whose groups are flat (one reward for
+  every member and no Φ spread) on `quarantine_q` consecutive steps (default 2; two flat groups of one step are one
+  strike) is not sampled for the next `quarantine_r` steps (default 3), then retried with exactly one group: spread
+  releases it, flat quarantines it again, a masked retry re-opens the retry. A task with Φ spread but no full pass is
+  never quarantined (step-wise credit still teaches it). Held-out tasks are refused before (V9). Every event is a
+  `quarantine.jsonl` row with its reason and a `record("quarantine")` (W&B table `records/quarantine`);
+  `quarantine/active` is on every step's row; the state survives a resume (`state.json`); `quarantine_q=0` turns it off,
+  and both settings may change on a resume (they change scheduling, never the objective). Unlike rl-env-use's
+  set-aside (permanent, on a proposer's "task fault" label), ours is measured and temporary: a task the policy grows into
+  comes back.
 - **Off-policy bound**: `async_groups` extra groups sample while a step trains; `max_staleness` bounds them.
 - **Resume**: `config.json` (a different configuration is refused, except `steps` and `cap_usd`), `state.json` (after each
   `save_state`), the training client restored with its optimizer
@@ -164,6 +175,47 @@ The protocol (the user's target: the student under 30% before post-training, 50-
 4. `check_protocol` lists every violation: a baseline that reused the selection seed, a base arm with a checkpoint, a
    trained arm without one, arms whose harness, tool cap, context, thinking setting, sampling parameters or task list
    differ.
+5. **The power stamp** (`bench.power`; rl-env-use's A/A gate, MIT, see §6.1): every arm's report carries `power`, the
+   A/A noise of its own attempts (pass@1 and mean reward) and the MDE of a paired comparison of its N tasks × k. `compare`
+   pre-registers the stamp from the fresh baseline arm's `episodes.jsonl` (`--baseline B/metrics.json`: its directory)
+   and writes `power.json` before any paid arm runs; without a baseline it reads the control arm (`post hoc`). The stamp
+   carries N, k, MDE, the target (`target_effect`, default +0.20, the protocol's goal) and `powered` / `underpowered`
+   (MDE above the target, or fewer than 10 tasks). It never blocks a run; an underpowered `headline` starts with
+   UNDERPOWERED, and so does the W&B headline chart's subtitle. The paired difference also reports P(trained >
+   control), the share of task-clustered bootstrap means above 0.
+
+### 6.1 How many benchmark tasks we need (offline, $0, 2026-10-21)
+
+**Model.** With N tasks and k attempts per arm, Var(trained − control) = (σ̄_c² + σ̄_t²)/(kN) + τ²/N, where σ̄² is an
+arm's mean within-task variance per attempt and τ the spread of the true effect across tasks. MDE = (z_0.975 + z_0.8) ·
+SE = 2.80 · SE. A/A noise: each task's attempts split in halves (even vs odd index, and 200 seeded random halvings
+averaged); d² / (1/|A| + 1/|B|) estimates the task's σ². rl-env-use's `mde = 1.43 · noise` is the same 2.80 (their
+noise is 1.96 · SE_diff). Two deliberate differences: (1) the trained arm's variance is bounded by μ_t(1 − μ_t) at
+μ_t = μ_c + target (on a pre-selected benchmark most control tasks are 0 of k, so A/A alone says any effect is
+detectable); (2) no 1/N noise floor, but at least 10 tasks (their floor for a case bootstrap).
+
+**Data.** The student's S15 arms (Qwen3.6-35B-A3B, k = 8): `data/targeting/debug` (13 tasks, 150 calls) and
+`debug-300` (11 tasks, 300 calls), pooled as 24 task-runs (`scripts/tinker_rl.py power`; `runs/benchmark_power.json`).
+
+| metric | μ_c | σ̄² within (random halves; even/odd; direct) | A/A difference (even/odd) | MDE 10 × 8, A/A only | MDE 10 × 8, bounded | MDE 10 × 8, bounded, τ = 0.2 |
+|---|---|---|---|---|---|---|
+| pass@1 | 0.112 | 0.042; 0.065; 0.039 | +0.028 ± 0.037 | 0.091 | 0.159 (μ_t 0.31); 0.169 (μ_t 0.55) | 0.238; 0.245 |
+| mean reward | 0.266 | 0.038; 0.050; 0.036 | +0.031 ± 0.032 | 0.086 | 0.168 (μ_t 0.47); 0.167 (μ_t 0.55) | 0.244 |
+
+Tasks needed at k = 8 (bounded variance; the formula's raw N in brackets when the 10-task floor binds):
+
+| claim | MDE ≤ 0.20 | MDE ≤ 0.15 |
+|---|---|---|
+| pass@1, these tasks (τ = 0) | 10 [7; 8 at μ_t 0.55] | 11 (13 at μ_t 0.55) |
+| pass@1, tasks like these (τ = 0.2) | 15 | 25 (27 at μ_t 0.55) |
+| mean reward, τ = 0 | 10 [8] | 13 |
+| mean reward, τ = 0.2 | 15 | 27 |
+
+So a 10-task × 8 benchmark detects the goal's +0.20 on pass@1 for these tasks (MDE 0.16-0.17), not +0.15; +0.15
+needs 11-13 tasks. A claim about tasks like these, with an effect that varies by 0.2 across tasks, needs 15 tasks for
++0.20 and 25-27 for +0.15. More attempts help little once k ≥ 8 (k = 16: 10 tasks for +0.15 at τ = 0, 20 at τ = 0.2).
+Caveat: these are the student's base arms on tasks it mostly fails; the bounded trained variance covers the move toward
+0.5, but τ is unknown until a trained arm exists.
 
 ## 7. Factory roles on Tinker
 
@@ -194,6 +246,9 @@ From `crucible/` (the key: `set -a; . ../.env; set +a`, or `--env-file ../.env`,
 .venv/bin/python scripts/tinker_rl.py eval --rows sealed.jsonl --model Qwen/Qwen3.6-35B-A3B --k 8 --purpose baseline --seed 1 --cap 20 --out data/tinker/base
 .venv/bin/python scripts/tinker_rl.py compare --rows sealed.jsonl --model Qwen/Qwen3.6-35B-A3B --checkpoint tinker://.../sampler_weights/run1-s000100 \
     --k 8 --seed 2 --baseline data/tinker/base/metrics.json --selection data/tinker/sel/metrics.json --cap 40 --out data/tinker/cmp
+# power before any spend (offline, no key): A/A noise of existing arms, the MDE of N x k, the tasks needed
+.venv/bin/python scripts/tinker_rl.py power --arms debug-150=data/targeting/debug/arms/student debug-300=data/targeting/debug-300/arms/student \
+    --n 10 --k 8 --target 0.20 0.15 --json docs/research/swarm-pipeline/runs/benchmark_power.json
 # smokes
 .venv/bin/python scripts/tinker_rl.py smoke-rl --model Qwen/Qwen3.6-35B-A3B --cap 1.5
 .venv/bin/python scripts/tinker_rl.py smoke-tools --model deepseek-ai/DeepSeek-V4.1-Flash:peft:262144 --cap 0.25

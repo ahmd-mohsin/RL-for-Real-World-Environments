@@ -17,9 +17,11 @@ scored against the verifier, the give-up, the hack flag (an input: the hack dete
 | cost | tokens and dollars per solved task (None when nothing is solved) |
 
 ``paired`` compares base and trained on the same tasks: per-task differences of a metric (pass rate, or mean final Φ),
-their mean, a grouped bootstrap CI (resampling tasks, or groups of tasks such as repos), and the minimum detectable change
-at 80% power, MDE ≈ 2.8·sd/√n, both with the measured sd and with the assumed sd = 0.25 of study 08 §8. Pure Python and
-seeded: a report reproduces exactly.
+their mean, a grouped bootstrap CI (resampling tasks, or groups of tasks such as repos), ``p_better`` (the bootstrap
+share of resampled means above 0, P(trained > base); rl-env-use ``audit.py`` ``paired``, MIT, PATTERN) and the minimum
+detectable change at 80% power, MDE ≈ 2.8·sd/√n, both with the measured sd and with the assumed sd = 0.25 of study 08
+§8. That MDE is post hoc (the measured per-task differences); the pre-registered one, from A/A noise before the arms
+run, is ``bench.power``. Pure Python and seeded: a report reproduces exactly.
 """
 
 from __future__ import annotations
@@ -181,7 +183,7 @@ def paired(base: Iterable[LHEpisode], trained: Iterable[LHEpisode], *, metric: s
     out: dict[str, Any] = {"metric": metric if isinstance(metric, str) else getattr(metric, "__name__", "custom"), "n_tasks": n,
                            "only_base": sorted(set(b) - set(t)), "only_trained": sorted(set(t) - set(b))}
     if n == 0:
-        return {**out, "mean_diff": None, "ci": [None, None], "sd": None, "mde": None, "mde_assumed": None, "significant": False}
+        return {**out, "mean_diff": None, "ci": [None, None], "sd": None, "mde": None, "mde_assumed": None, "significant": False, "p_better": None}
     d = list(diffs.values())
     mean = sum(d) / n
     sd = math.sqrt(sum((v - mean) ** 2 for v in d) / (n - 1)) if n > 1 else 0.0
@@ -196,10 +198,11 @@ def paired(base: Iterable[LHEpisode], trained: Iterable[LHEpisode], *, metric: s
         boots.append(sum(pick) / len(pick))
     boots.sort()
     lo, hi = boots[int(alpha / 2 * n_boot)], boots[min(n_boot - 1, int((1 - alpha / 2) * n_boot))]
+    p_better = sum(b > 0 for b in boots) / n_boot
     mde, mde_a = Z_80 * sd / math.sqrt(n), Z_80 * assumed_sd / math.sqrt(n)
     sig = lo > 0 or hi < 0
     note = (f"n={n} tasks: the minimum detectable change at 80% power is {mde:.3f} with the measured sd ({sd:.3f}), {mde_a:.3f} with "
             f"the assumed sd {assumed_sd}; {'the CI excludes 0' if sig else 'the CI includes 0: no effect shown'}"
             + ("" if abs(mean) >= max(mde, 1e-12) else "; the observed change is below the MDE, so the benchmark could not have shown it reliably"))
     return {**out, "mean_diff": mean, "ci": [lo, hi], "sd": sd, "mde": mde, "mde_assumed": mde_a, "significant": sig, "units": len(gs),
-            "per_task": diffs, "note": note}
+            "p_better": p_better, "per_task": diffs, "note": note}
