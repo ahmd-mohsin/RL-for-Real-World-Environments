@@ -53,7 +53,7 @@ def finish_train(run: ObsRun, summary: Mapping[str, Any], run_dir: Path | str, *
     versions = summary.get("versions") or (json.loads((run_dir / "versions.json").read_text()) if (run_dir / "versions.json").exists() else {})
     run.artifact(run_name("train-run", run.name), "train-run",
                  paths={p.name: p for p in (run_dir / f for f in ("config.json", "receipt.json", "steps.jsonl", "drops.jsonl", "spend.jsonl", "versions.json",
-                                                                    "state.json", "summary.json", "rewards.jsonl")) if p.exists()},
+                                                                    "state.json", "summary.json", "rewards.jsonl", "quarantine.jsonl")) if p.exists()},
                  metadata={"sampler_path": summary.get("sampler_path"), "state_path": summary.get("state_path"), "versions": versions,
                            "objective_id": summary.get("objective_id"), "model": summary.get("model")})
     if summary.get("sampler_path"):
