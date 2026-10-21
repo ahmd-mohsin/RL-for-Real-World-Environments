@@ -1473,3 +1473,28 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   expects a rollout past `rollout_s` to be masked, but M10 R-3's grading window lets its grade finish (scored 0.0): which
   rule wins is Azaan's and Ahmed's call. Open: RLM kernel orphans
   (`crucible.rlm.expires`) count as PerfGuard contention until they end, which M1 R-6's pid rule used to skip.
+
+## 66. M2 R-3: `World.finished` and `World.failures` follow a restore
+
+- **Item.** R-3 of `docs/research/improvements/2026-10-15/M02-actors.md` (must), narrowed: `WorldRef` is a frozen
+  unversioned format (R-18), so no field is added to it. `finished` is read back from the responders' saved state, as
+  the audit asks; `failures` is not carried in the ref but starts empty, because a retry resumes from its masked
+  attempt's checkpoint, which can hold the fault that masked it. Pattern from NeMo-Gym's conversational tool-use server
+  (terminal state derived from the replayed log; Apache-2.0); no code copied.
+- **Files.** `src/crucible/world/world.py` (`World.restore`, `_run_responder`), `src/crucible/actors/base.py`
+  (`ActorBase.finished_reason`, `state_dict`, `load_state_dict`), `docs/modules/M02-actors.md` (finding 6),
+  `tests/unit/test_restore_episode_state.py` (new).
+- **Public names.** `ActorBase.finished_reason` (the reason of the responder's `Done`, set by the World).
+- **Behaviour.** When a responder returns `Done`, the World also sets its `finished_reason` (when it has one).
+  `World.restore(ref)` sets `World.finished` to the responders in `ref` whose saved state has a `finished_reason`, and
+  `World.failures` to `[]`. So each M6 `branch_value` continuation starts from the branch point (a user's DONE or a
+  responder fault in one no longer cuts short or masks the others), a restore to before a DONE lets the user talk
+  again, and a World restored from a ref taken after a DONE (a checkpoint resume) ends `user_stop` instead of running
+  to `max_steps`. `reset` is unchanged.
+- **Formats.** none. A responder's saved state gains `finished_reason` only once it has ended, so the state, and every
+  `WorldRef` fingerprint, of a conversation still running is unchanged; a ref saved before this reads as not ended.
+- **Tests.** `test_restore_episode_state.py` (4: branch_value continuations with a stopping user and with a responder
+  that fails once; a restore before and after the DONE; the saved state). Actor, World, credit, core and format
+  suites: 318 passed.
+- **Merge notes.** A responder that is not an `ActorBase` keeps its end only until a restore unless it has a
+  `finished_reason` attribute and saves it in `state_dict`.
