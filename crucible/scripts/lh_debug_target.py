@@ -21,10 +21,16 @@ Stages (each resumable; everything under ``--out``, default ``data/targeting/deb
                (``traceaudit.honest_trace_facts``), the GLM-5.3 ``auditor`` and the GLM-5.3-Flash ``judge`` labels with seeded
                controls in every batch (``audit.audit``; ``ModelBook`` refuses a same-family judge), the debug skill of
                each failure (``generators.debug.failure_skill``);
+- ``disclose`` per task, ``generators.debug.disclosure_check``: which milestones fail when B lacks the window's silent units
+               (reverted fixes without a milestone), for review against the report (no model call);
 - ``mine``     failure findings and builder-intent requests per student (``factory.failures``);
 - ``report``   the keep rule per task (``targeting.keep_verdict``), the S15 targeting records (``targeting.json``, what
                ``trainer.check_band`` reads), ``report.json``, the W&B ``crucible-factory`` run (offline) with every episode as a
                Weave-shaped trace and its audit attached.
+
+The env budget is the lane's (``generators.debug.ENV_BUDGET``: 300 tool calls, agent 5400 s, rollout 9000 s, Phi every 20
+calls, cap 15; the keep rule, the benchmark and RL use the same one); ``settings.env_budget`` records what a phase ran and
+whether it was the lane's. A re-measurement passes ``--seed-offset`` so its run ids (the Weave trace keys) are new.
 
 One Tinker meter for the whole phase (``spend.jsonl``; ``CRUCIBLE_TINKER_CAP_USD`` = ``--cap``): every student, frontier,
 auditor and judge call books there and is refused past the cap. Episodes run under a host slot pool (``--slots``: Worlds
@@ -219,6 +225,16 @@ def load_summary(path: Path, since: float = 0.0) -> dict[str, Any]:
             "mem_gib_mine": q("mem_gib_mine"), "containers_other": q("containers_other")}
 
 
+def env_budget(a: argparse.Namespace) -> dict[str, Any]:
+    """The env budget this phase ran under and whether it is the lane's (``generators.debug.ENV_BUDGET``: the keep rule,
+    the benchmark and RL run the debug tasks under the same one)."""
+    from crucible.factory.generators.debug import ENV_BUDGET
+
+    ran = {"tool_limit": a.tool_limit, "agent_s": a.agent_s, "rollout_s": a.rollout_s, "checkpoint_every": a.ckpt_every, "checkpoint_cap": a.ckpt_cap}
+    lane = ENV_BUDGET.to_json()
+    return {**ran, "lane": lane, "is_lane_budget": all(lane[k] == v for k, v in ran.items())}
+
+
 # ---- the arms ----------------------------------------------------------------------------------------------------------------
 class Phase:
     def __init__(self, a: argparse.Namespace):
@@ -280,8 +296,9 @@ class Phase:
         a = self.a
         return {"student": a.student, "frontier": list(a.frontier), "k": a.k, "frontier_k": a.frontier_k, "tool_limit": a.tool_limit, "max_tokens": a.max_tokens,
                 "temperature": 1.0, "enable_thinking": a.thinking, "agent_s": a.agent_s, "rollout_s": a.rollout_s, "checkpoint_every": a.ckpt_every,
-                "checkpoint_cap": a.ckpt_cap, "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)", "slots": a.slots,
-                "grade_parallel": a.grade_parallel, "world": "task World image, --network none, 2 CPU / 2 GB", "containers": f"{PREFIX}*"}
+                "checkpoint_cap": a.ckpt_cap, "seed_offset": a.seed_offset, "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)", "slots": a.slots,
+                "grade_parallel": a.grade_parallel, "world": "task World image, --network none, 2 CPU / 2 GB", "containers": f"{PREFIX}*",
+                "env_budget": env_budget(a)}
 
     def run_dir(self, arm: str, tid: str) -> Path:
         return self.out / "arms" / arm / tid
@@ -395,11 +412,11 @@ async def stage_arms(ph: Phase, which: Sequence[str], tids: Sequence[str]) -> li
     a = ph.a
     for tid in tids:
         if "student" in which:
-            jobs.append(ph.job(a.student, tid, k=a.k, seed=SEEDS["student"], purpose="selection", concurrency=min(a.k, a.student_concurrency),
+            jobs.append(ph.job(a.student, tid, k=a.k, seed=SEEDS["student"] + a.seed_offset, purpose="selection", concurrency=min(a.k, a.student_concurrency),
                                tag="student"))
         if "frontier" in which:
             for m in a.frontier:
-                jobs.append(ph.job(m, tid, k=a.frontier_k, seed=SEEDS.get(m, 300), purpose="fairness", concurrency=a.frontier_k, tag=arm_name(m)))
+                jobs.append(ph.job(m, tid, k=a.frontier_k, seed=SEEDS.get(m, 300) + a.seed_offset, purpose="fairness", concurrency=a.frontier_k, tag=arm_name(m)))
     with LoadMonitor(ph.out / "load.jsonl", every=a.load_every):
         return list(await asyncio.gather(*jobs))
 
@@ -476,14 +493,32 @@ async def stage_worldfix(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
         if pw["image"] == pinned:
             continue
         j = {"task": tid, "pinned": pinned, "fixed": pw["image"], "dockerfile": pw["dockerfile"], "build_ok": pw["ok"], "repro": {}}
-        repro = "command -v python3 >/dev/null && echo PY_OK || echo PY_MISSING; cd /w && (timeout 60 pnpm --version 2>&1 || echo PNPM_FAIL) | tail -1"
-        for name, im in (("pinned", pinned), ("fixed", pw["image"])):
+        # the World defects as the policy meets them: python3 for the file tools, the repo's pnpm answering offline, and (300
+        # calls, h3) the repo's own ``pnpm test`` finishing offline without reaching for the registry (SCRIPT_OK)
+        repro = ("command -v python3 >/dev/null && echo PY_OK || echo PY_MISSING; cd /w && ln -sfn /opt/deps/node_modules node_modules; "
+                 "(timeout 60 pnpm --version 2>&1 || echo PNPM_FAIL) | tail -1; "
+                 "if [ -f pnpm-lock.yaml ] && grep -q '\"test\"' package.json; then timeout 180 pnpm test > /tmp/st 2>&1; rc=$?; "
+                 "if [ $rc = 124 ]; then echo SCRIPT_HANG; elif grep -q registry.npmjs.org /tmp/st; then echo SCRIPT_NET; else echo SCRIPT_OK rc=$rc; fi; "
+                 "else echo SCRIPT_NA; fi")
+        prior = jload(Path(ph.a.prior_worldfix) / f"{tid}.json") if ph.a.prior_worldfix else None
+        images = [("pinned", pinned), *([("prior", prior["fixed"])] if prior and prior.get("accepted") and prior.get("fixed") not in (pinned, pw["image"])
+                                        else []), ("fixed", pw["image"])]
+        for name, im in images:
             r = await asyncio.to_thread(sp.run, ["docker", "run", "--rm", "--network", "none", "--name", f"{PREFIX}worldfix-{name}-{os.getpid()}", "-e",
                                                  "HOME=/tmp", "-v", f"{task.base_dir}:/src:ro", im, "sh", "-c", f"cp -a /src/. /w/ && {repro}"],
-                                        capture_output=True, text=True, timeout=600)
-            j["repro"][name] = r.stdout.strip().splitlines()[-2:]
-        ok_pinned = "PY_OK" in " ".join(j["repro"]["pinned"]) and not any("Error" in x or "FAIL" in x for x in j["repro"]["pinned"])
-        ok_fixed = "PY_OK" in " ".join(j["repro"]["fixed"]) and not any("Error" in x or "FAIL" in x or "Network" in x for x in j["repro"]["fixed"])
+                                        capture_output=True, text=True, timeout=900)
+            j["repro"][name] = r.stdout.strip().splitlines()[-3:]
+
+        def works(lines: Sequence[str]) -> bool:
+            txt = " ".join(lines)
+            return "PY_OK" in txt and ("SCRIPT_OK" in txt or "SCRIPT_NA" in txt) and not any("Error" in x or "FAIL" in x or "Network" in x for x in lines)
+
+        ok_pinned = works(j["repro"]["pinned"])
+        ok_fixed = works(j["repro"]["fixed"])
+        if "prior" in j["repro"]:
+            j["prior"] = prior["fixed"]
+            j["prior_ok"] = works(j["repro"]["prior"])  # the previous accepted fix: it must fail the same reproduction
+            ok_pinned = ok_pinned or j["prior_ok"]
         # the World's own tools on the fixed image: read a file, run one existing test file through the repo's pnpm
         task.world_image = pw["image"]
         test_file = next((p for p in sorted(task.window.get("tests_b") or {}) if (task.base_dir / p).is_file()), None)
@@ -521,6 +556,27 @@ async def stage_worldfix(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
         out[tid] = j
         print(f"[worldfix] {tid}: accepted={j['accepted']} {j['why']} repro={j['repro']}", flush=True)
     return out
+
+
+# ---- the disclosure check ------------------------------------------------------------------------------------------------------
+async def stage_disclose(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
+    """``generators.debug.disclosure_check`` per task (local grading, no model call): which milestones fail when B lacks the
+    window's silent units (reverted fixes without a milestone). The evidence goes to ``<out>/disclosure/<id>.json`` for
+    review. A milestone that needs a fix the report never describes is a spec defect, recorded in ``world_issues.json``
+    with ``kind`` spec_defect after a reviewer reads the report."""
+    from crucible.factory.generators.debug import disclosure_check
+
+    res = {}
+    for tid in tids:
+        jp = ph.out / "disclosure" / f"{tid}.json"
+        if (j := jload(jp)) and not ph.a.redo:
+            res[tid] = j
+            continue
+        j = await disclosure_check(ph.tasks.task(tid))
+        jsave(jp, j)
+        res[tid] = j
+        print(f"[disclose] {tid}: silent {len(j['silent'])} measured {j['measured']} needs {sorted(j['needs'])} ({j['why']})", flush=True)
+    return res
 
 
 # ---- re-grading after a path-check fix ----------------------------------------------------------------------------------------
@@ -775,9 +831,14 @@ def task_record(ph: Phase, tid: str) -> dict[str, Any]:
     on_intent = sum(1 for r in rows.values() if (r.get("final") or {}).get("cause") == "skill_gap" and not (r.get("final") or {}).get("disputed")
                     and (r.get("skill") or {}).get("on_intent"))
     cm = cause_mix(labels)
-    issue = (jload(ph.out / "world_issues.json", {}) or {}).get(tid)  # an open World defect the trace review found (owner World)
+    # an open defect the trace review or an executed check found: a World defect (owner World), or with ``kind`` spec_defect
+    # a task-spec defect (owner the builder: a hidden milestone needs a fault the report never describes)
+    issue = (jload(ph.out / "world_issues.json", {}) or {}).get(tid)
+    text = (issue or {}).get("issue") if isinstance(issue, dict) else issue
+    spec = isinstance(issue, dict) and issue.get("kind") == "spec_defect" and issue.get("status", "open") == "open"
+    world = bool(text) and not spec and (not isinstance(issue, dict) or issue.get("status", "open") == "open")
     keep = keep_verdict(split=row["split"], passes=passes, n=len(live), on_intent=on_intent, labelled=cm["n"], frontier=fr,
-                        world_issue=(issue or {}).get("issue") if isinstance(issue, dict) else issue)
+                        world_issue=text if world else None, spec_issue=text if spec else None)
     budget = labels.get("budget", 0)
     if budget and budget >= 0.3 * max(1, cm["n"]):
         # owner: the env's limits. A sensitivity number only (never the verdict): the on-intent share without the budget stops
@@ -841,8 +902,8 @@ def observe_report(ph: Phase, recs: Mapping[str, Mapping[str, Any]], rep: Mappin
         for tid in recs:
             ro = ph.out / "arms" / arm / tid / "rollouts"
             if ro.exists() and not ph.a.obs_rev:
-                n_tr += len(store.export_all(ro, arm=arm, run=f"s15-{arm}", model=ph.a.student if arm == "student" else arm,
-                                             attrs={"phase": "S15", "lane": "debug", "task": tid}, max_chars=cfg.max_chars))
+                n_tr += len(store.export_all(ro, arm=arm, run=f"s15-t{ph.a.tool_limit}-{arm}", model=ph.a.student if arm == "student" else arm,
+                                             attrs={"phase": "S15", "lane": "debug", "task": tid, "tool_limit": ph.a.tool_limit}, max_chars=cfg.max_chars))
     finds = [FailureFinding(**{k: v for k, v in json.loads(x).items() if k != "routed"}) for x in (ph.out / "findings.jsonl").read_text().splitlines()
              if x.strip()] if (ph.out / "findings.jsonl").exists() else []
     intents = []
@@ -853,9 +914,9 @@ def observe_report(ph: Phase, recs: Mapping[str, Mapping[str, Any]], rep: Mappin
     import hashlib
 
     ident = hashlib.sha256(json.dumps([sorted(recs), rep["settings"], ph.a.obs_rev], sort_keys=True, default=str).encode()).hexdigest()
-    name = factory_name("debug", "s15", ident[:8])
-    with ObsRun(proj, name, group="lane-debug", job_type="targeting", cfg=cfg, config={"settings": rep["settings"], "tasks": sorted(recs)},
-                tags=tags(model=ph.a.student, phase="S15", lane="debug", lang=sorted({r["lang"] for r in recs.values()}))) as run:
+    name = factory_name("debug", f"s15-t{ph.a.tool_limit}", ident[:8])
+    tg = tags(model=ph.a.student, phase="S15", lane="debug", lang=sorted({r["lang"] for r in recs.values()}), tool_limit=ph.a.tool_limit)
+    with ObsRun(proj, name, group="lane-debug", job_type="targeting", cfg=cfg, config={"settings": rep["settings"], "tasks": sorted(recs)}, tags=tg) as run:
         fv.targeting(run, recs, model=ph.a.student)
         run.table("s15/tasks", ["task", "lang", "split", "faults", "n", "masked", "passes", "pass_rate", "ci_lo", "ci_hi", "mean_phi", "on_intent", "labelled",
                                 "fair", "verdict", "why", "usd", "usd_per_episode"],
@@ -889,7 +950,8 @@ def observe_report(ph: Phase, recs: Mapping[str, Mapping[str, Any]], rep: Mappin
             run.table("findings/trace_links", ["finding", "episode", "trace"], [[f.id, f.trace, (idx.get(f.trace) or {}).get("url")] for f in finds])
         fv.intent_cards(run, intents)
         fv.spend(run, rep["spend_by_model"])
-        run.summary({"s15/verdicts": json.dumps(rep["verdicts"]), "s15/spend_total": rep["spend_total"], "s15/traces": n_tr})
+        run.summary({"s15/verdicts": json.dumps(rep["verdicts"]), "s15/spend_total": rep["spend_total"], "s15/traces": n_tr, "s15/tool_limit": ph.a.tool_limit,
+                     "s15/env_budget": json.dumps(rep["settings"].get("env_budget"))})
     return {"run": str(run.dir), "traces": n_tr, "project": proj, "name": name}
 
 
@@ -928,13 +990,38 @@ def audit_rollup(ph: Phase, recs: Mapping[str, Any]) -> dict[str, Any]:
                         "judge_auditor_agreement": f"{agree}/{both}", "disputed": disputed}}
 
 
+def sealed(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """The committed copy of a summary (V9: held-out evidence stays under ``data/targeting``): a held-out task keeps its
+    numbers and verdict, but its keep rule's ``why`` and ``flags`` and its issue text (which can name hidden tests or the
+    reverted fixes) are replaced by the verdict and the issue's kind."""
+    out = json.loads(json.dumps(summary, default=str))
+    held = {r["task"] for r in out.get("tasks") or [] if r.get("split") == "heldout"}
+    for r in out.get("tasks") or []:
+        if r["task"] in held:
+            r["keep"] = {**r["keep"], "why": f"{r['keep'].get('verdict')} (held out: details sealed under data/targeting)", "flags": []}
+    # an issue's text quotes the window (hidden tests, reverted fixes): the committed copy keeps what and whose, never the text
+    out["issues"] = {t: {k: v for k, v in (i.items() if isinstance(i, Mapping) else []) if k in ("kind", "status", "owner", "date")}
+                     for t, i in (out.get("issues") or {}).items()}
+    return out
+
+
 def stage_summary(ph: Phase, *, docs: Path | None = None) -> dict[str, Any]:
     """The committed summary (``docs/research/swarm-pipeline/runs/s15_debug_targeting.json``) and a markdown table: per
     task, settings, spend, $ and wall time per episode, honest-trace counts, routed failures, builder intents."""
     rep = jload(ph.out / "report.json", {}) or {}
+    prep = (jload(Path(ph.a.compare) / "report.json", {}) or {}) if ph.a.compare else {}
+    prev = prep.get("tasks") or {}
+    lim = ph.a.tool_limit
     rows = []
-    md = [("| task | lang | split | faults | student pass@1 (k) [95% CI] | mean Φ | per milestone | frontier (397B; DS-Flash) | on-intent skill gap | "
-           "dominant failure modes | verdict |"), "|---|---|---|---|---|---|---|---|---|---|---|"]
+    cmp_head = f" at {(prep.get('settings') or {}).get('tool_limit')} calls (student; frontier; verdict) |" if prev else ""
+    md = [(f"| task | lang | split | faults | student pass@1 (k) [95% CI] | mean Φ | per milestone | frontier (397B; DS-Flash) | budget stops "
+           f"(student; frontier) | on-intent skill gap | dominant failure modes | verdict |{cmp_head}"),
+          "|---|---|---|---|---|---|---|---|---|---|---|---|" + ("---|" if prev else "")]
+    budget = {"max_steps", "timeout", "context_overflow", "budget", "max_tokens"}
+
+    def stops(arm: str, t: str) -> int:
+        return sum(1 for e in episodes(ph.out, arm, t) if str(e["stop"]) in budget)
+
     for t, r in sorted((rep.get("tasks") or {}).items()):
         k = r["keep"]
         fr = r.get("fairness") or {}
@@ -942,14 +1029,25 @@ def stage_summary(ph: Phase, *, docs: Path | None = None) -> dict[str, Any]:
         modes = ", ".join(f"{m} {n}" for m, n in list((r.get("modes") or {}).items())[:3]) or "-"
         pm = " ".join(f"{m}:{v:.2f}" for m, v in (r.get("per_milestone") or {}).items() if v is not None)
         share = f"{k['on_intent']}/{k['labelled']}" + (f" ({k['intent_share']:.2f})" if k.get("intent_share") is not None else "")
+        bst = {"student": stops("student", t), "frontier": sum(stops(arm_name(m), t) for m in ph.a.frontier)}
+        nfr = sum(len(v) for v in fr.values())
+        old = prev.get(t)
+        oldc = ""
+        if prev:
+            ofr = "; ".join(f"{sum(v)}/{len(v)}" for _m, v in sorted((old or {}).get("fairness", {}).items(), key=lambda kv: "deepseek" in kv[0])) if old else ""
+            oldc = (f" {old['passes']}/{old['n'] - old['masked']}; {ofr or 'not run'}; {old['keep']['verdict']} |" if old else " not measured |")
         md.append(f"| {t.removeprefix('db-')} | {r['lang']} | {r['split']} | {r['faults']} | {r['passes']}/{r['n'] - r['masked']} = {r['pass_rate']} "
-                  f"[{r['pass_ci'][0]:.2f}, {r['pass_ci'][1]:.2f}] | {r['mean_phi']} | {pm} | {frs} | {share} | {modes} | **{k['verdict']}** |")
+                  f"[{r['pass_ci'][0]:.2f}, {r['pass_ci'][1]:.2f}] | {r['mean_phi']} | {pm} | {frs} | {bst['student']}/{r['n']}; {bst['frontier']}/{nfr} | "
+                  f"{share} | {modes} | **{k['verdict']}** |{oldc}")
         rows.append({"task": t, "lang": r["lang"], "split": r["split"], "faults": r["faults"], "level": r["level"], "n": r["n"], "masked": r["masked"],
                      "passes": r["passes"], "pass_rate": r["pass_rate"], "pass_ci": r["pass_ci"], "mean_phi": r["mean_phi"], "per_milestone": r["per_milestone"],
                      "frontier": fr, "cause": r["cause"], "keep": {x: k.get(x) for x in ("verdict", "keep", "why", "flags", "on_intent", "labelled", "intent_share",
                                                                                          "fair")},
                      "honest": r.get("honest"), "modes": r.get("modes"), "stops": r.get("stops"), "usd": r["usd"], "usd_per_episode": r["usd_per_episode"],
-                     "turns_mean": r.get("turns_mean"), "budget_binding": r.get("budget_binding")})
+                     "turns_mean": r.get("turns_mean"), "budget_binding": r.get("budget_binding"), "budget_stops": bst, "tool_limit": lim,
+                     "previous": None if not old else {"tool_limit": (old.get("settings") or {}).get("tool_limit"), "passes": old["passes"],
+                                                       "n": old["n"] - old["masked"], "mean_phi": old["mean_phi"], "frontier": old.get("fairness"),
+                                                       "verdict": old["keep"]["verdict"]}})
     intents = [json.loads(x) for x in (ph.out / "builder_intents.jsonl").read_text().splitlines() if x.strip()] if (ph.out / "builder_intents.jsonl").exists() else []
     routed = [json.loads(x) for x in (ph.out / "routed.jsonl").read_text().splitlines() if x.strip()] if (ph.out / "routed.jsonl").exists() else []
     eps = [e for d in (ph.out / "arms").glob("*/*/done.json") if not d.parent.parent.name.startswith("pilot")
@@ -965,12 +1063,16 @@ def stage_summary(ph: Phase, *, docs: Path | None = None) -> dict[str, Any]:
            "spend_by_model": rep.get("spend_by_model"), "spend_total": rep.get("spend_total"), "cap": rep.get("cap"), "verdicts": rep.get("verdicts"),
            "load": rep.get("load"), "builder_intents": [{k: i.get(k) for k in ("id", "student", "mode", "behaviour", "failure_mode", "n", "tasks", "skills",
                                                                                  "quotes", "status")} for i in intents],
+           "carried_over": {t: {"verdict": o["keep"]["verdict"], "passes": o["passes"], "n": o["n"] - o["masked"], "tool_limit": (o.get("settings") or {})
+                                .get("tool_limit")} for t, o in sorted(prev.items()) if t not in (rep.get("tasks") or {})},
+           "issues": jload(ph.out / "world_issues.json", {}) or {},
            "routed": dict(Counter(f"{r['owner']}:{r['mode']}:{r['cause']}" for r in routed)), "regrade": {str(p.parent.parent.name) + "/" + p.parent.name: jload(p)
                                                                                                         for p in (ph.out / "arms").glob("*/*/regrade.json")}}
     jsave(ph.out / "summary.json", out)
     (ph.out / "summary.md").write_text("\n".join(md) + "\n")
     if docs is not None:
-        jsave(docs / "s15_debug_targeting.json", out)
+        # the 150-call run kept the plain name; a phase at another budget gets its own file
+        jsave(docs / ("s15_debug_targeting.json" if ph.a.tool_limit == 150 else f"s15_debug_targeting_t{ph.a.tool_limit}.json"), sealed(out))
     print("\n".join(md), flush=True)
     return out
 
@@ -984,6 +1086,8 @@ def cleanup() -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    from crucible.factory.generators.debug import ENV_BUDGET
+
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("stages", nargs="+")
     ap.add_argument("--out", default="")
@@ -993,17 +1097,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--student", default=STUDENT)
     ap.add_argument("--frontier", default=",".join(FRONTIER))
     ap.add_argument("--k", type=int, default=8)
+    ap.add_argument("--seed-offset", type=int, default=0, help="added to every arm's run seed: a re-measurement draws fresh samples and its run ids "
+                    "(bench-<purpose>-s<seed>-<task>, the Weave trace keys) never collide with an earlier phase's")
     ap.add_argument("--frontier-k", type=int, default=2)
     ap.add_argument("--student-concurrency", type=int, default=8)
     ap.add_argument("--slots", type=int, default=10, help="Worlds open at once on this host")
     ap.add_argument("--grade-parallel", type=int, default=2, help="grading containers at once per World image")
-    ap.add_argument("--tool-limit", type=int, default=150)
+    ap.add_argument("--tool-limit", type=int, default=ENV_BUDGET.tool_limit, help="the lane's env budget (generators.debug.ENV_BUDGET)")
     ap.add_argument("--max-tokens", type=int, default=4096, help="per reply (factory.student.STUDENT_MAX_TOKENS)")
     ap.add_argument("--thinking", action="store_true", help="enable_thinking (default off; recorded)")
-    ap.add_argument("--agent-s", type=float, default=2700.0)
-    ap.add_argument("--rollout-s", type=float, default=4500.0)
-    ap.add_argument("--ckpt-every", type=int, default=10)
-    ap.add_argument("--ckpt-cap", type=int, default=12)
+    ap.add_argument("--agent-s", type=float, default=ENV_BUDGET.agent_s)
+    ap.add_argument("--rollout-s", type=float, default=ENV_BUDGET.rollout_s)
+    ap.add_argument("--ckpt-every", type=int, default=ENV_BUDGET.checkpoint_every)
+    ap.add_argument("--ckpt-cap", type=int, default=ENV_BUDGET.checkpoint_cap)
     ap.add_argument("--load-every", type=float, default=60.0)
     ap.add_argument("--pilot-task", default=PILOT_TASK)
     ap.add_argument("--est-usd", default="", help="model=usd per episode for job admission (default: measured, else the pilot's)")
@@ -1012,9 +1118,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--audit-max-tokens", type=int, default=3000)
     ap.add_argument("--result-chars", type=int, default=1500, help="per tool result in the audited trace")
     ap.add_argument("--quote-retries", type=int, default=1, help="audit.AuditConfig.quote_retries: a non-verbatim quote is asked again")
+    ap.add_argument("--prior-worldfix", default="", help="worldfix: a previous phase's worldfix dir; its accepted World must fail the reproduction")
     ap.add_argument("--redo", action="store_true")
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--obs-rev", type=int, default=0, help="report: a revision W&B run (tables only; traces and audits are already logged)")
+    ap.add_argument("--compare", default="", help="summary: a previous phase's out dir; its result per task sits beside this one's")
     ap.add_argument("--docs", default="", help="summary: also write runs/s15_debug_targeting.json here (the committed copy)")
     a = ap.parse_args(argv)
     d = data_dir()
@@ -1039,6 +1147,8 @@ async def amain(a: argparse.Namespace) -> None:
                 await stage_worldfix(ph, tids)
             elif st == "diag":
                 await stage_diag(ph, tids)
+            elif st == "disclose":
+                await stage_disclose(ph, tids)
             elif st == "regrade":
                 await stage_regrade(ph, tids)
             elif st == "audit":

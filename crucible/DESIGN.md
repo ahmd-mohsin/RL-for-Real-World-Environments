@@ -1086,6 +1086,18 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   bodies, `go mod init`) with re-grading of stored episodes (`factory.tinker.regrade`), the node policy World
   (`langs.runtime.policy_world`), concurrent-arm accounting, the benchmark policy id the family guard reads, the judges'
   quote retry (`AuditConfig.quote_retries`), a `world_fault` fact for World tools that lack a command.
+- **Env budget 300 tool calls (`generators.debug.ENV_BUDGET`, user decision 2026-10-20):** the keep rule, the benchmark
+  and RL run debug tasks at 300 calls (agent 5400 s, rollout 9000 s, Φ every 20 calls, cap 15). Every phase records
+  `settings.env_budget`, and a re-measurement uses fresh seeds so its trace keys are new. S15 at 300 (`07` §6.1, $326
+  of $450, 11 of 15 tasks before the user stopped it): still no task kept. The budget no longer binds the frontier
+  (0 of 54 limit stops, against 21 of 52), and binds the student less (24 of 88, against 67 of 104).
+  black-90117fa0 enters the band (1/8, a frontier pass) but stays budget-bound (6 of 8 at the limit). Two held-out
+  excelize tasks are spec defects: a hidden milestone also checks reverted fixes that have no milestone and that the
+  report never describes. The judges, who never see hidden tests, labelled those failures skill gaps.
+  `generators.debug.disclosure_check` grades B without the silent units through the task's own grader. The keep rule
+  takes `spec_issue` (verdict `spec_defect`, owner the builder). The node World's pnpm runs offline without its pre-run
+  install (`node.PNPM_OFFLINE`, recipe `node-5`; h3's `pnpm test` hang). Committed summaries seal held-out issue text and
+  verdict reasons.
 
 ## 8. Layer 4: verification and isolation
 

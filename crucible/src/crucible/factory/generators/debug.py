@@ -47,6 +47,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +108,27 @@ COMPILED = ("go", "rust", "java")
 B_STEPS = (20, 45, 75, 110, 150)  # days before the head: the earlier B points of ``candidates_for``
 FULL_SUITE_MAX = 400  # test files: above it the interaction screen runs the pool's own test files only
 
+
+
+@dataclass(frozen=True)
+class EnvBudget:
+    """The lane's environment budget: what the keep rule (S15), the benchmark and RL all run a debug task under. The
+    timeouts and the checkpoint-Phi cadence scale with the tool limit. 150 calls (S15 first run): agent 2700 s, rollout
+    4500 s, Phi every 10 calls, cap 12. 67 of 104 student and 21 of 52 frontier episodes stopped at that limit, so it
+    measured the budget, not the skills (07 §6). Raised to 300 by the user on 2026-10-20."""
+
+    tool_limit: int = 300
+    agent_s: float = 5400.0
+    rollout_s: float = 9000.0
+    checkpoint_every: int = 20  # the same points per budget as every 10 at 150 calls
+    checkpoint_cap: int = 15  # the periodic points reach call 280; the end always has a slot (``factory.checkpoint``)
+    decided: str = "2026-10-20"
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+ENV_BUDGET = EnvBudget()
 
 def profile_of(lang: str) -> Any:
     return langs.get(lang)
@@ -413,6 +435,46 @@ def fairness_flags(rec: Mapping[str, Any], faulty: Iterable[str] = ()) -> list[s
     if vis:
         out.append(f"visible_test_data: the fixes' changes to {', '.join(vis)} stay in the agent's tree (strip mode)")
     return sorted(set(out))
+
+
+def silent_units(rec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The window's reverted fixes without a milestone of their own (strip mode: every check of theirs was visible). They
+    stay reverted in A', so the report must describe them wherever another milestone's tests check them."""
+    own = {m.get("unit") for m in rec.get("milestones") or []}
+    return [u for u in rec.get("units") or [] if u.get("sha") not in own]
+
+
+async def disclosure_check(task: Any) -> dict[str, Any]:
+    """Executed check for silent faults (S15 at 300 calls, 2026-10-20). Grade B without the silent units: the oracle's unit
+    steps minus those units (``task.oracle``, through the task's own grader, any language). A milestone that fails there
+    needs a reverted fix that has no milestone, and its report must describe that fix. In excelize, every student and
+    frontier episode failed such a milestone, and both judges, who never see the hidden tests, labelled the failures
+    skill gaps. The result goes to review: a builder may already have folded the fix into a requirement's text (urfave-cli's
+    R3 does), so it is never a gate by itself.
+
+    Returns ``{measured, silent, needs, milestones, why}``. ``needs`` maps a milestone id to the silent units' subjects
+    when it fails without them."""
+    rec = task.window
+    silent = silent_units(rec)
+    out: dict[str, Any] = {"task": str(task.task_id), "silent": [{"sha": u["sha"], "subject": u.get("subject")} for u in silent], "needs": {},
+                           "milestones": None, "measured": True, "why": ""}
+    if not silent:
+        out["why"] = "every reverted fix has a milestone"
+        return out
+    skip = {u["sha"] for u in silent}
+    steps = list(task.oracle)
+    if not steps or any(s.get("function_name") != "apply_unit" for s in steps):
+        return {**out, "measured": False, "why": "the oracle is not unit steps (no clone, or a simplified start)"}
+    rep, _ = await task.grade([s for s in steps if (s.get("arguments") or {}).get("unit") not in skip])
+    meta = rep.meta or {}
+    if (rep.infra or {}).get("status") != "ok" or meta.get("apply_errors"):
+        return {**out, "measured": False, "why": "B without the silent units does not apply or grade: " + "; ".join(meta.get("apply_errors") or [])[:300]}
+    status = dict(meta.get("milestones") or {})
+    out["milestones"] = status
+    out["needs"] = {m["id"]: [u.get("subject") or u["sha"] for u in silent] for m in rec["milestones"] if not status.get(m["id"])}
+    out["why"] = ("every milestone passes without the silent units" if not out["needs"] else
+                  f"{', '.join(out['needs'])} fail(s) without the silent units: the report must describe them")
+    return out
 
 
 def task_intent(rec: Mapping[str, Any], faulty: Iterable[str] = ()) -> dict[str, Any]:

@@ -120,6 +120,16 @@ def manager_of(tree: Path) -> str:
     return "npm"
 
 
+# pnpm 12 checks the installed tree against the lockfile before every ``pnpm <script>`` (``verify-deps-before-run``) and
+# installs when it differs. The World's tree always differs: the recipe deletes every installed copy of the project
+# itself (the leak rule below), so in h3's World (S15, 2026-10-20) every ``pnpm test`` / ``pnpm lint`` tried to fetch
+# h3's own release tarballs from the registry and hung on retries until the 600 s tool timeout (8 of 8 episodes). Off,
+# the script runs at once (``pnpm test`` 5 s); offline, an install attempt fails at once instead of retrying (pnpm 12 reads
+# ``pnpm_config_*``, not ``npm_config_offline``). With a network the check would have re-installed the project's own
+# release: the leak the deletion closes.
+PNPM_OFFLINE = "pnpm_config_verify_deps_before_run=false pnpm_config_offline=true"
+
+
 class NodeProfile(CLikeProfile):
     name = "node"
     lang = "node"
@@ -130,7 +140,8 @@ class NodeProfile(CLikeProfile):
     protected_rx = re.compile(r"(^|/)tsconfig[^/]*\.json$|(^|/)(vitest|vite|jest|babel|vitest\.workspace|rollup|tsup|esbuild|webpack)\.config\.[cm]?[jt]s(on)?$"
                               r"|(^|/)\.babelrc|(^|/)jest\.config\.json$|(^|/)\.swcrc$|(^|/)\.yarn/")
     plumbing_rx = re.compile(r"(^|/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs)$|(^|/)node_modules(/|$)")
-    recipe = "node-4"  # node-4 (S15): python3 for the World's file tools, corepack's cache at COREPACK_HOME (any HOME finds it)
+    recipe = "node-5"  # node-4 (S15): python3 for the World's file tools, corepack's cache at COREPACK_HOME (any HOME finds it);
+    # node-5 (S15 at 300 calls): pnpm offline without its pre-run dependency check (``PNPM_OFFLINE``)
     base_image = BASE_IMAGE
     timeout_s = 900.0
     tmpfs = "1g"
@@ -239,7 +250,7 @@ class NodeProfile(CLikeProfile):
             *([f"RUN find /opt/deps/node_modules -path '*/node_modules/{info['project']}' -prune -exec rm -rf {{}} + ; true"]
               if info.get("project") and re.fullmatch(r"(@[\w.-]+/)?[\w.-]+", str(info["project"])) else []),
             "RUN mkdir -p /opt/corepack && chmod -R a+rwX /opt/corepack",
-            "ENV npm_config_offline=true COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0",
+            f"ENV npm_config_offline=true COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0 {PNPM_OFFLINE}",
             "WORKDIR /w",
         ]) + "\n"
 
@@ -248,7 +259,8 @@ class NodeProfile(CLikeProfile):
         file tools (``repo.read_file`` / ``list_dir`` / ``write_file`` run a Python snippet: on ``node:22`` every call failed
         with ``python3: command not found``), and corepack's cache where any ``HOME`` finds it (the build cached the
         project's ``packageManager`` pnpm under ``/root``; the World runs with ``HOME=/tmp``, so ``pnpm`` tried to download
-        itself offline and every ``pnpm test`` failed). The grader runs the runner binary directly and needs neither."""
+        itself offline and every ``pnpm test`` failed), and pnpm offline without its pre-run dependency check
+        (``PNPM_OFFLINE``). The grader runs the runner binary directly and needs none of them."""
         return [("RUN (command -v python3 >/dev/null) || (apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null "
                  "&& rm -rf /var/lib/apt/lists/*)"),
                 "RUN mkdir -p /opt/corepack && (cp -a /root/.cache/node/corepack/. /opt/corepack/ 2>/dev/null || true) && chmod -R a+rwX /opt/corepack",
@@ -257,7 +269,7 @@ class NodeProfile(CLikeProfile):
                 ("RUN cd /opt/corepack && node -e \"const fs=require('fs');const o={};for(const m of ['pnpm','yarn','npm']){const d='v1/'+m;"
                  "if(fs.existsSync(d)){const v=fs.readdirSync(d).filter(x=>fs.readdirSync(d+'/'+x).length).sort();if(v.length)o[m]=v[v.length-1];}}"
                  "fs.writeFileSync('lastKnownGood.json',JSON.stringify(o));console.log(JSON.stringify(o))\" && chmod a+rw lastKnownGood.json"),
-                "ENV COREPACK_HOME=/opt/corepack COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0"]
+                "ENV COREPACK_HOME=/opt/corepack COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0", f"ENV {PNPM_OFFLINE}"]
 
     def world_setup_cmd(self, ws: str) -> str:
         return (f"cd {ws} && ln -sfn /opt/deps/node_modules node_modules && mkdir -p .git/info && "
