@@ -733,6 +733,42 @@ def cmd_report(a: argparse.Namespace) -> None:
     print(json.dumps({"families": fam, "cpu_pass": sum(1 for x in rows if x["cpu_pass"])}, indent=1, default=str))
 
 
+def cmd_observe(a: argparse.Namespace) -> None:
+    """The report (``report`` first) into one ``crucible-factory`` run: the per-family funnel (CPU stages, then each GPU
+    gate in order) as the factory funnel view, and one row per candidate with its first failed gate. Offline unless
+    ``CRUCIBLE_WANDB_MODE=online``; ``scripts/observe.py sync`` uploads it."""
+    from crucible.observe import ObsRun, factory_views, naming
+
+    rep = json.loads(Path(a.report).read_text())
+    lanes: dict[str, dict[str, Any]] = {}
+    for fam_key, f in rep["families"].items():
+        stages: dict[str, Any] = {"mined_commits": f.get("mined_commits", 0), "real_changes": f.get("real_changes", 0), "grouped": f.get("grouped", 0),
+                                  "cpu_pass": {"in": f.get("grouped", 0), "pass": f.get("cpu_pass", 0) or f.get("cpu_structural_pass", 0)}}
+        n = stages["cpu_pass"]["pass"]
+        drops = f.get("gpu_drops") or {}
+        for gate in ("pending", *GPU_GATES):
+            if gate == "pending" and not drops.get("pending"):
+                continue
+            stages[gate] = {"in": n, "pass": n - drops.get(gate, 0)}
+            n -= drops.get(gate, 0)
+        lanes[f"kernel_debug/{fam_key}"] = stages
+    name = f"factory-kernel_debug-gpu-gates-{time.strftime('%Y%m%d-%H%M')}"
+    run = ObsRun(naming.project("factory"), name, group="kernel_debug", job_type="gpu-gates", tags=["lane:kernel_debug", "gpu:rtx-5090"],
+                 config={"report": a.report, "at": rep.get("at")})
+    factory_views.funnel(run, lanes, key="kernel_debug_funnel")
+    cols = ["id", "family", "split", "faults", "cpu_pass", "gpu", "gpu_pass", "gpu_failed_gate", "gpu_why", "kept_milestones", "executed_edges", "flake_false_neg",
+            "contamination"]
+    rows = [[x["id"], x["family"], x["split"], x.get("faults") or x.get("programs"), x.get("cpu_pass"), x.get("gpu"), x.get("gpu_pass"), x.get("gpu_failed_gate"),
+             (x.get("gpu_why") or "")[:300], json.dumps(x.get("gpu_kept_milestones")), json.dumps(x.get("gpu_executed_edges")),
+             (x.get("flake") or {}).get("false_negatives"), x.get("contamination")] for x in rep["tasks"]]
+    run.table("kernel_debug_tasks", cols, rows)
+    surv = [x for x in rep["tasks"] if x.get("gpu_pass")]
+    run.summary({"survivors_train": sum(1 for x in surv if x["split"] == "train"), "survivors_heldout": sum(1 for x in surv if x["split"] == "heldout"),
+                 "candidates": len(rep["tasks"])})
+    run.finish()
+    print(name, run.dir)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -756,10 +792,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("ingest-gpu")
     s.add_argument("--bundle")
+    s = sub.add_parser("observe")
+    s.add_argument("--report", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report, "observe": cmd_observe}[a.cmd](a)
     return 0
 
 

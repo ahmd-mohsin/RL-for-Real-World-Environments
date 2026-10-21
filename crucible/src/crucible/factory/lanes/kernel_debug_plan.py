@@ -190,7 +190,8 @@ class KDGrader:
         if dump_f:
             dump_f.unlink(missing_ok=True)
         res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc, "crashed": kh.crashed_case(r.stdout) if r.rc else None}
-        if dump and cases and not recs and not res["crashed"]:
+        # pool mode: a chunk whose cases this backend does not support at all leaves no output, and those cases leave the pool
+        if dump and cases and not recs and not res["crashed"] and not (self.mode == "pool" and res["status"] and set(res["status"].values()) <= {"not supported"}):
             raise InfraError(f"the reference produced no output for {tag} (rc {r.rc}): {r.log[-300:]}")
         if cache:
             self.refs[key] = res
