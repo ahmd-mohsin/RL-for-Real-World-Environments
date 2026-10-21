@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
+from crucible.core.ids import sha256_text
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall, openai_name
 from crucible.core.schema.state import WorldRef
 from crucible.core.schema.trace import Trace
@@ -152,6 +153,11 @@ def approx_tokens(messages: list[dict[str, Any]]) -> int:
     return n // 4 + 4 * len(messages)
 
 
+# a tool-call id every provider accepts back in the history (Bedrock and Anthropic: [a-zA-Z0-9_-]; the derived ones are also
+# Mistral's 9 alphanumerics); others are replaced (M2 R-6)
+CALL_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 CUT_OFF = "Your last reply was cut off at the output limit, so nothing in it was run. Continue: make one tool call (keep any reasoning short)."
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
 TURN_NUDGE = "It is still your turn in the game, which is not over. Choose one of your legal actions with a tool call."
@@ -197,6 +203,7 @@ class LLMToolPolicy(Policy):
         self.trajectory_tokens = 0  # every token that entered the context, before any compaction (instruction, observations, replies)
         self._seen = 0  # messages already counted
         self._measured: tuple[int, int] | None = None  # (messages in the last prompt, its prompt + completion tokens per the provider)
+        self._ids_seen: set[str] = set()  # tool-call ids used in this episode (``_call_ids``; rebuilt from the history on load)
 
     def begin_episode(self, episode_id: str) -> None:
         self.sample_key = episode_id
@@ -281,6 +288,26 @@ class LLMToolPolicy(Policy):
         if room <= 0:
             raise ContextOverflow(f"the context ({used} tokens) leaves no room for a reply in the {window}-token window")
         return min(self.max_tokens, room)
+
+    def _call_ids(self, calls: list[dict[str, Any]], call: dict[str, Any]) -> list[str]:
+        """The id each tool call of this reply goes by (M2 R-6; PATTERN: NeMo-Gym's nemo_user_sim checks every call has a
+        non-empty id unique in the response, Apache-2.0, repaired here rather than charged to the policy, since a serving
+        stack's parser makes these). A provider id is kept when it matches ``CALL_ID`` and is new in this episode; else
+        ``c`` + 8 hex of sha256(actor:call:position), the same on every replay. Ids key the World's results, the batch in
+        flight and the format penalties: a provider numbering ids per reply charged turn 2's malformed call to turn 1 too,
+        two calls sharing an id let a message in between their results, and an id-less reply got a random id, so replays
+        missed the cache. Replaced ids are kept on the call record (``provider_ids``)."""
+        out: list[str] = []
+        for i, tc in enumerate(calls):
+            cid, k = str(tc.get("id") or ""), 0
+            while not CALL_ID.fullmatch(cid) or cid in self._ids_seen or cid in out:
+                cid = "c" + sha256_text(f"{self.actor_id}:{len(self.model_calls)}:{i}" + (f":{k}" if k else ""))[:8]
+                k += 1
+            out.append(cid)
+        self._ids_seen.update(out)
+        if any(cid != tc.get("id") for cid, tc in zip(out, calls, strict=True)):
+            call["provider_ids"] = [tc.get("id") for tc in calls]
+        return out
 
     def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
         self.segments.append({"index": self.segment + 1, "strategy": strategy, "summary_call": summary_call, "context_before": before,
@@ -369,6 +396,8 @@ class LLMToolPolicy(Policy):
         self._turn_nudges = d.get("turn_nudges", 0)
         self.tool_calls_issued, self._limit_warned = d.get("tool_calls_issued", 0), d.get("limit_warned", False)
         self._final_turn_used, self.limit_events = d.get("final_turn_used", False), list(d.get("limit_events") or [])
+        self._ids_seen = {str(c.get("id")) for m in self.messages for c in m.get("tool_calls") or []}
+        self._ids_seen |= {a[5:] for c in self.model_calls for a in c.get("actions") or [] if isinstance(a, str) and a.startswith("tool:")}
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -472,7 +501,7 @@ class LLMToolPolicy(Policy):
             call["actions"] = ["done"]
             self.limit_events.append({"kind": "final_turn_unused"})
             return Done(reason=(r.text or "")[:2000] or f"the tool-call limit ({self.tool_limit}) was reached")
-        cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
+        [cid] = self._call_ids([tc], call)
         self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "",
                               "tool_calls": [{"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}]})
         self._pending.add(cid)
@@ -584,8 +613,7 @@ class LLMToolPolicy(Policy):
         self._compactions_in_row = 0
         calls = []
         actions: list[Action] = []
-        for tc in r.tool_calls:
-            cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
+        for tc, cid in zip(r.tool_calls, self._call_ids(r.tool_calls, call), strict=True):
             raw_args = tc["arguments"].get("__unparseable__") if "__unparseable__" in tc["arguments"] else None
             calls.append({"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": raw_args if raw_args is not None else json.dumps(tc["arguments"])}})
             if tc["name"] == "send_message":

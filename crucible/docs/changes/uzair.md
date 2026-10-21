@@ -1654,3 +1654,38 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** The run ledger settles `cost_usd + cost_uncertain_usd`, so a lost call counts twice there, as
   fallback-priced calls already did (ledger item IDX-FIX-1); conservative, and it may reach the 10% uncertain-spend stop
   sooner on a flaky provider (the audit's stated risk).
+
+## 73. M2 R-6: unique, provider-safe, deterministic tool-call ids
+
+- **Item.** R-6 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: the repair is in the two
+  policies; the engine codecs (`train/chat.py`, `train/bridges/tinker/codec.py`, M12's) keep minting `call_<8 hex>`
+  ids, which are valid and unique, so the policy keeps them and the token path renders exactly as before. Not taken: a
+  strict mode that charges a duplicate id to the policy (NeMo-Gym's rule; a serving stack's parser makes these).
+  Pattern from NeMo-Gym's nemo_user_sim id checks (Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/policy.py` (`CALL_ID`, `LLMToolPolicy._call_ids`, `_ids_seen`, `_act`,
+  `_final_status_turn`, `load_state_dict`), `src/crucible/actors/harness.py` (`BashLoopPolicy.act`),
+  `tests/unit/test_tool_call_ids.py` (new).
+- **Public names.** `crucible.actors.policy.CALL_ID` (`[A-Za-z0-9_-]{1,64}`).
+- **Behaviour.** `LLMToolPolicy` keeps a provider's tool-call id when it matches `CALL_ID` and is new in the episode;
+  otherwise (empty, reused from an earlier reply, repeated in the reply, or with characters such as `:` or `.` that
+  Bedrock and Anthropic refuse) the call gets `c` + 8 hex of sha256(actor:call index:position), a 9-character id that
+  is the same on every replay. The id is used in the stored assistant turn, the `ToolCall` and the call's `actions`;
+  a call record whose ids were replaced carries `provider_ids`. So a provider that numbers ids per reply no longer has
+  turn 2's malformed call charged to turn 1 (`format_errors_by_call`), two calls sharing an id no longer let a message
+  in between their results, and an id-less reply no longer gets a random id that made every later prompt, and so the
+  replay cache key, differ. The ids already used are rebuilt from the history and call records on `load_state_dict`.
+  `BashLoopPolicy` numbers its calls `bash-<model call index>` (was random).
+- **Formats.** none (ids in traces and records are now deterministic; a key in `calls.json` call records).
+- **Tests.** `test_tool_call_ids.py` (5: an id reused across turns charges only its own call; two calls sharing an id
+  keep their batch together; id-less and unsafe ids are derived alike on two replays; a restored policy knows its ids;
+  the bash loop numbers its calls). Every unit file that drives `LLMToolPolicy` or `BashLoopPolicy` or reads tool-call
+  ids (training, `r1_a2a`, `r1_harbor` and `sb_claude_builder` left out): 921 passed, 38 skipped, 3 xfailed; the failure is the known `test_agentenv_mcp_env` card_tools_only (the agentenv clone's extra `items_whoami` tool).
+- **Merge notes.** A fake LLM that returns the same id on every turn now sees the second and later ones replaced; a
+  test that asserts a fixed id on a later turn must take it from the returned `ToolCall`.
+- **Full run after all M2 items (2026-10-21, 49 min).** Unit (no training or M12 files, no `r1_a2a`), toy end-to-end
+  and red-team tests: 3285 passed, 56 skipped, 3 xfailed, 23 failed, none from M2. On main's source (7176582) the same
+  fail: the 8 `test_sb_claude_builder.py` tests (the fake `claude` shebang breaks on a path with a space), 4
+  `r2_quiesce_docker` and 1 `r6_docker` red-team tests, 2 `r4_identity`, `r5_breaker` quarantine. Known from entry 65 and
+  earlier: `card_tools_only`, `r1_harbor` 503, two studio tests, the coding pack fixture, `test_sampling`'s rollout
+  version. `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under full-suite load
+  only (it passes alone and with its neighbours). Ruff on the changed files and lint-imports (5 contracts) are clean.
