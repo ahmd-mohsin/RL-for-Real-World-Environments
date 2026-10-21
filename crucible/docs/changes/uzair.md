@@ -1554,3 +1554,28 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   skipped.
 - **Merge notes.** Code that calls `EngineLLM.complete` outside a policy now gets `ContextOverflow` where it got an
   empty `length` reply.
+
+## 69. M2 R-5: a spent nudge allowance never runs a cut-off call and never ends `agent_done`
+
+- **Item.** R-5 of `docs/research/improvements/2026-10-15/M02-actors.md` (must). Pattern from verifiers (a last
+  `length` finish truncates) and mini-swe-agent (repeated format errors end the run; MIT); no code copied. Not taken:
+  carrying the nudge label onto the rollout `Turn` (a frozen format; the label stays in the call record), and new
+  `LIMIT_STOPS` / `LimitPolicy` rules (the new label is truncating through `TRUNCATING_STOPS` and is scored, which is
+  what a rule would default to).
+- **Files.** `src/crucible/actors/policy.py` (`LLMToolPolicy._act`, `POLICY_STOP_ORDER`, `TRUNCATING_STOPS`),
+  `docs/modules/M02-actors.md` (finding 7), `tests/unit/test_nudge_limits.py` (new).
+- **Public names.** Stop label `max_output_tokens`.
+- **Behaviour.** When a blank or cut-off (`finish=length`) reply comes after the nudge allowance is spent (or with none,
+  as in single-turn), `LLMToolPolicy` ends the episode instead of falling through: `max_output_tokens` (truncated) when
+  the reply was cut off, `format_error` (terminal) when it was blank with a clean finish. A cut-off reply's tool calls are
+  never run (the third one's ran and reset the allowance), and the reply's text stays the `Done` reason, so a cut-off
+  single-turn answer is graded as before under the new label. Each nudged call's record carries `nudged`: `blank`,
+  `cut_off` or `turn`.
+- **Formats.** none (a key in `calls.json` call records).
+- **Tests.** `test_nudge_limits.py` (5: three cut-off replies with a write call run nothing and end `max_output_tokens`;
+  blank cut-off, text cut-off and blank clean replies; a cut-off single-turn answer stays the answer). Actor, M2 audit,
+  RLM, M16 context, M17 auditor, single-turn and harness suites: 385 passed, 10 skipped; the 8 failures in
+  `test_sb_claude_builder.py` fail on main too (its fake `claude` script's shebang breaks on this checkout's path, which
+  has a space).
+- **Merge notes.** Training data: episodes that stalled at the output limit are now `truncated`, so `overlong_filter`
+  drops them, single-turn samples cut at `max_tokens` included (M12).

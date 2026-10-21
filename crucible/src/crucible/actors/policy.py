@@ -516,22 +516,35 @@ class LLMToolPolicy(Policy):
             self.stop = "content_filter"
             call["actions"] = ["done"]
             return Done(reason=f"the provider filtered the reply (finish={r.raw_finish})")
-        if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
+        blank = not r.tool_calls and not (r.text or "").strip()
+        dropped = f" ({len(r.tool_calls)} unfinished tool call(s) were not run)" if r.tool_calls and r.finish == "length" else ""
+        if blank and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
+            call["nudged"] = "blank"  # its output never enters the context; the nudge does
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
             return await self.act(again)
         if r.finish == "length" and self._nudges < self.max_nudges:
             # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error). Tool calls in a
             # cut-off reply may be truncated mid-argument or missing their siblings: they are dropped, never executed.
             self._nudges += 1
-            dropped = f" ({len(r.tool_calls)} unfinished tool call(s) were not run)" if r.tool_calls else ""
+            call["nudged"] = "cut_off"
             self.messages.append({**r.raw_message, "role": "assistant", "content": (r.text or "(cut off)") + dropped})
             self.messages.append({"role": "user", "content": CUT_OFF})
             return await self.act(again)
+        if blank or r.finish == "length":
+            # M2 R-5 (PATTERN: verifiers truncates on a last length finish, mini-swe-agent ends on repeated format errors; MIT):
+            # the allowance is spent (or there was none). A cut-off reply's tool calls are still never run (the third one's
+            # ran, and reset the allowance), and a stall is not a decision to stop (it ended agent_done, untruncated).
+            # Single-turn answers (no allowance) are graded as before, under this label.
+            self.stop = "max_output_tokens" if r.finish == "length" else "format_error"
+            self.messages.append({**r.raw_message, "role": "assistant", "content": (r.text or "") + dropped})
+            call["actions"] = ["done"]
+            return Done(reason=(r.text or "")[:2000], answer=r.text if len(r.text or "") > 2000 else None)
         if not r.tool_calls and obs.legal and self._turn_nudges < self.max_nudges:
             # a turn-based game: legal actions are offered only to the seat to move; a text reply is not a resignation
             self._turn_nudges += 1
+            call["nudged"] = "turn"
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(no action)"})
             self.messages.append({"role": "user", "content": TURN_NUDGE})
             return await self.act(again)
@@ -758,8 +771,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         failures.append({"kind": "crucible:answer_exposed", "reason": f"{hit['kind']} at event {hit['seq']}: {hit['evidence'][:200]}", "mask": True})
     stops = [s for p in policies.values() if (s := getattr(p, "stop", None)) not in (None, "agent_done")]
     if state["stop"] == "running":
-        # a policy's own stop label (context_overflow, too_many_errors from a self-detected stall, too_many_compactions,
-        # format_error, content_filter) is the episode's: these were reported as a voluntary agent_done (M2 audit)
+        # a policy's own stop label (context_overflow, max_output_tokens, too_many_errors from a self-detected stall,
+        # too_many_compactions, format_error, content_filter) is the episode's: these were reported as a voluntary agent_done (M2 audit)
         if stops:
             state["stop"] = next((s for s in POLICY_STOP_ORDER if s in stops), stops[0])
         elif failures and any(_masks(f) for f in failures):
@@ -777,8 +790,9 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                          snapshots=series, observed=observed)
 
 
-POLICY_STOP_ORDER = ("context_overflow", "too_many_errors", "too_many_compactions", "format_error", "content_filter")
-TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "too_many_errors", "too_many_compactions")  # format_error and content_filter are terminal
+# max_output_tokens (M2 R-5, verifiers' name): every reply up to the nudge allowance was cut off at max_tokens
+POLICY_STOP_ORDER = ("context_overflow", "max_output_tokens", "too_many_errors", "too_many_compactions", "format_error", "content_filter")
+TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "max_output_tokens", "too_many_errors", "too_many_compactions")  # format_error and content_filter are terminal
 
 
 def _masking_failure(world: World) -> str | None:
