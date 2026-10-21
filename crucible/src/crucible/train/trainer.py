@@ -757,7 +757,11 @@ class TorchTrainer:
         """The trainer's own validity check (M12 audit: nothing on the M12 path called ``valid_for_training``, so a call
         without behaviour logprobs trained with π_rollout = 1). A scored record whose trained calls lack a complete,
         finite token record is masked here (``crucible:capture_incomplete``): excluded from baselines and the loss.
-        A call sampled at another temperature than the trainer's is a configuration error and raises."""
+        A call sampled at another temperature than the trainer's, or with a repetition / presence / frequency penalty, is a
+        configuration error and raises. M12 lab audit C-8: the gate now also masks what ``Turn.missing`` (the Runtime's
+        capture gate) masks for no ``policy_version`` or a ``prefix_break``, for callers that reach ``step`` directly
+        (offline records, the rLLM tinker route), and a log-prob above 0 (no probability exceeds 1). Missing top-p
+        candidate sets still raise, in ``_items``."""
         import math
 
         out, bad = [], 0
@@ -779,12 +783,21 @@ class TorchTrainer:
                 if temp is not None and abs(float(temp) - float(self.cfg.temperature)) > 1e-6:
                     raise ValueError(f"{r.rollout_id}/{t.call_id} was sampled at temperature {temp} but the trainer computes log-probs at "
                                      f"{self.cfg.temperature}: every ratio would be biased (set TrainerConfig.temperature)")
+                if pen := _penalties(t.sampling):
+                    raise ValueError(f"{r.rollout_id}/{t.call_id} was sampled with {pen}: the engine's log-probs are of the penalised "
+                                     "distribution, which the trainer does not recompute, so every ratio would be biased (sample without penalties)")
                 if t.logprobs is None or len(t.logprobs) != n:
                     why = "logprobs"
                 elif not all(math.isfinite(x) for x in t.logprobs):
                     why = "non-finite logprobs"
+                elif any(x > LOGPROB_TOL for x in t.logprobs):
+                    why = "positive logprobs"
                 elif t.prompt_token_ids is None:
                     why = "prompt_token_ids"
+                elif t.policy_version is None:
+                    why = "policy_version"
+                elif t.prefix_break:
+                    why = "prefix_break"
                 elif not t.spans_valid():
                     why = "version_spans"
                 if why:
@@ -916,6 +929,18 @@ def _takes_media(model: Any) -> bool:
         return fn is not None and "media" in inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return False
+
+
+LOGPROB_TOL = 1e-3  # a behaviour log-prob above this is not a probability (rounding of a near-certain token stays far below)
+# sampling penalties at their neutral values (vLLM / SGLang / OpenAI): any other value reshapes the sampled distribution
+NEUTRAL_PENALTIES = {"repetition_penalty": 1.0, "presence_penalty": 0.0, "frequency_penalty": 0.0}
+
+
+def _penalties(sp: Any) -> str:
+    """The non-neutral penalties a call was sampled with ("" when none was sent or all are neutral)."""
+    # ``not <=``: a NaN penalty is not neutral either
+    bad = [f"{k}={v}" for k, neutral in NEUTRAL_PENALTIES.items() if (v := getattr(sp, k, None)) is not None and not abs(float(v) - neutral) <= 1e-9]
+    return ", ".join(bad)
 
 
 def _loss_dtype(dev: torch.device) -> torch.dtype:

@@ -21,8 +21,9 @@ engines, so verifiers' traces carry exact token records, and they become ``cruci
     (``ModelCall.sampling``, ``V/types.py:268-292``: temperature, top_p, max_tokens and pass-through keys such as top_k),
     overridden by what Crucible's generate server actually served when the trace ran on it;
   - **truncated sampling is refused, not silently changed**: Crucible's ``gen(ids, max_tokens, temperature)`` samples the
-    full distribution and returns no candidate sets, so a call that asked for ``top_p < 1``, ``top_k > 0`` or
-    ``min_p > 0`` is masked ``crucible:harness_unsupported`` (configure the environment with full sampling);
+    full distribution and returns no candidate sets, so a call that asked for ``top_p < 1``, ``top_k > 0``,
+    ``min_p > 0`` or a repetition / presence / frequency penalty is masked ``crucible:harness_unsupported`` (configure the
+    environment with full, unpenalised sampling);
   - the actor is the agent's name (``AgentInfo.name``, ``V/trace.py:105-115``; the dump is a dict, ``:389``), and an
     agent with ``trainable=False`` (a judge, a user simulator: ``:114``) yields a record that never trains:
     masked ``vf:untrainable_agent``, as prime-rl skips it (``PR/orchestrator/algo/base.py:11-18``);
@@ -57,6 +58,8 @@ from typing import Any
 from crucible.core.schema.rollout import RolloutRecord, Turn
 
 VF_PY = Path(__file__).resolve().parents[4] / ".envs" / "verifiers" / "bin"
+# sampling penalties at their neutral values; the generate server applies none (``unsupported_sampling``)
+PENALTIES = {"repetition_penalty": 1.0, "presence_penalty": 0.0, "frequency_penalty": 0.0}
 
 
 def _leaves(nodes: list[dict]) -> list[int]:
@@ -112,7 +115,9 @@ def vf_truncated(trace: dict) -> bool:
 
 
 def unsupported_sampling(sampling: dict) -> str | None:
-    """A truncated-sampling knob Crucible's generate path cannot serve (full-distribution sampling, no candidate sets)."""
+    """A truncated-sampling knob or a sampling penalty Crucible's generate path cannot serve (full-distribution sampling,
+    no candidate sets, no penalties). M12 lab audit C-8: a requested penalty was recorded on the turn although the server
+    sampled without it, so the trainer, which refuses penalised calls, raised on log-probs that were in fact unbiased."""
     def num(k):
         v = sampling.get(k)
         try:
@@ -125,6 +130,9 @@ def unsupported_sampling(sampling: dict) -> str | None:
         return f"top_k={v:g}"
     if (v := num("min_p")) is not None and v > 0:
         return f"min_p={v:g}"
+    for k, neutral in PENALTIES.items():
+        if (v := num(k)) is not None and not abs(v - neutral) <= 1e-9:
+            return f"{k}={v:g}"
     return None
 
 
@@ -273,10 +281,10 @@ class RolloutGenerateServer:
             self.versions.setdefault(rid, []).append(int(res.version))
             ids, lps = list(res.completion_ids), list(res.logprobs)
             self.completions.setdefault(rid, []).append((ids, [float(x) for x in lps]))
-            # gen samples the full distribution at ``temperature``: top_p/top_k are not served (trace_to_record masks a
-            # call that asked for them: crucible:harness_unsupported)
+            # gen samples the full distribution at ``temperature``: top_p/top_k and penalties are not served (trace_to_record
+            # masks a call that asked for them: crucible:harness_unsupported)
             self.sampling.setdefault(rid, []).append({"temperature": temperature, "max_tokens": max_tokens, "top_p": 1.0, "top_k": -1,
-                                                      "requested": {k: sp.get(k) for k in ("top_p", "top_k", "min_p") if sp.get(k) is not None}})
+                                                      "requested": {k: sp.get(k) for k in ("top_p", "top_k", "min_p", *PENALTIES) if sp.get(k) is not None}})
             stops = set(sp.get("stop_token_ids") or ())
             finish = "stop" if (res.finish == "stop" or (ids and ids[-1] in stops)) else "length"
             return {"request_id": rid, "prompt_token_ids": list(body["token_ids"]),
