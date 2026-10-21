@@ -95,8 +95,16 @@ class VLLMServerEngine:
         try:
             r = await task
         except asyncio.CancelledError:
-            if task.cancelled():
-                return done([], [], [], "abort")  # the kept output survives a cancelled resume
+            me = asyncio.current_task()
+            if task.cancelled() and (me is None or not me.cancelling()):
+                # ``abort_all`` cancelled the request (a barrier): an abort, re-issued by the runtime; the kept output
+                # survives a cancelled resume
+                return done([], [], [], "abort")
+            # the caller was cancelled (an evicted or redundant rollout, shutdown, a timeout): it must stop, not come
+            # back as an abort the runtime re-issues (M12 lab audit C-3(a): cancelling the caller cancels the awaited
+            # request too, so ``task.cancelled()`` alone could not tell the two apart)
+            if task.done() and not task.cancelled():
+                task.exception()  # a request that failed just before the cancel: retrieved, so asyncio does not warn
             raise
         finally:
             self._tasks.pop(rid, None)
