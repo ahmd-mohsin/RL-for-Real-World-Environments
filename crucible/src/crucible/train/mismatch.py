@@ -25,8 +25,12 @@ Every correction is a pure function returning the **per-token objective J_t to m
 | gspo     | sequence ratio s_i = exp(mean log r_s), token form, clip   | yes          | Qwen (ε = 3e−4 / 4e−4) |
 | ipo      | 𝟙[|π_θ − π_rollout| ≤ ε] · sg(min(r, cap)) · Â · log π_θ    | **no**       | prime-rl default (ε = 0.3) |
 
-``tis`` / ``icepop`` with ``level="sequence"``: one weight per rollout, ρ = Π_t r_dis (TRL sequence_truncate /
-sequence_mask, NeMo-RL seq-mask-tis). ``cispo`` with ``mask=True``: MiniMax-M1's unified token mask (PPO's trust region).
+``tis`` / ``icepop`` with ``level="sequence"``: one weight per rollout, the product ρ = Π_t r_dis (TRL sequence_truncate /
+sequence_mask; NeMo-RL's generation-IS weight under ``sequence_level_importance_ratios=True``). Not NeMo-RL's
+``seq-mask-tis``: that gates on the geometric mean exp(mean_t log r_dis) and keeps token-level weights. Under rollout
+sampling E[log r_dis] ≤ 0, so the product of a long rollout typically drifts down (``icepop`` masks it below α, ``tis``
+weights it toward 0).
+``cispo`` with ``mask=True``: MiniMax-M1's unified token mask (PPO's trust region).
 Name map to other stacks: prime-rl's ``icepop`` (a [0.2, 5] band on π_θ/π_rollout, no PPO term) is Crucible's ``mimo4``;
 Crucible's ``icepop`` is Ring-1T's (r_dis gate around a PPO term), as AReaL implements it.
 
@@ -178,8 +182,9 @@ def correct(c: Correction, *, logp: torch.Tensor, rollout_logp: torch.Tensor, ad
         if name == "ppo":
             obj = base
         elif name in ("tis", "icepop") and c.params.get("level") == "sequence":
-            # sequence-level IS on the engine gap (TRL vllm_importance_sampling_mode="sequence_truncate"/"sequence_mask",
-            # NeMo-RL seq-mask-tis): ρ = Π_t r_dis over the rollout (a sum of log ratios, clamped), one weight per rollout
+            # sequence-level IS on the engine gap (TRL vllm_importance_sampling_mode="sequence_truncate"/"sequence_mask"; the
+            # product form, not NeMo-RL's geometric-mean seq-mask-tis): ρ = Π_t r_dis over the rollout (a sum of log ratios,
+            # clamped), one weight per rollout
             log_rho = (_seq_mean(log_rdis, m, seq_ids) * _seq_count(m, seq_ids)).clamp(-LOG_RATIO_CLAMP, LOG_RATIO_CLAMP)
             rho = log_rho.exp()[:, None]
             if name == "tis":
