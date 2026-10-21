@@ -492,13 +492,15 @@ class KeepRule:
 
 
 def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: int, frontier: Mapping[str, Sequence[bool]] | None,
-                 rule: KeepRule | None = None, world_issue: str | None = None) -> dict[str, Any]:
+                 rule: KeepRule | None = None, world_issue: str | None = None, spec_issue: str | None = None) -> dict[str, Any]:
     """The keep rule on one task's measured evidence (``KeepRule``). ``passes`` of ``n`` unmasked student attempts;
     ``on_intent`` of ``labelled`` failures are a trusted skill-gap label whose trace evidence is one of the task's intent
     skills (masked attempts and routed failures are not labels); ``frontier``: solver -> its attempts' full passes
     (None or empty: not run); ``world_issue``: an open World defect found in the traces (the task goes back to the World's
-    owner whatever the numbers say: ``world_bug``). ``verdict`` is ``train`` | ``bench`` | ``too_easy`` | ``too_hard`` |
-    ``unfair`` | ``off_intent`` | ``out_of_band`` | ``world_bug`` | ``unmeasured``; ``keep`` is True only for ``train`` /
+    owner whatever the numbers say: ``world_bug``); ``spec_issue``: an open task-spec defect found by an executed check
+    (a hidden milestone needs a fault the report never describes: the judges, who never see the hidden tests, label such
+    failures skill gaps), the task goes back to its builder (``spec_defect``). ``verdict`` is ``train`` | ``bench`` |
+    ``too_easy`` | ``too_hard`` | ``unfair`` | ``off_intent`` | ``out_of_band`` | ``world_bug`` | ``spec_defect`` | ``unmeasured``; ``keep`` is True only for ``train`` /
     ``bench`` on their own split."""
     r = rule or KeepRule()
     if n <= 0:
@@ -525,6 +527,8 @@ def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: i
             "rule": asdict(r), "flags": flags}
     if world_issue:
         return {**base, "verdict": "world_bug", "keep": False, "why": f"open World defect (owner World): {world_issue}"}
+    if spec_issue:
+        return {**base, "verdict": "spec_defect", "keep": False, "why": f"open task-spec defect (owner the builder, S2): {spec_issue}"}
     if fair is False:
         return {**base, "verdict": "unfair", "keep": False, "why": "no frontier solver passes it: not counted as fair"}
     if p > r.train_hi:

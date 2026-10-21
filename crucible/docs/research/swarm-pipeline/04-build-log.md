@@ -1267,3 +1267,32 @@ only. (2) The node tasks' student arm was re-run after the World fix; the broken
 (3) The audit of the first 7 non-node tasks ran before the World-tool fact existed (no node World there); h3 was re-audited after the fix.
 (4) Held-out findings stay in `data/targeting` (sealed); only training findings feed builder intents and the committed
 summary.
+
+### S15 at 300 tool calls (2026-10-20): the lane's env budget, the disclosure check, h3's World
+
+Spec: `07` §6.1. Spend $326.11 of a $450 cap (student $165.94, 397B $84.31, DeepSeek $54.14, GLM-5.3 $17.83,
+GLM-5.3-Flash $3.88). W&B: `crucible-factory` run `factory-debug-s15-t300-cac4469d`, 132 Weave traces with audits.
+
+**Files.** Changed: `factory/generators/debug.py` (`EnvBudget` / `ENV_BUDGET`, `silent_units`, `disclosure_check`),
+`factory/targeting.py` (`keep_verdict(spec_issue=)`, verdict `spec_defect`), `factory/langs/node.py` (`PNPM_OFFLINE`,
+recipe `node-5`, `policy_world_steps`), and `scripts/lh_debug_target.py`:
+- defaults from `ENV_BUDGET` and `settings.env_budget`;
+- `--seed-offset`, and trace and W&B names carry the tool limit;
+- stage `disclose`;
+- worldfix: the repo's own `pnpm test` and `--prior-worldfix`;
+- `world_issues.json` entries with `kind`;
+- summary: `--compare`, budget stops, carried-over tasks, `sealed` committed copy named by the limit.
+
+Tests: `test_s15_debug_targeting.py` (budget, script defaults, node pnpm, seed offset, spec defect, disclosure check,
+sealing). Data repair: 56 generator clones' `alternates` repointed from a deleted worktree to `data/debug/src`.
+
+**What the run found** (`07` §6.1): no task kept at 300 calls; the frontier no longer hits the limit; two held-out
+excelize windows are spec defects the judges could not see (silent reverted fixes checked by another milestone's
+hidden test); h3's World fixed on evidence (not re-measured); mvdan-sh is functionally solved by DeepSeek but loses the
+full pass to `go mod tidy` in a scratch module (open for the verifier owner); a `world_fault` false positive on a shell
+interpreter's test output.
+
+**Deviations.** (1) Stopped by the user after 11 of 15 tasks: black-ec71b918 and pulldown-cmark (student arms cut),
+urfave-cli and h3 (not run) are excluded. (2) urfave and h3 were started early, alongside the last training arms, once
+spend was clearly under the cap, then cancelled. (3) The disclosure verdict is a reviewed record, not a gate: a builder
+may have described a silent fix in a requirement (urfave-cli R3 does).

@@ -296,3 +296,97 @@ fixed, the dependent m04 never) and claimed-done reports on node; they stay seal
 World: h3's offline `pnpm`. S2: echo is too easy; go-toml and mvdan-sh-dc951aeb are frontier-solvable at 0 for the
 student (simplify(locate|prerequisites) candidates). unstorage would be a training-band task (0.38, 5/5 on-intent, fair)
 but is sealed held-out.
+
+### 6.1 Targeting at 300 tool calls (run of 2026-10-20, $326 of the $450 cap; stopped early by the user)
+
+**The env budget is now 300 tool calls** (user decision after §6): `generators.debug.ENV_BUDGET` (tool limit 300, agent
+timeout 5400 s, rollout timeout 9000 s, Φ every 20 calls with cap 15, so the periodic points reach call 280; every
+value scales the 150-call run's numbers). The keep rule, the benchmark and RL use the same budget.
+`lh_debug_target.py` defaults to it and records it in every report and W&B run (`settings.env_budget`,
+`is_lane_budget`, tag `tool_limit:300`, summary `s15/tool_limit`). Everything else is unchanged from §6: the 256K
+variants, thinking off, k = 8 / 2 + 2, the same judges, controls, family rules and keep rule. A re-measurement draws
+fresh seeds (`--seed-offset 300`), so its run ids (the Weave trace keys) never collide with §6's. Data:
+`data/targeting/debug-300/` (sealed). Summary: `runs/s15_debug_targeting_t300.json`, with held-out details sealed
+(`sealed`). W&B: `crucible-factory` run `factory-debug-s15-t300-cac4469d`, 132 episode traces with their audits.
+
+**Scope.** 11 of the 15 planned tasks completed every arm. Order: the 4 new held-out tasks, then the training tasks. The
+two-task projection was $409, under the cap. The user stopped the phase before black-ec71b918's and pulldown-cmark's
+student arms finished and before urfave-cli and h3 ran. Those 4 tasks are excluded (their partial arms are kept but not
+reported). Carried over from §6, not re-run: echo (too easy at 150) and unstorage (3/8 at 150, above the benchmark
+band; more budget only raises it).
+
+| task | lang | split | faults | student pass@1 (8) [95% CI] | mean Φ | frontier (397B; DS) | budget stops (student; frontier) | on-intent / labelled | verdict | at 150 calls (student; frontier; verdict) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| go-carbon-93371b6f | go | heldout | 3 | 3/7 = 0.43 [0.16, 0.75] | 0.43 | 0/2; 1/2 | 0; 0 | 4/4 | out of band (not below 0.3) | new |
+| go-carbon-a783fb3a | go | heldout | 2 | 7/8 = 0.88 [0.53, 0.98] | 1.00 | 2/2; 1/2 | 0; 0 | 1/1 | too easy | new |
+| go-excelize-65be17e3 | go | heldout | 3 | 0/8 [0, 0.32] | 0.67 | 0/2; 0/2 | 1; 0 | 7/8 (judges) | **spec defect** | new |
+| go-excelize-824ac2ce | go | heldout | 2 | 0/8 [0, 0.32] | 0.50 | 0/2; 0/2 | 0; 0 | 8/8 (judges) | **spec defect** | new |
+| go-go-toml-a02114e3 | go | train | 4 | 0/8 [0, 0.32] | 0.47 | 0/2; 2/2 | 0; 0 | 8/8 | too hard (simplify) | 0/8; 0/2, 1/2; too hard |
+| go-mvdan-sh-02a801cd | go | train | 4 | 0/8 | 0.38 | 0/2; 0/2 | 5; 0 | 3/8 | unfair | 0/8; 0/4; unfair |
+| go-mvdan-sh-04056a74 | go | train | 4 | 0/8 | 0.34 | 0/2; 0/2 | 4; 0 | 4/8 | unfair | 0/8; 0/4; unfair |
+| go-mvdan-sh-5e983709 | go | train | 4 | 0/8 | 0.41 | 0/2; 0/2 | 2; 0 | 5/8 | unfair | 0/8; 0/4; unfair |
+| go-mvdan-sh-dc951aeb | go | train | 4 | 0/8 | 0.44 | 0/2; 0/2 | 0; 0 | 8/8 | unfair | 0/8; 0/2, 1/2; too hard |
+| python-black-90117fa0 | python | train | 3 | 1/8 = 0.13 [0.02, 0.47] | 0.50 | 1/2; 0/2 | 6; 0 | 2/7 | off intent (budget) | 0/8; 0/4; unfair |
+| python-black-ae5830b7 | python | train | 4 | 0/8 | 0.47 | 0/2; 0/2 | 6; 0 | 2/8 | unfair | 0/7; 0/4; unfair |
+
+**No task passes the keep rule** (0 training, 0 benchmark). The budget no longer binds the frontier solvers: 0 of 54
+frontier episodes hit the limit, against 21 of 52 at 150. For the student, 24 of 88 hit it, against 67 of 104; 27 of
+the 36 student failures at or near the limit were still gaining Φ in the last 30% of their calls (`budget_binding`),
+mostly on black and mvdan-sh. black-90117fa0 is the only training task in the band (1/8, and the 397B passes it). 6 of
+its 8 student episodes ran to 300 calls, the pass among them, and budget stops stay `budget`, so the on-intent share is
+2/7. The keep rule is applied as is.
+
+**What the run found.**
+1. *Spec defect in both excelize windows (held out).* All 28 episodes across the three models pass every milestone but
+   one, mostly ending on their own well under the limit. The cause: strip mode leaves reverted fixes without a
+   milestone (their checks were visible), and one milestone's hidden table test also checks them, while the bug report
+   never describes them. The executed check proves it: B with only those fixes' source reverted fails that milestone and
+   passes the others, in the pinned World. A frontier patch fails exactly the undescribed cases. Both GLM judges
+   labelled every failure `skill_gap` (they never see the hidden tests). New: `generators.debug.disclosure_check`
+   (language-general, through the task's own grader) and the stage `disclose`. Of the 15 tasks it flags excelize ×2 and
+   urfave-cli. On review urfave's report does describe its silent fix (R3), so only the excelize tasks are defects,
+   recorded `kind: spec_defect` in `world_issues.json`. The keep rule now has a `spec_issue` input (verdict
+   `spec_defect`, owner the builder). Open lane item: feed the builder the silent units a milestone needs, or keep such
+   units out of A'.
+2. *h3 World fixed (pnpm 12 offline).* `pnpm <script>` first checks the installed tree against the lockfile
+   (`verify-deps-before-run`) and installs when they differ. They always differ, because the recipe deletes the
+   project's own installed copies (the leak rule). So every `pnpm test` fetched h3's release tarballs with retries until
+   the 600 s timeout. With a network, it would have re-installed the very copy the deletion closes. Fix:
+   `ENV pnpm_config_verify_deps_before_run=false pnpm_config_offline=true` (`node.PNPM_OFFLINE`, recipe `node-5`,
+   policy World `-pw645aaf43`). Accepted on evidence: the repo's own `pnpm test` reaches the registry in the pinned
+   image and hangs in §6's World; in the fixed World it finishes in 5 s. Both hidden milestones fail at A' and pass at B
+   there, the leak probes pass, and the grader keeps the pinned image. Its 2 failing tests fail at B too (`post_fail`,
+   node 22). h3 was not re-measured (stopped).
+3. *mvdan-sh is functionally frontier-solved.* DeepSeek reaches Φ = 1 in 6 of 8 episodes. It loses the full pass to
+   `path:install` (5: `go mod tidy` inside a scratch reproduction module under /tmp with a `replace` to the workspace,
+   offline, `GOPROXY=off`) or to `path:protected` (2: edited test files). The rule counts `tidy` as an install (§6, item
+   2), so the tasks read `unfair`. Whether `tidy` in a scratch module is an install is open for the verifier owner. It
+   changes no keep decision: the student is 0/8 on all four.
+4. *Fact false positive.* `world_fault` "command 'foo' not found in the World" fires on mvdan-sh, a shell
+   interpreter whose test scripts print exactly that. It marked 1 label disputed on 5e983709 (no verdict changes). Open
+   for `traceaudit` (owner of the World-tool fact).
+5. *Clones.* The 56 generator clones of the first mining run borrowed objects (`alternates`) from a deleted worktree;
+   repointed to the same clones in `data/debug/src` (every task's oracle steps resolve again).
+
+**Honest-trace checks** (student): a STATUS over-claim in 38 episodes (35 training), claimed-but-unrun tests in 4.
+DeepSeek ran `pip download black` on black-90117fa0 at Φ = 1 (`path:network`, scored 0). One student episode was
+masked (the answer-exposure guard).
+
+**Spend and cost per episode at 300 calls.** Total $326.11: student $165.94, 397B $84.31, DeepSeek $54.14, GLM-5.3
+$17.83, GLM-5.3-Flash $3.88. About $15 of the student's total went to the cancelled arms. Per episode: student $1.72,
+27.6 min wall, 208 calls (§6: $0.79, 20 min); 397B $3.01, 13.6 min, 132 calls ($2.43, 11 min); DeepSeek $2.05, 26.8
+min, 183 calls ($1.07, 17 min). Host: 10.6 Worlds at once on average (max 18), load mean 9.7.
+
+**Failure mining** (training tasks only). 77 findings, 25 routed (20 budget). 3 builder-intent requests, all
+`awaiting_human`:
+- `stalled`, "Carries a multi-step change through to its last dependent step": 28 episodes over go-toml, mvdan-sh ×4 and
+  black-ae5830b7 (interacting faults 18, multi-fault localization 9).
+- `claimed_done_without_progress`, "Checks its own work against the request before it reports the work done": 2.
+- `never_progressed`, "Finds where a requested change belongs ... and makes its first step pass": 2, black-90117fa0.
+
+Held-out findings stay sealed.
+
+**Next, by owner.** S2 / lane: the excelize reports (describe the silent fixes, or rebuild the windows without them),
+then re-measure; carbon-a783fb3a is too easy. Verifier: `go mod tidy` in a scratch module. traceaudit: the shell
+`not found` fact. Limits: black and mvdan-sh still bind at 300 for the student (27 of 36 still gaining). Remaining at
+300: black-ec71b918, pulldown-cmark, urfave-cli, h3 (in its fixed World).
