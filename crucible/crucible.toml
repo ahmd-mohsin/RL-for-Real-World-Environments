@@ -45,3 +45,9 @@ shared = true
 "z-ai/glm-4.7-flash" = [0.0605, 0.40]
 "openai/gpt-oss-20b" = [0.018, 0.09]
 "meta-llama/llama-3.1-8b-instruct" = [0.05, 0.08]
+
+# Context windows in tokens (prompt plus reply), for a model whose server does not report one (M2 R-14). A self-hosted
+# vLLM or SGLang engine is asked through its /models card; a hosted model is read from here only. With neither,
+# ContextConfig compacts against 128,000 tokens and LLMToolPolicy cannot fit its replies to the room left.
+# [context_windows]
+# "org/model" = 32768

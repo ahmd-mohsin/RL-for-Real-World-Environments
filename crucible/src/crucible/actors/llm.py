@@ -176,6 +176,9 @@ class Spend:
 
 
 UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a hosted model with no price anywhere
+# fields of a /models entry that give the context window: vLLM and SGLang, OpenRouter, others (verifiers' discover_threshold)
+WINDOW_FIELDS = ("max_model_len", "context_length", "context_window", "max_context_length")
+WINDOW_DISCOVERY_S = 15.0  # one /models read per client; past this the window stays unknown
 RATE_LIMIT_ATTEMPTS = 6  # a 429 gets at least this many attempts, on a slower curve: 3 tries over 4.5 s gave up mid-burst
 
 
@@ -261,6 +264,8 @@ class LLMClient:
         self._reserved = 0.0  # USD held by calls in flight (the hard budget counts them: see ``_reserve``)
         self._max_seen = 0.0  # the largest single-call cost so far: the reservation when no price is configured
         self._client = None
+        self.window_tokens: int | None = None  # the model's context window once resolved (``context_window``)
+        self.window_source: str | None = None  # where it came from: "config", "models" or "unknown"; None = not resolved yet
 
     def lock_settings(self) -> dict[str, Any]:
         """What this client is for a run lock (runtime.lock, R-1): the resolved model, the endpoint and every provider
@@ -313,6 +318,30 @@ class LLMClient:
 
         host = (urlparse(self.provider.base_url).hostname or "").casefold()
         return self.provider.tito or self.provider.policy_version is not None or host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".local")
+
+    async def context_window(self) -> int | None:
+        """The model's context window in tokens (prompt plus reply), resolved once (M2 R-14; PATTERN: verifiers
+        ``discover_threshold`` reads the /models card, MIT): ``crucible.toml``'s ``context_windows`` for this model id, else
+        a self-hosted engine's /models entry (vLLM and SGLang give ``max_model_len``), else None (unknown: callers keep
+        their defaults). Compaction budgets defaulted to 128,000 tokens whatever the served window, so a 32,768-token
+        engine overflowed before compacting once. Hosted APIs are read from config only: a cached run stays offline."""
+        if self.window_source is None:
+            n, src = self.config.context_windows.get(self.model), "config"
+            if n is None and self._self_hosted() and self.cache_mode != "replay":
+                n, src = await self._discover_window(), "models"
+            self.window_tokens, self.window_source = (n, src) if n else (None, "unknown")
+        return self.window_tokens
+
+    async def _discover_window(self) -> int | None:
+        try:
+            page = await asyncio.wait_for(self._openai().models.list(), timeout=WINDOW_DISCOVERY_S)
+            for m in getattr(page, "data", None) or []:
+                card = m.model_dump() if hasattr(m, "model_dump") else dict(vars(m))
+                if card.get("id") == self.model:
+                    return next((int(v) for f in WINDOW_FIELDS if isinstance(v := card.get(f), int) and v > 0), None)
+        except Exception:  # noqa: BLE001 -- an engine without /models, or one down: the window stays unknown, never an error here
+            return None
+        return None
 
     def _prices(self) -> tuple[list[float] | tuple[float, float] | None, bool]:
         """(USD per 1M [input, output], is_fallback). No price for a self-hosted engine; a hosted model with none

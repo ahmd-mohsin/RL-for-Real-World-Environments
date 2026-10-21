@@ -1498,3 +1498,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   suites: 318 passed.
 - **Merge notes.** A responder that is not an `ActorBase` keeps its end only until a restore unless it has a
   `finished_reason` attribute and saves it in `state_dict`.
+
+## 67. M2 R-14: the compaction budget is the model's declared or discovered window
+
+- **Item.** R-14 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: an undeclared window is not
+  an error for a self-hosted engine (the local mlx-lm student and every fake endpoint would stop working); it stays
+  unknown, with today's 128,000 default. Hosted models are read from config only, so a run served from the LLM cache
+  never goes online for a window. Pattern from verifiers `discover_threshold` (the /models fields; MIT) and Harbor's
+  declared model limits (Apache-2.0); no code copied, so no THIRD_PARTY row.
+- **Files.** `src/crucible/core/config.py` (`Config.context_windows`), `src/crucible/actors/llm.py`
+  (`LLMClient.context_window`, `window_tokens`, `window_source`, `WINDOW_FIELDS`, `WINDOW_DISCOVERY_S`),
+  `src/crucible/actors/policy.py` (`ContextConfig.budget_tokens`, `DEFAULT_BUDGET_TOKENS`, `LLMToolPolicy._window`),
+  `src/crucible/actors/rlm/policy.py` (`_config`), `crucible.toml` (a commented `[context_windows]` example),
+  `tests/unit/test_context_window.py` (new).
+- **Public names.** `Config.context_windows` (`crucible.toml` table `[context_windows]`: model id -> tokens, positive);
+  `LLMClient.context_window()` (async, resolved once); `LLMClient.window_tokens`, `window_source` ("config", "models",
+  "unknown"); `crucible.actors.policy.DEFAULT_BUDGET_TOKENS` (128,000).
+- **Behaviour.** `ContextConfig.budget_tokens` defaults to `None`: the compaction budget is the model's window when the
+  policy's client knows it, else 128,000 as before; an explicit value is used as given. `LLMClient.context_window()`
+  reads `context_windows[model id]`, else, for a self-hosted endpoint (`_self_hosted`: localhost, `tito`, a
+  `policy_version`) outside replay mode, one `GET /models` (15 s cap) and the first of `max_model_len`,
+  `context_length`, `context_window`, `max_context_length` on the model's entry; anything else leaves it unknown, and it
+  never raises. `RLMPolicy(context=ContextConfig())` still gets 128,000 (an unset budget is not "compaction off").
+- **Formats.** none (`crucible.toml` gains an optional table).
+- **Tests.** `test_context_window.py` (5: hb01 compacts on a 32,768-token stub that reports its window and overflows as
+  before when it does not; discovery once per client, config first, hosted from config only; hosted, replayed, refused
+  and windowless engines stay unknown without error; the RLM budget; config validation). Actor, M2 audit, RLM, config,
+  core, long-horizon and LLM suites: 589 passed.
+- **Merge notes.** Code that reads `ContextConfig.budget_tokens` directly must treat `None` as "the model's window, else
+  `DEFAULT_BUDGET_TOKENS`".

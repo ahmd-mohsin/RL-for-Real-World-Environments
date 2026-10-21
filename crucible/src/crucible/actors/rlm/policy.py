@@ -38,7 +38,7 @@ import zlib
 from pathlib import Path
 from typing import Any
 
-from crucible.actors.policy import ContextConfig, Policy
+from crucible.actors.policy import DEFAULT_BUDGET_TOKENS, ContextConfig, Policy
 from crucible.actors.rlm.agent import (
     BOOTSTRAP,
     PYTHON_TOOL,
@@ -71,7 +71,7 @@ def _config(config: RLMConfig | None, legacy: dict[str, Any]) -> RLMConfig:
             cc: ContextConfig | None = v
             if cc is None:
                 continue
-            upd["budget_tokens"] = 0 if cc.mode == "none" else cc.budget_tokens
+            upd["budget_tokens"] = 0 if cc.mode == "none" else (cc.budget_tokens or DEFAULT_BUDGET_TOKENS)  # None (M2 R-14) is not "off"
             upd["summary_max_tokens"] = cc.summary_max_tokens
             if cc.mode == "action":
                 upd["context_mode"] = "action"

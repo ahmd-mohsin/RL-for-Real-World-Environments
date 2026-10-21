@@ -79,12 +79,13 @@ COMPACT = ("Your context is nearly full. Write a summary of your work so far tha
 
 @dataclass
 class ContextConfig:
-    """Context management for long horizons (DESIGN §10.4). ``budget_tokens``: the context the policy may use;
+    """Context management for long horizons (DESIGN §10.4). ``budget_tokens``: the context the policy may use (None: the
+    model's window when its client knows it, ``LLMClient.context_window``, else ``DEFAULT_BUDGET_TOKENS``; M2 R-14);
     at ``trigger`` × budget the policy compacts: it writes the summary itself (a recorded model call, trained with the
     episode's advantage), and the new context is system + the task verbatim + the summary + the last
     ``keep_recent_turns`` complete turns. Each compaction starts a new segment."""
 
-    budget_tokens: int = 128_000
+    budget_tokens: int | None = None
     trigger: float = 0.8
     keep_recent_turns: int = 3
     summary_max_tokens: int = 2_000
@@ -99,6 +100,9 @@ class ContextConfig:
     strategy: str = "summary"
     tier_tool_chars: int = 200
     hybrid_summaries: int = 1
+
+
+DEFAULT_BUDGET_TOKENS = 128_000  # the compaction budget when neither ContextConfig nor the model's client gives one
 
 
 IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
@@ -255,6 +259,12 @@ class LLMToolPolicy(Policy):
         self._measured = None
         return min(keep_turns, len(starts))
 
+    async def _window(self) -> int | None:
+        """The model's context window when the client knows it (``LLMClient.context_window``: config, else a self-hosted
+        engine's /models card), else None."""
+        get = getattr(self.llm, "context_window", None)
+        return await get() if get is not None else None
+
     def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
         self.segments.append({"index": self.segment + 1, "strategy": strategy, "summary_call": summary_call, "context_before": before,
                               "context_after": approx_tokens(self.messages), "kept_turns": kept})
@@ -276,7 +286,8 @@ class LLMToolPolicy(Policy):
         cfg = self.context
         if cfg is None or cfg.mode != "compact" or self._queue or self._pending:
             return
-        if self.context_tokens() < cfg.trigger * cfg.budget_tokens:
+        budget = cfg.budget_tokens or await self._window() or DEFAULT_BUDGET_TOKENS
+        if self.context_tokens() < cfg.trigger * budget:
             return
         before = self.context_tokens()
         strategy = cfg.strategy
@@ -286,7 +297,7 @@ class LLMToolPolicy(Policy):
             done = sum(1 for sg in self.segments if sg.get("strategy") in ("summary", "hybrid:summary"))
             strategy = "hybrid:summary" if done < cfg.hybrid_summaries else "hybrid:discard_all"
         if strategy == "tiered":
-            if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
+            if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * budget:
                 self._seen = len(self.messages)
                 self._measured = None
                 self._new_segment("tiered:shrink", before, len(self.messages))
