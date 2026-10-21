@@ -1629,3 +1629,28 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   suites: 394 passed, 2 skipped, 3 xfailed.
 - **Merge notes.** A new provider wording goes into `OVERFLOW_PATTERNS` (with its sample in the test), not into a
   caller.
+
+## 72. M2 R-24: a paid call lost after it was sent is booked as uncertain, and sent again once
+
+- **Item.** R-24 of `docs/research/improvements/2026-10-15/M02-actors.md` (should), narrowed: no `Idempotency-Key` on
+  the re-send (no provider or proxy we use deduplicates on it) and no failed-call entry in `model_calls`
+  (`runtime.record.build` turns call entries into rollout turns). Pattern from repo2rlenv's campaign LLM client (a
+  dispatched call that fails keeps its reservation as uncertain; Apache-2.0); no code copied.
+- **Files.** `src/crucible/actors/llm.py` (`_maybe_billed`, `RESENDS_AFTER_SEND`, `LLMClient._complete_paid`,
+  `complete`, `Spend.failed_calls`), `tests/unit/test_failed_calls_booked.py` (new).
+- **Public names.** `crucible.actors.llm.RESENDS_AFTER_SEND` (1); `Spend.failed_calls`.
+- **Behaviour.** In `_complete_paid`, a failed attempt that may have reached the model (a 5xx, a 200 without choices, or
+  a transport failure after the request went out: a read timeout or a reset, as the OpenAI SDK's `APITimeoutError` /
+  `APIConnectionError` over httpx) books the call's budget hold as spend and as uncertain spend (as an unpriced
+  model's calls are booked), adds it to the task's spend scope, and allows only one more send. A refused connection
+  or a connect timeout (never sent) and any 4xx book nothing and retry as before. Calls with no hold (self-hosted
+  engines, cost 0) are unchanged. So the hard budget and the run's uncertain-spend rule now see the dearest failures
+  (long reasoning calls that time out), and a lost call is billed at most twice.
+- **Formats.** none.
+- **Tests.** `test_failed_calls_booked.py` (4: a read timeout is sent twice and books two holds; a 5xx then a success
+  books both; a refused connection and a 400 book nothing). Every unit file that builds an `LLMClient` or books spend,
+  except `r1_a2a` (it waits 15 minutes on main: entry 65): 498 passed, 1 skipped; the failure is `test_sampling`'s
+  rollout version (entry 65).
+- **Merge notes.** The run ledger settles `cost_usd + cost_uncertain_usd`, so a lost call counts twice there, as
+  fallback-priced calls already did (ledger item IDX-FIX-1); conservative, and it may reach the 10% uncertain-spend stop
+  sooner on a flaky provider (the audit's stated risk).

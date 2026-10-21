@@ -221,6 +221,7 @@ class Spend:
     blank_usage_calls: int = 0
     unpriced_calls: int = 0  # calls booked at the fallback price (no provider cost, no configured price)
     budget_waits: int = 0  # calls that waited for money held by calls in flight before they could start (M2 R-2)
+    failed_calls: int = 0  # attempts that failed after they may have reached the model, booked at their hold (M2 R-24)
 
 
 UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a hosted model with no price anywhere
@@ -228,6 +229,7 @@ UNPRICED_USD_PER_M = (3.0, 15.0)  # [input, output] USD per 1M tokens for a host
 WINDOW_FIELDS = ("max_model_len", "context_length", "context_window", "max_context_length")
 WINDOW_DISCOVERY_S = 15.0  # one /models read per client; past this the window stays unknown
 RATE_LIMIT_ATTEMPTS = 6  # a 429 gets at least this many attempts, on a slower curve: 3 tries over 4.5 s gave up mid-burst
+RESENDS_AFTER_SEND = 1  # a priced call that may have been billed (sent, then lost) is sent again at most this many times (M2 R-24)
 
 
 def _retry_after(e: Exception) -> float | None:
@@ -253,6 +255,23 @@ def _retry_delay(e: Exception, attempt: int, cap: float = 60.0) -> float:
         return min(ra, cap)
     base = 5.0 if getattr(e, "status_code", None) == 429 else 1.5
     return min(min(base * 2**attempt, cap) * (0.5 + random.random()), cap)
+
+
+def _maybe_billed(e: BaseException, status: int | None) -> bool:
+    """Whether a failed attempt may have reached the model, and so be billed: a 5xx, a 200 without choices, or a transport
+    failure after the request went out (a read timeout, a reset). A refused connection or a connect timeout never sent
+    it, and any other status was answered without running it."""
+    if isinstance(e, _NoChoices) or (status is not None and status >= 500):
+        return True
+    if status is not None:
+        return False
+    chain, c = [], e
+    while c is not None and len(chain) < 8:
+        chain.append(c)
+        c = c.__cause__ or c.__context__
+    if any(isinstance(c, (httpx.ConnectError, httpx.ConnectTimeout)) for c in chain):
+        return False
+    return any(isinstance(c, (httpx.TransportError, TimeoutError)) or type(c).__name__ in ("APITimeoutError", "APIConnectionError") for c in chain)
 
 
 def _approx_tokens(messages: list[dict[str, Any]]) -> int:
@@ -435,7 +454,7 @@ class LLMClient:
         hold, priced = await self._reserve(messages, max_tokens)
         try:
             r = await self._complete_paid(messages, tools, params, path, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode,
-                                          seed=seed, extra=extra, sample_key=sample_key)
+                                          seed=seed, extra=extra, sample_key=sample_key, hold=hold)
             if priced > 0 and r.cost_usd > priced:
                 self._overrun = max(self._overrun, r.cost_usd / priced)
             return r
@@ -483,7 +502,8 @@ class LLMClient:
                 self.spend.budget_waits += 1
             await self._settled.wait()
 
-    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None) -> LLMResponse:
+    async def _complete_paid(self, messages, tools, params, path, *, temperature, max_tokens, json_mode, seed, extra, sample_key=None,
+                             hold: float = 0.0) -> LLMResponse:
         if self.provider.tito:
             return await self._tito_complete(messages, tools, temperature=temperature, max_tokens=max_tokens, seed=seed, sample_key=sample_key)
         kwargs = self._request(messages, tools, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode, seed=seed, extra=extra)
@@ -493,7 +513,7 @@ class LLMClient:
             client = self._openai()
         except Exception as e:  # a missing key or bad base URL: retrying cannot help (it was retried 3x with backoff)
             raise LLMError(f"{self.model}: cannot build the client: {e}") from e
-        attempt, limit = 0, self.max_retries
+        attempt, limit, resends = 0, self.max_retries, 0
         while True:
             try:
                 resp = await client.chat.completions.create(**kwargs)
@@ -514,6 +534,17 @@ class LLMClient:
                 if status == 429:
                     limit = max(limit, RATE_LIMIT_ATTEMPTS)
                 attempt += 1
+                if hold > 0 and _maybe_billed(e, status):
+                    # M2 R-24 (PATTERN: repo2rlenv books a dispatched call that failed as uncertain and keeps its
+                    # reservation, Apache-2.0): a call that may have been billed is booked at its hold, as spend (the hard
+                    # budget counts it) and as uncertain (the run's tolerance rule sees it), and is sent again only
+                    # RESENDS_AFTER_SEND times. It was re-sent up to max_retries times and booked nothing.
+                    self.spend.usd += hold
+                    self.spend.uncertain_usd += hold
+                    self.spend.failed_calls += 1
+                    book_scoped(hold)
+                    resends += 1
+                    limit = min(limit, attempt + 1) if resends >= RESENDS_AFTER_SEND else limit
                 if attempt >= limit:
                     err = LLMError(f"{self.model} failed after {attempt} attempts: {last}")
                     err.retry_after = _retry_after(e)  # M10 lab audit R-5 item 3: the last answer's Retry-After rides to the Failure
