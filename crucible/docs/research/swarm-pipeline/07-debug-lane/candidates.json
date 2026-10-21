@@ -28,6 +28,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to perf_bench_test.go stay in the agent's tree (strip mode)"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -59,6 +62,7 @@
    "S10"
   ],
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -90,6 +94,7 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -119,6 +124,7 @@
    "S8"
   ],
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -150,6 +156,7 @@
    "S10"
   ],
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -181,6 +188,7 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -212,6 +220,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
   "shares_fixes_with": [
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-5e983709"
@@ -240,6 +251,9 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
    "db-go-mvdan-sh-dc951aeb"
@@ -274,6 +288,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74"
   ]
@@ -307,6 +324,7 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-2d320f54"
@@ -333,6 +351,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -356,6 +375,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -380,6 +400,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -403,6 +424,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -426,6 +448,9 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [
+   "internal_function_check: m02 test TestParseInt64 is named after the changed function parseInt64"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -451,6 +476,9 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to tests/browser/formBodyLength.browser.test.js, tests/setup/runModuleInChildProcess.js, tests/unit/adapters/formBodyLength.test.js stay in the agent's tree (strip mode)"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -473,9 +501,15 @@
   "milestone_tests": 28,
   "cutoff": "2026-05-01",
   "contamination": "post-release",
-  "gates_ok": null,
-  "gates_passed": null,
+  "gates_ok": false,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3"
+  ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-node-axios-9ff8c996"
   ]
@@ -502,6 +536,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -531,6 +566,7 @@
    "S8"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-node-axios-61cd331d"
   ]
@@ -557,6 +593,11 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [
+   "internal_function_check: m01 test isArbitraryFamilyName is named after the changed function isArbitraryFamilyName",
+   "internal_function_check: m01 test isArbitraryVariableWeight is named after the changed function isArbitraryVariableWeight",
+   "internal_function_check: m01 test isArbitraryWeight is named after the changed function isArbitraryWeight"
+  ],
   "shares_fixes_with": [
    "db-node-tailwind-merge-fd28cb03"
   ]
@@ -583,6 +624,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-node-tailwind-merge-5ab7c602"
   ]
@@ -616,6 +658,7 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -647,6 +690,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m03 test test_lines_with_leading_tabs_expanded is named after the changed function lines_with_leading_tabs_expanded"
+  ],
   "shares_fixes_with": [
    "db-python-black-ec71b918"
   ]
@@ -680,6 +726,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m02 test test_lines_with_leading_tabs_expanded is named after the changed function lines_with_leading_tabs_expanded"
+  ],
   "shares_fixes_with": [
    "db-python-black-ae5830b7"
   ]
@@ -706,6 +755,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-rust-bat-15e0326c",
    "db-rust-bat-e0b53631"
@@ -733,6 +783,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-rust-bat-06262948",
    "db-rust-bat-5c4e3ed1"
@@ -760,6 +811,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-rust-bat-15e0326c",
    "db-rust-bat-e0b53631"
@@ -787,6 +839,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -811,6 +864,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": [
    "db-rust-bat-06262948",
    "db-rust-bat-5c4e3ed1"
@@ -845,6 +899,7 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -869,6 +924,163 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-carbon-93371b6f",
+  "lang": "go",
+  "repo": "carbon",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 39,
+  "milestone_tests": 11,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-carbon-a783fb3a",
+  "lang": "go",
+  "repo": "carbon",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 11,
+  "milestone_tests": 7,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-583585d2",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 188,
+  "milestone_tests": 286,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-65be17e3",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 77,
+  "milestone_tests": 3,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-824ac2ce",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 59,
+  "milestone_tests": 286,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -892,6 +1104,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -923,6 +1136,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "internal_function_check"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -954,6 +1170,9 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "internal_function_check"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -978,6 +1197,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  },
  {
@@ -1009,6 +1229,61 @@
    "S10"
   ],
   "prompt": true,
+  "fairness_flags": [
+   "internal_function_check"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-gleam-17844033",
+  "lang": "rust",
+  "repo": "gleam",
+  "split": "heldout",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 4,
+  "edges": 0,
+  "oracle_lines": 45,
+  "milestone_tests": 14,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-gleam-1bf5964a",
+  "lang": "rust",
+  "repo": "gleam",
+  "split": "heldout",
+  "stage": "windows",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 3,
+  "edges": 0,
+  "oracle_lines": 37,
+  "milestone_tests": 7,
+  "cutoff": "2026-05-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "visible_test_data"
+  ],
   "shares_fixes_with": []
  },
  {
@@ -1032,6 +1307,7 @@
   "gates_ok": null,
   "gates_passed": null,
   "prompt": false,
+  "fairness_flags": [],
   "shares_fixes_with": []
  }
 ]

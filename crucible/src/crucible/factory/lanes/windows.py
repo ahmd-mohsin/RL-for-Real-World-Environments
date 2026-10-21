@@ -124,7 +124,8 @@ REPO_URLS = {
 }
 # the multi-language debugging lane (swarm-pipeline/07, 2026-10-20): its sources, and its held-out repositories, chosen after
 # the S1 fix count and before any executed mining (one or more per language, every repository of an org held out together).
-# alecthomas/kong is left out: alecthomas owns the held-out voluptuous (an org shared with a held-out source never trains)
+# alecthomas/kong is left out of training: alecthomas owns the held-out voluptuous (an org shared with a held-out source
+# never trains); the third draw below holds it out
 DEBUG_REPO_URLS = {
     "esbuild": "evanw/esbuild", "go-yaml": "goccy/go-yaml", "expr": "expr-lang/expr", "mvdan-sh": "mvdan/sh", "goldmark": "yuin/goldmark",
     "gojq": "itchyny/gojq", "burntsushi-toml": "BurntSushi/toml", "go-toml": "pelletier/go-toml", "cobra": "spf13/cobra", "urfave-cli": "urfave/cli",
@@ -154,6 +155,33 @@ HELD_OUT_REPOS.update({"urfave-cli": "D", "h3": "D", "unimport": "D", "ufo": "D"
 DEBUG_REPO_URLS.update({"go-zero": "zeromicro/go-zero", "unstorage": "unjs/unstorage", "ofetch": "unjs/ofetch", "crossws": "unjs/crossws", "c12": "unjs/c12"})
 REPO_URLS.update(DEBUG_REPO_URLS)
 HELD_OUT_REPOS.update({"go-zero": "D", "unstorage": "D", "ofetch": "D", "crossws": "D", "c12": "D"})
+# a third draw (2026-10-20, after the S1 fix count of 80 new clones and before any executed mining of them): organisations
+# with nothing in any training source; every repository of an org together (alecthomas: kong, chroma, participle; aio-libs:
+# aiohttp, yarl). litestar is already held out by the Python lane (H2) and stays under that tag
+DEBUG_REPO_URLS.update({
+    "kong": "alecthomas/kong", "chroma": "alecthomas/chroma", "participle": "alecthomas/participle", "excelize": "xuri/excelize",
+    "carbon": "dromara/carbon", "templ": "a-h/templ", "gleam": "gleam-lang/gleam", "rhai": "rhaiscript/rhai", "comrak": "kivikakk/comrak",
+    "liquidjs": "harttle/liquidjs", "stylelint": "stylelint/stylelint", "i18next": "i18next/i18next", "cron-parser": "harrisiirak/cron-parser",
+    "aiohttp": "aio-libs/aiohttp", "yarl": "aio-libs/yarl", "urllib3": "urllib3/urllib3",
+    # added to the draw after the first held-out repositories' mining and before any executed mining of these three
+    "caddy": "caddyserver/caddy", "go-git": "go-git/go-git", "resty": "go-resty/resty"})
+REPO_URLS.update(DEBUG_REPO_URLS)
+HELD_OUT_REPOS.update({n: "D" for n in ("kong", "chroma", "participle", "excelize", "carbon", "templ", "gleam", "rhai", "comrak", "liquidjs",
+                                         "stylelint", "i18next", "cron-parser", "aiohttp", "yarl", "urllib3", "caddy", "go-git", "resty")})
+# training sources of the same draw: dense parser, formatter and protocol repositories whose orgs hold nothing held out
+DEBUG_REPO_URLS.update({
+    "fasthttp": "valyala/fasthttp", "huma": "danielgtaylor/huma",
+    "kin-openapi": "getkin/kin-openapi", "cel-go": "google/cel-go", "jwx": "lestrrat-go/jwx", "quic-go": "quic-go/quic-go", "casbin": "casbin/casbin",
+    "revive": "mgechev/revive", "tablewriter": "olekukonko/tablewriter", "tdewolff-parse": "tdewolff/parse", "cedar-go": "cedar-policy/cedar-go",
+    "golang-net": "golang/net", "golang-crypto": "golang/crypto",
+    "prql": "PRQL/prql", "calamine": "tafia/calamine", "zip2": "zip-rs/zip2", "sqlparser-rs": "apache/datafusion-sqlparser-rs",
+    "hickory-dns": "hickory-dns/hickory-dns", "sea-query": "SeaQL/sea-query",
+    "interceptors": "mswjs/interceptors", "perfectionist": "azat-io/eslint-plugin-perfectionist", "chrono-node": "wanasit/chrono",
+    "recharts": "recharts/recharts", "xmldom": "xmldom/xmldom", "import-x": "un-ts/eslint-plugin-import-x", "ts-proto": "stephenh/ts-proto",
+    "tough-cookie": "salesforce/tough-cookie", "smol-toml": "squirrelchat/smol-toml",
+    "sqlglot": "tobymao/sqlglot", "isort": "PyCQA/isort", "websockets": "python-websockets/websockets", "strawberry": "strawberry-graphql/strawberry",
+    "sqlite-utils": "simonw/sqlite-utils", "pymodbus": "pymodbus-dev/pymodbus", "dnspython": "rthalley/dnspython", "mitmproxy": "mitmproxy/mitmproxy"})
+REPO_URLS.update(DEBUG_REPO_URLS)
 # one module that fails to import must not stop the others from running: a milestone's tests are judged on their own
 COLLECT_ALL = ("--continue-on-collection-errors",)
 STAGES = ("windows", "world_built", "leak_ok", "f2p_valid", "dependent", "mutants_valid")

@@ -1067,6 +1067,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
 - **First run (CPU, about 11 h):** 98 repositories scouted, 56 mined, 1,379 fix units, 571 real fixes, 44 interacting
   groups, 13 candidates through every CPU gate and S7 in Go, TypeScript, Python and Rust (3 held out); Java built, no
   candidate. Yield is limited by reverts that no longer apply, rare interactions and coarse table tests (`07` §5).
+- **Second run (held-out draw 3):** 80 more clones scouted, 16 held-out repositories (orgs with nothing in training)
+  mined: 4 more held-out candidates (excelize, carbon), so 17 through every CPU gate and S7 (10 training, 7 held out).
+  Intent cards carry `fairness_flags` for review (hidden tests named after internal functions, strip mode's visible test
+  data). The node runner carries the repository's own `--experimental-vm-modules` flag (jest ESM). The store is
+  `CRUCIBLE_DEBUG_ROOT` when the lane runs from a worktree.
 
 ## 8. Layer 4: verification and isolation
 
