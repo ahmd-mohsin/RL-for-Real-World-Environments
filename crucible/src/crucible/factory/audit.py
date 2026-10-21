@@ -56,6 +56,11 @@ Reply with JSON: {"cause": "<cause or abstain>", "solution_correct": true|false|
 "rationale": "<one sentence>"}"""
 
 
+QUOTE_RETRY = ("Your evidence was refused: {quote!r} is not a verbatim substring of the trace. Reply again with the same JSON. "
+               "`evidence` must be ONE contiguous span (5 to 30 words) copied character for character from a single line of the trace: "
+               "no '...', no joined pieces, no paraphrase. Keep your cause unless re-reading the trace changes it.")
+
+
 @dataclass
 class Trace:
     id: str
@@ -101,6 +106,10 @@ class AuditConfig:
     send_back_causes: tuple[str, ...] = ("world_bug", "spec_defect")
     concurrency: int = 8  # (M17 e2e) judge calls in flight: one at a time made a 16-trace batch a 10-minute stage
     forbid_same_family: bool = True  # P3 (00 §8.4): a trace whose policy shares the auditor's model family is refused
+    # S15 (2026-10-20): a reply whose quote is not verbatim (GLM-5.3 and -Flash joined spans with "...") is asked again, with
+    # the rejection fed back, this many times; the check itself is unchanged (a re-asked reply passes ``validate`` or is
+    # rejected). Seeded controls ride the same path, so a judge that only learns to quote is still caught by them
+    quote_retries: int = 0
 
 
 def _fold(s: str) -> str:
@@ -121,11 +130,20 @@ class Auditor:
             return AuditLabel(t.id, "budget", None, status="deterministic", why=f"stopped on {t.meta['stop']}")
         user = json.dumps({"task_prompt": prompt, "requirements": [{"id": r.id, "text": r.text} for r in requirements],
                            "verifier_verdict": "pass" if t.verifier_pass else "fail", "failing_checks": t.failing_checks, "trace": t.text})
-        try:
-            r = await self.client.complete_json([{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}], max_tokens=self.max_tokens)
-        except Exception as e:  # noqa: BLE001 - a failed call is an abstention with its reason, never a crash of the stage
-            return AuditLabel(t.id, None, None, status="rejected", why=f"client error: {e}"[:300])
-        return validate(t, r if isinstance(r, dict) else {}, config=c)
+        msgs: list[dict[str, Any]] = [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}]
+        lab = AuditLabel(t.id, None, None, status="rejected", why="no reply")
+        for attempt in range(1 + max(0, c.quote_retries)):
+            try:
+                r = await self.client.complete_json(msgs, max_tokens=self.max_tokens)
+            except Exception as e:  # noqa: BLE001 - a failed call is an abstention with its reason, never a crash of the stage
+                return AuditLabel(t.id, None, None, status="rejected", why=f"client error: {e}"[:300])
+            lab = validate(t, r if isinstance(r, dict) else {}, config=c)
+            if lab.status != "rejected" or "verbatim" not in lab.why:
+                break
+            lab.why += f" (attempt {attempt + 1})"
+            msgs = [*msgs, {"role": "assistant", "content": json.dumps(r, default=str)},
+                    {"role": "user", "content": QUOTE_RETRY.format(quote=str((r or {}).get("evidence") or "")[:300])}]
+        return lab
 
 
 def validate(t: Trace, reply: dict, *, config: AuditConfig | None = None) -> AuditLabel:

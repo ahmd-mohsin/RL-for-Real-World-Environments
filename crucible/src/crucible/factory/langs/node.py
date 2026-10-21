@@ -121,7 +121,7 @@ class NodeProfile(CLikeProfile):
     protected_rx = re.compile(r"(^|/)tsconfig[^/]*\.json$|(^|/)(vitest|vite|jest|babel|vitest\.workspace|rollup|tsup|esbuild|webpack)\.config\.[cm]?[jt]s(on)?$"
                               r"|(^|/)\.babelrc|(^|/)jest\.config\.json$|(^|/)\.swcrc$|(^|/)\.yarn/")
     plumbing_rx = re.compile(r"(^|/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs)$|(^|/)node_modules(/|$)")
-    recipe = "node-3"
+    recipe = "node-4"  # node-4 (S15): python3 for the World's file tools, corepack's cache at COREPACK_HOME (any HOME finds it)
     base_image = BASE_IMAGE
     timeout_s = 900.0
     tmpfs = "1g"
@@ -217,9 +217,10 @@ class NodeProfile(CLikeProfile):
                    "bun": "npm install -g bun && bun install --frozen-lockfile"}[mgr]
         return "\n".join([
             f"FROM {BASE_IMAGE}",
-            "RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates >/dev/null && rm -rf /var/lib/apt/lists/*",
+            "RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates python3 >/dev/null && rm -rf /var/lib/apt/lists/*",
             "RUN git config --system safe.directory '*' && git config --system user.email agent@sandbox && git config --system user.name agent",
             "ENV CI=1 HUSKY=0 npm_config_update_notifier=false npm_config_fund=false COREPACK_ENABLE_DOWNLOAD_PROMPT=0 NO_COLOR=1 FORCE_COLOR=0",
+            "ENV COREPACK_HOME=/opt/corepack",  # the packageManager pnpm/yarn corepack caches at build, found again under any HOME
             "COPY a /w",
             "WORKDIR /w",
             f"RUN {install}",
@@ -228,9 +229,26 @@ class NodeProfile(CLikeProfile):
             # every such copy is deleted, the dependents keep working only if the tests never load them
             *([f"RUN find /opt/deps/node_modules -path '*/node_modules/{info['project']}' -prune -exec rm -rf {{}} + ; true"]
               if info.get("project") and re.fullmatch(r"(@[\w.-]+/)?[\w.-]+", str(info["project"])) else []),
-            "ENV npm_config_offline=true",
+            "RUN mkdir -p /opt/corepack && chmod -R a+rwX /opt/corepack",
+            "ENV npm_config_offline=true COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0",
             "WORKDIR /w",
         ]) + "\n"
+
+    def policy_world_steps(self) -> list[str]:
+        """What the policy's World needs beyond the pinned image (``runtime.policy_world``): ``python3`` for the World's
+        file tools (``repo.read_file`` / ``list_dir`` / ``write_file`` run a Python snippet: on ``node:22`` every call failed
+        with ``python3: command not found``), and corepack's cache where any ``HOME`` finds it (the build cached the
+        project's ``packageManager`` pnpm under ``/root``; the World runs with ``HOME=/tmp``, so ``pnpm`` tried to download
+        itself offline and every ``pnpm test`` failed). The grader runs the runner binary directly and needs neither."""
+        return [("RUN (command -v python3 >/dev/null) || (apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null "
+                 "&& rm -rf /var/lib/apt/lists/*)"),
+                "RUN mkdir -p /opt/corepack && (cp -a /root/.cache/node/corepack/. /opt/corepack/ 2>/dev/null || true) && chmod -R a+rwX /opt/corepack",
+                # a project without a packageManager field makes corepack ask the registry for the latest release; pin the
+                # cached one instead (the release the build installed the dependencies with)
+                ("RUN cd /opt/corepack && node -e \"const fs=require('fs');const o={};for(const m of ['pnpm','yarn','npm']){const d='v1/'+m;"
+                 "if(fs.existsSync(d)){const v=fs.readdirSync(d).filter(x=>fs.readdirSync(d+'/'+x).length).sort();if(v.length)o[m]=v[v.length-1];}}"
+                 "fs.writeFileSync('lastKnownGood.json',JSON.stringify(o));console.log(JSON.stringify(o))\" && chmod a+rw lastKnownGood.json"),
+                "ENV COREPACK_HOME=/opt/corepack COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0"]
 
     def world_setup_cmd(self, ws: str) -> str:
         return (f"cd {ws} && ln -sfn /opt/deps/node_modules node_modules && mkdir -p .git/info && "

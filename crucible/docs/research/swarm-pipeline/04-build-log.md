@@ -1219,3 +1219,31 @@ of the full existing suite take 20-60 minutes per candidate on a loaded host. (3
 and axios-56014db8 still in S3/S10. (4) Held-out prompts stay in `data/debug/prompts` (sealed), never in the
 committed docs. (5) Known pre-existing flake in this worktree under load: `test_m17_p6_envs::test_native_two_timeouts`
 (a wall-clock test; passes on an idle host and on main).
+
+## S15 targeting of the debug lane (built and run): the 35B student, the frontier solvers, audits, the keep rule
+
+Spec: `07` §6 (results), `08` (roles, failure mining), `09` (Tinker), `11` (W&B). Spend $201 of a $250 cap (student $92,
+397B $65, DeepSeek $36, GLM-5.3 $5.4, GLM-5.3-Flash $1.2, plus $1.1 for the pilot audit check). W&B: `crucible-factory`
+runs `factory-debug-s15-f62a27bf` and `factory-debug-s15-63051dee`, 156 Weave traces with their audits.
+
+**Files.** New: `scripts/lh_debug_target.py`, `tests/unit/test_s15_debug_targeting.py`. Changed: `factory/tinker.py`
+(`benchmark(meter=)` with the arm's own spend, `policy_id`, `regrade`, re-graded attempts read through their source,
+milestones and gates in `episodes.jsonl`, purpose `fairness`), `factory/targeting.py` (`KeepRule`, `keep_verdict`),
+`factory/traceaudit.py` (`honest_trace_facts`, `TEST_RUN`, `budget_binding`, `regrade_source`, `trace_of(result_chars=)`,
+the World-tool `world_fault`), `factory/audit.py` (`AuditConfig.quote_retries`), `factory/pathcheck.py`
+(`strip_heredocs`, `GO_MOD_FETCH`), `factory/failures.py` (`FailureFinding.skill` / `honest`, `BuilderIntent.skills`),
+`factory/generators/debug.py` (`failure_skill`), `factory/student.py` (a context variant of the target is the target),
+`factory/langs/node.py` (`node-4` recipe, `policy_world_steps`), `factory/langs/runtime.py` (`policy_world`),
+`observe/traces.py` (`trail_dir`). Tests: `test_tinker_bridge.py` (shared meter, regrade), `test_m17_p0_pathcheck.py`
+(heredocs, `go mod`).
+
+**What the run found** (details and the table in `07` §6): no task passes the keep rule; the 150-call budget binds on
+every hard task (for the frontier solvers too: DeepSeek at 300 calls solves black-90117fa0 2/2); echo is too easy;
+unstorage goes from 0/8 to 3/8 once the node policy World works; h3's offline `pnpm test` hang is an open World issue
+the judges did not see. Seven harness, World and verifier defects fixed, each with a test (`07` §6 list).
+
+**Deviations.** (1) The keep rule is measured at the env's 150-call budget; the larger-budget runs are a diagnostic
+only. (2) The node tasks' student arm was re-run after the World fix; the broken-World run is kept as evidence.
+(3) The audit of the first 7 non-node tasks ran before the World-tool fact existed (no node World there); h3 was re-audited after the fix.
+(4) Held-out findings stay in `data/targeting` (sealed); only training findings feed builder intents and the committed
+summary.

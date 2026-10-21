@@ -411,6 +411,47 @@ def task_intent(rec: Mapping[str, Any]) -> dict[str, Any]:
             "attribution_rule": "a failure counts toward a skill gap only when its trace evidence is present; S15 needs >= 70% of failures so attributed"}
 
 
+def failure_skill(finding: Mapping[str, Any], intent: Mapping[str, Any], *, ran_before_edit: bool | None = None,
+                  honest: Sequence[str] = ()) -> dict[str, Any]:
+    """Which of the task's intent skills (``SKILLS``) a failing episode's trace evidence points at (``00`` §7: a failure
+    counts toward the intent only when its trace evidence is present). ``finding``: a ``failures.FailureFinding.to_json()``;
+    ``intent``: the task's card (``task_intent``); ``ran_before_edit``: a test or reproduction command ran before the first
+    edit; ``honest``: the episode's honest-trace fact kinds (``traceaudit.honest_trace_facts``).
+
+    In order (the first that holds): a routed failure (World, harness, limits, infrastructure, a non-skill cause) has no
+    skill; **interacting_faults** when a milestone was lost after being reached, or a prerequisite of an executed edge
+    passes while its dependent never does; **regression_safety** when every milestone passes but the run still fails (the
+    existing suite broke); **reproduce_from_report** when the work was claimed done or verified without the evidence
+    (``claimed_done_without_progress``, ``claimed_unrun_tests``) or no reproduction ran before the first edit and nothing
+    passed; **multi_fault_localization** when milestones are missed (some faults never found). ``on_intent``: the skill is
+    one the task's card names."""
+    skills = list(intent.get("skills") or [])
+    if finding.get("routed"):
+        return {"skill": None, "on_intent": False, "why": f"routed to {finding.get('routed')} ({finding.get('mode')}, cause {finding.get('cause')})"}
+    req = {m["id"]: list(m.get("requires") or []) for m in intent.get("milestones") or []}
+    missed = set(finding.get("milestones_missed") or [])
+    lost = list(finding.get("milestones_lost") or [])
+    all_ms = set(req)
+    passing = all_ms - missed
+    skill, why = None, ""
+    edge = next(((m, r) for m, rs in req.items() for r in rs if r in passing and m in missed), None)
+    if lost or finding.get("mode") == "lost_progress":
+        skill, why = "interacting_faults", f"milestone(s) lost after being reached: {lost or 'Phi fell and never recovered'}"
+    elif edge:
+        skill, why = "interacting_faults", f"prerequisite {edge[1]} passes while its dependent {edge[0]} never does"
+    elif all_ms and not missed:
+        skill, why = "regression_safety", "every milestone passes but the run fails: behaviour the existing suite covers broke"
+    elif finding.get("mode") == "claimed_done_without_progress" or "claimed_unrun_tests" in honest:
+        skill, why = "reproduce_from_report", "the work was claimed done or verified without the evidence"
+    elif ran_before_edit is False and missed == all_ms:
+        skill, why = "reproduce_from_report", "no reproduction ran before the first edit and no milestone ever passed"
+    elif missed:
+        skill, why = "multi_fault_localization", f"faults never found: {sorted(missed)}"
+    if skill is None:
+        return {"skill": None, "on_intent": False, "why": "no intent evidence in the trace"}
+    return {"skill": skill, "on_intent": skill in skills, "why": why}
+
+
 def intent_cards() -> list[Any]:
     """The family-level ``cards.IntentCard`` per skill (``candidate``: no model failure observed yet; S13/S14 add the
     evidence and a human approves)."""

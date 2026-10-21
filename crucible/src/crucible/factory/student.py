@@ -234,7 +234,8 @@ def is_dev_policy(policy: str) -> bool:
     if any(head.endswith(s) for s in DEV_STANDINS):
         return True
     m = student_model_of(p)
-    if m is not None and m not in TARGET_STUDENTS:  # a student rung on a model no task is calibrated for
+    # a student rung on a model no task is calibrated for; a Tinker context variant (``<model>:peft:262144``) is the same model
+    if m is not None and m.split(":", 1)[0] not in TARGET_STUDENTS:
         return True
     dev = DEV_BACKENDS | {n for n, b in _registry().items() if not b.final}
     return any(part in dev for part in tag.replace("+", "-").split("-"))

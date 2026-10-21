@@ -504,6 +504,61 @@ def test_benchmark_writes_lh_metrics_with_pass_at_k_and_clustered_cis(toy, tmp_p
     assert sum(r["usd"] for r in rows) == pytest.approx(out["spend"]["usd"], abs=1e-5)
 
 
+def test_benchmark_arms_share_one_phase_meter_and_each_reports_its_own_share(toy, tmp_path: Path) -> None:
+    """S15 runs the student and the frontier arms under one hard cap: a shared ``meter`` books every arm, each arm's
+    ``usd_total`` is what it spent, and the meter refuses the arm that would pass the cap (masked, never a 0)."""
+    from crucible.factory.tinker import benchmark
+
+    HostWindow._dead = False
+    codec = ByteChatCodec()
+    meter = SpendMeter(1.0, path=tmp_path / "phase-spend.jsonl")
+    outs = []
+    for i, purpose in enumerate(("selection", "fairness")):
+        fake = FakeTinker(responder=ScriptedResponder([toy.sc["pass"], toy.sc["fail"]], codec))
+        outs.append(asyncio.run(benchmark([toy.task], model=MODEL, k=2, run_dir=tmp_path / f"arm{i}", cap_usd=99.0, backend=fake, codec=codec, meter=meter,
+                                          timeouts=Timeouts(agent_s=300, rollout_s=900), checkpoint=None, concurrency=1, seed=i, purpose=purpose)))
+    shares = [o["metrics"]["usd_total"] for o in outs]
+    assert all(s > 0 for s in shares) and sum(shares) == pytest.approx(meter.spent, abs=1e-5)
+    assert not (tmp_path / "arm0" / "spend.jsonl").exists()  # one receipt file for the phase
+    assert SpendMeter(1.0, path=tmp_path / "phase-spend.jsonl").spent == pytest.approx(meter.spent, abs=1e-6)  # a restart starts from the total
+    fake = FakeTinker(responder=ScriptedResponder([toy.sc["pass"]], codec))
+    out = asyncio.run(benchmark([toy.task], model=MODEL, k=1, run_dir=tmp_path / "arm-capped", cap_usd=99.0, backend=fake, codec=codec,
+                                meter=SpendMeter(1e-7), timeouts=Timeouts(agent_s=300, rollout_s=900), checkpoint=None, concurrency=1, purpose="fairness"))
+    assert out["metrics"]["masked"] == 1 and out["metrics"]["usd_total"] == 0.0
+
+
+def test_regrade_rebuilds_the_arm_spec_and_readers_keep_the_agents_trail(toy, tmp_path: Path) -> None:
+    """After a verifier fix an arm is re-graded from its stored patch and trail (no model call); the re-graded attempt holds
+    only the new grade, so the trace audit, the trace export and the benchmark loop read the agent's trail from its source."""
+    from crucible.factory.tinker import benchmark, regrade
+    from crucible.factory.traceaudit import load_bundle, regrade_source
+    from crucible.observe.traces import attempt_dirs, episode_spans, trail_dir
+
+    HostWindow._dead = False
+    codec = ByteChatCodec()
+    kw = {"model": MODEL, "k": 2, "run_dir": tmp_path / "arm", "codec": codec, "timeouts": Timeouts(agent_s=300, rollout_s=900), "concurrency": 1,
+          "seed": 3, "purpose": "fairness"}
+    fake = FakeTinker(responder=ScriptedResponder([toy.sc["pass"], toy.sc["partial"]], codec))
+    first = asyncio.run(benchmark([toy.task], cap_usd=1.0, backend=fake, checkpoint=None, **kw))
+    before = [d for d in attempt_dirs(tmp_path / "arm" / "rollouts")]
+    out = asyncio.run(regrade([toy.task], select=lambda r: True, **kw))
+    assert out[str(toy.task.task_id)]["regraded"] == 2
+    after = attempt_dirs(tmp_path / "arm" / "rollouts")
+    assert [d.name for d in after] == ["a2", "a2"] and [d.name for d in before] == ["a1", "a1"]
+    for d in after:
+        src = regrade_source(d)
+        assert src.name == "a1" and trail_dir(d) == src and not (d / "trace.json").exists()
+        b = load_bundle(d, run="r")
+        assert b.steps and b.id.endswith("/a2") and b.meta["regraded_from"] == "a1" and b.stop != "regraded" and b.reward is not None
+        spans, row, _full = episode_spans(d, project="p")
+        assert row["episode"].endswith("/a2") and any(s.op.startswith("tool_") for s in spans)
+    # the arm re-read: the re-graded attempts count, with the agent attempt's rollout (same outcomes: the verifier did not change)
+    again = asyncio.run(benchmark([toy.task], cap_usd=1.0, backend=FakeTinker(responder=ScriptedResponder([], codec)), checkpoint=None, **kw))
+    assert again["metrics"]["episodes"] == 2 and again["metrics"]["pass@1"] == pytest.approx(first["metrics"]["pass@1"])
+    rows = [json.loads(x) for x in (tmp_path / "arm" / "episodes.jsonl").read_text().splitlines()]
+    assert all(r["regraded_from"] == "a1" and r["attempt"].endswith("/a2") and r["milestones"] and r["gates"] for r in rows)  # per-milestone and gates
+
+
 def test_compare_pairs_control_and_trained_and_checks_the_protocol(toy, tmp_path: Path) -> None:
     from crucible.factory.tinker import check_protocol, compare
 

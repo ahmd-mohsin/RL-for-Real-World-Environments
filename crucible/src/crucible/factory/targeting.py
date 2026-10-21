@@ -475,6 +475,76 @@ def cause_mix(labels: Mapping[str, int] | Sequence[str], *, skill_min: float = 0
     return {"labels": labelled, "n": n, "skill_gap_share": None if share is None else round(share, 4), "skill_min": skill_min, "ok": ok}
 
 
+# ---- the keep rule (the task-factory contract: training band, benchmark ceiling, intent, fairness) ----------------------------
+@dataclass(frozen=True)
+class KeepRule:
+    """The task-factory contract's keep rule (user, 2026-10-20). A **training** task: the target student's pass rate over
+    its k attempts in [``train_lo``, ``train_hi``], >= ``skill_min`` of its failures a skill gap on the task's intended
+    intent, and a frontier solver passes it. A **benchmark** (held-out) task: pass rate < ``bench_hi`` with the same intent
+    and fairness conditions. Flags: 0 and frontier-solvable -> ``simplify(locate|prerequisites)``; above ``train_hi`` ->
+    too easy."""
+
+    train_lo: float = 0.1
+    train_hi: float = 0.6
+    bench_hi: float = 0.3
+    skill_min: float = 0.7
+    min_labels: int = 3  # fewer labelled failures: the intent share is unmeasured (never a pass)
+
+
+def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: int, frontier: Mapping[str, Sequence[bool]] | None,
+                 rule: KeepRule | None = None, world_issue: str | None = None) -> dict[str, Any]:
+    """The keep rule on one task's measured evidence (``KeepRule``). ``passes`` of ``n`` unmasked student attempts;
+    ``on_intent`` of ``labelled`` failures are a trusted skill-gap label whose trace evidence is one of the task's intent
+    skills (masked attempts and routed failures are not labels); ``frontier``: solver -> its attempts' full passes
+    (None or empty: not run); ``world_issue``: an open World defect found in the traces (the task goes back to the World's
+    owner whatever the numbers say: ``world_bug``). ``verdict`` is ``train`` | ``bench`` | ``too_easy`` | ``too_hard`` |
+    ``unfair`` | ``off_intent`` | ``out_of_band`` | ``world_bug`` | ``unmeasured``; ``keep`` is True only for ``train`` /
+    ``bench`` on their own split."""
+    r = rule or KeepRule()
+    if n <= 0:
+        return {"verdict": "unmeasured", "keep": False, "why": "no unmasked student attempt", "flags": [], "pass_rate": None}
+    p = passes / n
+    lo, hi = wilson(passes, n)
+    fr = {k: [bool(x) for x in v] for k, v in (frontier or {}).items()}
+    fair = any(any(v) for v in fr.values()) if fr else None
+    share = on_intent / labelled if labelled else None
+    intent_ok = None if labelled < r.min_labels else bool(share is not None and share >= r.skill_min)
+    flags: list[str] = []
+    if fair is None:
+        flags.append("frontier solvers not run: fairness unmeasured")
+    if p > r.train_hi:
+        flags.append(f"too easy: pass rate {p:.2f} > {r.train_hi}")
+    if p == 0 and fair:
+        flags.append("simplify(locate|prerequisites): the student never passes and a frontier solver does")
+    if intent_ok is None and n - passes > 0:
+        flags.append(f"intent share unmeasured: {labelled} labelled failure(s) < {r.min_labels}")
+    in_train = r.train_lo - 1e-9 <= p <= r.train_hi + 1e-9
+    in_bench = p < r.bench_hi - 1e-9
+    base = {"pass_rate": round(p, 4), "passes": passes, "n": n, "ci": [round(lo, 4), round(hi, 4)], "on_intent": on_intent, "labelled": labelled,
+            "intent_share": None if share is None else round(share, 4), "intent_ok": intent_ok, "fair": fair, "frontier": fr, "split": split,
+            "rule": asdict(r), "flags": flags}
+    if world_issue:
+        return {**base, "verdict": "world_bug", "keep": False, "why": f"open World defect (owner World): {world_issue}"}
+    if fair is False:
+        return {**base, "verdict": "unfair", "keep": False, "why": "no frontier solver passes it: not counted as fair"}
+    if p > r.train_hi:
+        return {**base, "verdict": "too_easy", "keep": False, "why": f"pass rate {p:.2f} above {r.train_hi}"}
+    if split == "heldout":
+        if not in_bench:
+            return {**base, "verdict": "out_of_band", "keep": False, "why": f"held out, pass rate {p:.2f} not below {r.bench_hi}"}
+    elif not in_train:
+        return {**base, "verdict": "too_hard" if p == 0 else "out_of_band", "keep": False,
+                "why": f"pass rate {p:.2f} outside [{r.train_lo}, {r.train_hi}]"}
+    if fair is None:
+        return {**base, "verdict": "unmeasured", "keep": False, "why": "fairness unmeasured"}
+    if intent_ok is None:
+        return {**base, "verdict": "unmeasured", "keep": False, "why": f"intent share unmeasured ({labelled} labelled failures)"}
+    if not intent_ok:
+        return {**base, "verdict": "off_intent", "keep": False, "why": f"on-intent skill-gap share {share:.2f} < {r.skill_min}"}
+    v = "bench" if split == "heldout" else "train"
+    return {**base, "verdict": v, "keep": True, "why": f"pass rate {p:.2f}, on-intent share {share:.2f}, a frontier solver passes"}
+
+
 # ---- S15 ------------------------------------------------------------------------------------------------------------------------
 @dataclass
 class TargetEvidence:

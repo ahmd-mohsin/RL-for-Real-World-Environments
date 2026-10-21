@@ -64,6 +64,7 @@ LANG_PM = {"go": frozenset({"get", "install", "mod"}), "cargo": frozenset({"add"
            "yarn": frozenset({"add", "install", "up", "upgrade", "dlx", "info"}), "pnpm": frozenset({"add", "install", "i", "update", "dlx"}),
            "bun": frozenset({"add", "install", "i", "x"}), "mvn": frozenset({"dependency:get", "dependency:resolve", "install"}),
            "gradle": frozenset(), "rustup": frozenset({"install", "update", "toolchain", "component"})}
+GO_MOD_FETCH = frozenset({"download", "tidy", "vendor"})  # the ``go mod`` subcommands that resolve or fetch modules
 LANG_FETCH = {"npm": frozenset({"view", "info", "pack"}), "cargo": frozenset({"search"}), "mvn": frozenset({"dependency:get"})}
 _OPS = re.compile(r"^[;&|()<>]+$")
 
@@ -261,11 +262,44 @@ def read_paths_of(trail: Sequence[ToolCall]) -> list[str]:
     return out
 
 
+HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w.-]*)\2")
+SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "ash"})
+
+
+def strip_heredocs(cmd: str) -> str:
+    """``cmd`` with every here-document body removed unless a shell reads it (``bash <<EOF ... EOF`` runs its body, which
+    stays and is scanned as commands). A body that ``cat`` / ``tee`` / ``python`` / ``go run`` reads is data or code, not
+    commands: an ``import "net/http"`` line written into a reproduction file is not a run of the ``http`` client (S15:
+    that false positive scored correct HTTP-library fixes 0). Python heredocs are still checked for network calls by
+    ``trail_hits`` on the whole string."""
+    lines = cmd.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        out.append(ln)
+        i += 1
+        for m in HEREDOC.finditer(ln):
+            head = re.split(r"[;&|(]", ln[: m.start()])[-1].split()
+            words = [w for w in head if not re.match(r"^[A-Za-z_]\w*=", w) and w not in WRAPPERS]
+            prog = words[0].rsplit("/", 1)[-1] if words else ""
+            body: list[str] = []
+            while i < len(lines) and (lines[i].lstrip("\t") if m.group(1) else lines[i]).strip() != m.group(3):
+                body.append(lines[i])
+                i += 1
+            if prog in SHELLS:
+                out += body
+            if i < len(lines):  # the delimiter line
+                i += 1
+    return "\n".join(out)
+
+
 def simple_commands(cmd: str) -> list[list[str]]:
     """The simple commands of a shell string (split at ``;`` ``&&`` ``||`` ``|`` ``&`` parentheses and newlines, quotes
     respected), each with redirections (``2>&1``, ``> out``, ``<< EOF``) and leading variable assignments and wrappers
-    (sudo, env, timeout N, nohup, xargs ...) removed."""
-    lex = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    (sudo, env, timeout N, nohup, xargs ...) removed. Here-document bodies are not commands (``strip_heredocs``) unless a
+    shell reads them."""
+    lex = shlex.shlex(strip_heredocs(cmd).replace("\n", " ; "), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
         toks = list(lex)
@@ -398,7 +432,10 @@ def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[st
         (h.fetch if any(n in projects for n in names) else h.install).append(f"package manager {prog}: {ev}")
     elif prog in LANG_PM:
         sub = next((a for a in rest if not a.startswith("-")), "")
-        if sub in LANG_PM[prog]:
+        mod_sub = next((a for a in rest[rest.index(sub) + 1:] if not a.startswith("-")), "") if prog == "go" and sub == "mod" else ""
+        if prog == "go" and sub == "mod" and mod_sub not in GO_MOD_FETCH:
+            pass  # ``go mod init`` / ``edit`` / ``graph`` / ``why`` / ``verify`` fetch nothing (S15: a scratch module for a reproduction)
+        elif sub in LANG_PM[prog]:
             names = [_pkg_name(a.split("@", 1)[0] if prog == "go" else a) for a in rest[1:] if not a.startswith("-")]
             (h.fetch if any(n in projects for n in names) or sub in LANG_FETCH.get(prog, ()) else h.install).append(f"package manager {prog} {sub}: {ev}")
     elif prog == "git":
