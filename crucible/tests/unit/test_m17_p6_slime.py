@@ -171,7 +171,7 @@ class FakeEnv:
 
         ok = "+ok" in patch
         return GradeReport(task="fake", tier="full", checks=[], gates={"c_ok": "pass" if ok else "fail"}, reward=float(ok), outcome=float(ok),
-                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": 1.0 if ok else 0.0, "full_pass": ok})
+                           infra={"status": "ok"}, trusted=True, elapsed_s=0.0, meta={"phi": 1.0 if ok else 0.0, "full_pass": ok, "kinds": {"c_ok": "outcome"}})
 
     def harness(self, agent):
         return ScriptedCLIHarness()

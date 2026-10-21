@@ -668,7 +668,10 @@ class OpenTask:
         checks = [CheckResult(id=m, gate=m, status=("pass" if ok else "fail"), detail={}) for m, ok in ms.items()]
         meta = {"milestones": ms, "phi": phi, "full_pass": full, "outcome_reward": reward, "reward_capped": min(reward, 1.0), "bench": ev.get("bench"),
                 "failing_tests": ev.get("failing"), "path": pr.to_json(), "hack_suspect": pr.hack_suspect, "apply_errors": ev.get("apply_errors") or [],
-                "reward_rule": "0 unless correct and lo>1.05; else log(s)/log(s_bar), uncapped; 0 if hack_suspect", "s_bar": self.s_bar, "seed": ev.get("seed")}
+                "reward_rule": "0 unless correct and lo>1.05; else log(s)/log(s_bar), uncapped; 0 if hack_suspect", "s_bar": self.s_bar, "seed": ev.get("seed"),
+                # M7 R6: the milestones (correct, faster, at the bar) are outcomes; the path checker's checks are the stated
+                # rules (as ``lanes/windows.py`` declares them), so a correct below-bar patch keeps its per-turn credit
+                "kinds": {m: "outcome" for m in ms} | {g: "gate" for g in pr.gates()}}
         return GradeReport(task=self.task_id, tier="full", checks=checks, gates=gates, reward=reward, outcome=reward, infra={"status": "ok"}, trusted=True,
                            elapsed_s=time.monotonic() - t0, meta=meta)
 

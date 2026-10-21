@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from crucible.world.exec import ExecOut, _run_subprocess
+from crucible.verify.patchio import decode
+from crucible.world.exec import ExecOut, _run_subprocess, _run_subprocess_raw
 
 # M10 lab audit R-5 item 4 (audit R-5 (b): verify/collect.py:54): the longest one git call of the hook may take. A module
 # global read at call time (a test patches it); the legacy hook chain of runtime.collect is held to the same bound.
@@ -108,10 +109,14 @@ async def collect(workspace: Path, *, base: str = "HEAD", extra_excludes: tuple 
                 return failed()
             if added.rc:
                 errors.append(f"cannot add {u}")
-        diff = await git("diff", "--cached", "--binary", "--no-textconv", "--no-ext-diff", base)
+        # M7 R3: the diff's bytes (CRLF, Latin-1), decoded losslessly; ``git()`` decodes with errors="replace"
+        _rc, raw, _err, timed_out, _ = await _run_subprocess_raw(["git", "-C", str(ws), *GIT_FLAGS, "diff", "--cached", "--binary", "--no-textconv",
+                                                                "--no-ext-diff", base], cwd=None, env=None, timeout_s=GIT_TIMEOUT_S, stdin=None)
+        if timed_out:
+            stalled.append(f"git diff timed out after {GIT_TIMEOUT_S:g}s")
         if stalled:  # never a half-built index's patch: it would be graded as the agent's answer
             return failed()
-        patch = diff.stdout
+        patch = decode(raw)
         ignored_out = await git("ls-files", "-o", "-i", "--exclude-standard", "--directory")
         if stalled:
             return failed()

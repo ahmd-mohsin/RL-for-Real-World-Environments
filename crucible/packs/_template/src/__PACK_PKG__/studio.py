@@ -57,7 +57,7 @@ class GreetingTask:
             got = path.read_text() if path.exists() else None
             return Verdict(got == self.word + "\n", {"got": got})
 
-        return await Plan(self.id, [Gate("outcome")], [Check("greeting", "outcome", content)]).arun(Context(Trusted(Path(workdir))))
+        return await Plan(self.id, [Gate("outcome", "outcome")], [Check("greeting", "outcome", content)]).arun(Context(Trusted(Path(workdir))))
 
     def gold(self) -> list:
         return [ToolCall(tool_call_id="g1", function_name="ws.write_file", arguments={"path": "greeting.txt", "content": self.word + "\n"})]

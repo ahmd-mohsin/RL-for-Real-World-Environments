@@ -95,3 +95,16 @@
   - *Outside a Runner attempt* (CLI play, bench controls, training's `world_env`, the OpenEnv and NeMo-Gym servers) a sandbox runs the renewable life loop and renews itself while it is open (`DockerSandbox._renew_loop`, cancelled by `close`), so the 6 h default is the crash backstop and not a cap on a live World. A cancelled `DockerSandbox.start` waits up to `START_GRACE_S` (120 s) for an image pull; a `docker run` that finishes after the loop has stopped is left to its TTL and the next sweep. `World.close` is bounded by `close_timeout_s` (600 s): a slower Harbor compose teardown is cut short and recorded. `SandboxPool.close` waits at most `POOL_CLOSE_WAIT_S` (60 s) for refills still in `docker run` (each removes its container when the run returns; the run's `pools_closed` event reports `unfinished`), and `Runner` bounds `close_pools` at `POOLS_CLOSE_S` (300 s) on the normal path too (`timed_out`). Pools are keyed by the run's lease, not its run id (a run id is unique only within a root).
   - *Signals:* the exit reaper installs a chained SIGTERM handler on the main thread (`lifecycle._on_sigterm`; the RLM kernel's chains with it in either order), so a runner stopped by systemd, Slurm, Kubernetes or `kill <pid>` reaps its own containers before the default action. An application that installs its own SIGTERM handler after the first container start replaces it. SIGKILL and OOM kills rely on the TTL and the next sweep. A reclaim selects an attempt's containers by `crucible.attempt` and the run's `crucible.lease` (attempt ids repeat across runs of one plan on one daemon).
   - Follow-up (out of R-6's scope): separate agent and grading slots and exclusive host admission for perf grades (one `Semaphore` covers both phases; PerfGuard counts concurrent attempts' live sandboxes), and a pool start-failure cap feeding R-5's backend breaker. R-4's follow-up "sweeps acting only on runs whose lock is free" is done (`lease_free`).
+
+## Observers and progress (2026-10-20, M7 R7)
+
+An episode observer (`verify.progress.ProgressTracker`, a checkpoint sidecar) measures the episode and never ends it:
+`run_episode` switches off an observer whose `on_start`, `on_step` or `on_end` raises and records it in
+`EpisodeResult.observer_failures` (its `observed` entry is `{"failed": <error>}`). A subgoal query fault used to escape
+as `harness:RuntimeError` (M12) or `agent_run_error` (native), masked with unknown blame, and the policy could cause it.
+The native and workspace harnesses and `train.world_env` grade the episode and record
+`meta.progress = {"progress_unavailable": <error>}`; the partial stream is kept as `progress.failed.jsonl`, so the
+record has no per-turn ΔΦ (M6 R3 trains it outcome-only or refuses the batch). It is not a rollout flag: flags mean
+hack suspicion (`studio/datasets.py`, the hack judge). Per-call ΔΦ joins rows to calls by `tool_call_id`
+(`runtime.record.credit_from_progress`). The workspace harness takes a grade's `meta.flags` and policy verdict
+(`_take_findings`) as the native harness does.

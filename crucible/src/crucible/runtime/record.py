@@ -31,15 +31,47 @@ if TYPE_CHECKING:  # annotation only: in-process rollouts (M12) must not require
 
 
 def credit_from_progress(calls: Sequence[dict[str, Any]], rows: Sequence[dict[str, Any]], actor: str) -> tuple[dict[str, float], float]:
-    """Per-call credit from the dense progress stream: the k-th action this actor executed is the k-th progress row of the
-    actor (one World step per action), and a call is credited with the ΔΦ of the actions it produced. Returns the credit
-    per call id and the ΔΦ no call produced (end-of-episode drift corrections)."""
-    acts = [c["call_id"] for c in calls for _ in (c.get("actions") or [])]
+    """Per-call credit from the dense progress stream: a call is credited with the ΔΦ of the World steps its actions made.
+    Returns the credit per call id and the ΔΦ no call produced (end-of-episode drift corrections, unmatched rows).
+
+    M7 R7: a row carrying the action's ``tool_call_id`` joins the call that lists ``tool:<that id>``; a row without one (a
+    message, a ``done``) joins the actor's next message or done action, in order. A call whose action steps nothing in the
+    World (``context_compact``) gets no row: by position it took the next call's row and every later call was credited one
+    call early. A stream with no ids, or calls that list no ``tool:`` action (an RLM root or sub-call), keep the positional
+    pairing: the k-th action is the k-th row of the actor (one World step per action)."""
     mine = [r for r in rows if r.get("actor") == actor and r.get("step", 0) >= 0]
+
+    def dphi(r: dict[str, Any]) -> float:
+        return float(r.get("delta_phi") or 0.0)
+
+    drift = sum(dphi(r) for r in rows if r.get("step", 0) < 0)
     out: dict[str, float] = {}
-    for cid, r in zip(acts, mine, strict=False):
-        out[cid] = out.get(cid, 0.0) + float(r.get("delta_phi") or 0.0)
-    rest = sum(float(r.get("delta_phi") or 0.0) for r in rows if r.get("step", 0) < 0) + sum(float(r.get("delta_phi") or 0.0) for r in mine[len(acts):])
+    by_tool: dict[str, list[str]] = {}
+    other: list[str] = []  # message / done actions, in order
+    for c in calls:
+        for a in c.get("actions") or []:
+            if isinstance(a, str) and a.startswith("tool:"):
+                by_tool.setdefault(a[5:], []).append(c["call_id"])
+            elif a != "context_compact":
+                other.append(c["call_id"])
+    if not by_tool or not any(r.get("tool_call_id") for r in mine):
+        acts = [c["call_id"] for c in calls for _ in (c.get("actions") or [])]
+        for cid, r in zip(acts, mine, strict=False):
+            out[cid] = out.get(cid, 0.0) + dphi(r)
+        return out, drift + sum(dphi(r) for r in mine[len(acts):])
+    rest, k = drift, 0
+    for r in mine:
+        tid = r.get("tool_call_id")
+        if tid:
+            queue = by_tool.get(str(tid)) or []
+            cid = queue.pop(0) if queue else None
+        else:
+            cid = other[k] if k < len(other) else None
+            k += cid is not None
+        if cid is None:
+            rest += dphi(r)
+        else:
+            out[cid] = out.get(cid, 0.0) + dphi(r)
     return out, rest
 
 

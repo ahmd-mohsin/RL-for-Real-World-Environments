@@ -127,7 +127,10 @@ async def test_harbor_dir_task_grades_with_its_own_verifier(image, tmp_path):
     assert g0.reward == 0.0 and g0.gates == {"output": "fail"} and g0.infra["status"] == "ok"
     silent = HarborDirTask(harbor_dir(tmp_path / "s", command="MODE=silent bash /tests/test.sh"), image=image)
     gs = await silent.grade_patch(FIB_PATCH, tmp_path / "gs")
-    assert gs.infra["status"] == "masked" and classify_verifier(gs.infra).detail == "no_reward_json"  # no reward file is not a 0
+    # no reward file is not a 0; M7 R5: in the separate verifier the code under test can delete or plant it, so it is
+    # answer-sensitive (graded again, then decided by the control), Harbor's name in the reason
+    assert gs.infra["status"] == "masked" and classify_verifier(gs.infra).detail == "reward_file_invalid"
+    assert "RewardFileNotFoundError" in gs.infra["reason"]
     stale = HarborDirTask(harbor_dir(tmp_path / "st"), image=image, expected_image="sha256:" + "1" * 64)
     assert classify_verifier((await stale.grade_patch(FIB_PATCH, tmp_path / "gst")).infra).kind == "crucible:stale_image"
 

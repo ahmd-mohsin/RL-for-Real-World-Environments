@@ -28,7 +28,8 @@ from pathlib import Path
 from crucible.core.schema.run import Failure
 from crucible.verify import collect as vcollect
 from crucible.verify.collect import collect as tolerant_collect
-from crucible.world.exec import ExecOut, _run_subprocess
+from crucible.verify.patchio import decode
+from crucible.world.exec import ExecOut, _run_subprocess, _run_subprocess_raw
 
 _G = "git " + " ".join(vcollect.GIT_FLAGS)  # M10 lab audit R-5 review round 1: the same flags on the legacy chain
 LEGACY = _G + " add -A && " + _G + " diff --cached --binary --no-textconv --no-ext-diff {base}"  # the chain task02's task.toml used
@@ -76,7 +77,10 @@ async def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Co
     paths, stalled = await _status(ws)
     status_err = [f"git status timed out after {vcollect.GIT_TIMEOUT_S:g}s"] if stalled else []
     if mode == "legacy":
-        out = await _run_subprocess(["bash", "-c", LEGACY.format(base=base)], cwd=str(ws), env=None, timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
+        rc, raw, err, timed_out, dur = await _run_subprocess_raw(["bash", "-c", LEGACY.format(base=base)], cwd=str(ws), env=None,
+                                                                 timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
+        # M7 R3: the patch is the hook's stdout bytes, decoded losslessly (CRLF, Latin-1 survive to the grader)
+        out = ExecOut(rc=rc, stdout=decode(raw), stderr=err.decode(errors="replace"), duration_s=dur, timed_out=timed_out)
         if out.timed_out:  # the killed chain's lock would fail the tolerant re-collect of the preserved workspace
             try:
                 (ws / ".git" / "index.lock").unlink(missing_ok=True)

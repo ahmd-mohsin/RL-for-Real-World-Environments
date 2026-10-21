@@ -27,7 +27,7 @@ def test_plan_semantics(tmp_path):
     def infra(_):
         raise InfraError("reference build failed")
 
-    p = Plan("t", [Gate("a"), Gate("b"), Gate("c"), Gate("o", "outcome")],
+    p = Plan("t", [Gate("a", "gate"), Gate("b", "gate"), Gate("c", "gate"), Gate("o", "outcome")],
              [Check("a1", "a", lambda c: True, tier="fast"), Check("b1", "b", boom), Check("c1", "c", lambda c: True, requires=("b",)),
               Check("o1", "o", lambda c: Verdict(True), tier="fast")])
     r = p.run(ctx(tmp_path))
@@ -35,24 +35,24 @@ def test_plan_semantics(tmp_path):
     assert r.reward == 0.0 and r.infra["status"] == "ok"  # a crash judging candidate output is a fail, never masked
     fast = p.run(ctx(tmp_path), tier="fast")
     assert fast.reward == 1.0 and set(fast.gates) == {"a", "o"}  # gates without fast checks are not measured in the fast tier
-    q = Plan("t", [Gate("a")], [Check("a1", "a", infra)])
+    q = Plan("t", [Gate("a", "gate")], [Check("a1", "a", infra)])
     r2 = q.run(ctx(tmp_path))
     assert r2.reward == 0.0 and r2.infra["status"] == "masked" and r2.gates["a"] == "infra"
 
     def bad_setup(_):
         raise RuntimeError("no GPU")
 
-    r3 = Plan("t", [Gate("a")], [Check("a1", "a", lambda c: True)], setup=bad_setup).run(ctx(tmp_path))
+    r3 = Plan("t", [Gate("a", "gate")], [Check("a1", "a", lambda c: True)], setup=bad_setup).run(ctx(tmp_path))
     assert r3.reward == 0.0 and r3.infra["failure_kind"] == "grader_exception"
     with pytest.raises(ValueError):
-        Plan("t", [Gate("a"), Gate("b")], [Check("a1", "a", lambda c: True)])  # a gate with no checks
+        Plan("t", [Gate("a", "gate"), Gate("b", "gate")], [Check("a1", "a", lambda c: True)])  # a gate with no checks
 
 
 async def test_async_checks_and_outcome_gates(tmp_path):
     async def ok(_):
         return Verdict(True)
 
-    p = Plan("t", [Gate("g"), Gate("o1", "outcome"), Gate("o2", "outcome")],
+    p = Plan("t", [Gate("g", "gate"), Gate("o1", "outcome"), Gate("o2", "outcome")],
              [Check("g", "g", ok), Check("o1", "o1", ok), Check("o2", "o2", lambda c: False)])
     r = await p.arun(ctx(tmp_path))
     assert r.outcome == 0.0 and r.reward == 0.0 and r.failing_gates() == ["o2"]
@@ -63,7 +63,7 @@ def test_outputs_flat_and_full(tmp_path):
     (tmp_path / "o" / "reward.txt").write_text("1\n")  # a stale / agent-written reward
     prewrite_zero(tmp_path / "o")
     assert not (tmp_path / "o" / "reward.txt").exists() and not (tmp_path / "o" / "reward.json").exists()  # removed, no placeholder 0
-    p = Plan("t", [Gate("a"), Gate("b")], [Check("a", "a", lambda c: True), Check("b", "b", lambda c: False)])
+    p = Plan("t", [Gate("a", "gate"), Gate("b", "gate")], [Check("a", "a", lambda c: True), Check("b", "b", lambda c: False)])
     rj = write_outputs(p.run(ctx(tmp_path)), tmp_path / "o")
     flat = json.loads((tmp_path / "o" / "reward.json").read_text())
     assert flat == {"reward": 0.0, "outcome": 0.0, "gate/a": 1.0, "gate/b": 0.0}
@@ -193,7 +193,7 @@ def test_record_scoring_and_abstention(tmp_path):
     assert record(40, spec, valid=False).detail["normalized_reward"] == 0.0  # an unverifiable "record" scores nothing
 
     def plan(score, abstain=None, gave_up=False):
-        return Plan("deep", [Gate("valid"), Gate("rank", "score")],
+        return Plan("deep", [Gate("valid", "gate"), Gate("rank", "score")],
                     [Check("valid", "valid", lambda c: True), Check("rank", "rank", lambda c: record(score, spec, valid=True))],
                     abstain=abstain, abstained=(lambda c: gave_up) if abstain else None)
 
@@ -275,7 +275,7 @@ async def test_host_grader_composes(tmp_path):
     from crucible.verify.runtime.plan import Check, Gate, Plan
 
     ms = [Milestone(id=f"m{i}", check=MilestoneCheck(app="x", query=Query(op="get", args={}), expect=Expectation())) for i in range(4)]
-    p = Plan("t", [Gate("policy"), Gate("done", "outcome")], [Check("policy", "policy", lambda c: True), Check("done", "done", lambda c: False)])
+    p = Plan("t", [Gate("policy", "gate"), Gate("done", "outcome")], [Check("policy", "policy", lambda c: True), Check("done", "done", lambda c: False)])
     out = await grade_episode(p, ctx(tmp_path), out_dir=tmp_path / "o", milestones=ms, series=[{"m0": 0.0}, {"m0": 1.0, "m1": 1.0}])
     assert out.reward.outcome == 0.0 and 0 < out.reward.reward <= 0.3  # failed but half the milestones: bounded partial credit
     flat = json.loads((tmp_path / "o" / "reward.json").read_text())
