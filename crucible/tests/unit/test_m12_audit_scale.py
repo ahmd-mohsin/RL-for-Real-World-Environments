@@ -335,8 +335,10 @@ async def test_D8_checkpoint_publisher_never_deletes_a_version_an_engine_may_be_
     with pytest.raises(RuntimeError):
         await pub.publish()  # v2: an engine failed mid-load; v1 and v2 stay
     assert sorted(d.name for d in tmp_path.iterdir()) == ["v1", "v2"]
-    await pub.publish()  # v3 confirmed: v1 goes, v2 (a load that never confirmed) stays
-    assert sorted(d.name for d in tmp_path.iterdir()) == ["v2", "v3"]
+    assert pub.version == 1 and pub.published_updates == 0  # M12 lab audit C-4: the failed load names nothing
+    await pub.publish()  # v3 (v2's number is not reused) confirmed on every engine, so no load of v1 or v2 is in flight
+    # M12 lab audit C-4: the failed v2 is collected by age like v1 (it stayed forever: 16-33 GB per failed 8B publish)
+    assert sorted(d.name for d in tmp_path.iterdir()) == ["v3"] and pub.version == 3
 
 
 # ---- H2 V12 / V20: state plane -------------------------------------------------------------------------------------------

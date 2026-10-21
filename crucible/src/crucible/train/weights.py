@@ -1,7 +1,12 @@
 """Weight publishing (research m11-m12/06 §4.1, §4.4; m11-m12/04 checkpoint-engine, TRL; m11-m12/01 verl/slime).
 
 ``publish()`` makes the trainer's current weights servable and returns the new **policy version** (+1 per publish,
-exactly). The version travels with every engine response; the trainer never infers it from time.
+exactly). The version travels with every engine response; the trainer never infers it from time. ``version`` and
+``published_updates`` move only once ``engines.load_weights`` returned (M12 lab audit C-4: they moved before the load, so
+a failed load left the publisher naming weights no engine served; a ``GatewayPool`` does not raise for one engine's
+failure, it evicts that engine and replays the publish when it revives); a failed attempt's number is never handed out
+again, since an engine may have loaded it before another engine failed. ``weightsync.DistributedPublisher`` keeps its
+own rule.
 
 - ``InprocPublisher``: same process / same device (colocated): hand the state dict to every engine's
   ``load_weights`` (verl/MiMo sleep → update → wake; TRL colocate ``load_weights``). Engines must be paused or drained
@@ -30,19 +35,25 @@ class InprocPublisher:
         # the trainer's update count whose weights the engines serve as ``version`` (the state plane checks a checkpoint
         # against it: M12 audit H2 V12); None before the first publish
         self.published_updates: int | None = None
+        self.attempted = 0  # the highest version number handed to the engines, a failed load's included
 
     def _updates(self) -> int | None:
         u = getattr(self.trainer, "updates", None)
         return int(u) if isinstance(u, int | float) else None
+
+    def _claim(self) -> int:
+        """The number of the next publish: one past every number handed out (``attempted``) and the served ``version``."""
+        self.attempted = max(self.attempted, self.version) + 1
+        return self.attempted
 
     async def publish(self) -> int:
         t0 = time.monotonic()
         state = self.trainer.state_dict()
         if self.transform is not None:
             state = self.transform(state)
-        self.version += 1
-        self.published_updates = self._updates()
-        await self.engines.load_weights(state, self.version)
+        updates, v = self._updates(), self._claim()
+        await self.engines.load_weights(state, v)
+        self.version, self.published_updates = v, updates
         if self.reset:
             self.trainer.reset_optimizer()
         self.latencies.append(time.monotonic() - t0)
@@ -85,8 +96,12 @@ class CheckpointPublisher(InprocPublisher):
 
     async def _serve(self, d: Path, version: int) -> None:
         self._loading.add(d)
-        await self.engines.load_weights(str(d), version)  # a failed or cancelled load raises here: nothing is collected
-        self._loading.discard(d)
+        try:
+            await self.engines.load_weights(str(d), version)  # a failed or cancelled load raises here: nothing is collected now
+        finally:
+            # M12 lab audit C-4: a failed ``v{n}`` stayed in ``_loading`` and was never collected. It is now collected by
+            # age, once ``keep`` newer versions loaded, as any other version (an engine still reading it is that far behind)
+            self._loading.discard(d)
         self._collect(version)
 
     def _collect(self, current: int) -> None:
@@ -108,10 +123,9 @@ class CheckpointPublisher(InprocPublisher):
         state = self.trainer.state_dict()
         if self.transform is not None:
             state = self.transform(state)
-        self.version += 1
-        self.published_updates = self._updates()
-        d = self._write(state, self.version)
-        await self._serve(d, self.version)
+        updates, v = self._updates(), self._claim()
+        await self._serve(self._write(state, v), v)
+        self.version, self.published_updates = v, updates
         if self.reset:
             self.trainer.reset_optimizer()
         self.latencies.append(time.monotonic() - t0)

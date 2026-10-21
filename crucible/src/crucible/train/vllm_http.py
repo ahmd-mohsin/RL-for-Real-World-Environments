@@ -48,6 +48,10 @@ class VLLMServerEngine:
         self._unpaused.set()
         self._tasks: dict[str, asyncio.Task] = {}
         self._weights_epoch = 0  # moves at every weight swap: a request that overlapped one is returned as an abort
+        self._loads = 0  # ``load_weights`` calls in flight (``health`` reads the workers' version back only between them)
+        self._dirty = False  # a load that did not complete (``health`` does not read it back: the gateway replays it)
+        self._loaded = False  # this client loaded weights at least once (then "nothing loaded" on the server is a restart)
+        self._readback = True  # the extension keeps versions (False after an older one refused the version argument)
         self.asleep: set[str] = set()  # sleeping vLLM memory tags: "weights", "kv_cache"
 
     async def _post(self, path: str, json: Any = None, params: Any = None) -> httpx.Response:
@@ -177,21 +181,95 @@ class VLLMServerEngine:
         serving = self._unpaused.is_set()
         self._unpaused.clear()
         paused = False
+        self._loads += 1
+        self._dirty = True  # until the whole load completes (``health`` never reads such an engine back as current)
         try:
             self._weights_epoch += 1
             if serving and self._tasks:
                 await self._post("/pause", params={"mode": "abort"})
                 paused = True
             await self._wake("weights")
-            await self._post("/collective_rpc", json={"method": "crucible_load_weights", "args": [str(path)]})
+            await self._rpc_load(str(path), int(version))
             await self._post("/reset_prefix_cache")
             self.version = version
+            self._loaded, self._dirty = True, False
             self._weights_epoch += 1
         finally:
+            self._loads -= 1
             if paused:
                 await self._post("/resume")
             if serving:
                 self._unpaused.set()
+
+    async def _rpc_load(self, path: str, version: int) -> None:
+        """``crucible_load_weights`` with the version, which the workers keep for ``health``'s read-back (M12 lab audit
+        C-4). An older extension takes the path only and answers a server error: the load is sent once more without the
+        version, and this engine stops reading versions back (a long-lived server with the old mount keeps working)."""
+        if self._readback:
+            try:
+                await self._post("/collective_rpc", json={"method": "crucible_load_weights", "args": [path, version]})
+                return
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
+                    raise
+                self._readback = False
+        await self._post("/collective_rpc", json={"method": "crucible_load_weights", "args": [path]})
+
+    async def health(self) -> bool:
+        """For ``GatewayPool``'s health loop (M12 lab audit C-4): the server answers ``/health``, and ``version`` is read
+        back from its workers (``CrucibleWorkerExtension.crucible_version``). It was client-side only, so a vLLM that
+        restarted served its base weights under the last published label, and the gateway never noticed. The read-back:
+
+        - one version on every worker: ``version`` becomes it;
+        - workers that disagree (a partial load across tensor-parallel ranks), or nothing loaded since the server started
+          although this client loaded before (a restart): ``version`` becomes -1, which names no published version, so
+          the gateway evicts the engine and replays the publish (``GatewayPool.revive``);
+        - no read-back (the client-side version stays): an older extension, a load in flight or left incomplete (the
+          client-side version is then behind, so the gateway replays it anyway), a paused or sleeping engine (its engine
+          core may be busy waking), a read-back that failed or timed out while ``/health`` answered (not an outage), or
+          an answer in another shape."""
+        try:
+            r = await self.client.get(self.base + "/health", timeout=5.0)
+        except httpx.HTTPError:
+            return False
+        if r.status_code != 200:
+            return False
+        if not self._readback or self._loads or self._dirty or self.asleep or not self._unpaused.is_set():
+            return True
+        epoch = self._weights_epoch
+        try:
+            rpc = await self.client.post(self.base + "/collective_rpc", json={"method": "crucible_version"}, timeout=5.0)
+        except httpx.HTTPError:
+            return True
+        held = _worker_versions(rpc)
+        if held is None or self._loads or self._dirty or epoch != self._weights_epoch:
+            return True  # no read-back here, or a load started meanwhile
+        if len(held) != 1:
+            self.version = -1
+        elif (v := held.pop()) is not None:
+            self.version = v
+        elif self._loaded:
+            self.version = -1
+        return True
+
+
+def _worker_versions(r: httpx.Response) -> set[int | None] | None:
+    """The versions vLLM's ``/collective_rpc`` reports for ``crucible_version`` (``{"results": [one per worker]}``, each
+    ``{"version": int | None}``, None: nothing loaded since the worker started, -1: a load raised part-way); None when the
+    answer is not that."""
+    if r.status_code != 200:
+        return None
+    try:
+        body = r.json()
+    except ValueError:
+        return None
+    results = body.get("results") if isinstance(body, dict) else body
+    if not isinstance(results, list) or not results or not all(isinstance(x, dict) and "version" in x for x in results):
+        return None
+    vs = [x["version"] for x in results]
+    if not all(v is None or (isinstance(v, int) and not isinstance(v, bool)) for v in vs):
+        return None
+    return set(vs)
 
 
 NEG_FLOOR = -9998.0  # vLLM serializes a -inf logprob as -9999.0 (OpenAI-compatible floor)
