@@ -15,7 +15,16 @@ from pathlib import Path
 import pytest
 
 from crucible.factory.lanes.executable import LocalSandbox
-from crucible.factory.lanes.windows import COLLECT_ALL, closure, ddmin, f2p_stage, probe_dependencies, revert_mutants, window_files
+from crucible.factory.lanes.windows import (
+    COLLECT_ALL,
+    closure,
+    ddmin,
+    f2p_stage,
+    milestones_from_owners,
+    probe_dependencies,
+    revert_mutants,
+    window_files,
+)
 from crucible.factory.lanes.windows_git import RepoGit, Unit, key_of_test, mine_windows, owners_of_tests, release_windows
 
 
@@ -181,6 +190,16 @@ def test_ddmin_finds_the_minimal_set(need: set[int]) -> None:
 
     assert asyncio.run(ddmin(list(range(8)), ok)) == sorted(need)
     assert len(calls) <= 40
+
+
+def test_a_parent_test_with_another_units_subtest_is_in_no_milestone() -> None:
+    """mvdan-sh dc951aeb: TestPrintTable passes only once m02's case does, so in m04 it made m04 "need" m02."""
+    us = [Unit(s * 40, "p" * 40, False, "2024-01-01", s, ["x.go", "x_test.go"]) for s in "ab"]
+    owners = {"x_test.go::TestT": us[1].sha, "x_test.go::TestT/#1": us[0].sha, "x_test.go::TestT/#2": us[1].sha,
+              "x_test.go::TestU": us[1].sha, "x_test.go::TestU/#1": us[1].sha}  # TestU's subtests are all its own unit's
+    ms = milestones_from_owners({"units": [u.__dict__ for u in us]}, owners)
+    assert [(m["id"], m["tests"]) for m in ms] == [
+        ("m01", ["x_test.go::TestT/#1"]), ("m02", ["x_test.go::TestT/#2", "x_test.go::TestU", "x_test.go::TestU/#1"])]
 
 
 def test_unit_round_trips_json() -> None:

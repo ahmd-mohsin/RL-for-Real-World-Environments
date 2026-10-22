@@ -57,7 +57,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -494,13 +494,21 @@ async def prefix_owners(rec: Mapping[str, Any], repo: RepoGit, base: Path, sandb
             "monotone_violations": res["monotone_violations"]}
 
 
+def subtests_of(test: str, ids: Iterable[str]) -> list[str]:
+    """The ids nested under ``test`` (Go's ``TestX/case``): a parent test passes only once every subtest does."""
+    return [t for t in ids if t.startswith(test + "/")]
+
+
 def milestones_from_owners(rec: Mapping[str, Any], owners: Mapping[str, str | None]) -> list[dict[str, Any]]:
-    """One milestone per owner unit, in history order (ids ``m<unit index+1>``)."""
+    """One milestone per owner unit, in history order (ids ``m<unit index+1>``). A parent test with a subtest another unit
+    owns is in no milestone: it passes only with that unit's subtest, so its milestone would wait for the other one
+    without any interaction (mvdan-sh dc951aeb: m04 "needed" m02 and m03 through TestPrintTable and TestPrintBinaryNextLine
+    alone; m04's own cases pass without them). The subtests carry the checks."""
     units = [Unit(**u) for u in rec["units"]]
     order = {u.sha: i for i, u in enumerate(units)}
     groups: dict[str, list[str]] = {}
     for t, o in owners.items():
-        if o is not None:
+        if o is not None and all(owners[s] == o for s in subtests_of(t, owners)):
             groups.setdefault(o, []).append(t)
     return [{"id": f"m{order[s] + 1:02d}", "unit": s, "index": order[s], "subject": units[order[s]].subject, "tests": sorted(ts)}
             for s, ts in sorted(groups.items(), key=lambda kv: order[kv[0]])]
@@ -781,8 +789,10 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
     owners = {t: o for t, o in owners.items() if t not in volatile}
     rec["ownership"] = po
     rec["milestones"] = milestones_from_owners(rec, owners)
+    placed = {t for m in rec["milestones"] for t in m["tests"]}
     rec.update(targets=targets, p2p=[t for t in cls["p2p"] if t not in volatile], collateral=sorted(t for t, o in owners.items() if o is None),
-               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile, "timing": sorted(timing)},
+               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile, "timing": sorted(timing),
+                         "mixed_parents": sorted(t for t, o in owners.items() if o is not None and t not in placed)},
                timing_rule=dict(sorted(timing.items())))
     if len(rec["milestones"]) < min_milestones:
         return f"{len(rec['milestones'])} milestone(s) with fail-to-pass tests (need {min_milestones})"

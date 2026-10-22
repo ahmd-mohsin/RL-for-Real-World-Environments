@@ -67,6 +67,7 @@ from crucible.factory.lanes.windows import (
     WindowStore,
     changed_defs,
     normalize_ids,
+    subtests_of,
     suite_targets,
     validate_window,
 )
@@ -198,13 +199,14 @@ def interaction_edges(evidence: Mapping[str, Mapping[str, Any]]) -> dict[str, se
     """``{k: {j, ...}}`` (symmetric): fixes k and j interact when a test that passes at B fails both with k alone reverted
     and with j alone reverted (``real_fix_check``'s ``caught``, test-case ids): that test passes only once both faults are
     fixed, so in the task its milestone needs the other fix (the prober's executed edge). Only fixes whose own revert is
-    caught (``ok``) count. Test-case ids matter: two fixes that each add cases to one parametrized test do not interact."""
+    caught (``ok``) count. Test-case ids matter: two fixes that each add cases to one parametrized test do not interact, nor
+    do two that each break a different subtest of one Go parent test, which fails with either (``subtests_of``)."""
     ok = {s: set(ev.get("caught") or []) for s, ev in evidence.items() if ev.get("ok")}
     need: dict[str, set[str]] = {}
     shas = sorted(ok)
     for i, a in enumerate(shas):
         for b in shas[i + 1:]:
-            if ok[a] & ok[b]:
+            if any(not subtests_of(t, ok[a] | ok[b]) for t in ok[a] & ok[b]):
                 need.setdefault(a, set()).add(b)
                 need.setdefault(b, set()).add(a)
     return need

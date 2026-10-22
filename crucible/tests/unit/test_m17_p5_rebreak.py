@@ -110,7 +110,12 @@ def test_interactions_are_shared_caught_test_cases() -> None:
     ev = {"a": {"ok": True, "caught": ["t.py::test_x[1]", "t.py::test_y"]}, "b": {"ok": True, "caught": ["t.py::test_y"]},
           "c": {"ok": True, "caught": ["t.py::test_x[2]"]}, "d": {"ok": False, "caught": ["t.py::test_y"]}}
     assert interaction_edges(ev) == {"a": {"b"}, "b": {"a"}}  # [1] and [2] are different cases; d's own revert is not caught
-    us = [Unit(sha=s, parent="p", merge=False, date="", subject=s, files=[f"{s}.py", "tests/test_t.py"]) for s in "abcd"]
+    # Go reports a parent test besides its subtests: a parent that fails because each revert breaks a different subtest
+    # links nothing (mvdan-sh dc951aeb), a subtest both reverts break does
+    go = {"a": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#1"]}, "b": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#2"]},
+          "c": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#1", "p_test.go::TestT/#3"]}}
+    assert interaction_edges(go) == {"a": {"c"}, "c": {"a"}}
+    us =[Unit(sha=s, parent="p", merge=False, date="", subject=s, files=[f"{s}.py", "tests/test_t.py"]) for s in "abcd"]
     assert [u.sha for u in order_fixes(us, {"a": {"c"}})] == ["b", "c", "a", "d"]  # a needs c: c first, else history order
     groups = group_fixes(us, {"a": {"f"}, "c": {"f"}}, need={"a": {"b"}, "b": {"a"}}, max_size=3)
     # the interacting pair, filled with c (shares function f with a); a fix with no pending prerequisite goes first, a cycle keeps history order
