@@ -21,7 +21,8 @@ and B's GPU output.
   output within the case's own tolerance (``kernel_harness.compare_dumps``, outside the candidate's process); the case
   must run (an op the backend no longer supports fails) and the candidate process must launch kernels (CUPTI injection:
   at least one launch per case, no host fallback);
-- ``racecheck`` / ``synccheck`` / ``memcheck``: compute-sanitizer on the milestone's first cases; every summary zero;
+- ``racecheck`` / ``synccheck`` / ``memcheck``: compute-sanitizer on the milestone's ``sanitizer_cases`` (calibrated: cases
+  whose processes launch the fault's kernels) or else its first cases; every summary zero;
 - ``perf``: the grader's wall clock around whole harness runs in perf mode at R and 3R repetitions (start-up cancels),
   alternating reference and candidate, best of 3 rounds plus one re-measure, a load guard, a spread check (noise ->
   infra), launches must scale with repetitions; the bar is per GPU model (``spec.perf_bars``), calibrated by the bundle
@@ -72,6 +73,28 @@ def pool_sample(pool: list[str], first: list[str], cap: int = POOL_CAP) -> list[
     return [*first, *rest][:cap]
 
 
+def pool_cap(v: object) -> int:
+    """The ``pool_cap`` parameter: absent -> ``POOL_CAP``; ``0`` -> every case. The runtime JSON-decodes parameter values,
+    so ``pool_cap=0`` arrives as the integer 0 (falsy): a plain ``or POOL_CAP`` turned the S1 sweep "of every pool case"
+    into a 1000-case stride (found 2026-10-22: 14 starts declared "not real" had been swept on 10-20% of their pools)."""
+    return POOL_CAP if v is None or v == "" else int(v)
+
+
+def case_ratio(v: dict) -> float:
+    """A compared case's worst error as a share of its tolerance (``nmse_vs_cpu / max_err``; a missing output is inf):
+    the calibration's margin check reads it (a case B passes at 0.9 of its tolerance fails on some other seed)."""
+    try:
+        return float(v["nmse_vs_cpu"]) / float(v["max_err"]) if float(v["max_err"]) > 0 else float("inf")
+    except (KeyError, TypeError, ValueError):
+        return float("inf")
+
+
+def perf_groups(key: str, cases: list[str], each: bool) -> dict[str, list[str]]:
+    """The perf check's metrics: one over all the milestone's cases (a grade), or one per case (``perf_each``, the
+    calibration: every candidate case timed in one grade instead of one grade per case)."""
+    return {f"{key}#{i}": [c] for i, c in enumerate(cases)} if each else {key: list(cases)}
+
+
 class KDGrader:
     def __init__(self, ctx: Context, spec: dict):
         self.ctx, self.spec, self.t = ctx, spec, ctx.trusted
@@ -80,7 +103,7 @@ class KDGrader:
         self.base = Path(ctx.params.get("base_tree") or "/k/base")
         self.hooks = Path(ctx.params.get("hooks_dir") or "/k/hooks")
         self.mode = str(ctx.params.get("mode") or "grade")
-        self.pool_cap = int(ctx.params.get("pool_cap") or POOL_CAP)  # pool mode: 0 = every case of the pool (the S1 sweep of the start)
+        self.pool_cap = pool_cap(ctx.params.get("pool_cap"))  # pool mode: 0 = every case of the pool (the S1 sweep of the start)
         self.pool_seeds = str(ctx.params.get("pool_seeds") or "all")  # pool mode: "fixed" = the spec's fixed seeds only
         self.work = ctx.work
         self.exe: Path | None = None
@@ -128,7 +151,7 @@ class KDGrader:
         if self.ctx.params.get("ccache"):  # the bundle's gate runs (the grader's own patches) only, never a task grade
             flags += kh.cmake_ccache()
             env = {"CCACHE_DIR": str(self.ctx.params["ccache"]), "CCACHE_BASEDIR": str(self.work), "CCACHE_NOHASHDIR": "1", "CCACHE_UMASK": "000",
-                   "CCACHE_MAXSIZE": "30G"}
+                   "CCACHE_MAXSIZE": "12G"}  # one shared gate cache on a shared, nearly full disk
         cfg = self.t.run(["cmake", "-S", src, "-B", bld, "-G", "Ninja", *flags], cwd=bld, timeout=1800, candidate=True, env=env)
         if cfg.rc != 0:
             self.t.seal(bld)
@@ -263,7 +286,7 @@ class KDGrader:
 
     def golden(self, m: dict) -> Verdict:
         cases = self.cases_of(m)
-        detail, ok, per_case = {}, True, {}
+        detail, ok, per_case, ratio = {}, True, {}, {}
         for seed in self.seeds(m):
             seen = self.pool_seen.setdefault(seed, {}) if self.mode == "pool" else {}
             todo = [c for c in cases if c not in seen]  # pool mode: a case another milestone ran on this seed is not rerun
@@ -283,6 +306,8 @@ class KDGrader:
             fails = {k: v for k, v in cmp.items() if not v["pass"]}
             for k, v in cmp.items():
                 per_case.setdefault(k, []).append(bool(v["pass"]))
+                r = case_ratio(v)
+                ratio[k] = max(ratio.get(k, 0.0), r)
             # pool mode reruns no case another milestone ran: the launch evidence belongs to the grade, not the calibration
             launch_ok = self.mode == "pool" or launches is None or launches >= max(1, len(cases) - len(fails))
             detail[f"seed{'_fresh' if seed == self.fresh else ''}_{seed}"] = {"failed": len(fails), "cases": len(cases), "launches": launches,
@@ -291,10 +316,12 @@ class KDGrader:
             if not launch_ok:
                 detail["launch_error"] = "fewer kernel launches than cases: an op ran off the GPU"
         detail["per_case"] = {k: all(v) for k, v in per_case.items()}  # the calibration's input (pool) and its stability check (grade)
+        detail["per_case_ratio"] = {k: round(v, 4) if v != float("inf") else None for k, v in ratio.items()}  # worst error / tolerance
         return Verdict(ok, {**detail, "seed_revealed_after_run": True})
 
     def sanitize(self, m: dict, tool: str) -> Verdict:
-        cases = self.cases_of(m)[:4]
+        # the calibration's sanitizer cases launch the fault's kernels (profiled with CUPTI); else the milestone's first cases
+        cases = list(m.get("sanitizer_cases") or [])[:4] or self.cases_of(m)[:4]
         wrap = [SANITIZER, "--tool", tool, "--error-exitcode", "97", "--print-limit", "30", *(["--leak-check", "no"] if tool == "memcheck" else [])]
         _c, r = self.run_cand(f"{m['id']}-{tool}", cases, 7, dump=False, wrap=wrap, launches=False, timeout=7200)
         clean, summary = kp.sanitizer_clean(r.rc, r.log)
@@ -305,27 +332,41 @@ class KDGrader:
     def perf(self, m: dict) -> Verdict:
         bars = (self.spec.get("perf_bars") or {}).get(self.gpu) or {}
         key = f"{m['id']}_ms"
-        if key not in bars:
-            return Verdict(False, {"gpu": self.gpu}, infra=f"no calibrated perf bar for {m['id']} on {self.gpu!r}")
         cases = list(m.get("perf_cases") or [])
         if not cases:
             return Verdict(False, {}, infra=f"milestone {m['id']} has no calibrated perf cases")
+        groups = perf_groups(key, cases, bool(self.ctx.params.get("perf_each")))
+        if any(k not in bars for k in groups):
+            return Verdict(False, {"gpu": self.gpu}, infra=f"no calibrated perf bar for {m['id']} on {self.gpu!r}")
         r1 = int((self.spec.get("perf") or {}).get("r") or 3)
+        # the launch evidence (CUPTI) slows every kernel it traces, and the reference runs untraced: launches are counted on
+        # separate, untimed candidate runs (before 2026-10-22 the traced candidate timed ~10% slower than the same build)
+        for gi, (k, cs) in enumerate(groups.items()):
+            n = {}
+            for reps in (r1, 3 * r1):
+                c, rr = self.run_cand(f"perfl-{gi}", cs, 7, mode="perf", reps=reps, dump=False)
+                if rr.rc != 0 or rr.timed_out:
+                    return Verdict(False, {"error": f"counted run of {m['id']} failed (rc {rr.rc})"})
+                n[reps] = c["launches"] or 0
+            if n[3 * r1] - n[r1] < 2 * r1 * len(cs):
+                return Verdict(False, {"error": f"{m['id']}: kernel launches do not scale with repetitions (skipped or memoized work)", "launches": n})
 
         def round_fn(rnd: int) -> dict:
             orig, cand = {}, {}
-            for reps in (r1, 3 * r1):
-                o = self.run_ref(f"perf{rnd}", cases, 7, mode="perf", reps=reps, dump=False)
-                c, rr = self.run_cand(f"perf{rnd}", cases, 7, mode="perf", reps=reps, dump=False)
-                if rr.rc != 0 or rr.timed_out:
-                    raise CandidateError(f"timed run of {m['id']} failed (rc {rr.rc})")
-                orig[reps], cand[reps] = o["wall_s"], (c["wall_s"], c["launches"] or 0)
-            if cand[3 * r1][1] - cand[r1][1] < 2 * r1 * len(cases):
-                raise CandidateError(f"{m['id']}: kernel launches do not scale with repetitions (skipped or memoized work)")
-            per = lambda a, b: max(1e-6, (b - a) / (2 * r1)) * 1e3
-            return {"original": {key: per(orig[r1], orig[3 * r1])}, "candidate": {key: per(cand[r1][0], cand[3 * r1][0])}}
+            for gi, (k, cs) in enumerate(groups.items()):
+                tag = f"perf{rnd}" if len(groups) == 1 else f"perf{rnd}-{gi}"
+                o_s, c_s = {}, {}
+                for reps in (r1, 3 * r1):
+                    o = self.run_ref(tag, cs, 7, mode="perf", reps=reps, dump=False)
+                    c, rr = self.run_cand(tag, cs, 7, mode="perf", reps=reps, dump=False, launches=False)
+                    if rr.rc != 0 or rr.timed_out:
+                        raise CandidateError(f"timed run of {m['id']} failed (rc {rr.rc})")
+                    o_s[reps], c_s[reps] = o["wall_s"], c["wall_s"]
+                per = lambda a, b: max(1e-6, (b - a) / (2 * r1)) * 1e3
+                orig[k], cand[k] = per(o_s[r1], o_s[3 * r1]), per(c_s[r1], c_s[3 * r1])
+            return {"original": orig, "candidate": cand}
 
-        pb = PerfBars(bars={key: float(bars[key])}, round_fn=round_fn, rounds=3, remeasure=1, spread_max=0.25,
+        pb = PerfBars(bars={k: float(bars[k]) for k in groups}, round_fn=round_fn, rounds=3, remeasure=1, spread_max=0.25,
                       guard=LoadGuard(max_load_per_core=0.5, max_gpu_util=20, wait_s=1200))
         v = pb()
         v.detail["gpu"] = self.gpu
@@ -350,8 +391,8 @@ def plan(ctx: Context) -> Plan:
                 fn = (lambda ctx, m=m: g.golden(m))
             elif c in ("racecheck", "synccheck", "memcheck"):
                 fn = (lambda ctx, m=m, c=c: g.sanitize(m, c))
-            elif c == "perf":
-                fn = (lambda ctx, m=m: g.perf(m))
+            elif c == "perf" and g.mode != "pool":  # a pool grade is the calibration's per-case input: no bar exists yet, and its
+                fn = (lambda ctx, m=m: g.perf(m))  # infra verdict masked the whole oracle pool grade of every perf task
             else:
                 continue
             checks.append(Check(f"{m['id']}:{c}", m["id"], fn, requires=("build",)))

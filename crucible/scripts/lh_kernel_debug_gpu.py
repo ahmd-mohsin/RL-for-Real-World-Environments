@@ -53,6 +53,9 @@ IMAGE = "crucible-lh-k:base-12.8.1"
 PLAN = "crucible.factory.lanes.kernel_debug_plan"
 CASES_PER_MILESTONE = 32
 PERF_HEADROOM = 0.10
+SANITIZERS = ("racecheck", "synccheck", "memcheck")
+MARGIN = 0.5  # an owned case B passes above this share of its tolerance on a stability grade is borderline and leaves
+PROFILE_SAMPLE = 192  # pool cases per milestone whose kernel launches are profiled to choose its sanitizer cases
 CCACHE = HERE / "ccache"  # gate runs only (the grader's own patches): a task grade never mounts a build cache
 USE_CCACHE = True
 
@@ -137,7 +140,9 @@ def unpack(d: Path) -> None:
 def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     """B with the patched harness, built as root into ``ref/`` (0700): what the reference runs in every grade."""
     ref = d / "ref"
-    if (ref / "bin" / kh.TARGET).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == arch:
+    extra = list(spec.get("harness_extra") or [])
+    stamp = "\n".join([arch, *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra)])  # the reference's identity: the GPU arch and the grader's added cases
+    if (ref / "bin" / kh.TARGET).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == stamp:
         return {"ok": True, "cached": True}
     if ref.exists():
         rmtree(ref)
@@ -146,31 +151,43 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
         rmtree(src)
     shutil.copytree(d / "b", src, symlinks=True)
     text = (src / kh.HARNESS).read_text(errors="replace")
-    patched = kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]), header=kh.ggml_header(src))
+    patched = kh.add_cases(kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]), header=kh.ggml_header(src)), extra)
     kh.prepare_tree(src, patched)
     ref.mkdir()
     (ref / "harness.cpp").write_text(patched)
     jobs = str(max(2, min(32, os.cpu_count() or 4)))
     flags = [*kh.cmake_cuda([arch]), "-DBUILD_SHARED_LIBS=OFF", *(spec.get("cmake_extra") or []), *(kh.cmake_ccache() if USE_CCACHE else ())]  # static, as the grader builds
-    script = ("export CCACHE_DIR=/ccache CCACHE_BASEDIR=/ CCACHE_NOHASHDIR=1 CCACHE_UMASK=000 CCACHE_MAXSIZE=15G; "
+    script = ("export CCACHE_DIR=/ccache CCACHE_BASEDIR=/ CCACHE_NOHASHDIR=1 CCACHE_UMASK=000 CCACHE_MAXSIZE=12G; "
               f"cmake -S /src -B /ref/build -G Ninja {' '.join(flags)} > /ref/configure.log 2>&1 && "
               f"cmake --build /ref/build --target {kh.TARGET} -j {jobs} > /ref/build.log 2>&1; rc=$?; "
               "mkdir -p /ref/bin && cp -a /ref/build/bin/. /ref/bin/ ; exit $rc")
     p = container(mode, [(src, "/src", False), (ref, "/ref", True), (ccache_dir(), "/ccache", True)], ["bash", "-c", script], arch=arch, tag="ref")
     ok = p.returncode == 0 and (ref / "bin" / kh.TARGET).exists()
     if ok:
-        (ref / "arch").write_text(arch)
+        (ref / "arch").write_text(stamp)
         rmtree(ref / "build")
         rmtree(src)
     os.chmod(ref, 0o700)
     return {"ok": ok, "rc": p.returncode, "log": "" if ok else ((ref / "build.log").read_text(errors="replace")[-1500:] if (ref / "build.log").exists() else p.stderr[-800:])}
 
 
+def kit_digest() -> bytes:
+    """The grader's own code (the bundled kit): part of every pool grade's reuse key, so a grade cached before a grader
+    fix is never reused after it (found 2026-10-22: sweeps graded by an older kit were read back after the fix)."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for f in sorted((HERE / "kit").rglob("*.py")):
+        h.update(str(f.relative_to(HERE)).encode() + b"\0" + f.read_bytes())
+    return h.hexdigest().encode()
+
+
 def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str, *, pool: bool = False, only: str = "", params: tuple[str, ...] = ()) -> dict:
     out = d / "grades" / tag
     import hashlib
 
-    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec_path.read_bytes(), tag.encode(), str(pool).encode(), only.encode(), *[p.encode() for p in params]])).hexdigest()
+    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec_path.read_bytes(), tag.encode(), str(pool).encode(), only.encode(), *[p.encode() for p in params],
+                                      kit_digest()])).hexdigest()
     if pool and (out / "inputs.sha256").exists() and (out / "inputs.sha256").read_text() == key and (out / "report.json").exists():
         report = json.loads((out / "report.json").read_text())  # a pool grade of the same patch, spec and grader: reused (calibration restarts)
         doc = json.loads((out / "crucible_reward.json").read_text())
@@ -207,6 +224,13 @@ def per_case(g: dict, mid: str) -> dict[str, bool]:
     return dict(check_detail(g, f"{mid}:golden").get("per_case") or {})
 
 
+def borderline(g: dict, mid: str, margin: float = MARGIN) -> set[str]:
+    """Cases B passed with an error above ``margin`` of their tolerance (or with no measured error): a fresh seed fails
+    them (2026-10-22: a q4_1 matmul of one 32-value block passed three stability seeds and failed the S10 run at 2x)."""
+    r = check_detail(g, f"{mid}:golden").get("per_case_ratio") or {}
+    return {c for c, x in r.items() if x is None or x > margin}
+
+
 # ---- calibration (pure functions are unit-tested in tests/unit/test_m17_kd_gpu_math.py) ---------------------------------------
 def owned_cases(b_pass: dict[str, bool], revert_pass: dict[str, bool], added: list[str], cap: int = CASES_PER_MILESTONE) -> list[str]:
     """The pool cases B passes and the single revert breaks; the fix's own added cases first."""
@@ -237,6 +261,149 @@ def cp_upper(k: int, n: int, alpha: float = 0.05) -> float:
         tail = sum(math.comb(n, i) * mid ** i * (1 - mid) ** (n - i) for i in range(k + 1))
         lo, hi = (mid, hi) if tail > alpha else (lo, mid)
     return hi
+
+
+def start_not_real(spec: dict, built: bool, a_fails: dict[str, list[str]], a_san: dict[str, str | None]) -> bool:
+    """S1 on the start: every correctness milestone's pool cases pass and every sanitizer check is clean with all faults
+    in, so no fault shows on this GPU. Perf milestones are left out: their faults keep results correct, so the start passes
+    every case by design (before 2026-10-22 a perf task was dropped here as "not real")."""
+    bug = [m["id"] for m in spec["milestones"] if m["kind"] != "perf"]
+    if not built or not bug:
+        return False
+    return not any(a_fails.get(m) for m in bug) and all(v == "pass" for k, v in a_san.items() if k.split(":", 1)[0] in bug)
+
+
+LAUNCH_PROFILE = r"""
+import json, os, subprocess
+cases, out = json.load(open("/w/cases.json")), {}
+for i, c in enumerate(cases):
+    open("/w/c.txt", "w").write(c + "\n")
+    log = "/w/l%d.tsv" % i
+    env = {**os.environ, "CRUCIBLE_SEED": "7", "CRUCIBLE_CASES": "/w/c.txt", "GGML_CUDA_DISABLE_GRAPHS": "1", "LD_LIBRARY_PATH": "/k/ref/bin",
+           "CUDA_INJECTION64_PATH": "/k/hooks/libcrucible_launch.so", "CRUCIBLE_LAUNCH_LOG": log}
+    try:
+        subprocess.run(["/k/ref/bin/test-backend-ops", "test", "-b", "CUDA0"], env=env, capture_output=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        pass
+    out[c] = [ln.split("\t", 1)[1] for ln in open(log).read().splitlines() if "\t" in ln] if os.path.exists(log) else []
+json.dump(out, open("/w/out.json", "w"))
+"""
+
+
+def profile_launches(d: Path, cases: list[str], mode: str, arch: str) -> dict[str, list[str]]:
+    """case -> the kernels its process launches on the reference build (B), each case alone under the CUPTI hook; cached
+    in ``launch_profile.json``."""
+    prof = d / "launch_profile.json"
+    cached = json.loads(prof.read_text()) if prof.exists() else {}
+    todo = [c for c in cases if c not in cached]
+    if todo:
+        work = d / "lprof"
+        if work.exists():
+            rmtree(work)
+        work.mkdir()
+        (work / "cases.json").write_text(json.dumps(todo))
+        container(mode, [(d / "ref", "/k/ref", False), (HERE / "hooks", "/k/hooks", False), (work, "/w", True)], ["python3", "-I", "-c", LAUNCH_PROFILE],
+                  arch=arch, tag="lprof", timeout=7200)
+        if (work / "out.json").exists():
+            cached.update(json.loads((work / "out.json").read_text()))
+            prof.write_text(json.dumps(cached, indent=1))
+        rmtree(work)
+    return {c: cached.get(c, []) for c in cases}
+
+
+def launches_kernel(launched: str, kernel: str) -> bool:
+    """A CUPTI kernel name (mangled: the identifier with its length in front) is ``kernel``, not a longer name that starts
+    with it (``cpy_scalar`` is not ``cpy_scalar_transpose``)."""
+    if launched == kernel or launched.startswith((kernel + "(", kernel + "<")):
+        return True
+    tok = f"{len(kernel)}{kernel}"
+    i = launched.find(tok)
+    while i >= 0:
+        if i == 0 or not launched[i - 1].isdigit():
+            return True
+        i = launched.find(tok, i + 1)
+    return False
+
+
+def sanitizer_cases(prof: dict[str, list[str]], kernels: list[str], k: int = 4) -> list[str]:
+    """Up to ``k`` profiled cases that launch the fault's kernels: one per kernel, the rarest kernels first (a kernel
+    every case launches says little about this fault), the shortest case name first within a kernel."""
+    hits = {c: {kn for kn in kernels if any(launches_kernel(x, kn) for x in names)} for c, names in prof.items()}
+    freq = {kn: sum(1 for h in hits.values() if kn in h) for kn in kernels}
+    picked: list[str] = []
+    for kn in sorted((kn for kn in kernels if freq[kn]), key=lambda kn: (freq[kn], kn)):
+        cands = sorted((c for c, h in hits.items() if kn in h and c not in picked), key=lambda c: (len(c), c))
+        if cands:
+            picked.append(cands[0])
+        if len(picked) >= k:
+            break
+    rest = sorted((c for c, h in hits.items() if h and c not in picked), key=lambda c: (-len(hits[c]), len(c), c))
+    return (picked + rest)[:k]
+
+
+def target_sanitizers(d: Path, spec: dict, mode: str, arch: str) -> dict:
+    """Each sanitizer milestone's ``sanitizer_cases``: profiled pool cases that launch its fault's kernels
+    (``fault_kernels.json``, written at staging). Without it the tools ran on the pool's first cases, which often never
+    launch the racy kernel (2026-10-22: races in the transposed copy and in flash attention's vector kernel)."""
+    fk_p = d / "fault_kernels.json"
+    fk = json.loads(fk_p.read_text()) if fk_p.exists() else {}
+    from crucible.factory.lanes import kernel_debug_plan as kdp  # the bundled kit (on sys.path)
+
+    ms = [m for m in spec["milestones"] if fk.get(m["id"]) and any(t in m["checks"] for t in SANITIZERS)]
+    if not ms:
+        return {}
+    sample = list(dict.fromkeys(c for m in ms for c in kdp.pool_sample(list(m.get("case_pool") or []), list(m.get("cases_added") or []), cap=PROFILE_SAMPLE)))
+    prof = profile_launches(d, sample, mode, arch)
+    out = {}
+    for m in ms:
+        sc = sanitizer_cases(prof, fk[m["id"]])
+        if sc:
+            m["sanitizer_cases"] = sc
+        out[m["id"]] = {"kernels": fk[m["id"]][:12], "profiled": len(sample), "cases": sc}
+    return out
+
+
+def adopt_extra_cases(spec: dict, listed: list[str], listed_perf: list[str] | None = None) -> dict[str, list[str]]:
+    """milestone -> the grader's added cases (``harness_extra``) by name. An entry that names its case (``name``) must
+    appear in the reference's listing: in test mode it joins its milestone's pool and leads its samples (like a fix's own
+    added cases), in perf mode it leads a perf milestone's candidates. Unnamed test-mode entries are found as the listing
+    minus every pool, for the milestones the lines were written for whose ops include the case's op. Which of them a fault
+    breaks, or slows, is still the calibration's verdict; a named case the reference does not list is reported."""
+    extra = spec.get("harness_extra") or []
+    ms = {m["id"]: m for m in spec["milestones"]}
+    known = {c for m in spec["milestones"] for c in m.get("case_pool") or []}
+    test_set, perf_set = set(listed), set(listed_perf or [])
+    out: dict[str, list[str]] = {}
+
+    def add(m: dict, c: str, perf: bool) -> None:
+        if perf:
+            m["perf_cases"] = list(dict.fromkeys([c, *(m.get("perf_cases") or [])]))
+            out.setdefault(f"{m['id']}:perf", []).append(c)
+        else:
+            m["case_pool"] = list(dict.fromkeys([c, *(m.get("case_pool") or [])]))
+            m["cases_added"] = list(dict.fromkeys([c, *(m.get("cases_added") or [])]))
+            out.setdefault(m["id"], []).append(c)
+
+    for x in extra:
+        m, name = ms.get(x["milestone"]), x.get("name")
+        if m is None or not name:
+            continue
+        if name not in test_set and name not in perf_set:
+            out.setdefault("missing", []).append(name)
+        if name in test_set and (x.get("mode") or "test") in ("test", "both"):
+            add(m, name, False)
+        if name in perf_set and "perf" in m["checks"] and (x.get("mode") or "test") in ("perf", "both"):
+            add(m, name, True)
+    unnamed = {x["milestone"] for x in extra if not x.get("name") and (x.get("mode") or "test") in ("test", "both")}
+    new = [c for c in listed if c not in known]
+    for mid in sorted(unnamed):
+        m = ms.get(mid)
+        if m is None:
+            continue
+        for c in new:
+            if c.split("(", 1)[0] in set(m["ops"]):
+                add(m, c, False)
+    return out
 
 
 def fill_pools(d: Path, spec: dict, mode: str, arch: str) -> dict:
@@ -312,7 +479,7 @@ def host_cpu_gates(d: Path, spec: dict, mode: str, arch: str) -> dict:
         kh.prepare_tree(src, kh.patch_harness(text, need_perf=perf and side == "b", header=kh.ggml_header(src)))
         bld.mkdir()
         flags = [*kh.CMAKE_CPU, *(spec.get("cmake_extra") or []), *(kh.cmake_ccache() if USE_CCACHE else ())]
-        script = ("export CCACHE_DIR=/ccache CCACHE_BASEDIR=/ CCACHE_NOHASHDIR=1 CCACHE_UMASK=000 CCACHE_MAXSIZE=15G; "
+        script = ("export CCACHE_DIR=/ccache CCACHE_BASEDIR=/ CCACHE_NOHASHDIR=1 CCACHE_UMASK=000 CCACHE_MAXSIZE=12G; "
                   f"cmake -S /src -B /b -G Ninja {' '.join(flags)} > /b/configure.log 2>&1 && cmake --build /b --target {kh.TARGET} -j {jobs} > /b/build.log 2>&1; "
                   "rc=$?; tail -c 1500 /b/build.log; exit $rc")
         p = container(mode, [(src, "/src", False), (bld, "/b", True), (ccache_dir(), "/ccache", True)], ["bash", "-c", script], arch=arch, tag=f"cpuh-{side}")
@@ -371,6 +538,15 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     cal: dict = {"gpu": gpu, "arch": arch, "at": time.strftime("%FT%TZ", time.gmtime())}
     spec = json.loads(json.dumps(spec))
     cal["pools"] = fill_pools(d, spec, mode, arch)
+    if spec.get("harness_extra"):
+        listed = {}
+        for mm in ("test", "perf"):
+            p = container(mode, [(d / "ref", "/k/ref", False)], ["bash", "-c", f"CRUCIBLE_LIST=1 /k/ref/bin/{kh.TARGET} {mm} -b CUDA0"], arch=arch, tag="list-extra")
+            listed[mm] = kh.listed_cases(p.stdout)
+        cal["extra_cases"] = adopt_extra_cases(spec, listed["test"], listed["perf"])
+        for x in ms:
+            x["cases_added"] = list(dict.fromkeys([*cal["extra_cases"].get(x["id"], []), *(x.get("cases_added") or [])]))
+    cal["sanitizer_targets"] = target_sanitizers(d, spec, mode, arch)
     # S1 sweep: the start (every fault in) over every case of every pool on the fixed seeds; the calibration then grades the
     # cases the start fails plus the usual sample (so a fault that breaks a handful of the 10k flash-attention cases is seen)
     full = d / "kdspec.full.json"
@@ -402,7 +578,8 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     a_san = {f"{m['id']}:{t}": check_status(a_grade, f"{m['id']}:{t}") for m in spec["milestones"] for t in m["checks"] if t in ("racecheck", "synccheck", "memcheck")}
     cal["start_fails"] = {k: len(v) for k, v in a_fails.items()}
     cal["start_sanitizer"] = a_san
-    if check_status(a_grade, "build:cuda") == "pass" and not any(a_fails.values()) and all(v == "pass" for v in a_san.values()):
+    # a perf start is correct by construction (its faults only cost time): the drop applies to correctness milestones
+    if start_not_real(spec, check_status(a_grade, "build:cuda") == "pass", a_fails, a_san):
         cal.update(gradable=False, kept_milestones=[], error="not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check")
         return spec, cal
     owned, breaks, revert_grades = {}, {}, {}
@@ -450,7 +627,7 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     stab = [grade(d, d / "oracle.patch", cal_path, mode, arch, f"cal-oracle-stable{i}") for i in range(3)]
     cal["unstable_cases"] = {}
     for m in new["milestones"]:
-        bad = {c for g in stab for c, ok in per_case(g, m["id"]).items() if not ok}
+        bad = {c for g in stab for c, ok in per_case(g, m["id"]).items() if not ok} | {c for g in stab for c in borderline(g, m["id"])}
         if bad:
             m["cases"] = [c for c in m["cases"] if c not in bad]
             cal["unstable_cases"][m["id"]] = sorted(bad)[:8]
@@ -528,58 +705,81 @@ def calibrate_partials(d: Path, spec: dict, entry: dict, mode: str, arch: str) -
 
 
 def perf_ratio(g: dict, cid: str, key: str) -> float | None:
-    att = (check_detail(g, cid).get("attempts") or [{}])[-1]
+    d = check_detail(g, cid)
+    att = d if d.get("metrics") else (d.get("attempts") or [{}])[-1]  # a passing check reports its last attempt at the top
     v = ((att.get("metrics") or {}).get(key) or {}).get("ratio")
     return float(v) if v is not None else None
 
 
 def calibrate_perf(d: Path, spec: dict, m: dict, entry: dict, mode: str, arch: str, gpu: str, *, keep: int = 3) -> dict:
-    """Per perf candidate case: B against itself twice (the noise floor) and the revert against B (the regression), with
-    an open bar; cases where the revert is slower than ``perf_bar`` allows are kept (at most ``keep``); the milestone's
-    bar is the largest of theirs."""
+    """Per perf candidate case (at most 8): B against itself twice (the noise floor) and the revert against B (the
+    regression), with open bars; every case is timed on its own inside one grade (``perf_each``: three grades per
+    milestone instead of three per case); cases where the revert is slower than ``perf_bar`` allows are kept (at most
+    ``keep``); the milestone's bar is the largest of theirs."""
+    from crucible.factory.lanes import kernel_debug_plan as kdp  # the bundled kit (on sys.path)
+
     key, cid = f"{m['id']}_ms", f"{m['id']}:perf"
+    cases = list(m.get("perf_cases") or [])[:8]
+    if not cases or f"revert-{m['id']}" not in entry["mutants"]:
+        return {"cases": [], "bar": None, "rows": [{"error": "no perf case" if not cases else "no revert mutant to time against B"}]}
+    s = json.loads(json.dumps(spec))
+    next(x for x in s["milestones"] if x["id"] == m["id"])["perf_cases"] = cases
+    s["perf_bars"] = {gpu: {k: 1e9 for k in kdp.perf_groups(key, cases, True)}}
+    sp = d / "kdspec.perfcal.json"
+    sp.write_text(json.dumps(s))
+    each = ("perf_each=1",)
+    idle()
+    gs = [grade(d, d / "oracle.patch", sp, mode, arch, f"cal-perf-b{i}", only=cid, params=each) for i in (1, 2)]
+    gs.append(grade(d, d / f"mutant_revert-{m['id']}.patch", sp, mode, arch, "cal-perf-rv", only=cid, params=each))
     rows, kept = [], []
-    for case in list(m.get("perf_cases") or [])[:8]:
-        s = json.loads(json.dumps(spec))
-        mm = next(x for x in s["milestones"] if x["id"] == m["id"])
-        mm["perf_cases"] = [case]
-        s["perf_bars"] = {gpu: {key: 1e9}}
-        sp = d / "kdspec.perfcal.json"
-        sp.write_text(json.dumps(s))
-        idle()
-        b1 = perf_ratio(grade(d, d / "oracle.patch", sp, mode, arch, "cal-perf-b1", only=cid), cid, key)
-        b2 = perf_ratio(grade(d, d / "oracle.patch", sp, mode, arch, "cal-perf-b2", only=cid), cid, key)
-        rv = None
-        if f"revert-{m['id']}" in entry["mutants"]:
-            rv = perf_ratio(grade(d, d / f"mutant_revert-{m['id']}.patch", sp, mode, arch, "cal-perf-rv", only=cid), cid, key)
+    for i, case in enumerate(cases):
+        b1, b2, rv = (perf_ratio(g, cid, f"{key}#{i}") for g in gs)
         if None in (b1, b2, rv):
-            rows.append({"case": case, "error": "unmeasured"})
+            rows.append({"case": case, "error": "unmeasured", "infra": [(g.get("infra") or {}).get("reason") for g in gs]})
             continue
         v = perf_bar([1.0, b1, b2], rv)
-        rows.append({"case": case, **v})
+        rows.append({"case": case, "b_vs_b": [round(b1, 3), round(b2, 3)], **v})
         if v["ok"]:
             kept.append((case, v["bar"]))
     kept = kept[:keep]
     return {"cases": [c for c, _ in kept], "bar": max((b for _, b in kept), default=None), "rows": rows}
 
 
+def flake_verdict(runs: list[dict]) -> dict:
+    """S10 over the oracle's repeated grades: a masked grade (infra: a busy node, an uncalibrated bar) is no evidence
+    either way and leaves the denominator; the Clopper-Pearson upper bound is over the grades that measured (before
+    2026-10-22 masked grades counted as passes)."""
+    masked = sum(1 for r in runs if (r["infra"] or {}).get("status") == "masked")
+    bad = sum(1 for r in runs if r["reward"] != 1.0 and (r["infra"] or {}).get("status") != "masked")
+    n = len(runs) - masked
+    return {"n": len(runs), "measured": n, "false_negatives": bad, "masked": masked, "cp_upper": round(cp_upper(bad, n), 4)}
+
+
+def load_spec(d: Path) -> dict:
+    spec = json.loads((d / "kdspec.json").read_text())
+    if (d / "harness_extra.json").exists():  # grader-owned cases for faults the repository's cases never reach here
+        spec["harness_extra"] = json.loads((d / "harness_extra.json").read_text())
+    return spec
+
+
 def task(tid: str, a: argparse.Namespace) -> dict:
     d = HERE / "tasks" / tid
     unpack(d)
-    spec = json.loads((d / "kdspec.json").read_text())
+    spec = load_spec(d)
     res: dict = {"id": tid, "arch": a.arch, "gpu": gpu_name(), "at": time.strftime("%FT%TZ", time.gmtime())}
     entry = next(x for x in json.loads((HERE / "index.json").read_text()) if x["id"] == tid)
     if entry.get("cpu_pending_host"):
         res["cpu_host"] = host_cpu_gates(d, spec, a.mode, a.arch)
         if not res["cpu_host"]["ok"]:
             return res
-        spec = json.loads((d / "kdspec.json").read_text())
+        spec = load_spec(d)
     res["reference"] = build_reference(d, a.mode, a.arch, spec)
     if not res["reference"]["ok"]:
         return res
     calp = d / "kdspec.calibrated.json"
     if a.recalibrate or not calp.exists():
-        res["idle"] = idle()
+        # only timed steps need a quiet GPU: a correctness task's calibration can share the host with another one
+        res["idle"] = idle() if any(m["kind"] == "perf" for m in spec["milestones"]) else {"skipped": "no timed step"}
         new, cal = calibrate(d, spec, a.mode, a.arch)
         calp.write_text(json.dumps(new, indent=1))
         (d / "calibration.json").write_text(json.dumps(cal, indent=1))
@@ -596,14 +796,6 @@ def task(tid: str, a: argparse.Namespace) -> dict:
     res["oracle"] = grade(d, d / "oracle.patch", calp, a.mode, a.arch, "oracle")
     res["floors"] = {p.stem: grade(d, p, calp, a.mode, a.arch, p.stem) for p in sorted(d.glob("floor_*.patch"))}
     res["mutants"] = {p.stem: grade(d, p, calp, a.mode, a.arch, p.stem) for p in sorted(d.glob("mutant_*.patch"))}
-    if a.flake:
-        half = a.flake // 2
-        runs = [grade(d, d / "oracle.patch", calp, a.mode, a.arch, f"flake1-{i}") for i in range(half)]
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            runs += list(ex.map(lambda i: grade(d, d / "oracle.patch", calp, a.mode, a.arch, f"flake4-{i}"), range(a.flake - half)))
-        bad = sum(1 for r in runs if r["reward"] != 1.0 and (r["infra"] or {}).get("status") != "masked")
-        res["flake"] = {"n": len(runs), "false_negatives": bad, "masked": sum(1 for r in runs if (r["infra"] or {}).get("status") == "masked"),
-                        "cp_upper": round(cp_upper(bad, len(runs)), 4)}
     idx = {x["id"]: x for x in json.loads((HERE / "index.json").read_text())}[tid]
     res["S5_oracle"] = res["oracle"]["reward"] == 1.0
     res["S8_floors"] = all(f["reward"] == 0.0 for f in res["floors"].values())
@@ -613,6 +805,16 @@ def task(tid: str, a: argparse.Namespace) -> dict:
     res["S8_mutants_excluded"] = skip
     res["S8_mutants_fail_their_milestone"] = {k: check_status(v, "build:cuda") == "pass" and (v["gates"] or {}).get(idx["mutants"].get(k.removeprefix("mutant_"), "")) != "pass"
                                               for k, v in res["mutants"].items() if k not in skip}
+    if a.flake and res["S5_oracle"] and res["S8_floors"] and all(res["S8_mutants_fail_their_milestone"].values()):
+        # S10 only for a task that passed S5 and S8 (sixty grades of a task already dropped measure nothing)
+        # a perf task's grades time kernels: four at once would load the GPU its own load guard waits on, so they run one
+        # at a time (correctness tasks: half at concurrency 1, half at 4)
+        perf_task = any("perf" in m["checks"] for m in json.loads(calp.read_text())["milestones"])
+        half = a.flake if perf_task else a.flake // 2
+        runs = [grade(d, d / "oracle.patch", calp, a.mode, a.arch, f"flake1-{i}") for i in range(half)]
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            runs += list(ex.map(lambda i: grade(d, d / "oracle.patch", calp, a.mode, a.arch, f"flake4-{i}"), range(a.flake - half)))
+        res["flake"] = flake_verdict(runs)
     res["S10"] = (res.get("flake") or {}).get("cp_upper", 1.0) <= 0.05
     for g in ("oracle",):
         for c in res[g].get("checks") or []:

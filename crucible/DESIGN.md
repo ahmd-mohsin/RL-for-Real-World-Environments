@@ -1068,6 +1068,24 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   a ccache (task grades never do); x86-only CPU gates (ik_llama.cpp) run on the GPU host first (`cpu_host.json`).
   The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
   under the same program name (a program that prints its argv[0] failed the oracle).
+- **GPU gate fixes and corrections (2026-10-22, `10` §8.2):** grader and runner bugs found by re-reading the failed runs:
+  `pool_cap=0` reached the plan as the integer 0 and fell back to the 1,000-case stride, so the S1 sweep "of every pool
+  case" covered 10-20% of the large pools (`kernel_debug_plan.pool_cap`); a cached pool grade's reuse key now includes the
+  grader kit (`kit_digest`), so a grade from before a grader fix is never read back; the S1 start drop skips perf
+  milestones (a perf start is correct by design) and pool grades never run the perf check (no bar exists yet: its infra
+  verdict masked every perf task's oracle pool grade); perf calibration times every candidate case on its own inside
+  one grade (`perf_each`: three grades per milestone, not three per case); S10 counts only grades that measured (a
+  masked grade is no pass), runs a perf task's sixty grades one at a time, and runs only for a task that passed S5 and
+  S8; the start of a correctness calibration no longer waits for an idle GPU (only timed steps do). New calibration
+  inputs: each sanitizer milestone runs its tool on `sanitizer_cases`, pool cases whose processes launch the fault's
+  kernels (`kernel_debug_ops.fault_kernels` at staging -> `fault_kernels.json`; a CUPTI launch profile of up to 192
+  pool cases on the reference build), not on the pool's first cases; a stability grade drops an owned case B passes
+  above half its tolerance (`case_ratio`, `MARGIN`); a record may carry grader-owned cases (`harness_extra`: only
+  `test_cases.emplace_back(new test_X(...));` lines of the file's own classes, at the shapes its report describes,
+  `kernel_harness.add_cases`), which join their milestone's pool as added cases and are disclosed in the prompt
+  (`EPILOGUE_EXTRA`). Migration grader: `compare.d2h = "none"` grades a self-checking program on its own report (its
+  copies back were 0.7-9.9 GB), and a window with no timed milestone does not wait for an idle GPU. The shared gate
+  ccache is capped at 12 GB (shared disk).
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

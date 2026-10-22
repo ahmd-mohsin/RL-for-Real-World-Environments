@@ -189,9 +189,148 @@ def test_partial_mutant_whitespace_equivalence_and_pool_reuse(tmp_path):
     spec.write_text("{}")
     import hashlib
 
-    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec.read_bytes(), b"cal-oracle", b"True", b""])).hexdigest()
+    key = hashlib.sha256(b"\0".join([patch.read_bytes(), spec.read_bytes(), b"cal-oracle", b"True", b"", g.kit_digest()])).hexdigest()
     out = d / "grades" / "cal-oracle"
     (out / "inputs.sha256").write_text(key)
     (out / "report.json").write_text('{"gates": {"build": "pass"}, "checks": []}')
     (out / "crucible_reward.json").write_text('{"reward": 1.0, "infra": {"status": "ok"}}')
     assert g.grade(d, patch, spec, "docker", "120", "cal-oracle", pool=True)["reward"] == 1.0  # no container started
+
+
+def test_pool_cap_zero_means_every_case():
+    from crucible.factory.lanes import kernel_debug_plan as kdp
+
+    # the runtime JSON-decodes parameters: pool_cap=0 arrives as the integer 0 and must not fall back to the default cap
+    assert kdp.pool_cap(None) == kdp.POOL_CAP and kdp.pool_cap("") == kdp.POOL_CAP
+    assert kdp.pool_cap(0) == 0 and kdp.pool_cap("0") == 0 and kdp.pool_cap(250) == 250
+    assert kdp.perf_groups("m1_ms", ["A", "B"], False) == {"m1_ms": ["A", "B"]}
+    assert kdp.perf_groups("m1_ms", ["A", "B"], True) == {"m1_ms#0": ["A"], "m1_ms#1": ["B"]}
+
+
+def test_start_drop_and_flake_verdict():
+    g = load_gpu_runner()
+    bug = {"milestones": [{"id": "m1", "kind": "bug"}, {"id": "m2", "kind": "bug"}]}
+    perf = {"milestones": [{"id": "m1", "kind": "perf"}, {"id": "m2", "kind": "perf"}]}
+    assert g.start_not_real(bug, True, {"m1": [], "m2": []}, {"m1:racecheck": "pass"})
+    assert not g.start_not_real(bug, True, {"m1": ["A"], "m2": []}, {})  # one case fails with every fault in: real
+    assert not g.start_not_real(bug, True, {"m1": [], "m2": []}, {"m2:memcheck": "fail"})  # a sanitizer catches it: real
+    assert not g.start_not_real(bug, False, {"m1": [], "m2": []}, {})  # an unbuilt start says nothing
+    assert not g.start_not_real(perf, True, {"m1": [], "m2": []}, {})  # a perf start is correct by design: never dropped here
+    ok, masked, bad = {"reward": 1.0, "infra": {"status": "ok"}}, {"reward": None, "infra": {"status": "masked"}}, {"reward": 0.5, "infra": {"status": "ok"}}
+    v = g.flake_verdict([ok] * 59 + [masked])
+    assert v["measured"] == 59 and v["false_negatives"] == 0 and v["cp_upper"] <= 0.05
+    assert g.flake_verdict([ok] * 30 + [masked] * 30)["cp_upper"] > 0.05  # masked grades are not passes
+    assert g.flake_verdict([ok] * 59 + [bad])["cp_upper"] > 0.05
+
+
+def test_pool_reuse_key_includes_the_grader_kit(tmp_path, monkeypatch):
+    g = load_gpu_runner()
+    monkeypatch.setattr(g, "HERE", tmp_path)
+    f = tmp_path / "kit" / "crucible" / "factory" / "lanes" / "kernel_debug_plan.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("POOL_CAP = 1000\n")
+    before = g.kit_digest()
+    f.write_text("POOL_CAP = 1000  # fixed\n")
+    assert g.kit_digest() != before  # a grader fix invalidates every cached pool grade
+
+
+
+def test_sanitizer_cases_launch_the_fault_kernels():
+    g = load_gpu_runner()
+    assert g.launches_kernel("_Z20cpy_scalar_transposeIfEvPKcPclllllllllllll", "cpy_scalar_transpose")
+    assert not g.launches_kernel("_Z20cpy_scalar_transposeIfEvPKcPclllllllllllll", "cpy_scalar")  # a longer name is another kernel
+    assert g.launches_kernel("cpy_scalar(const char*)", "cpy_scalar") and not g.launches_kernel("_Z110cpy_scalarv", "cpy_scalar")
+    prof = {"CPY(contig)": ["_Z21cpy_scalar_contiguousIffEvPKcPcl"], "CPY(contig,2)": ["_Z21cpy_scalar_contiguousIffEvPKcPcl"],
+            "CPY(transposed,long-name)": ["_Z20cpy_scalar_transposeIfEvPKcPcl", "_Z21cpy_scalar_contiguousIffEvPKcPcl"],
+            "CPY(t)": ["_Z20cpy_scalar_transposeIfEvPKcPcl"], "ADD(x)": ["_Z5k_addv"]}
+    got = g.sanitizer_cases(prof, ["cpy_scalar_transpose", "cpy_scalar_contiguous"], k=2)
+    assert got[0] == "CPY(t)"  # the rarer kernel first, the shorter case first
+    assert set(got) <= set(prof) - {"ADD(x)"} and len(got) == 2
+    assert g.sanitizer_cases(prof, ["no_such_kernel"]) == []
+
+
+def test_fault_kernels_follow_the_call_graph(tmp_path):
+    d = tmp_path / "ggml" / "src" / "ggml-cuda"
+    d.mkdir(parents=True)
+    (d / "a.cuh").write_text("static __device__ void helper(float * x) { x[0] = 1.0f; }\n"
+                             "static __global__ void kern_a(float * x) { helper(x); }\n"
+                             "static __global__ void kern_b(float * x) { x[0] = 2.0f; }\n"
+                             "void launch_b(float * x) { kern_b<<<1, 1>>>(x); }\n")
+    (d / "ggml-cuda.cu").write_text("static bool ggml_cuda_compute_forward(int op) { return true; }\n")
+    assert ko.fault_kernels(tmp_path, ["helper"]) == ["kern_a"]  # a kernel that reaches a changed device function
+    assert ko.fault_kernels(tmp_path, ["launch_b"]) == ["kern_b"]  # the kernel a changed launcher launches
+    assert ko.fault_kernels(tmp_path, ["kern_b"]) == ["kern_b"] and ko.fault_kernels(tmp_path, ["missing"]) == []
+
+
+def test_grader_cases_join_the_eval_list_and_their_pools():
+    from crucible.factory.lanes import kernel_harness as kh
+
+    src = ("static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {\n    std::vector<std::unique_ptr<test_case>> test_cases;\n"
+           "    test_cases.emplace_back(new test_get_rows());\n    return test_cases;\n}\n"
+           "static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {\n    return test_cases;\n}\n")
+    line = "test_cases.emplace_back(new test_get_rows(GGML_TYPE_F32, 32, 8, 70000, 1, false));"
+    out = kh.add_cases(src, [line])
+    assert out.index(line) < out.index("return test_cases;") and out.count(line) == 1  # eval mode only, before its return
+    assert kh.add_cases(out, [line]) == out and kh.add_cases(src, []) == src
+    with pytest.raises(kh.HarnessPatchError):
+        kh.add_cases(src, ["system(\"rm -rf /\");"])  # only case lines, never other code
+    with pytest.raises(kh.HarnessPatchError):
+        kh.add_cases(src, ["test_cases.emplace_back(new test_get_rows()); system(\"x\");"])
+    assert "{4096, 512, 1, 1}" in kh.add_cases(src, ["test_cases.emplace_back(new test_rms_norm(GGML_TYPE_F32, {4096, 512, 1, 1}, false, 1e-6f));"])
+    g = load_gpu_runner()
+    spec = {"harness_extra": [{"milestone": "m1", "code": line}],
+            "milestones": [{"id": "m1", "ops": ["GET_ROWS"], "case_pool": ["GET_ROWS(a)"]}, {"id": "m2", "ops": ["MUL_MAT"], "case_pool": ["MUL_MAT(b)"]}]}
+    got = g.adopt_extra_cases(spec, ["GET_ROWS(a)", "GET_ROWS(big)", "MUL_MAT(b)", "MUL_MAT(new)"])
+    assert got == {"m1": ["GET_ROWS(big)"]}  # only the milestone the lines were written for, only its ops
+    assert spec["milestones"][0]["case_pool"][0] == "GET_ROWS(big)" and spec["milestones"][0]["cases_added"] == ["GET_ROWS(big)"]
+    assert "MUL_MAT(new)" not in spec["milestones"][1]["case_pool"]
+
+
+def test_prompt_discloses_grader_cases():
+    rec = {"milestones": [{"id": "m1"}], "harness_extra": [{"milestone": "m1", "code": "x"}]}
+    text, _r, _s = kd.compose({"opening": "o", "requirements": {"m1": "r"}}, rec)
+    assert "plus the grader's own cases" in text
+    assert "plus the grader's own cases" not in kd.compose({"opening": "o", "requirements": {"m1": "r"}}, {"milestones": [{"id": "m1"}]})[0]
+
+
+def test_borderline_cases_leave_the_calibrated_set():
+    from crucible.factory.lanes import kernel_debug_plan as kdp
+
+    g = load_gpu_runner()
+    assert kdp.case_ratio({"nmse_vs_cpu": 1e-4, "max_err": 5e-4}) == pytest.approx(0.2)
+    assert kdp.case_ratio({"error": "missing"}) == float("inf")
+    grade = {"checks": [{"id": "m1:golden", "detail": {"per_case_ratio": {"A": 0.02, "B": 0.9, "C": None}}}]}
+    assert g.borderline(grade, "m1") == {"B", "C"}  # near the tolerance or unmeasured: a fresh seed would fail it
+
+
+def test_perf_ratio_reads_passing_and_failing_checks():
+    g = load_gpu_runner()
+    passing = {"checks": [{"id": "m1:perf", "detail": {"pass": True, "metrics": {"m1_ms#0": {"ratio": 1.02}}}}]}
+    failing = {"checks": [{"id": "m1:perf", "detail": {"attempts": [{"metrics": {"m1_ms#0": {"ratio": 3.0}}}, {"metrics": {"m1_ms#0": {"ratio": 1.7}}}]}}]}
+    assert g.perf_ratio(passing, "m1:perf", "m1_ms#0") == 1.02  # a pass reports its last attempt at the top (it read None)
+    assert g.perf_ratio(failing, "m1:perf", "m1_ms#0") == 1.7 and g.perf_ratio(failing, "m1:perf", "m2_ms") is None
+
+
+def test_grader_cases_in_both_layouts_and_by_name():
+    from crucible.factory.lanes import kernel_harness as kh
+
+    two = ("static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {\n    std::vector<std::unique_ptr<test_case>> test_cases;\n    return test_cases;\n}\n"
+           "static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {\n    std::vector<std::unique_ptr<test_case>> test_cases;\n    return test_cases;\n}\n")
+    t = "test_cases.emplace_back(new test_get_rows(GGML_TYPE_F32, 32, 8, 70000, 1, false));"
+    p = "test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_IQ4_KS, GGML_TYPE_F32, 8, 2, false, 2048, 512, 2048));"
+    out = kh.add_cases(two, [{"code": t}, {"code": p, "mode": "perf"}])
+    perf_at = out.index("make_test_cases_perf")
+    assert out.index(t) < perf_at < out.index(p)  # each mode's list gets its own lines
+    old = "static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op_name) {\n    std::vector<std::unique_ptr<test_case>> test_cases;\n" \
+          "    test_cases.emplace_back(new test_get_rows());\n    // run tests\n    if (mode == MODE_TEST) {\n        return true;\n    }\n}\n"
+    out = kh.add_cases(old, [{"code": p, "mode": "perf"}])
+    assert out.index(p) < out.index("if (mode == MODE_TEST)")  # the 2024 layout: one list both modes run
+    with pytest.raises(kh.HarnessPatchError):
+        kh.add_cases(two, [{"code": t, "mode": "bench"}])
+    g = load_gpu_runner()
+    name = "MUL_MAT_ID(type_a=iq4_ks,type_b=f32,n_mats=8,n_used=2,b=0,m=2048,n=512,k=2048)"
+    spec = {"harness_extra": [{"milestone": "m1", "code": p, "mode": "perf", "name": name}, {"milestone": "m1", "code": p, "mode": "perf", "name": "X(y)"}],
+            "milestones": [{"id": "m1", "ops": ["MUL_MAT_ID"], "checks": ["golden", "perf"], "case_pool": [], "perf_cases": ["MUL_MAT_ID(f32)"]}]}
+    got = g.adopt_extra_cases(spec, [name], [name])
+    assert spec["milestones"][0]["perf_cases"][0] == name and got["missing"] == ["X(y)"]
+    assert spec["milestones"][0]["case_pool"] == []  # a perf-mode case does not join the correctness pool

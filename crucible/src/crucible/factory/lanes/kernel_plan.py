@@ -318,6 +318,8 @@ def compare_obs(cand: dict, ref: dict, cmp: dict) -> list[dict]:
     vol = list(cmp.get("volatile") or [DEFAULT_VOLATILE])
     rtol, atol = float(cmp.get("rtol") or 0.0), float(cmp.get("atol") or 0.0)
     fails = compare_lines(normalize_stdout(cand["stdout"], vol), normalize_stdout(ref["stdout"], vol), float(cmp.get("stdout_rtol") or rtol), atol)
+    if cmp.get("d2h") == "none":  # a program that checks its own results and copies gigabytes back to do it: its report is the observation
+        return fails
     fails += compare_stream(cand["d2h"], ref["d2h"], cmp.get("d2h") or "bitwise", rtol, atol)
     for name in sorted(set(ref["files"]) | set(cand["files"])):
         if name not in cand["files"] or name not in ref["files"]:
@@ -466,9 +468,10 @@ class KernelGrader:
         draws = [(name, args, 0) for name, args in cases]
         if prog.get("fresh", True):
             draws += [(f"fresh-{name}", args, self.seed) for name, args in cases[:1]]
+        obs = cmp.get("d2h") != "none"  # no capture: the program's own verification report (stdout) is compared
         for name, args, seed in draws:
-            ref = self.run_original(pid, name, args, seed)
-            cand, r = self.run_candidate(pid, name, args, seed, launches=(name == draws[0][0]))
+            ref = self.run_original(pid, name, args, seed, obs=obs)
+            cand, r = self.run_candidate(pid, name, args, seed, obs=obs, launches=(name == draws[0][0]))
             if r.timed_out:
                 detail[name] = {"error": "timed out"}
                 ok = False

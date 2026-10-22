@@ -72,6 +72,11 @@ EPILOGUE = ("How this works: you are working in a sandboxed copy of the reposito
             "Trying to download code or reading version-control history beyond the current commit scores the run 0. Before you finish, "
             "write STATUS.json at the repository root mapping each requirement id above to your probability (0 to 1) that it is met. If you "
             "decide you cannot finish, end your final message with a line 'GIVE_UP: <reason>'; your work is graded as it stands.")
+# a record with grader-owned cases (``harness_extra``: a fault the repository's own cases never reach on the grading GPU) says so
+EPILOGUE_EXTRA = EPILOGUE.replace("(as they are in the fixed release, which can include cases you do not have)",
+                                  "(as they are in the fixed release, plus the grader's own cases at the shapes this report describes; both can "
+                                  "include cases you do not have)")
+assert EPILOGUE_EXTRA != EPILOGUE
 
 
 # ---- synthesis: A'..B' ---------------------------------------------------------------------------------------------------------
@@ -272,6 +277,7 @@ def kdspec(rec: Mapping[str, Any]) -> dict[str, Any]:
                             "case_pool": list(m.get("case_pool") or []), "ops": m["ops"], "repeat": m.get("repeat", 1),
                             "perf_cases": list(m.get("perf_cases") or perf_candidates(m))} for m in rec["milestones"]],
             "seeds": {"fixed": [7, 123456], "fresh": 1}, "perf_bars": rec.get("perf_bars") or {}, "perf": {"r": 3, "rounds": 3},
+            "harness_extra": [{k: x[k] for k in ("milestone", "code", "mode", "name") if x.get(k)} for x in rec.get("harness_extra") or []],
             "cmake_extra": list(kh.HOST_CPU_FLAGS.get(rec["layout"]["dispatch_file"], ()))}
 
 
@@ -448,7 +454,7 @@ def compose(authored: Mapping[str, Any], rec: Mapping[str, Any]) -> tuple[str, l
     closing = str(authored.get("closing") or "").strip()
     if closing:
         text += f"\n{closing}\n"
-    text += "\n" + " ".join(LANE_SENTENCES) + "\n\n" + EPILOGUE + "\n"
+    text += "\n" + " ".join(LANE_SENTENCES) + "\n\n" + (EPILOGUE_EXTRA if rec.get("harness_extra") else EPILOGUE) + "\n"
     return text, reqs, spans
 
 

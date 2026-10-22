@@ -181,7 +181,8 @@ def window(wid: str, a: argparse.Namespace) -> dict:
     res = {"id": wid, "arch": a.arch, "gpu": sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).stdout.strip(), "at": time.strftime("%FT%TZ", time.gmtime())}
     res["originals"] = build_originals(wdir, spec, json.loads((wdir / "legacy.json").read_text()))
     os.chmod(wdir / "legacy", 0o700)
-    res["idle"] = idle()
+    # only a window with a timed milestone needs a quiet GPU: correctness windows can share the host with other gate runs
+    res["idle"] = idle() if any(m.get("perf") for m in spec["milestones"]) else {"skipped": "no timed milestone"}
     res["oracle"] = grade(wdir, wdir / "oracle.patch", a.arch, a.mode, "oracle")
     res["floors"] = {p.stem: grade(wdir, p, a.arch, a.mode, p.stem) for p in sorted(wdir.glob("floor_*.patch"))}
     res["mutants"] = {p.stem: grade(wdir, p, a.arch, a.mode, p.stem) for p in sorted(wdir.glob("mutant_*.patch"))}
