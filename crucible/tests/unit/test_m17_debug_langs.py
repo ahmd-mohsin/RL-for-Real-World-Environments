@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from crucible.factory import langs
-from crucible.factory.langs.base import active, code_mask, match_bracket, strip_added_lines, use
+from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, use
 from crucible.factory.langs.golang import escape_module, import_name, prune_imports
 
 GO = langs.get("go")
@@ -239,6 +239,17 @@ def test_packaging_key_keeps_lockfile_versions(tmp_path: Path) -> None:
 
 def test_strip_added_lines() -> None:
     assert strip_added_lines("# Changes\n- fix a\n- fix b\n", ["- fix b"]) == "# Changes\n- fix a\n"
+
+
+def test_release_changelog_entries_citing_a_fix_are_removed() -> None:
+    """A changelog written at release time cites the fix by PR, issue or short sha (h3, unstorage, mvdan-sh)."""
+    refs = fix_refs("fix(node): call `onError` for stream errors (#1571)", "Fixes #1398.", "884502a9b4e1")
+    assert refs == {"#1571", "#1398", "884502a"}
+    log = ("## v2\n\n- **node:** Call `onError` for stream errors ([#1571](https://github.com/h3js/h3/pull/1571))\n"
+           "- **cache:** Encode key segments ([884502a](https://github.com/unjs/unstorage/commit/884502a))\n"
+           "- Implement `help`, as well as `$-`\n  (wrapped) - #1398\n- Keep #15710 and 884502ab\n")
+    assert CHANGELOG_FILE.search("CHANGELOG.md") and CHANGELOG_FILE.search("docs/RELEASE_NOTES.rst") and not CHANGELOG_FILE.search("README.md")
+    assert strip_ref_entries(log, refs) == ("## v2\n\n- Keep #15710 and 884502ab\n", 4)
 
 
 def test_profiles_registry() -> None:

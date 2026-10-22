@@ -64,6 +64,8 @@ from crucible.factory.generators.base import (
     compose_prompt,
     deterministic_gates,
     full_patch,
+    git,
+    out,
     tree_of,
     with_files,
     write_chain,
@@ -94,7 +96,7 @@ from crucible.factory.lanes.windows import (
 )
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _bodies, first_parent_units, key_of_test, version_tags
 from crucible.factory.lanes.windows_world import ImageBook
-from crucible.factory.langs.base import strip_added_lines, use
+from crucible.factory.langs.base import CHANGELOG_FILE, fix_refs, strip_added_lines, strip_ref_entries, use
 from crucible.factory.langs.runtime import IMAGE_REPO, PREFIX, lang_sandbox_factory, world_setup
 from crucible.factory.sources.lease import EvalLease
 from crucible.factory.sources.records import SourceRecord
@@ -833,6 +835,10 @@ class Debug(Rebreak):
                         diff = full_patch(repo_dir, f["parent"], f["sha"], [p]).decode("utf-8", "replace")
                         prose_added.setdefault(f["sha"], {})[p] = [ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
             prose_b = {p: t for p in {q for d in prose_added.values() for q in d} if (t := repo.show(b, p)) is not None}
+            # a changelog written at release time cites the fixes although their diffs never added the line (mvdan-sh, h3, unstorage)
+            logs_b = {p: t for p in out(git(repo_dir, "ls-tree", "-r", "--name-only", b)).splitlines() if CHANGELOG_FILE.search(p) and (t := repo.show(b, p)) is not None}
+            refs = {f["sha"]: fix_refs(f["subject"], f["body"], f["sha"]) for f in fixes}
+            cited: dict[str, int] = {}
             extra = self._locate_defs(repo, b, prof, extra_hide or {})
             forward = []
             for k, t in enumerate(src_forward):
@@ -852,6 +858,11 @@ class Debug(Rebreak):
                     added = [ln for f in pending for ln in prose_added.get(f["sha"], {}).get(p, [])]
                     if added:
                         files[p] = strip_added_lines(txt, added)
+                for p, txt in logs_b.items() if pending else ():
+                    cut, n = strip_ref_entries(files.get(p, txt), set().union(*[refs[f["sha"]] for f in pending]))
+                    if n:
+                        files[p] = cut
+                        cited.setdefault(p, n)  # A' first: every fix still pending
                 forward.append(with_files(repo_dir, t, files))
             msgs = [f"debug start: {len(fixes)} fixes reverted"] + [f"{f['subject']}\n\n{f['body']}" for f in fixes]
             dates = [cand.params["b_date"]] + [f["date"] for f in fixes]
@@ -865,7 +876,7 @@ class Debug(Rebreak):
             info["fixes"] = [{"sha": f["sha"], "subject": f["subject"], "unit": u.sha} for f, u in zip(fixes, units, strict=True)]
             # strip mode leaves the fixes' other test-file changes in A' (a table row a driver test reads): recorded as a risk
             vis_data = sorted({p for f in fixes for p in f["files"] if prof.is_test_file(p) and p not in tests_b and p not in extra}) if mode == "strip" else []
-            info["hidden"] = {"mode": mode, "prose": sorted(prose_b), "visible_stripped": {p: sorted(ks) for p, ks in extra.items()},
+            info["hidden"] = {"mode": mode, "prose": sorted(prose_b), "changelog_cited": cited, "visible_stripped": {p: sorted(ks) for p, ks in extra.items()},
                               "visible_test_changes": vis_data,
                               **({"stripped": {p: sorted(set().union(*[keys.get(f["sha"], {}).get(p, set()) for f in fixes])) for p in tests_b}}
                                  if mode == "strip" else {"reverted": sorted({p for f in fixes for p in f["files"] if is_test_path(p)})})}
