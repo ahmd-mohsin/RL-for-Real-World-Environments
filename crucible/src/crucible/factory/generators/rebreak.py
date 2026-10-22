@@ -201,13 +201,17 @@ def interaction_edges(evidence: Mapping[str, Mapping[str, Any]]) -> dict[str, se
     fixed, so in the task its milestone needs the other fix (the prober's executed edge). Only fixes whose own revert is
     caught (``ok``) count. Test-case ids matter: two fixes that each add cases to one parametrized test do not interact, nor
     do two that each break a different subtest of one Go parent test, which fails with either (``subtests_of``), nor a
-    test that only stopped building (``caught_unbuilt``: a compiled package one revert breaks errors every test in it)."""
+    test that only stopped building (``caught_unbuilt``: a compiled package one revert breaks errors every test in it), nor
+    a test both fixes own (``caught_own``): it checks both behaviours side by side, as black's case file docstring.py did
+    for ae5830b7's tab and module-docstring fixes, so either revert fails it with no interaction. A link is one fix's
+    revert breaking a test only the other fix owns (go-toml's round trip, pulldown-cmark's unclosed blocks)."""
     ok = {s: set(ev.get("caught") or []) - set(ev.get("caught_unbuilt") or []) for s, ev in evidence.items() if ev.get("ok")}
+    own = {s: set(ev.get("caught_own") or []) for s, ev in evidence.items()}
     need: dict[str, set[str]] = {}
     shas = sorted(ok)
     for i, a in enumerate(shas):
         for b in shas[i + 1:]:
-            if any(not subtests_of(t, ok[a] | ok[b]) for t in ok[a] & ok[b]):
+            if any(not subtests_of(t, ok[a] | ok[b]) and not (t in own[a] and t in own[b]) for t in ok[a] & ok[b]):
                 need.setdefault(a, set()).add(b)
                 need.setdefault(b, set()).add(a)
     return need
@@ -324,7 +328,7 @@ async def real_fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_f
         res = normalize_ids(tr.results, union)
         caught = sorted(t for t in res if b_res.get(t) == "passed" and res[t] in ("failed", "error"))
         caught_own = [t for t in caught if owned(t, u.sha)]
-        return u.sha, {"ok": bool(caught_own), "caught": caught, "caught_own": caught_own[:30], "own_tests": len(own[u.sha]),
+        return u.sha, {"ok": bool(caught_own), "caught": caught, "caught_own": caught_own, "own_tests": len(own[u.sha]),
                        "why": "" if caught_own else ("no own test fails after the revert" if own[u.sha] else "the fix changed no test function")}
 
     return dict(await asyncio.gather(*[one(u) for u in units])), card

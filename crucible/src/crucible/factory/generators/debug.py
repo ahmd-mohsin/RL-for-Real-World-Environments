@@ -174,7 +174,11 @@ def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str]) -> list[str]:
     file for which the diff proposes none; or a test whose id names a case or golden file the fix added or changed."""
     keys = fix_test_names(repo, u)
     files = set(u.test_files)
-    proposed = {k.split("::", 1)[0] for k in keys}
+    # a file proposes tests only through a changed definition that is a caught test: the functions of a case file are its
+    # input (black ae5830b7's 650983f edited docstring.py's docstring_with_inline_tabs_* and so never owned
+    # test_simple_format[docstring])
+    ran = {"::".join(key_of_test(t)) for t in caught}
+    proposed = {k.split("::", 1)[0] for k in keys if k in ran}
     # data-driven suites: a case or golden file the fix added or changed (black's ``tests/data/cases/<case>.py``) owns the
     # caught test whose id names it (``test_simple_format[<case>]``)
     data = {Path(p).stem for p in u.files if is_test_path(p) and p not in proposed and len(Path(p).stem) >= 4}
@@ -233,7 +237,7 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
         # a compiled test package that no longer builds reports every test of it as ``error``: those tests are caught by any
         # revert that breaks the build, which links nothing (mvdan-sh: four zsh fixes "shared" the syntax package's 63 tests)
         unbuilt = [t for t in caught if res[t] == "error"] if lang in COMPILED else []
-        return u.sha, {"ok": bool(own), "caught": caught, "caught_unbuilt": unbuilt, "caught_own": own[:30], "build_notes": tr.why[:200], "why": why}
+        return u.sha, {"ok": bool(own), "caught": caught, "caught_unbuilt": unbuilt, "caught_own": own, "build_notes": tr.why[:200], "why": why}
 
     return dict(await asyncio.gather(*[one(u) for u in units])), card
 
@@ -741,7 +745,7 @@ class Debug(Rebreak):
         repo = RepoGit(self.clones[name])
         work = self.root / "work" / name / b[:10]
         work.mkdir(parents=True, exist_ok=True)
-        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "") + "|unbuilt"  # evidence before caught_unbuilt is run again
+        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "") + "|unbuilt|own"  # evidence before caught_unbuilt / a whole caught_own is run again
         cache = work / f"evidence-{hashlib.sha256(key.encode()).hexdigest()[:10]}.json"
         if cache.exists():
             evid, card = json.loads(cache.read_text())
