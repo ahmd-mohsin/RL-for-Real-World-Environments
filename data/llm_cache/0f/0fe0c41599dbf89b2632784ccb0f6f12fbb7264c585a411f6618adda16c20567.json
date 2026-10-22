@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 31946, "completion_tokens": 36, "reasoning_tokens": 8, "cached_tokens": 1536}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Open around 480-520.", "reasoning_details": [{"type": "reasoning.text", "text": "Open around 480-520.", "format": "unknown", "index": 0}]}}

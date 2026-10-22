@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_pIwrSSuqWp3U7ZJKXsztnqrC", "name": "repo__edit_file", "arguments": {"path": "calc.py", "old_string": "return a - b", "new_string": "return a + b"}}], "usage": {"prompt_tokens": 872, "completion_tokens": 37}, "model": "meta-llama/llama-3.3-70b-instruct", "finish": "tool_calls", "raw_message": {}}

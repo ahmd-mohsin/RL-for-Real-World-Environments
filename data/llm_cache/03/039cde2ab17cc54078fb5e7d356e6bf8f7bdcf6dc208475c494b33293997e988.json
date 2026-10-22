@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "chatcmpl-tool-b5ce40903fce7b54", "name": "repo__edit_file", "arguments": {"new_string": "def add(a, b):\n    return a + b\n", "old_string": "def add(a, b):\n    return a - b\n", "path": "calc.py"}}], "usage": {"prompt_tokens": 649, "completion_tokens": 65}, "model": "google/gemma-4-26b-a4b-it", "finish": "tool_calls", "raw_message": {}}

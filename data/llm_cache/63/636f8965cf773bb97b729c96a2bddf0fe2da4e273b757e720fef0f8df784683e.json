@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "chatcmpl-tool-8d9c0f80a35c9fc7", "name": "repo__shell", "arguments": {"command": "pytest test_calc.py"}}], "usage": {"prompt_tokens": 593, "completion_tokens": 24}, "model": "google/gemma-4-26b-a4b-it", "finish": "tool_calls", "raw_message": {}}

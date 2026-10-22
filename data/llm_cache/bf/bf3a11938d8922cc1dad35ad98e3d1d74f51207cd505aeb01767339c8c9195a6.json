@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 820, "completion_tokens": 34, "reasoning_tokens": 6}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "We need to inspect repo.", "reasoning_details": [{"type": "reasoning.text", "text": "We need to inspect repo.", "format": "unknown", "index": 0}]}}

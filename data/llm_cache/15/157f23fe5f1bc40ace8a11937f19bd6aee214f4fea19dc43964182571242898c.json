@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "fc_899f1c02-cb7c-42b4-864f-148ef29e59e2", "name": "repo__read_file", "arguments": {"path": "funcy/colls.py"}}], "usage": {"prompt_tokens": 4370, "completion_tokens": 34, "reasoning_tokens": 25, "cached_tokens": 1792}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

@@ -1,0 +1,1 @@
+{"text": "\n", "tool_calls": [{"id": "call_a7d55ac28ae84fedae3fa91d", "name": "repo__git_status", "arguments": {}}], "usage": {"prompt_tokens": 27849, "completion_tokens": 31, "cached_tokens": 27392}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

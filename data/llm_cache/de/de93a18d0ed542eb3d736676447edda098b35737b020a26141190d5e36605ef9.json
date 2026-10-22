@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 27783, "completion_tokens": 5, "reasoning_tokens": 5}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Skipping to 1118.", "reasoning_details": [{"type": "reasoning.text", "text": "Skipping to 1118.", "format": "unknown", "index": 0}]}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 25004, "completion_tokens": 6, "reasoning_tokens": 6}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Search for \"w+\" in code.", "reasoning_details": [{"type": "reasoning.text", "text": "Search for \"w+\" in code.", "format": "unknown", "index": 0}]}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 23129, "completion_tokens": 7, "reasoning_tokens": 7}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "We'll insert before that.", "reasoning_details": [{"type": "reasoning.text", "text": "We'll insert before that.", "format": "unknown", "index": 0}]}}

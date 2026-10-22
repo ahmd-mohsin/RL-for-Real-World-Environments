@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 3075, "completion_tokens": 39, "reasoning_tokens": 8}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Maybe part of recipes? Search zip_.", "reasoning_details": [{"type": "reasoning.text", "text": "Maybe part of recipes? Search zip_.", "format": "unknown", "index": 0}]}}

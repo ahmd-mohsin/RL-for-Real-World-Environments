@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 22969, "completion_tokens": 9, "reasoning_tokens": 9}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "We need to patch. Let's edit file.", "reasoning_details": [{"type": "reasoning.text", "text": "We need to patch. Let's edit file.", "format": "unknown", "index": 0}]}}

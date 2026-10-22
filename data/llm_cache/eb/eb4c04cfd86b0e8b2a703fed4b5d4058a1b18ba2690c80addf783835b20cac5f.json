@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 9880, "completion_tokens": 33}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {}}

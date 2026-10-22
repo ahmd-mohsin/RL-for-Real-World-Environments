@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_mxjRQ4vagEVNM9awjAa2mP5Y", "name": "repo__shell", "arguments": {"command": "pytest"}}], "usage": {"prompt_tokens": 496, "completion_tokens": 16}, "model": "openai/gpt-4.1-nano", "finish": "tool_calls", "raw_message": {}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_5d2dc7a2d4b04f7ebb3abc19", "name": "repo__shell", "arguments": {"command": "pwd && ls"}}], "usage": {"prompt_tokens": 20526, "completion_tokens": 49}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

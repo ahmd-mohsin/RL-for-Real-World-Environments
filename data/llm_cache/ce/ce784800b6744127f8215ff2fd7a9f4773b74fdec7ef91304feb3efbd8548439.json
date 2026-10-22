@@ -1,0 +1,1 @@
+{"text": "Let me look at the full Parser class and the key methods.\n\n", "tool_calls": [{"id": "01a149f1b70158f087f34aa953f08593", "name": "repo__read_file", "arguments": {"path": "parse.py", "offset": 680, "limit": 135}}], "usage": {"prompt_tokens": 5587, "completion_tokens": 91}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 7279, "completion_tokens": 48, "reasoning_tokens": 8}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Open more.py around seekable class.", "reasoning_details": [{"type": "reasoning.text", "text": "Open more.py around seekable class.", "format": "unknown", "index": 0}]}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "chatcmpl-tool-9411977b67a5aa6c", "name": "repo__read_file<|channel|>commentary", "arguments": {"path": "semver.py", "offset": 620, "limit": 90}}], "usage": {"prompt_tokens": 4825, "completion_tokens": 35, "reasoning_tokens": 20, "cached_tokens": 4704}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}
