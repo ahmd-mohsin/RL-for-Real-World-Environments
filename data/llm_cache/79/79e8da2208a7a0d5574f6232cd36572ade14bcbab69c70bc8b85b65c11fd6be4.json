@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_b79bbcc97a454fa3be5ac426", "name": "repo__read_file", "arguments": {"limit": 30, "offset": 34, "path": "more_itertools/recipes.py"}}], "usage": {"prompt_tokens": 20451, "completion_tokens": 84, "cached_tokens": 16384}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

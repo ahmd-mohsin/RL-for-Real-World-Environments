@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 3719, "completion_tokens": 7, "reasoning_tokens": 7}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Open around createparser.", "reasoning_details": [{"type": "reasoning.text", "text": "Open around createparser.", "format": "unknown", "index": 0}]}}

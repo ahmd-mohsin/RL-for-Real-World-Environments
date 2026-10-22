@@ -1,0 +1,1 @@
+{"text": "{'R1': 0.9, 'R2': 0.8, 'R3': 0.7, 'R4': 0.9, 'R5': 0.8, 'R6': 0.9, 'R7': 0.8, 'R8': 0.9, 'R9': 0.8}", "tool_calls": [], "usage": {"prompt_tokens": 2220, "completion_tokens": 82, "cached_tokens": 512}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "stop", "raw_message": {}}

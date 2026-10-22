@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 20841, "completion_tokens": 11, "reasoning_tokens": 11}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Now modify mw_handle_target yaml fallback.", "reasoning_details": [{"type": "reasoning.text", "text": "Now modify mw_handle_target yaml fallback.", "format": "unknown", "index": 0}]}}

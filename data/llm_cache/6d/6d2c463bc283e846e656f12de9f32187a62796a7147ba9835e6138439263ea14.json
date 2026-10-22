@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "qdr9pmpct", "name": "repo__write_file", "arguments": {"content": "R1\nR2\nR3\nR4\n", "path": "tests/data/requirements.txt"}}], "usage": {"prompt_tokens": 1505, "completion_tokens": 106, "cached_tokens": 1024}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "tool_calls", "raw_message": {}}

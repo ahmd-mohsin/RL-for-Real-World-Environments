@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "fc_7a919882-35c3-48ed-b094-d141f544b8a4", "name": "repo__read_file", "arguments": {"path": "more_itertools/recipes.py"}}], "usage": {"prompt_tokens": 13828, "completion_tokens": 21, "reasoning_tokens": 12, "cached_tokens": 11776}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

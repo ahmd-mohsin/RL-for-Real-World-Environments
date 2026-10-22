@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "fc_adc6b3e8-24ae-40fd-9333-b0238ac74542", "name": "repo__read_file", "arguments": {"path": "glom/core.py"}}], "usage": {"prompt_tokens": 7502, "completion_tokens": 33, "reasoning_tokens": 24, "cached_tokens": 5120}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

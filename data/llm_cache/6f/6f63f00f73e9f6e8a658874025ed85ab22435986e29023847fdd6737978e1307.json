@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "fc_3e1e1c30-47a2-4362-8ea8-6ad0b8a9ffe5", "name": "repo__read_file", "arguments": {"path": "semver.py"}}], "usage": {"prompt_tokens": 3837, "completion_tokens": 27, "reasoning_tokens": 18, "cached_tokens": 512}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

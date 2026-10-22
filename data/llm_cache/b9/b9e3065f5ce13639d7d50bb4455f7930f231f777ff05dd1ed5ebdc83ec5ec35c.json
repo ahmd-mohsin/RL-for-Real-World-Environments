@@ -1,0 +1,1 @@
+{"text": "GIVE_UP: Unable to access humanize library due to sandboxed environment and missing network access.", "tool_calls": [], "usage": {"prompt_tokens": 4668, "completion_tokens": 21, "cached_tokens": 512}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "stop", "raw_message": {}}

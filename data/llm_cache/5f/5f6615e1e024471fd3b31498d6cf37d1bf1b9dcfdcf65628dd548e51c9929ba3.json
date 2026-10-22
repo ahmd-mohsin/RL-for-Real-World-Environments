@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "chatcmpl-tool-876e7a2a0d0ded7e", "name": "repo__read_file<|channel|>commentary", "arguments": {"path": "glom/core.py", "offset": 460, "limit": 200}}], "usage": {"prompt_tokens": 6887, "completion_tokens": 36}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

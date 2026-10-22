@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 1658, "completion_tokens": 7, "reasoning_tokens": 7}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Look at __init__.’eng.", "reasoning_details": [{"type": "reasoning.text", "text": "Look at __init__.’eng.", "format": "unknown", "index": 0}]}}

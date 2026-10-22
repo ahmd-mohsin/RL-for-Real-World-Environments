@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_4f404500fc9e4abe8bf25113", "name": "repo__read_file", "arguments": {"limit": 120, "offset": 434, "path": "src/humanize/time.py"}}], "usage": {"prompt_tokens": 17847, "completion_tokens": 84, "reasoning_tokens": 84, "cached_tokens": 16128}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 966, "completion_tokens": 1}, "model": "amazon/nova-micro-v1", "finish": "stop", "raw_message": {}}

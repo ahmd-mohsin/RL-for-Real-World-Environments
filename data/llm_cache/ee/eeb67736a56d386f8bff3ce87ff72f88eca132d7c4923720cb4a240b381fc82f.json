@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_cf8db180f46c4ce8b3fddf79", "name": "repo__read_file", "arguments": {"path": "funcy/flow.py"}}], "usage": {"prompt_tokens": 9497, "completion_tokens": 51, "cached_tokens": 4096}, "model": "deepseek/deepseek-v4-flash", "finish": "tool_calls", "raw_message": {}}

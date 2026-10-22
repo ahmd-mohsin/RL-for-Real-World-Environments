@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 3522, "completion_tokens": 10, "reasoning_tokens": 10}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Continue near bottom for bump functions.", "reasoning_details": [{"type": "reasoning.text", "text": "Continue near bottom for bump functions.", "format": "unknown", "index": 0}]}}
