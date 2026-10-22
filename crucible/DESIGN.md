@@ -1085,7 +1085,7 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   `kernel_harness.add_cases`), which join their milestone's pool as added cases and are disclosed in the prompt
   (`EPILOGUE_EXTRA`). Migration grader: `compare.d2h = "none"` grades a self-checking program on its own report (its
   copies back were 0.7-9.9 GB), and a window with no timed milestone does not wait for an idle GPU. The shared gate
-  ccache is capped at 12 GB (shared disk).
+  ccache is capped at 12 GB (shared disk). Perf timing: the candidate's timed runs no longer carry the CUPTI launch hook (launches are counted on separate untimed runs; the traced build timed 4-14% slower than itself), and a passing perf check's ratios are read where it reports them. Blackwell consumer GPUs build as `12xa-real` (FP4 MMQ units failed ptxas at `120-real`).
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):
