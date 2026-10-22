@@ -1,0 +1,1317 @@
+[
+ {
+  "id": "db-go-echo-61eca05b",
+  "lang": "go",
+  "repo": "echo",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 45,
+  "milestone_tests": 14,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to perf_bench_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-esbuild-5c636093",
+  "lang": "go",
+  "repo": "esbuild",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 3,
+  "edges": 1,
+  "oracle_lines": 131,
+  "milestone_tests": 17,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-go-toml-a02114e3",
+  "lang": "go",
+  "repo": "go-toml",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 157,
+  "milestone_tests": 45,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-lo-1e8f3c39",
+  "lang": "go",
+  "repo": "lo",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 53,
+  "milestone_tests": 305,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": false,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8"
+  ],
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-minify-bb23edaf",
+  "lang": "go",
+  "repo": "minify",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 2,
+  "edges": 1,
+  "oracle_lines": 83,
+  "milestone_tests": 60,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-mvdan-sh-02a801cd",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 75,
+  "milestone_tests": 49,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-mvdan-sh-04056a74",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 42,
+  "milestone_tests": 50,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-23d1c659",
+   "db-go-mvdan-sh-5e983709"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-23d1c659",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "windows",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 2,
+  "oracle_lines": 41,
+  "milestone_tests": 6935,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-04056a74",
+   "db-go-mvdan-sh-dc951aeb"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-5e983709",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 32,
+  "milestone_tests": 63,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-04056a74"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-dc951aeb",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 2,
+  "oracle_lines": 68,
+  "milestone_tests": 41,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-23d1c659",
+   "db-go-mvdan-sh-2d320f54"
+  ]
+ },
+ {
+  "id": "db-go-validator-0a5f3c9e",
+  "lang": "go",
+  "repo": "validator",
+  "split": "train",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 10,
+  "milestone_tests": 1,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-validator-240822eb",
+  "lang": "go",
+  "repo": "validator",
+  "split": "train",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 62,
+  "milestone_tests": 1,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-yq-8986d651",
+  "lang": "go",
+  "repo": "yq",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 84,
+  "milestone_tests": 3,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-yq-da09996a",
+  "lang": "go",
+  "repo": "yq",
+  "split": "train",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 26,
+  "milestone_tests": 6,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-yq-f43e6bbb",
+  "lang": "go",
+  "repo": "yq",
+  "split": "train",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 110,
+  "milestone_tests": 2,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "internal_function_check: m02 test TestParseInt64 is named after the changed function parseInt64"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-axios-56014db8",
+  "lang": "node",
+  "repo": "axios",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 4,
+  "edges": 1,
+  "oracle_lines": 605,
+  "milestone_tests": 160,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to tests/browser/formBodyLength.browser.test.js, tests/setup/runModuleInChildProcess.js, tests/unit/adapters/formBodyLength.test.js stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-axios-61cd331d",
+  "lang": "node",
+  "repo": "axios",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 1,
+  "oracle_lines": 35,
+  "milestone_tests": 28,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": false,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-node-axios-9ff8c996"
+  ]
+ },
+ {
+  "id": "db-node-axios-9d8cd00c",
+  "lang": "node",
+  "repo": "axios",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 47,
+  "milestone_tests": 10,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-axios-9ff8c996",
+  "lang": "node",
+  "repo": "axios",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 2,
+  "edges": 1,
+  "oracle_lines": 33,
+  "milestone_tests": 27,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": false,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-node-axios-61cd331d"
+  ]
+ },
+ {
+  "id": "db-node-tailwind-merge-5ab7c602",
+  "lang": "node",
+  "repo": "tailwind-merge",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 28,
+  "milestone_tests": 9,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "internal_function_check: m01 test isArbitraryFamilyName is named after the changed function isArbitraryFamilyName",
+   "internal_function_check: m01 test isArbitraryVariableWeight is named after the changed function isArbitraryVariableWeight",
+   "internal_function_check: m01 test isArbitraryWeight is named after the changed function isArbitraryWeight"
+  ],
+  "shares_fixes_with": [
+   "db-node-tailwind-merge-fd28cb03"
+  ]
+ },
+ {
+  "id": "db-node-tailwind-merge-fd28cb03",
+  "lang": "node",
+  "repo": "tailwind-merge",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 33,
+  "milestone_tests": 3,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-node-tailwind-merge-5ab7c602"
+  ]
+ },
+ {
+  "id": "db-python-black-90117fa0",
+  "lang": "python",
+  "repo": "black",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 69,
+  "milestone_tests": 3,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-python-black-ae5830b7",
+  "lang": "python",
+  "repo": "black",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 33,
+  "milestone_tests": 5,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m03 test test_lines_with_leading_tabs_expanded is named after the changed function lines_with_leading_tabs_expanded"
+  ],
+  "shares_fixes_with": [
+   "db-python-black-ec71b918"
+  ]
+ },
+ {
+  "id": "db-python-black-ec71b918",
+  "lang": "python",
+  "repo": "black",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 22,
+  "milestone_tests": 4,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m02 test test_lines_with_leading_tabs_expanded is named after the changed function lines_with_leading_tabs_expanded"
+  ],
+  "shares_fixes_with": [
+   "db-python-black-ae5830b7"
+  ]
+ },
+ {
+  "id": "db-rust-bat-06262948",
+  "lang": "rust",
+  "repo": "bat",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 48,
+  "milestone_tests": 3,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-rust-bat-15e0326c",
+   "db-rust-bat-e0b53631"
+  ]
+ },
+ {
+  "id": "db-rust-bat-15e0326c",
+  "lang": "rust",
+  "repo": "bat",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 98,
+  "milestone_tests": 4,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-rust-bat-06262948",
+   "db-rust-bat-5c4e3ed1"
+  ]
+ },
+ {
+  "id": "db-rust-bat-5c4e3ed1",
+  "lang": "rust",
+  "repo": "bat",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 89,
+  "milestone_tests": 4,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-rust-bat-15e0326c",
+   "db-rust-bat-e0b53631"
+  ]
+ },
+ {
+  "id": "db-rust-bat-853c53a4",
+  "lang": "rust",
+  "repo": "bat",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 81,
+  "milestone_tests": 2,
+  "cutoff": "2025-09-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-bat-e0b53631",
+  "lang": "rust",
+  "repo": "bat",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 39,
+  "milestone_tests": 3,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-rust-bat-06262948",
+   "db-rust-bat-5c4e3ed1"
+  ]
+ },
+ {
+  "id": "db-rust-pulldown-cmark-e072a230",
+  "lang": "rust",
+  "repo": "pulldown-cmark",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 140,
+  "milestone_tests": 16,
+  "cutoff": "2025-09-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-ron-38a656f4",
+  "lang": "rust",
+  "repo": "ron",
+  "split": "train",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 200,
+  "milestone_tests": 3,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-carbon-93371b6f",
+  "lang": "go",
+  "repo": "carbon",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 39,
+  "milestone_tests": 11,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-carbon-a783fb3a",
+  "lang": "go",
+  "repo": "carbon",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 11,
+  "milestone_tests": 7,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-583585d2",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 188,
+  "milestone_tests": 286,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-65be17e3",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "medium",
+  "faults": 3,
+  "modules": 1,
+  "edges": 2,
+  "oracle_lines": 77,
+  "milestone_tests": 3,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to pivotTable_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-excelize-824ac2ce",
+  "lang": "go",
+  "repo": "excelize",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 59,
+  "milestone_tests": 286,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m03 test TestEvalInfixExp is named after the changed function evalInfixExp",
+   "internal_function_check: m03 test TestParseToken is named after the changed function parseToken"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-go-zero-d7247880",
+  "lang": "go",
+  "repo": "go-zero",
+  "split": "heldout",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 1,
+  "edges": 0,
+  "oracle_lines": 8,
+  "milestone_tests": 13,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-go-urfave-cli-2b0adb14",
+  "lang": "go",
+  "repo": "urfave-cli",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 52,
+  "milestone_tests": 46,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m01 test Test_checkShellCompleteFlag is named after the changed function checkShellCompleteFlag"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-h3-a6cd4654",
+  "lang": "node",
+  "repo": "h3",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 2,
+  "edges": 1,
+  "oracle_lines": 34,
+  "milestone_tests": 4,
+  "cutoff": "2025-09-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m01 test fromNodeHandler + piping (with Error and custom status) (node) is named after the changed function fromNodeHandler",
+   "internal_function_check: m01 test fromNodeHandler + piping (with Error) does not log a failing error hook when silent (node) is named after the changed function fromNodeHandler",
+   "internal_function_check: m01 test fromNodeHandler + piping (with Error) waits for an async error hook (node) is named after the changed function fromNodeHandler",
+   "internal_function_check: m02 test fromNodeHandler + piping (with Error) with onError middleware (node) is named after the changed function fromNodeHandler"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-unimport-0a9e60f3",
+  "lang": "node",
+  "repo": "unimport",
+  "split": "heldout",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 74,
+  "milestone_tests": 4,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-node-unstorage-d7aee0b7",
+  "lang": "node",
+  "repo": "unstorage",
+  "split": "heldout",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 50,
+  "milestone_tests": 3,
+  "cutoff": "2025-09-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "internal_function_check: m01 test setItem round-trips through storage.setItem is named after the changed function setItem"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-gleam-17844033",
+  "lang": "rust",
+  "repo": "gleam",
+  "split": "heldout",
+  "stage": "f2p_valid",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 4,
+  "edges": 0,
+  "oracle_lines": 45,
+  "milestone_tests": 14,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-gleam-1bf5964a",
+  "lang": "rust",
+  "repo": "gleam",
+  "split": "heldout",
+  "stage": "windows",
+  "skills": [
+   "multi_fault_localization",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 3,
+  "edges": 0,
+  "oracle_lines": 37,
+  "milestone_tests": 7,
+  "cutoff": "2026-05-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to format/src/tests/bit_array.rs stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": []
+ },
+ {
+  "id": "db-rust-minijinja-0be847b5",
+  "lang": "rust",
+  "repo": "minijinja",
+  "split": "heldout",
+  "stage": "leak_ok",
+  "skills": [
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 1,
+  "modules": 2,
+  "edges": 0,
+  "oracle_lines": 30,
+  "milestone_tests": 2,
+  "cutoff": "2025-09-01",
+  "contamination": "fallback",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": []
+ }
+]

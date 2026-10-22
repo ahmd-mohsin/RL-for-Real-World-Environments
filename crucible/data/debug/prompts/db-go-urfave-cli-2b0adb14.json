@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "Our command-line tools are built on urfave/cli (the v3 line, current main branch), and a few things in running commands, help output and shell completion are broken.",
+ "requirements": {
+  "m01": "Calling Run on a command with an empty argument slice panics with an index out of range, both for a plain command and when shell completion is enabled, and both with and without a Name set. Run must not panic: it should run the action, keep a Name that was given, and leave the name empty when none was given and there is no first argument to derive it from. Asking for completion when there are no arguments at all should simply mean no completion was requested.",
+  "m02": "The help of a nested subcommand does not show persistent flags inherited from intermediate parent commands, only those of the root. A leaf command's help should list every non-local flag it inherits along its whole chain of parents; when a parent redefines a flag with the same name, only the closest definition (the one that actually applies to the leaf) should be shown.",
+  "m04": "Shell completion of a partial flag name (for example typing --pa and asking for completions) only offers the current command's own flags, so persistent flags inherited from parent commands are missing, including after positional arguments. Completion should offer the command's own flags followed by the inherited persistent flags that apply to it (not for a command that skips flag parsing), and completing must never trigger the command's action."
+ },
+ "closing": ""
+}

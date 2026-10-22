@@ -1,0 +1,6 @@
+[pulldown-cmark] 1 candidate group(s)
+{"event": "window", "id": "db-rust-pulldown-cmark-e072a230", "repo": "pulldown-cmark", "stage": "mutants_valid", "reason": "", "seconds": 99.4}
+{"event": "window", "id": "db-rust-pulldown-cmark-e072a230", "repo": "pulldown-cmark", "stage": "mutants_valid", "reason": "", "seconds": 106.0}
+[pulldown-cmark] db-rust-pulldown-cmark-e072a230: mutants_valid 
+[pulldown-cmark] done; removed 0 image(s) no stored World uses
+exit 0

@@ -1,0 +1,7 @@
+[pulldown-cmark] 0 candidate group(s)
+[saphyr] 0 candidate group(s)
+[bat] 0 candidate group(s)
+[quick-xml] 1 candidate group(s)
+[quick-xml] db-rust-quick-xml-071f3db6: windows the agent's start tree does not build (build failed: tests/helpers/mod.rs; build failed: tests/serde-de.rs; build failed: tests/serde-de-enum.rs; build failed: 
+[clap] 0 candidate group(s)
+[toml-rs] 0 candidate group(s)

@@ -1,0 +1,9 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "Our Node.js service runs on h3 (current main branch) and mounts a few classic Node (req, res) handlers through h3's adapter for them. When such a handler streams its response and the stream fails, error handling goes wrong.",
+ "requirements": {
+  "m01": "When an adapted Node-style handler pipes a readable stream into the response and the stream errors after some data was sent, the app's error hook is never called. The client should still receive the data sent so far, and the app's error hook should be called exactly once with that error (its message kept, marked unhandled, and carrying the error's own status when it has one). An async error hook must finish before the response hook runs, and an error hook that itself throws must not be logged when the app is configured silent.",
+  "m02": "With the error-handling middleware registered through app.use, such a failed stream is handed to that middleware's hook as if it were an error still to be rendered, although the response is already handled. The middleware hook must not be called for it; the already-handled response should pass through unchanged."
+ },
+ "closing": ""
+}

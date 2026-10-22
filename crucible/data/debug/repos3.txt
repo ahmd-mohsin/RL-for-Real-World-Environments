@@ -1,0 +1,3 @@
+FasterXML/jackson-core
+apache/commons-lang
+FasterXML/jackson-databind

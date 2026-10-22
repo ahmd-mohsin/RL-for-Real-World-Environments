@@ -1,0 +1,6 @@
+{
+ "db-go-minify-bb23edaf": {"builder": "claude-code:opus-5.5", "reason": "no symptom-only report can state it: m02's hidden checks pin the exact output of an internal path-data shortener whose output contract itself changed (the leading moveto letter is dropped), which only naming that function could convey"},
+ "db-go-lo-1e8f3c39": {"builder": "claude-code:opus-5.5", "reason": "m03's hidden checks pin exact panic messages that embed the faulty functions' names (lo.Synchronize: ..., lo.ChunkString: ...); stating them would name the faulty functions, leaving them out would be an unstated format"},
+ "db-node-axios-56014db8": {"builder": "claude-code:opus-5.5", "reason": "m04 (157 hidden tests) is a cross-runtime alignment of request handling (body length checks, data URLs, adapters): a release-scale change, not a bug a user could report by its symptoms"},
+ "db-go-esbuild-5c636093": {"builder": "claude-code:opus-5.5", "reason": "m01 is new support for CSS @scope rules: its checks pin the exact printed and minified forms of a construct the start tree does not parse at all, which a bug report cannot state without specifying the printer"}
+}

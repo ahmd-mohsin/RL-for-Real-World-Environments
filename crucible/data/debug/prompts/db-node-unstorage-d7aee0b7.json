@@ -1,0 +1,9 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We cache data on Cloudflare Workers through unstorage (current main branch) with the cloudflare-cache-binding driver, and storing items through it is broken in two ways.",
+ "requirements": {
+  "m01": "Storing a value through a storage created with the cloudflare-cache-binding driver (createStorage with that driver, then storing and reading an item back) throws a TypeError about reading a property of undefined, because the storage calls the driver's store function unbound. Storing must work in that call path and round-trip through reading. The cache entry should carry Cache-Control: max-age=<ttl> from the item's ttl option or, failing that, the driver's ttl option, and Cache-Tag from the item's tag option (no Cache-Tag header without one).",
+  "m02": "Keys are put into the cache URL unescaped, so a key segment such as %2e%2e or one containing # can reach another key's entry (through a prefixed storage, users:alice plus %2e%2e:bob:secret overwrites users:bob:secret). Each key segment should be percent-encoded as encodeURIComponent does before it becomes a path segment of the cache URL unstorage://<base>/<segment>/<segment>..., so %2e%2e becomes %252e%252e and a#b becomes a%23b, and no key can escape its own path."
+ },
+ "closing": ""
+}

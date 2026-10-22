@@ -1,0 +1,40 @@
+[quick-xml] 1 candidate group(s)
+[quick-xml] db-rust-quick-xml-071f3db6: windows the agent's start tree does not build (build failed: tests/serde-de.rs; build failed: tests/serde-de-enum.rs; build failed: tests/serde-de-seq.rs; build failed:
+[quick-xml] done; removed 0 image(s) no stored World uses
+[toml-rs] 0 candidate group(s)
+[toml-rs] done; removed 2 image(s) no stored World uses
+[clap] 0 candidate group(s)
+[saphyr] 0 candidate group(s)
+[saphyr] done; removed 0 image(s) no stored World uses
+[pulldown-cmark] 0 candidate group(s)
+[pulldown-cmark] done; removed 0 image(s) no stored World uses
+[clap] done; removed 1 image(s) no stored World uses
+[bat] 3 candidate group(s)
+{"event": "window", "id": "db-rust-bat-15e0326c", "repo": "bat", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 321.1}
+[bat] db-rust-bat-15e0326c: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+{"event": "window", "id": "db-rust-bat-853c53a4", "repo": "bat", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 168.4}
+[bat] db-rust-bat-853c53a4: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+{"event": "window", "id": "db-rust-bat-e0b53631", "repo": "bat", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 230.3}
+[bat] db-rust-bat-e0b53631: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[ron] 1 candidate group(s)
+[bat] done; removed 0 image(s) no stored World uses
+{"event": "window", "id": "db-rust-ron-38a656f4", "repo": "ron", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 164.3}
+[ron] db-rust-ron-38a656f4: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[kdl-rs] 0 candidate group(s)
+[ron] done; removed 0 image(s) no stored World uses
+[kdl-rs] done; removed 0 image(s) no stored World uses
+[syn] 0 candidate group(s)
+[syn] done; removed 0 image(s) no stored World uses
+[ripgrep] 0 candidate group(s)
+[ripgrep] done; removed 1 image(s) no stored World uses
+[serde-json] 0 candidate group(s)
+[serde-json] done; removed 1 image(s) no stored World uses
+[regex] 0 candidate group(s)
+[regex] done; removed 1 image(s) no stored World uses
+[fd] 0 candidate group(s)
+[fd] done; removed 2 image(s) no stored World uses
+[chrono] 0 candidate group(s)
+[chrono] done; removed 0 image(s) no stored World uses
+[jiff] 0 candidate group(s)
+[jiff] done; removed 0 image(s) no stored World uses
+exit 0

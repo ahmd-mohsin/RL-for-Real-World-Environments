@@ -1,0 +1,10 @@
+mswjs/msw
+dcastil/tailwind-merge
+pmndrs/valtio
+testing-library/user-event
+testing-library/dom-testing-library
+colinhacks/zod
+pydantic/pydantic
+fastapi/fastapi
+pallets/flask
+python-attrs/attrs

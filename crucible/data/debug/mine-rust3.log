@@ -1,0 +1,33 @@
+[clap] 0 candidate group(s)
+[saphyr] 0 candidate group(s)
+[saphyr] done; removed 0 image(s) no stored World uses
+[pulldown-cmark] 0 candidate group(s)
+[pulldown-cmark] done; removed 0 image(s) no stored World uses
+[clap] done; removed 1 image(s) no stored World uses
+[bat] 2 candidate group(s)
+{"event": "window", "id": "db-rust-bat-5c4e3ed1", "repo": "bat", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 321.3}
+[bat] db-rust-bat-5c4e3ed1: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+{"event": "window", "id": "db-rust-bat-06262948", "repo": "bat", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 184.1}
+[bat] db-rust-bat-06262948: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[bat] done; removed 1 image(s) no stored World uses
+[ron] 1 candidate group(s)
+{"event": "window", "id": "db-rust-ron-38a656f4", "repo": "ron", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 156.7}
+[ron] db-rust-ron-38a656f4: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[ron] done; removed 0 image(s) no stored World uses
+[kdl-rs] 0 candidate group(s)
+[kdl-rs] done; removed 1 image(s) no stored World uses
+[syn] 0 candidate group(s)
+[syn] done; removed 1 image(s) no stored World uses
+[ripgrep] 0 candidate group(s)
+[ripgrep] done; removed 1 image(s) no stored World uses
+[serde-json] 0 candidate group(s)
+[serde-json] done; removed 1 image(s) no stored World uses
+[regex] 0 candidate group(s)
+[regex] done; removed 1 image(s) no stored World uses
+[fd] 0 candidate group(s)
+[fd] done; removed 1 image(s) no stored World uses
+[chrono] 0 candidate group(s)
+[jiff] 0 candidate group(s)
+[chrono] done; removed 1 image(s) no stored World uses
+[jiff] done; removed 0 image(s) no stored World uses
+exit 0

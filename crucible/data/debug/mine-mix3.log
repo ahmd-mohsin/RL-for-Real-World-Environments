@@ -1,0 +1,21 @@
+[tailwind-merge] 1 candidate group(s)
+[zod] 0 candidate group(s)
+[zod] done; removed 1 image(s) no stored World uses
+{"event": "window", "id": "db-node-tailwind-merge-fd28cb03", "repo": "tailwind-merge", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 70.0}
+[tailwind-merge] db-node-tailwind-merge-fd28cb03: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[tailwind-merge] done; removed 1 image(s) no stored World uses
+[pydantic] 0 candidate group(s)
+[pydantic] done; removed 3 image(s) no stored World uses
+[fastapi] 0 candidate group(s)
+[fastapi] done; removed 3 image(s) no stored World uses
+[black] 1 candidate group(s)
+{"event": "window", "id": "db-python-black-ec71b918", "repo": "black", "stage": "mutants_valid", "reason": "", "seconds": 831.7}
+[black] db-python-black-ec71b918: mutants_valid 
+[black] done; removed 2 image(s) no stored World uses
+[pygments] 0 candidate group(s)
+[pygments] done; removed 0 image(s) no stored World uses
+[react-hook-form] 0 candidate group(s)
+[react-hook-form] done; removed 1 image(s) no stored World uses
+[msw] 0 candidate group(s)
+[msw] done; removed 2 image(s) no stored World uses
+exit 0

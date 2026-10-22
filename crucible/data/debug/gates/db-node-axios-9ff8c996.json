@@ -1,0 +1,166 @@
+{
+ "task": "db-node-axios-9ff8c996",
+ "generator": "debug",
+ "gates": {
+  "S6": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "executed_edges": 1,
+    "milestones": 3
+   },
+   "seconds": 0.7
+  },
+  "S5": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "clean_world_ok": true,
+    "null_ok": true,
+    "refused_checks": [],
+    "spec_defects": 0
+   },
+   "seconds": 463.5
+  },
+  "S8": {
+   "ok": true,
+   "findings": [],
+   "alternatives_pending": [
+    "0 valid alternative(s), need 2 (one from another family)"
+   ],
+   "evidence": {
+    "failed": [],
+    "false_fail_checks": [],
+    "alternatives": [],
+    "rows": {
+     "oracle_patch": {
+      "kind": "oracle",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "no_op": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "claims_only": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "test_edit": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "oracle_steps": {
+      "kind": "alternative",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "revert_m01": {
+      "kind": "mutant",
+      "reward": 0.333334,
+      "phi": 0.666667,
+      "ok": true
+     },
+     "revert_m02": {
+      "kind": "mutant",
+      "reward": 0.166666,
+      "phi": 0.333333,
+      "ok": true
+     },
+     "revert_m03": {
+      "kind": "mutant",
+      "reward": 0.333334,
+      "phi": 0.666667,
+      "ok": true
+     }
+    }
+   },
+   "seconds": 621.7
+  },
+  "S3": {
+   "ok": false,
+   "findings": [
+    "S3 fails: reruns_clean"
+   ],
+   "evidence": {
+    "checks": {
+     "builds": true,
+     "existing_tests_run": true,
+     "leak_probes_hold": true,
+     "reruns_clean": false,
+     "grading_unchanged": true
+    },
+    "reruns": {
+     "n": 60,
+     "clean": 59,
+     "unclean": [
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "tests/unit/adapters/http.test.js::supports http with nodejs::URLEncoded Form::should post object data as url-encoded form regardless of content-type header casing",
+        "tests/unit/adapters/http.test.js::supports http with nodejs::toFormData helper::should only match explicit routes for express 5 form handlers"
+       ]
+      }
+     ],
+     "cp_upper": 0.0766,
+     "concurrency": [
+      1,
+      4
+     ]
+    },
+    "existing": {
+     "targets": 111,
+     "counts": {
+      "failed": 3,
+      "passed": 1646
+     }
+    },
+    "leak": {
+     "no_new_test_names_in_image": "pass",
+     "git_log_only_base": "pass",
+     "fetch_project_fails": "pass",
+     "no_installed_project_source": "pass"
+    },
+    "grading": {
+     "oracle_milestones": {
+      "m01": true,
+      "m02": true,
+      "m03": true
+     },
+     "start_any_milestone_test": {
+      "m01": false,
+      "m02": false,
+      "m03": false
+     },
+     "infra": [
+      "ok",
+      "ok"
+     ]
+    }
+   },
+   "seconds": 6065.7
+  },
+  "S10": {
+   "ok": null,
+   "findings": [
+    "not_run: an earlier gate failed"
+   ]
+  }
+ },
+ "ok": false,
+ "passed": [
+  "S6",
+  "S5",
+  "S8"
+ ],
+ "seconds": 14519.0
+}
