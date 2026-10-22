@@ -169,9 +169,11 @@ def epilogue_for(lang: str) -> str:
 
 
 # ---- the real-fix check ----------------------------------------------------------------------------------------------------
-def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str]) -> list[str]:
+def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str], *, written: bool = False) -> list[str]:
     """The caught tests the fix owns (module doc): in its test files, proposed by the definition diff, or any test of a
-    file for which the diff proposes none; or a test whose id names a case or golden file the fix added or changed."""
+    file for which the diff proposes none; or a test whose id names a case or golden file the fix added or changed.
+    ``written``: only the tests the fix wrote (a changed definition or case file), not every test of a file it touched,
+    which is all a test file whose definitions the profile cannot read gives (h3's test/app.test.ts)."""
     keys = fix_test_names(repo, u)
     files = set(u.test_files)
     # a file proposes tests only through a changed definition that is a caught test: the functions of a case file are its
@@ -185,7 +187,7 @@ def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str]) -> list[str]:
     out = []
     for t in caught:
         f, q = key_of_test(t)
-        by_def = f in files and (f"{f}::{q}" in keys or f not in proposed)
+        by_def = f in files and (f"{f}::{q}" in keys or (f not in proposed and not written))
         by_case = bool(data) and any(re.search(rf"(?<![A-Za-z0-9]){re.escape(d)}(?![A-Za-z0-9])", t.split("::", 1)[-1]) for d in data)
         if by_def or by_case:
             out.append(t)
@@ -230,6 +232,7 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
         res = normalize_ids(tr.results, union)
         caught = sorted(t for t in res if b_res.get(t) == "passed" and res[t] in ("failed", "error"))
         own = owned_tests(repo, u, [t for t in caught if res[t] in bad_states])
+        written = owned_tests(repo, u, caught, written=True)
         why = ""
         if not own:
             why = ("its revert only stops tests from building" if any(res[t] == "error" for t in caught) and lang in COMPILED
@@ -237,7 +240,8 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
         # a compiled test package that no longer builds reports every test of it as ``error``: those tests are caught by any
         # revert that breaks the build, which links nothing (mvdan-sh: four zsh fixes "shared" the syntax package's 63 tests)
         unbuilt = [t for t in caught if res[t] == "error"] if lang in COMPILED else []
-        return u.sha, {"ok": bool(own), "caught": caught, "caught_unbuilt": unbuilt, "caught_own": own, "build_notes": tr.why[:200], "why": why}
+        return u.sha, {"ok": bool(own), "caught": caught, "caught_unbuilt": unbuilt, "caught_own": own[:30], "caught_written": written,
+                       "build_notes": tr.why[:200], "why": why}
 
     return dict(await asyncio.gather(*[one(u) for u in units])), card
 
@@ -745,7 +749,7 @@ class Debug(Rebreak):
         repo = RepoGit(self.clones[name])
         work = self.root / "work" / name / b[:10]
         work.mkdir(parents=True, exist_ok=True)
-        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "") + "|unbuilt|own"  # evidence before caught_unbuilt / a whole caught_own is run again
+        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "") + "|unbuilt|written"  # evidence before caught_unbuilt / caught_written is run again
         cache = work / f"evidence-{hashlib.sha256(key.encode()).hexdigest()[:10]}.json"
         if cache.exists():
             evid, card = json.loads(cache.read_text())

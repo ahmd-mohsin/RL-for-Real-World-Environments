@@ -120,11 +120,11 @@ def test_interactions_are_shared_caught_test_cases() -> None:
              "b": {"ok": True, "caught": ["p_test.go::TestB", "p_test.go::TestC"], "caught_unbuilt": ["p_test.go::TestB", "p_test.go::TestC"]},
              "c": {"ok": True, "caught": ["p_test.go::TestA"]}}
     assert interaction_edges(built) == {"a": {"c"}, "c": {"a"}}
-    # a case file both fixes changed checks both behaviours side by side (black ae5830b7's docstring.py): no link; a test
-    # one fix owns that the other's revert breaks is one (go-toml's round trip)
-    case = {"a": {"ok": True, "caught": ["t.py::test_fmt[doc]"], "caught_own": ["t.py::test_fmt[doc]"]},
-            "b": {"ok": True, "caught": ["t.py::test_fmt[doc]", "t.py::test_rt"], "caught_own": ["t.py::test_fmt[doc]"]},
-            "c": {"ok": True, "caught": ["t.py::test_rt", "t.py::test_c"], "caught_own": ["t.py::test_rt", "t.py::test_c"]}}
+    # a case file both fixes wrote checks both behaviours side by side (black ae5830b7's docstring.py): no link; a test
+    # one fix wrote that the other's revert breaks is one (go-toml's round trip, h3's onError middleware test)
+    case = {"a": {"ok": True, "caught": ["t.py::test_fmt[doc]"], "caught_written": ["t.py::test_fmt[doc]"]},
+            "b": {"ok": True, "caught": ["t.py::test_fmt[doc]", "t.py::test_rt"], "caught_written": ["t.py::test_fmt[doc]"]},
+            "c": {"ok": True, "caught": ["t.py::test_rt", "t.py::test_c"], "caught_written": ["t.py::test_rt", "t.py::test_c"]}}
     assert interaction_edges(case) == {"b": {"c"}, "c": {"b"}}
     us =[Unit(sha=s, parent="p", merge=False, date="", subject=s, files=[f"{s}.py", "tests/test_t.py"]) for s in "abcd"]
     assert [u.sha for u in order_fixes(us, {"a": {"c"}})] == ["b", "c", "a", "d"]  # a needs c: c first, else history order
