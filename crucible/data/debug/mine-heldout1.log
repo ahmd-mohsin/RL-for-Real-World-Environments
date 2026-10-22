@@ -1,0 +1,9 @@
+[urfave-cli] 1 candidate group(s)
+[h3] 1 candidate group(s)
+{"event": "window", "id": "db-node-h3-a6cd4654", "repo": "h3", "stage": "world_built", "reason": "leak probe failed: {'no_new_test_names_in_image': 'pass', 'git_log_only_base': 'pass', 'fetch_project_fails': 'pass', 'no_installed_project_source': 'fail'}", "seconds": 7.7}
+[h3] db-node-h3-a6cd4654: world_built leak probe failed: {'no_new_test_names_in_image': 'pass', 'git_log_only_base': 'pass', 'fetch_project_fails': 'pass', 'no_installed_project_source': 'fail'}
+[unimport] 0 candidate group(s)
+{"event": "window", "id": "db-go-urfave-cli-2b0adb14", "repo": "urfave-cli", "stage": "mutants_valid", "reason": "", "seconds": 1163.0}
+[urfave-cli] db-go-urfave-cli-2b0adb14: mutants_valid 
+[minijinja] 0 candidate group(s)
+[beartype] 0 candidate group(s)

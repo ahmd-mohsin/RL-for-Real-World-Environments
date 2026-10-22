@@ -1,0 +1,28 @@
+[h3] 1 candidate group(s)
+{"event": "window", "id": "db-node-h3-a6cd4654", "repo": "h3", "stage": "mutants_valid", "reason": "", "seconds": 425.3}
+[h3] db-node-h3-a6cd4654: mutants_valid 
+[h3] done; removed 5 image(s) no stored World uses
+[go-zero] 2 candidate group(s)
+[go-zero] db-go-go-zero-045eac1d: windows hidden tests do not build at the start (a fix adds API: build failed: github.com/zeromicro/go-zero/zrpc/resolver/internal/targets)
+[unstorage] 1 candidate group(s)
+{"event": "window", "id": "db-go-go-zero-d7247880", "repo": "go-zero", "stage": "leak_ok", "reason": "1 milestone(s) with fail-to-pass tests (need 2)", "seconds": 338.1}
+[go-zero] db-go-go-zero-d7247880: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[go-zero] done; removed 6 image(s) no stored World uses
+{"event": "window", "id": "db-node-unstorage-d7aee0b7", "repo": "unstorage", "stage": "mutants_valid", "reason": "", "seconds": 235.4}
+[unstorage] db-node-unstorage-d7aee0b7: mutants_valid 
+[unstorage] done; removed 3 image(s) no stored World uses
+[beartype] 0 candidate group(s)
+[beartype] done; removed 6 image(s) no stored World uses
+[minijinja] 1 candidate group(s)
+[c12] 0 candidate group(s)
+[c12] done; removed 4 image(s) no stored World uses
+{"event": "window", "id": "db-rust-minijinja-0be847b5", "repo": "minijinja", "stage": "leak_ok", "reason": "1 milestone(s) with fail-to-pass tests (need 2)", "seconds": 117.2}
+[minijinja] db-rust-minijinja-0be847b5: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[minijinja] done; removed 7 image(s) no stored World uses
+[unimport] 1 candidate group(s)
+{"event": "window", "id": "db-node-unimport-0a9e60f3", "repo": "unimport", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 57.2}
+[unimport] db-node-unimport-0a9e60f3: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[unimport] done; removed 4 image(s) no stored World uses
+[crossws] 0 candidate group(s)
+[crossws] done; removed 4 image(s) no stored World uses
+exit 0

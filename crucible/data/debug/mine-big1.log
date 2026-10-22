@@ -1,0 +1,34 @@
+[mvdan-sh] 4 candidate group(s)
+{"event": "window", "id": "db-go-mvdan-sh-02a801cd", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 1940.9}
+[mvdan-sh] db-go-mvdan-sh-02a801cd: mutants_valid 
+{"event": "window", "id": "db-go-mvdan-sh-5e983709", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 305.5}
+{"event": "window", "id": "db-go-mvdan-sh-5e983709", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 976.7}
+[mvdan-sh] db-go-mvdan-sh-5e983709: mutants_valid 
+{"event": "window", "id": "db-go-mvdan-sh-23d1c659", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 1241.7}
+[axios] 3 candidate group(s)
+{"event": "window", "id": "db-go-mvdan-sh-23d1c659", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 653.7}
+[mvdan-sh] db-go-mvdan-sh-23d1c659: windows hidden checks visible: 2 milestone test(s) fail in the agent's own tree
+[mvdan-sh] db-go-mvdan-sh-2d320f54: windows the agent's start tree does not build (build failed: mvdan.cc/sh/v3/syntax)
+[mvdan-sh] done; removed 0 image(s) no stored World uses
+[yq] 3 candidate group(s)
+[yq] db-go-yq-8986d651: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[yq] db-go-yq-da09996a: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[yq] db-go-yq-f43e6bbb: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[yq] done; removed 4 image(s) no stored World uses
+[validator] 2 candidate group(s)
+[validator] db-go-validator-240822eb: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[validator] db-go-validator-0a5f3c9e: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[validator] done; removed 3 image(s) no stored World uses
+{"event": "window", "id": "db-node-axios-61cd331d", "repo": "axios", "stage": "mutants_valid", "reason": "", "seconds": 1043.8}
+[axios] db-node-axios-61cd331d: mutants_valid 
+[echo] 1 candidate group(s)
+[echo] db-go-echo-61eca05b: mutants_valid 
+[echo] done; removed 1 image(s) no stored World uses
+[go-toml] 1 candidate group(s)
+[go-toml] db-go-go-toml-a02114e3: mutants_valid 
+[go-toml] done; removed 0 image(s) no stored World uses
+[minify] 1 candidate group(s)
+[minify] db-go-minify-bb23edaf: mutants_valid 
+[minify] done; removed 2 image(s) no stored World uses
+{"event": "window", "id": "db-node-axios-56014db8", "repo": "axios", "stage": "mutants_valid", "reason": "", "seconds": 4751.7}
+[axios] db-node-axios-56014db8: mutants_valid 

@@ -1,0 +1,37 @@
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+........................................................................ [ 35%]
+........................................................................ [ 47%]
+.........................................F.............................. [ 58%]
+........................................................................ [ 70%]
+.........................s.............................................. [ 82%]
+........................................................................ [ 94%]
+....................................                                     [100%]
+=================================== FAILURES ===================================
+___________________________ test_native_two_timeouts ___________________________
+
+toy = namespace(task=<test_m17_p6_equiv.HostWindow object at 0x12f38d9d0>, rec={'id': 'toyrepo-w90d5079-1258bd0', 'repo': 't...f0a2db0>, tmp=PosixPath('/private/var/folders/2x/gnmy3bvs21b1x3j414qnrw000000gn/T/pytest-of-muahmed/pytest-69/p6env0'))
+
+    def test_native_two_timeouts(toy) -> None:
+        from crucible.runtime.run import Runner
+    
+        o = toy.rec["oracle_files"]
+        steps = [("write", "pkg/core.py", o["pkg/core.py"]), ("shell", "true"), ("shell", "true"), ("shell", "true"), ("final", "done")]
+    
+        async def run(rid: str, timeouts: Timeouts) -> dict:
+            env = make_env(toy.task, checkpoint=CheckpointConfig(every=0, on_commit=False), timeouts=timeouts)
+            await Runner(toy.tmp / "runs").run(env.run_spec(run_id=rid, policies=[scripted_policy(steps, delay_s=0.5)]))
+            adir = min((toy.tmp / "runs" / rid / "samples").glob("*/a*"))
+            return json.loads((adir / "record.json").read_text())
+    
+        HostWindow._dead = False
+        agent = asyncio.run(run("agent-timeout", Timeouts(agent_s=1.2, rollout_s=600)))
+        assert not agent["mask_sample"] and agent["meta"]["stop"] == "timeout" and agent["reward"] == pytest.approx(1 / 6, abs=1e-5)  # m01 only: graded
+        roll = asyncio.run(run("rollout-timeout", Timeouts(agent_s=0.5, rollout_s=0.8)))
+>       assert roll["mask_sample"] and roll["reward"] is None
+E       assert (False)
+
+tests/unit/test_m17_p6_envs.py:89: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_m17_p6_envs.py::test_native_two_timeouts - assert (False)
+1 failed, 610 passed, 1 skipped, 2712 deselected in 335.29s (0:05:35)

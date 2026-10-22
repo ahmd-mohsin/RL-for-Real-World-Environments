@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We compute date differences with the dromara/carbon library (current main branch) and several of the difference methods give answers that disagree with calendar arithmetic.",
+ "requirements": {
+  "m01": "The difference in days and in weeks is computed from elapsed seconds, so across a daylight saving change it disagrees with adding days: in New York, 2024-03-10 to 2024-03-11 gives 0 days (should be 1, and -1 the other way round), 2024-03-04 to 2024-03-11 gives 0 weeks (should be 1), 2024-11-03 to 2024-11-03 23:59:59 must be 0 days and 2024-11-03 to 2024-11-04 must be 1 day. Days must be counted as whole calendar days, the way months are counted, and weeks derived from that day count.",
+  "m02": "The difference in seconds ignores the fractional part of the timestamps, so a gap of 0.2 s that crosses a second boundary counts as a full second: 13:14:15.9 to 13:14:16.1 gives 1 (should be 0, and 0 the other way round), while 13:14:15.5 to 13:14:16.5 is correctly 1 (and -1 reversed). Minutes, hours and human-readable differences built on the seconds value inherit the error: 13:14:15.5 to 13:15:15.2 must be 0 minutes. Only whole seconds actually elapsed may count.",
+  "m03": "The difference in years and in months goes wrong when the two dates are in different time zones, because each date's own year and month fields are compared: from 2024-02-01 00:00 UTC to 2024-02-29 20:00 New York (which is March 1st in UTC) must be 1 month (-1 reversed), from 2024-01-31 20:00 UTC to 2024-03-01 05:00 Tokyo must be 0 months, from 2023-01-01 00:00 UTC to 2023-12-31 20:00 New York must be 1 year, and from 2023-12-31 22:00 UTC to 2025-01-01 05:00 Tokyo must be 0 years, in both directions. The result must not change when only the display location of the same instant changes."
+ },
+ "closing": ""
+}

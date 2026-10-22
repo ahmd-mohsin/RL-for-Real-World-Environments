@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We use axios (current main branch) in a Node service and inspect response and request headers through AxiosHeaders. Several header cases behave wrongly.",
+ "requirements": {
+  "m01": "Asking an AxiosHeaders instance for its Set-Cookie values as a list returns a bare string when set-cookie was set programmatically with a single string. It should always be an array: after set('set-cookie', 'key=val;') the list is ['key=val;'], after set('set-cookie', '') it is [''], and with no set-cookie header it is [].",
+  "m02": "Parsing raw header text mishandles duplicates. For a header whose duplicates are ignored (such as Content-Length), \"Content-Length:\\nContent-Length: 10\" yields '10', although the first occurrence wins even when it is empty (the result should be ''). And when some other code has added a property such as content-length or foo to Object.prototype, those inherited values are treated as headers that were already seen: \"Content-Length: 10\\nFoo: foo\\nFoo: bar\" must still parse to content-length '10' and foo 'foo, bar'.",
+  "m03": "A header named __proto__ is lost. Setting it on AxiosHeaders, whether from a string, a plain object, a Map, an array of pairs or raw header text, with or without surrounding whitespace in the name and whether or not names are normalized with formatting, silently drops a string value, and an array value even replaces the instance's prototype so its methods stop working. Fetch adapter responses that carry such a header lose it too. The header should be stored under the case variant __Proto__ (lookups are case-insensitive, so it reads back as __proto__ as well), be deletable, accept a rewrite on a sealed instance, and copying the headers onto a plain object must keep the value without creating an own __proto__ property there."
+ },
+ "closing": ""
+}

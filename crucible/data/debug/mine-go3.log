@@ -1,0 +1,14 @@
+[yq] 2 candidate group(s)
+{"event": "window", "id": "db-go-yq-8986d651", "repo": "yq", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 75.1}
+[yq] db-go-yq-8986d651: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[fiber] 1 candidate group(s)
+{"event": "window", "id": "db-go-yq-da09996a", "repo": "yq", "stage": "leak_ok", "reason": "1 milestone(s) with fail-to-pass tests (need 2)", "seconds": 96.1}
+[fiber] db-go-fiber-9d2247ec: windows the agent's start tree does not build (build failed: github.com/gofiber/fiber/v3)
+{"event": "window", "id": "db-go-yq-da09996a", "repo": "yq", "stage": "leak_ok", "reason": "1 milestone(s) with fail-to-pass tests (need 2)", "seconds": 162.9}
+[yq] db-go-yq-da09996a: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[go-github] 0 candidate group(s)
+[echo] 0 candidate group(s)
+[koanf] 0 candidate group(s)
+[gin] 0 candidate group(s)
+[fzf] 0 candidate group(s)
+[go-task] 0 candidate group(s)

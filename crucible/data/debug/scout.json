@@ -1,0 +1,2105 @@
+{
+ "jaq": {
+  "full": "01mf02/jaq",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.3,
+  "sample": [],
+  "size_mb": 0.8
+ },
+ "jiff": {
+  "full": "BurntSushi/jiff",
+  "lang": "rust",
+  "licence": "other",
+  "fixes": 0,
+  "seconds": 1.2,
+  "sample": [],
+  "size_mb": 6.1
+ },
+ "ripgrep": {
+  "full": "BurntSushi/ripgrep",
+  "lang": "rust",
+  "licence": "other",
+  "fixes": 2,
+  "seconds": 1.2,
+  "sample": [
+   "ignore: add multi-root parent matcher regression tests",
+   "ignore: support `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` for `core."
+  ],
+  "size_mb": 3.3
+ },
+ "burntsushi-toml": {
+  "full": "BurntSushi/toml",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.2,
+  "sample": [
+   "encode: don't shift local datetimes/dates/times to UTC",
+   "Correct line number if error is at end of input",
+   "Expand Decoder.MaxTableNesting() to arrays, rename to MaxDepth()"
+  ],
+  "size_mb": 0.5
+ },
+ "jackson-core": {
+  "full": "FasterXML/jackson-core",
+  "lang": "java",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 1.9,
+  "sample": [],
+  "size_mb": 6.3
+ },
+ "jackson-databind": {
+  "full": "FasterXML/jackson-databind",
+  "lang": "java",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 3.3,
+  "sample": [],
+  "size_mb": 14.0
+ },
+ "rich": {
+  "full": "Textualize/rich",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.1,
+  "sample": [],
+  "size_mb": 19.7
+ },
+ "kong": {
+  "full": "alecthomas/kong",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 15,
+  "seconds": 0.3,
+  "sample": [
+   "Return an error instead of panicking on a map with an unmappable key/v",
+   "fix: allow config to override invalid defaults (#633)",
+   "Propagate envprefix to subcommand flags (#635)"
+  ],
+  "size_mb": 0.7
+ },
+ "commons-lang": {
+  "full": "apache/commons-lang",
+  "lang": "java",
+  "licence": "Apache-2.0",
+  "fixes": 61,
+  "seconds": 9.6,
+  "sample": [
+   "[LANG-1838] Fix resource paths for unnamed packages (#1824)",
+   "reject varargs candidates with too few arguments in MemberUtils (#1828",
+   "[LANG-1323] Align built type hashes with JDK reflection (#1826)"
+  ],
+  "size_mb": 10.7
+ },
+ "axios": {
+  "full": "axios/axios",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 69,
+  "seconds": 4.3,
+  "sample": [
+   "fix(http2): stop reusing sessions after GOAWAY (#11210)",
+   "fix(xhr): remove progress event listeners on request completion (#1122",
+   "fix(headers): bind matcher callbacks to the headers instance (#11216)"
+  ],
+  "size_mb": 4.6
+ },
+ "beartype": {
+  "full": "beartype/beartype",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 2.5,
+  "sample": [
+   "`TypeHint(Any) != TypeHint(NotAny)` x 4.",
+   "`TypeHint.__eq__` and `__hash__` consistency x 1.",
+   "PEP 557 dataclass annotated by forward self-reference."
+  ],
+  "size_mb": 9.0
+ },
+ "just": {
+  "full": "casey/just",
+  "lang": "rust",
+  "licence": "other",
+  "fixes": 8,
+  "seconds": 3.9,
+  "sample": [
+   "Fix `is_dependency()` in `[confirm]` expressions (#3558)",
+   "Fix line number in error message after multi-line interpolation (#3646",
+   "Ignore broken pipe errors when printing to standard output (#3733)"
+  ],
+  "size_mb": 2.4
+ },
+ "lipgloss": {
+  "full": "charmbracelet/lipgloss",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 2,
+  "seconds": 0.3,
+  "sample": [
+   "fix: prevent crash when writing to a closed wrap writer",
+   "fix(luminance): detect dark colors by Lab, not HSL (#752)"
+  ],
+  "size_mb": 0.7
+ },
+ "cheerio": {
+  "full": "cheeriojs/cheerio",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 13,
+  "seconds": 4.3,
+  "sample": [
+   "fix(load): accept CDATA nodes as selectors",
+   "fix(attributes): guard style access on non-element nodes",
+   "fix(attributes): set data on mixed node selections (#5558)"
+  ],
+  "size_mb": 1.4
+ },
+ "chrono": {
+  "full": "wanasit/chrono",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 15,
+  "seconds": 0.3,
+  "sample": [
+   "Merge pull request #664 from afonsojanu/fix/fractional-quarter-duratio",
+   "Merge pull request #658 from guerrerojuli/fix/es-common-future-express",
+   "Merge pull request #668 from youdie006/fix/overnight-range-month-end"
+  ],
+  "size_mb": 1.9
+ },
+ "clap": {
+  "full": "clap-rs/clap",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 6,
+  "seconds": 1.2,
+  "sample": [
+   "Merge pull request #6468 from sjh9714/fix-bash-posix-fn-name",
+   "Merge pull request #6482 from codeAnqiang-ma/fix/mangen-hidden-positio",
+   "Merge pull request #6526 from bonnefoa/fix-completion-escape"
+  ],
+  "size_mb": 3.7
+ },
+ "zod": {
+  "full": "colinhacks/zod",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 112,
+  "seconds": 4.7,
+  "sample": [
+   "fix(v4): run a record's key schema on an own __proto__ key (#6660)",
+   "fix(locales): add Sizable.map to es, fr, he, hr and lt, and check Siza",
+   "fix(v4): report a union option that only checks rejected (#6662)"
+  ],
+  "size_mb": 15.5
+ },
+ "date-fns": {
+  "full": "date-fns/date-fns",
+  "lang": "node",
+  "licence": "none",
+  "fixes": 1,
+  "seconds": 1.3,
+  "sample": [
+   "Fix Chinese locale month parsing (#4194)"
+  ],
+  "size_mb": 11.3
+ },
+ "tailwind-merge": {
+  "full": "dcastil/tailwind-merge",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 0.7,
+  "sample": [
+   "Merge pull request #708 from dcastil/bugfix/bg-conic-without-angle",
+   "Merge pull request #712 from ddussi/bugfix/color-function-length-detec",
+   "Merge pull request #721 from beduldul/fix/leading-important-postfix-po"
+  ],
+  "size_mb": 3.6
+ },
+ "syn": {
+  "full": "dtolnay/syn",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 2,
+  "seconds": 1.7,
+  "sample": [
+   "Merge pull request #2082 from dtolnay/lifetimevar",
+   "Merge pull request #2085 from A4-Tacks/break-label-abs-path"
+  ],
+  "size_mb": 2.6
+ },
+ "eemeli-yaml": {
+  "full": "eemeli/yaml",
+  "lang": "node",
+  "licence": "ISC",
+  "fixes": 7,
+  "seconds": 0.4,
+  "sample": [
+   "fix: Limit recursive merge aliases (#685)",
+   "fix(ts): Improve type ergonomics, dropping the Strict generic flag (#7",
+   "fix: JS type of self-referential mappings when used as merge sources ("
+  ],
+  "size_mb": 0.9
+ },
+ "esbuild": {
+  "full": "evanw/esbuild",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 0.7,
+  "sample": [
+   "fix #4498: `async` TLA checks need a worklist",
+   "css: fix green/blue channel swap in oklch gamut mapping (#4488)",
+   "fix #4411: prevent duplicate chunks from merging"
+  ],
+  "size_mb": 9.5
+ },
+ "expr": {
+  "full": "expr-lang/expr",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.1,
+  "sample": [
+   "fix(vm): clear error when fetching field from string at runtime (#963)"
+  ],
+  "size_mb": 6.8
+ },
+ "eza": {
+  "full": "eza-community/eza",
+  "lang": "rust",
+  "licence": "other",
+  "fixes": 0,
+  "seconds": 0.2,
+  "sample": [],
+  "size_mb": 3.0
+ },
+ "fastapi": {
+  "full": "fastapi/fastapi",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 16,
+  "seconds": 11.2,
+  "sample": [
+   "\ud83d\udc1b Fix non-finite float serialization in JSONL and SSE streams (#16509)",
+   "\ud83d\udc1b Fix handling of empty value for `byte` file list parameter (#9383)",
+   "\ud83d\udc1b Fix default handling for request parameters and models (#16527)"
+  ],
+  "size_mb": 35.1
+ },
+ "htmlparser2": {
+  "full": "fb55/htmlparser2",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 1.1,
+  "sample": [
+   "fix(tokenizer): treat `<![CDATA[` as a bogus comment in HTML mode",
+   "fix(tokenizer): finish and resume completed input only once",
+   "Add missing tags to openImpliesClose for open <p> elements"
+  ],
+  "size_mb": 0.6
+ },
+ "gin": {
+  "full": "gin-gonic/gin",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 0.5,
+  "sample": [
+   "fix: reset skipped-nodes stack on getValue entry to prevent slice over",
+   "fix(context): load Keys under the mutex in Copy (#4854)",
+   "fix(tree): grow skippedNodes when pooled capacity is stale (#4852)"
+  ],
+  "size_mb": 0.9
+ },
+ "validator": {
+  "full": "go-playground/validator",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 14,
+  "seconds": 0.6,
+  "sample": [
+   "feat: Add hostname label validation tag (#1616)",
+   "Align excluded_without with its stated multi-field contract (#1621)",
+   "fix: accept Nigeria's 11-character postcodes (#1664)"
+  ],
+  "size_mb": 2.3
+ },
+ "go-task": {
+  "full": "go-task/task",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 2.6,
+  "sample": [
+   "fix: accept []string and []int in matrix refs (#2956)",
+   "fix: unwrap inner TaskError code from TaskRunError (#3041)",
+   "fix(remote): isolate Git Taskfile clones in a private cache"
+  ],
+  "size_mb": 2.5
+ },
+ "go-yaml": {
+  "full": "goccy/go-yaml",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 2.0
+ },
+ "fiber": {
+  "full": "gofiber/fiber",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 142,
+  "seconds": 6.4,
+  "sample": [
+   "Merge pull request #4776 from Dev-next-gen/fix/client-keys-dedup",
+   "Merge pull request #4769 from ninadsutrave/chore/internal-fspath",
+   "Merge pull request #4765 from Rachit-Gandhi/fix/4334-cache-lock-flow-r"
+  ],
+  "size_mb": 7.1
+ },
+ "go-github": {
+  "full": "google/go-github",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 24,
+  "seconds": 4.6,
+  "sample": [
+   "fix: Pass integer repository IDs for Dependabot secret (#4618)",
+   "fix: Treat `BusinessTeam` as a regular `Team` for Environment reviewer",
+   "fix: Use `BaseURL` relative path for rate limit category (#4644)"
+  ],
+  "size_mb": 9.7
+ },
+ "gson": {
+  "full": "google/gson",
+  "lang": "java",
+  "licence": "Apache-2.0",
+  "fixes": 12,
+  "seconds": 0.9,
+  "sample": [
+   "Fix some adapter exceptions not including JSON document location (#309",
+   "Use `switch` statements instead of if-chains. (#3101)",
+   "fix: reject unpaired surrogates in strict JSON (#3116)"
+  ],
+  "size_mb": 2.4
+ },
+ "hono": {
+  "full": "honojs/hono",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 114,
+  "seconds": 4.0,
+  "sample": [
+   "fix(trie-router): keep first value for duplicate path params (#5422) (",
+   "fix(hono-base): disallow `getPath` when `strict` is `false` (#5563)",
+   "fix(css): Fix multiline CSS handling in style replacement (#5405)"
+  ],
+  "size_mb": 5.0
+ },
+ "dayjs": {
+  "full": "iamkun/dayjs",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.3,
+  "sample": [
+   "fix(plugin): timezone plugin prevent RangeError for invalid Day.js val"
+  ],
+  "size_mb": 2.5
+ },
+ "immer": {
+  "full": "immerjs/immer",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 13,
+  "seconds": 1.5,
+  "sample": [
+   "fix: forward thisArg in the array-methods plugin (#1292)",
+   "fix: do not record a deletion when a base value is written back (#1295",
+   "fix: throw on reads of a revoked Map or Set draft (#1298)"
+  ],
+  "size_mb": 2.8
+ },
+ "gojq": {
+  "full": "itchyny/gojq",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.8,
+  "sample": [
+   "fix panic on continuing iteration after an invalid path error (#297)",
+   "fix json parse error message after a large value in non-seekable input",
+   "fix data race on input iterator when running code concurrently (#316)"
+  ],
+  "size_mb": 0.6
+ },
+ "jsoup": {
+  "full": "jhy/jsoup",
+  "lang": "java",
+  "licence": "MIT",
+  "fixes": 38,
+  "seconds": 2.5,
+  "sample": [
+   "Fix attribute equals and hashcode to exclude internal (transient) data",
+   "Correct fragment ignores",
+   "Clean up comment and incomplete tag tokenisation (#2636)"
+  ],
+  "size_mb": 3.2
+ },
+ "yup": {
+  "full": "jquense/yup",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 1.0
+ },
+ "fzf": {
+  "full": "junegunn/fzf",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 2.2,
+  "sample": [
+   "Fix --gap-line cutting a grapheme cluster",
+   "Fix panic on a read error during the second-chance read",
+   "Fix Windows shell detection with explicit --with-shell"
+  ],
+  "size_mb": 1.9
+ },
+ "kdl-rs": {
+  "full": "kdl-org/kdl-rs",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 3,
+  "seconds": 0.6,
+  "sample": [
+   "fix: autoformat_config on empty new nodes get applied (#180)",
+   "fix(v1): stop escaping `/` in ensure_v1 (#155)",
+   "fix(fmt): respect formatting when printing Node ty (#189)"
+  ],
+  "size_mb": 0.6
+ },
+ "koanf": {
+  "full": "knadh/koanf",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 13,
+  "seconds": 0.6,
+  "sample": [
+   "Fix HCL flattenSlices skipping blocks inside repeated blocks (#458)",
+   "Fix k8smount dropping keys mounted at nested paths (#457)",
+   "Fix panic on unmarshalling duration strings on string types (#459)"
+  ],
+  "size_mb": 0.6
+ },
+ "fuse": {
+  "full": "krisk/Fuse",
+  "lang": "node",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 0.8,
+  "sample": [],
+  "size_mb": 1.8
+ },
+ "echo": {
+  "full": "labstack/echo",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 24,
+  "seconds": 1.5,
+  "sample": [
+   "fix(bind): honor OpenAPI date, date-time and date-time-local format ta",
+   "fix(router): grow PathValues for contexts created before a route with ",
+   "fix(router): removing a route with a custom method panics (#3160)"
+  ],
+  "size_mb": 1.7
+ },
+ "webargs": {
+  "full": "marshmallow-code/webargs",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.6,
+  "sample": [],
+  "size_mb": 0.8
+ },
+ "yq": {
+  "full": "mikefarah/yq",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 25,
+  "seconds": 1.9,
+  "sample": [
+   "Fix INI parser splitting keys containing a colon (e.g. `this:key = val",
+   "fix: apply ireduce per pipeline input like jq reduce (#2869)",
+   "fix: clean up failed in-place edits (#2920)"
+  ],
+  "size_mb": 1.7
+ },
+ "minijinja": {
+  "full": "mitsuhiko/minijinja",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 14,
+  "seconds": 2.7,
+  "sample": [
+   "fix(functions): preserve shared state argument lifetimes",
+   "fix(macros): preserve escaped macro state",
+   "fix: consistently abort iteration on invalid values"
+  ],
+  "size_mb": 3.9
+ },
+ "luxon": {
+  "full": "moment/luxon",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 5,
+  "seconds": 0.2,
+  "sample": [
+   "Fix lost negative sign in Duration#toFormat when largest unit is zero ",
+   "fix(interval): respect endpoint zones in hasSame for empty intervals (",
+   "Rewrite Duration#shiftTo and normalize to do less \"unintuitive\" conver"
+  ],
+  "size_mb": 1.9
+ },
+ "msw": {
+  "full": "mswjs/msw",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 4,
+  "seconds": 0.7,
+  "sample": [
+   "fix(sse): proper logging for concurrent requests (#2762)",
+   "fix: expose network context on `enable` in network sources (#2809)",
+   "fix(HandlersController): dispose of reset handlers (#2810)"
+  ],
+  "size_mb": 3.4
+ },
+ "mvdan-sh": {
+  "full": "mvdan/sh",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 65,
+  "seconds": 4.5,
+  "sample": [
+   "expand,interp: resolve a virtual filesystem's Unix paths as such on Wi",
+   "interp: add Runner.WaitBackground",
+   "interp: keep inherited files open for background jobs"
+  ],
+  "size_mb": 1.4
+ },
+ "flask": {
+  "full": "pallets/flask",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 2,
+  "seconds": 0.3,
+  "sample": [
+   "Fix `.partition(\":\")` usage on potential IPv6 addresses (#6096)",
+   "fix dev"
+  ],
+  "size_mb": 1.8
+ },
+ "werkzeug": {
+  "full": "pallets/werkzeug",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 1,
+  "seconds": 0.9,
+  "sample": [
+   "fix boolean logic for external url (#3215)"
+  ],
+  "size_mb": 2.4
+ },
+ "go-toml": {
+  "full": "pelletier/go-toml",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 13,
+  "seconds": 0.5,
+  "sample": [
+   "fix: validate temporal component ranges when marshaling (#1111)",
+   "fix: invoke TextUnmarshaler on named types of native scalar kinds (#11",
+   "fix: honor MarshalText on named string types and replace invalid UTF-8"
+  ],
+  "size_mb": 1.8
+ },
+ "pest": {
+  "full": "pest-parser/pest",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 2,
+  "seconds": 0.5,
+  "sample": [
+   "Fix tag_node incorrectly modifying tokens during lookahead (#1180)",
+   "fix: restore stack state after a failed sequence (#1184)"
+  ],
+  "size_mb": 3.2
+ },
+ "jotai": {
+  "full": "pmndrs/jotai",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 5,
+  "seconds": 0.7,
+  "sample": [
+   "fix(vanilla): subscriber not notified after nested store.set and sub/u",
+   "fix(unwrap): prevent infinite microtask loop on rejected source recomp",
+   "fix #3371 (#3373)"
+  ],
+  "size_mb": 3.1
+ },
+ "valtio": {
+  "full": "pmndrs/valtio",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.2,
+  "sample": [
+   "fix(utils): prevent watch context leak across async callbacks (#1229)"
+  ],
+  "size_mb": 1.0
+ },
+ "zustand": {
+  "full": "pmndrs/zustand",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.5,
+  "sample": [
+   "fix(devtools): support Firefox/Safari stack format in findCallerName (",
+   "fix(devtools): improve type inference for Devtools initializer (#3511)",
+   "fix(persist): clearStorage() should invalidate concurrent async rehydr"
+  ],
+  "size_mb": 2.1
+ },
+ "prettier": {
+  "full": "prettier/prettier",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 52,
+  "seconds": 10.9,
+  "sample": [
+   "Fix repeated blank lines before exported decorators (#20180)",
+   "Fix range formatting of TypeScript type parameters (#20309)",
+   "Fix unstable comment before `enum` or `namespace` body (#20318)"
+  ],
+  "size_mb": 25.1
+ },
+ "black": {
+  "full": "psf/black",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 24,
+  "seconds": 2.5,
+  "sample": [
+   "Fix line-range mapping for a changed start of file (#5484)",
+   "Fix `--line-ranges` crash on `# fmt: skip` before a closing bracket (#",
+   "Fix module docstring last_line_length when docstring ends with newline"
+  ],
+  "size_mb": 6.3
+ },
+ "pulldown-cmark": {
+  "full": "pulldown-cmark/pulldown-cmark",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 15,
+  "seconds": 0.5,
+  "sample": [
+   "Merge pull request #1167 from yuxi-liu-wired/fix/link-title-escape-aft",
+   "Merge pull request #1168 from yuxi-liu-wired/fix/container-fence-at-eo",
+   "Merge pull request #1170 from yuxi-liu-wired/fix/hard-line-breaks"
+  ],
+  "size_mb": 2.2
+ },
+ "pydantic": {
+  "full": "pydantic/pydantic",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 16,
+  "seconds": 4.8,
+  "sample": [
+   "Fix config propagation of stdlib dataclasses and `TypedDict`s in JSON ",
+   "Fix JSON Schema cache key mismatch with nested `json_schema_mode_overr",
+   "Fix unpickling of generic classes defined in separate module (#13994)"
+  ],
+  "size_mb": 11.6
+ },
+ "pygments": {
+  "full": "pygments/pygments",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 8,
+  "seconds": 1.4,
+  "sample": [
+   "TeX: recognize math environments (#3034) (#3204)",
+   "Fix RawTokenFormatter crash when error_color is set (#3215)",
+   "[Bug] Fail on invalid -L values (#3217)"
+  ],
+  "size_mb": 45.3
+ },
+ "attrs": {
+  "full": "python-attrs/attrs",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.8,
+  "sample": [
+   "Fix ClassVar forward reference detection (#1593)"
+  ],
+  "size_mb": 2.1
+ },
+ "ratatui": {
+  "full": "ratatui/ratatui",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 2,
+  "seconds": 2.6,
+  "sample": [
+   "fix(widgets): require thread-safe shadow effects (#2584)",
+   "fix(gauge): include cell after label in filled area (#2579)"
+  ],
+  "size_mb": 4.2
+ },
+ "react-hook-form": {
+  "full": "react-hook-form/react-hook-form",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 172,
+  "seconds": 4.0,
+  "sample": [
+   "\ud83d\udc1e fix(createFormControl): ignore a stale built-in validity result afte",
+   "\ud83d\udc1e fix(form): let fetch set the multipart boundary for a multipart cont",
+   "\ud83d\udc1e fix: settle submit state when validation throws (#13905)"
+  ],
+  "size_mb": 6.0
+ },
+ "remeda": {
+  "full": "remeda/remeda",
+  "lang": "node",
+  "licence": "MIT",
+  "why": "no vitest or jest"
+ },
+ "ron": {
+  "full": "ron-rs/ron",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 3,
+  "seconds": 0.2,
+  "sample": [
+   "Fix quadratic float parsing in next_bytes_is_float (#608)",
+   "Fix quadratic escaped string parsing in escaped_byte_buf (#610)",
+   "Round-trip compact ranges containing inf/NaN (#605)"
+  ],
+  "size_mb": 0.7
+ },
+ "config-rs": {
+  "full": "rust-cli/config-rs",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 1,
+  "seconds": 0.5,
+  "sample": [
+   "fix(env): apply convert_case to each nested key segment (#754)"
+  ],
+  "size_mb": 0.4
+ },
+ "mdbook": {
+  "full": "rust-lang/mdBook",
+  "lang": "rust",
+  "licence": "other",
+  "fixes": 2,
+  "seconds": 0.8,
+  "sample": [
+   "Merge pull request #3196 from miikkas/indented-include-patches",
+   "Merge pull request #3163 from alexchen-sys/fix/include-path-spaces-281"
+  ],
+  "size_mb": 2.4
+ },
+ "regex": {
+  "full": "rust-lang/regex",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 1,
+  "seconds": 0.5,
+  "sample": [
+   "automata: fix a bug caught by Codex review"
+  ],
+  "size_mb": 8.4
+ },
+ "lo": {
+  "full": "samber/lo",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 12,
+  "seconds": 1.3,
+  "sample": [
+   "perf(find): scan small collections instead of building a map in FindUn",
+   "fix(Nth): reject indexes that do not fit an int instead of wrapping (#",
+   "fix(it): relax WithoutNth type constraint from comparable to any (#976"
+  ],
+  "size_mb": 8.2
+ },
+ "saphyr": {
+  "full": "saphyr-rs/saphyr",
+  "lang": "rust",
+  "licence": "none",
+  "fixes": 11,
+  "seconds": 1.4,
+  "sample": [
+   "Merge pull request #134 from fhgffy/emitter-multiline-keys",
+   "Merge pull request #132 from ranapriyansh/fix/literal-leading-whitespa",
+   "Merge pull request #135 from entity-0-0-2/fix/nul-eof-conflation"
+  ],
+  "size_mb": 1.0
+ },
+ "serde-json": {
+  "full": "serde-rs/json",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 2,
+  "seconds": 0.3,
+  "sample": [
+   "Merge pull request #1345 from 00200200/fix-invalid-utf8-error-column",
+   "Merge pull request #1355 from vera-rubin/fix/number-precision"
+  ],
+  "size_mb": 0.7
+ },
+ "serde": {
+  "full": "serde-rs/serde",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 0.2,
+  "sample": [],
+  "size_mb": 1.4
+ },
+ "rust-url": {
+  "full": "servo/rust-url",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 1,
+  "seconds": 0.1,
+  "sample": [
+   "fix percent-encode of caret in path (#1140) (#1141)"
+  ],
+  "size_mb": 2.6
+ },
+ "bat": {
+  "full": "sharkdp/bat",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 9,
+  "seconds": 0.9,
+  "sample": [
+   "Merge pull request #4015 from mikehasa/fix/track-strikethrough-sgr9",
+   "Merge pull request #4035 from Mathjk/fix/aux-epipe",
+   "Merge pull request #4076 from cindykrafft/fix/utf16be-first-line"
+  ],
+  "size_mb": 7.6
+ },
+ "fd": {
+  "full": "sharkdp/fd",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 3,
+  "seconds": 0.9,
+  "sample": [
+   "Merge pull request #2036 from greymoth-jp/fix/and-pattern-path-separat",
+   "fix: allow hyphen-leading --format templates",
+   "fix: Better sanitizing"
+  ],
+  "size_mb": 0.6
+ },
+ "cobra": {
+  "full": "spf13/cobra",
+  "lang": "go",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 0.1,
+  "sample": [],
+  "size_mb": 0.7
+ },
+ "sql-formatter": {
+  "full": "sql-formatter-org/sql-formatter",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 4,
+  "seconds": 0.4,
+  "sample": [
+   "fix: keep spaces around - operator in dialects with dashed identifiers",
+   "fix(postgresql): keep spaces around OPERATOR() with denseOperators (#9",
+   "fix: remove extra space after BETWEEN _ AND _ expression (#959)"
+  ],
+  "size_mb": 1.1
+ },
+ "testify": {
+  "full": "stretchr/testify",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.2,
+  "sample": [
+   "Merge pull request #1888 from nghiack7/fix/not-subset-format",
+   "Merge pull request #1877 from blackwell-systems/fix/suite-skip-stats-p",
+   "Merge pull request #1938 from dylanpulver/fix/mock-missing-arg-sentine"
+  ],
+  "size_mb": 0.9
+ },
+ "svgo": {
+  "full": "svg/svgo",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.4,
+  "sample": [
+   "perf: cache parsed inline style declarations (#2281)"
+  ],
+  "size_mb": 1.2
+ },
+ "quick-xml": {
+  "full": "tafia/quick-xml",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 6,
+  "seconds": 1.0,
+  "sample": [
+   "Merge pull request #964 from williamareynolds/fix/de-doctype-in-text-u",
+   "Escape normalization-sensitive characters in Writer/event API",
+   "Merge pull request #1002 from Mingun/issue953"
+  ],
+  "size_mb": 4.6
+ },
+ "minify": {
+  "full": "tdewolff/minify",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 0.6,
+  "sample": [
+   "Fix security issue GHSA-3ppm-p7r9-c5w3; properly escape </script> insi",
+   "JS: security fix for escape </script> or <\\!-- in HTML",
+   "JS: fix appearance of script end tag or comment tag in regular express"
+  ],
+  "size_mb": 39.8
+ },
+ "dom-testing-library": {
+  "full": "testing-library/dom-testing-library",
+  "lang": "node",
+  "licence": "MIT",
+  "why": "no vitest or jest"
+ },
+ "user-event": {
+  "full": "testing-library/user-event",
+  "lang": "node",
+  "licence": "MIT",
+  "why": "no vitest or jest"
+ },
+ "commander.js": {
+  "full": "tj/commander.js",
+  "lang": "node",
+  "licence": "MIT",
+  "why": "no vitest or jest"
+ },
+ "toml-rs": {
+  "full": "toml-rs/toml",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 4,
+  "seconds": 0.9,
+  "sample": [
+   "fix(writer): Don't overflow (#1189)",
+   "fix(toml): preserve datetimes when deserializing Value (#1194)",
+   "fix(display): Ensure all keys are encoded  (#1245)"
+  ],
+  "size_mb": 2.1
+ },
+ "es-toolkit": {
+  "full": "toss/es-toolkit",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 114,
+  "seconds": 4.3,
+  "sample": [
+   "fix[head, last, maxBy, minBy, flow]: improve fp type inference",
+   "fix[head, last, maxBy, minBy]: drop the non-empty tuple overloads inst",
+   "feat[DistributiveOmit]: add distributive omit type (#2142)"
+  ],
+  "size_mb": 14.2
+ },
+ "c12": {
+  "full": "unjs/c12",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 5,
+  "seconds": 0.4,
+  "sample": [
+   "fix(dotenv): stop an unbraced `$VAR` reference at a `:` (#339)",
+   "fix(watch): handle replaced dirs, symlinks, hook errors and unwatch ra",
+   "fix: support non-extensible config objects (#323)"
+  ],
+  "size_mb": 0.3
+ },
+ "crossws": {
+  "full": "unjs/crossws",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.6,
+  "sample": [
+   "fix(node): publish non-string payloads as text frames (#193)",
+   "fix(client): honor 3rd-arg options (headers) on bun and node (#199)",
+   "fix: detect half-open connections via a consistent `idleTimeout` optio"
+  ],
+  "size_mb": 0.9
+ },
+ "h3": {
+  "full": "unjs/h3",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 96,
+  "seconds": 2.5,
+  "sample": [
+   "fix(tracing): mount nested apps passed to `use()` (#1576)",
+   "fix(cors): make stateful origin regex checks repeatable (#1589)",
+   "fix(rules): fill target `**` for named catch-all keys (`/**:name`)"
+  ],
+  "size_mb": 2.5
+ },
+ "ofetch": {
+  "full": "unjs/ofetch",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 0.5
+ },
+ "ufo": {
+  "full": "unjs/ufo",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 0.6
+ },
+ "unimport": {
+  "full": "unjs/unimport",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 0.3,
+  "sample": [
+   "fix: avoid injecting self-imports for exported classes (#547)",
+   "fix: regex auto-import detection for shadowed loop variables (#538)",
+   "fix(scan-dirs): dedupe `d.ts` class exports (#567)"
+  ],
+  "size_mb": 0.9
+ },
+ "unstorage": {
+  "full": "unjs/unstorage",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 18,
+  "seconds": 0.9,
+  "sample": [
+   "fix(server): decode paths returned by `resolvePath`",
+   "fix(vercel-runtime-cache): resolve the request cache on every call (#8",
+   "fix(memory): preserve TTLs beyond the native timer limit (#845)"
+  ],
+  "size_mb": 1.1
+ },
+ "urfave-cli": {
+  "full": "urfave/cli",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 52,
+  "seconds": 1.1,
+  "sample": [
+   "Merge pull request #2476 from urfave/fix-2126-help-flag-args",
+   "Merge pull request #2475 from ybai08/fix/completion-multiline-usage",
+   "Merge pull request #2474 from ybai08/fix/digit-flag-names"
+  ],
+  "size_mb": 12.7
+ },
+ "goldmark": {
+  "full": "yuin/goldmark",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.8,
+  "sample": [
+   "fix: goldmark_v1_attribute does not support `,` separators",
+   "fix: implement FirstRune and LastRune to support CJK-friendly line bre",
+   "fix(parser): wrong block node position with leading tabs"
+  ],
+  "size_mb": 1.7
+ },
+ "go-zero": {
+  "full": "zeromicro/go-zero",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 1.2,
+  "sample": [
+   "fix(timingwheel): allow resetting timers after drain (#5753)",
+   "fix: force refresh every call when refresh interval is 0 (#5746)",
+   "fix(iox): handle data returned together with EOF in ReadBytes (#5823)"
+  ],
+  "size_mb": 20.4
+ },
+ "html-to-markdown": {
+  "full": "JohannesKaufmann/html-to-markdown",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.1,
+  "sample": [
+   "fix: panic on empty text node (#210)"
+  ],
+  "size_mb": 1.4
+ },
+ "uvicorn": {
+  "full": "Kludex/uvicorn",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 0,
+  "seconds": 0.8,
+  "sample": [],
+  "size_mb": 1.8
+ },
+ "prql": {
+  "full": "PRQL/prql",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 18,
+  "seconds": 3.6,
+  "sample": [
+   "fix: count token spans in chars so non-ASCII text doesn't shift or cra",
+   "fix: report malformed relation literals instead of panicking in loweri",
+   "fix: keep a join as a join when its condition doesn't match INTERSECT "
+  ],
+  "size_mb": 7.6
+ },
+ "isort": {
+  "full": "PyCQA/isort",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 26,
+  "seconds": 1.0,
+  "sample": [
+   "Fix combine_straight_imports mixing up module names on long lines",
+   "Do not add a separator before the next section when lines_before_impor",
+   "grid: preserve trailing comment when no line wrap is needed"
+  ],
+  "size_mb": 2.0
+ },
+ "sea-query": {
+  "full": "SeaQL/sea-query",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 4,
+  "seconds": 0.3,
+  "sample": [
+   "Fix null element in array panic (#1068)",
+   "fix: add check constraints when modifying columns (#1109)",
+   "Fix PostgreSQL `USING` placement in `ALTER COLUMN ... TYPE` statements"
+  ],
+  "size_mb": 1.9
+ },
+ "templ": {
+  "full": "a-h/templ",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 7,
+  "seconds": 0.5,
+  "sample": [
+   "fix: incorrect error message in children rendering, closes #1448",
+   "fix: dont delete dev-mode text files during a one-off generate (#1434)",
+   "fix(lsp): prevent attempts to modify the Go module cache, if it's in a"
+  ],
+  "size_mb": 7.4
+ },
+ "aiohttp": {
+  "full": "aio-libs/aiohttp",
+  "lang": "python",
+  "licence": "Apache-2.0",
+  "fixes": 40,
+  "seconds": 4.2,
+  "sample": [
+   "Fix crash reusing connections when keepalive_timeout is None (#13757)",
+   "Fix readuntil() missing a separator split across chunks (#13870)",
+   "Fix handling of absolute-form request (#13983)"
+  ],
+  "size_mb": 5.4
+ },
+ "yarl": {
+  "full": "aio-libs/yarl",
+  "lang": "python",
+  "licence": "Apache-2.0",
+  "fixes": 8,
+  "seconds": 2.1,
+  "sample": [
+   "reject non-ascii-digit port in split_netloc (#1817)",
+   "Compare URLs with empty components the way they print (#1934)",
+   "Keep Windows drive letters in file URLs in WHATWG mode (#1962)"
+  ],
+  "size_mb": 1.4
+ },
+ "chroma": {
+  "full": "alecthomas/chroma",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 12,
+  "seconds": 1.4,
+  "sample": [
+   "Add support for modern IRC formatting (#1343)",
+   "fix(formatters): emit the token background in mirc16m (#1365)",
+   "fix(formatters/html): give line-number-table rows their own flex box ("
+  ],
+  "size_mb": 10.7
+ },
+ "participle": {
+  "full": "alecthomas/participle",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.1,
+  "sample": [
+   "fix: include token type in unexpected token error messages (#463)",
+   "Merge pull request #461 from hdimer/fix/216-branch-capture-leak",
+   "fix(ebnf): emit token references for parseable and custom productions "
+  ],
+  "size_mb": 0.5
+ },
+ "datafusion-sqlparser-rs": {
+  "full": "apache/datafusion-sqlparser-rs",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 11,
+  "seconds": 1.7,
+  "sample": [
+   "Generic: Fix quote escaping when displaying byte and raw string litera",
+   "Parser: fix exponential parse time on nested POSITION calls (#2619)",
+   "Parser: Fix array suffixes after a `>>` that closes two nested types ("
+  ],
+  "size_mb": 5.5
+ },
+ "askama": {
+  "full": "askama-rs/askama",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 1,
+  "seconds": 0.2,
+  "sample": [
+   "Merge pull request #743 from GuillaumeGomez/clippy"
+  ],
+  "size_mb": 4.5
+ },
+ "eslint-plugin-perfectionist": {
+  "full": "azat-io/eslint-plugin-perfectionist",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 24,
+  "seconds": 0.8,
+  "sample": [
+   "fix: validate setting values and allow partitioning imports by newline",
+   "fix: support lists of locales in natural sorting",
+   "fix(sort-maps): reject newline options combined with partitioning by n"
+  ],
+  "size_mb": 7.6
+ },
+ "caddy": {
+  "full": "caddyserver/caddy",
+  "lang": "go",
+  "licence": "Apache-2.0",
+  "fixes": 55,
+  "seconds": 1.7,
+  "sample": [
+   "cmd: unbuffer default logger on startup failure (#8180)",
+   "reverseproxy: deduplicate DNS SRV+A discovery into modules/internal/ne",
+   "Merge commit from fork"
+  ],
+  "size_mb": 5.1
+ },
+ "casbin": {
+  "full": "casbin/casbin",
+  "lang": "go",
+  "licence": "MIT+Apache-2.0",
+  "fixes": 9,
+  "seconds": 0.4,
+  "sample": [
+   "fix: skip quoted literals when escaping r. and p. in matchers",
+   "fix: return errors instead of panicking on invalid patterns in matcher",
+   "fix: keep role links still granted by other domains in DeleteLink"
+  ],
+  "size_mb": 2.0
+ },
+ "cedar-go": {
+  "full": "cedar-policy/cedar-go",
+  "lang": "go",
+  "licence": "Apache-2.0",
+  "fixes": 6,
+  "seconds": 0.6,
+  "sample": [
+   "Merge pull request #171 from strongdm/patjak/fix-pattern-decoding",
+   "Merge pull request #170 from strongdm/patjak/fix-nil-pointer-dereferen",
+   "Merge pull request #173 from strongdm/patjak/fix-required-entity-type"
+  ],
+  "size_mb": 8.0
+ },
+ "delta": {
+  "full": "dandavison/delta",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 1,
+  "seconds": 0.2,
+  "sample": [
+   "Fix decorations wider than width (#2261)"
+  ],
+  "size_mb": 4.7
+ },
+ "huma": {
+  "full": "danielgtaylor/huma",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 26,
+  "seconds": 0.3,
+  "sample": [
+   "fix: apply defaults to absent exploded query arrays (#1116)",
+   "fix: validate the null type (#1120)",
+   "fix: accept request bodies of exactly MaxBodyBytes (#1131)"
+  ],
+  "size_mb": 10.5
+ },
+ "carbon": {
+  "full": "dromara/carbon",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 17,
+  "seconds": 0.4,
+  "sample": [
+   "fix(boundary): preserve repeated-hour occurrences at hour boundaries (",
+   "Synchronise frozen clock advances in Sleep (#383)",
+   "fix(difference): compare years and months in one location in DiffInYea"
+  ],
+  "size_mb": 2.5
+ },
+ "eta": {
+  "full": "eta-dev/eta",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 0.2
+ },
+ "cbor": {
+  "full": "fxamacker/cbor",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 3,
+  "seconds": 0.5,
+  "sample": [
+   "Merge pull request #818 from fxamacker/fxamacker/fix-hashable-map-key",
+   "Merge pull request #872 from fxamacker/fxamacker/fix-decoder-skip",
+   "Merge pull request #873 from fxamacker/fxamacker/fix-encoding-time-ran"
+  ],
+  "size_mb": 1.3
+ },
+ "malva": {
+  "full": "g-plane/malva",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.1,
+  "sample": [],
+  "size_mb": 0.8
+ },
+ "markup_fmt": {
+  "full": "g-plane/markup_fmt",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.3,
+  "sample": [],
+  "size_mb": 0.8
+ },
+ "kin-openapi": {
+  "full": "getkin/kin-openapi",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 17,
+  "seconds": 1.2,
+  "sample": [
+   "openapi3: reject additionalOperations keys that case-vary a fixed meth",
+   "fix(openapi3): resolve transitive component refs in JSON Schema 2020-1",
+   "openapi2conv: fix FromV3Parameter panics on binary schema refs and val"
+  ],
+  "size_mb": 6.5
+ },
+ "gleam": {
+  "full": "gleam-lang/gleam",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 44,
+  "seconds": 6.2,
+  "sample": [
+   "fix compiler crash",
+   "generate .app file for compile-package, fix native module list on warm",
+   "fix: add missing field"
+  ],
+  "size_mb": 11.5
+ },
+ "go-git": {
+  "full": "go-git/go-git",
+  "lang": "go",
+  "licence": "Apache-2.0",
+  "fixes": 50,
+  "seconds": 1.7,
+  "sample": [
+   "Merge pull request #2500 from go-git/fix/upload-request-filter",
+   "Merge pull request #2506 from go-git/fix-shallow-file-parsing",
+   "Merge pull request #2501 from go-git/fix/pack-signature-short-read"
+  ],
+  "size_mb": 5.2
+ },
+ "resty": {
+  "full": "go-resty/resty",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 37,
+  "seconds": 0.5,
+  "sample": [
+   "fix: preserve attempt errors in retry callbacks (#1247)",
+   "fix: match Digest challenge names case-insensitively (#1248)",
+   "fix: preserve cookie fields when cloning (#1249)"
+  ],
+  "size_mb": 3.5
+ },
+ "crypto": {
+  "full": "golang/crypto",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 53,
+  "seconds": 0.9,
+  "sample": [
+   "acme: adds support for profiles draft",
+   "ssh: accept trailing data in USERAUTH_BANNER messages",
+   "ssh: remove channel.maxIncomingPayload"
+  ],
+  "size_mb": 5.4
+ },
+ "net": {
+  "full": "golang/net",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 27,
+  "seconds": 0.8,
+  "sample": [
+   "http2: avoid 2x refund on stream close with buffered data",
+   "http2: prevent crash due to HPACK encoder race",
+   "html: avoid quadratic complexity when coalescing text nodes"
+  ],
+  "size_mb": 7.5
+ },
+ "cel-go": {
+  "full": "google/cel-go",
+  "lang": "go",
+  "licence": "Apache-2.0",
+  "fixes": 10,
+  "seconds": 0.5,
+  "sample": [
+   "Fix non-determinism in json encoding, add dummy 'infinite' costs (#136",
+   "Fix constant folding and local variable resolution (#1371)",
+   "Fix unsound constant folding of `x in [x]` for NaN values (#1374)"
+  ],
+  "size_mb": 0.5
+ },
+ "cron-parser": {
+  "full": "harrisiirak/cron-parser",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 21,
+  "seconds": 0.4,
+  "sample": [
+   "fix: preserve crontab fields separated by whitespace (#451)",
+   "fix: bound expression length and hashed step expansion at parse time (",
+   "fix: accept the RFC 850 and asctime HTTP date formats as string dates "
+  ],
+  "size_mb": 0.7
+ },
+ "liquidjs": {
+  "full": "harttle/liquidjs",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 21,
+  "seconds": 0.4,
+  "sample": [
+   "fix(date): compute %U and %W week numbers like strftime (#958)",
+   "fix(date): compute %C and %y from the numeric year (#961)",
+   "feat: await promises returned by Drop.valueOf() (#948) (#953) (#959)"
+  ],
+  "size_mb": 2.7
+ },
+ "hickory-dns": {
+  "full": "hickory-dns/hickory-dns",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 8,
+  "seconds": 3.1,
+  "sample": [
+   "Fix disabling optional server timeouts",
+   "recursor: return SERVFAIL on CNAME loops",
+   "Fix server's advertised EDNS payload size"
+  ],
+  "size_mb": 5.8
+ },
+ "i18next": {
+  "full": "i18next/i18next",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 16,
+  "seconds": 0.6,
+  "sample": [
+   "fix: don't repeat a fallback language that differs only in casing (#24",
+   "feat(types): parseInterpolation 'icu' and 'mf2' type t() options from ",
+   "fix(types): require count for explicit-ns plural selectors (#2452)"
+  ],
+  "size_mb": 2.1
+ },
+ "go-pretty": {
+  "full": "jedib0t/go-pretty",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 2,
+  "seconds": 0.1,
+  "sample": [
+   "progress: fix speed decay on done trackers and log overwrite; fixes #4",
+   "table: stack vertically-merged rows into wrapped cell height; fixes #2"
+  ],
+  "size_mb": 2.4
+ },
+ "comrak": {
+  "full": "kivikakk/comrak",
+  "lang": "rust",
+  "licence": "MIT+BSD",
+  "fixes": 11,
+  "seconds": 0.6,
+  "sample": [
+   "Merge pull request #862 from szdytom/fix/table-row-sourcepos",
+   "Merge pull request #863 from szdytom/fix/indented-code-sourcepos",
+   "Merge pull request #864 from szdytom/fix/table-preface-crlf-sourcepos"
+  ],
+  "size_mb": 2.0
+ },
+ "jwx": {
+  "full": "lestrrat-go/jwx",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 10,
+  "seconds": 0.9,
+  "sample": [
+   "Merge pull request #2394 from lestrrat-go/fix-v4-shrinking-jwk-set",
+   "Merge pull request #2413 from lestrrat-go/fix-v4-numericdate-decimal",
+   "Merge pull request #2422 from lestrrat-go/fix-v4-fast-path-missing-alg"
+  ],
+  "size_mb": 3.4
+ },
+ "litestar": {
+  "full": "litestar-org/litestar",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 32,
+  "seconds": 1.2,
+  "sample": [
+   "fix: remove duplicated words from two error messages (#5017)",
+   "fix(security)!: omit invalid name field in HTTP Bearer OpenAPI securit",
+   "fix(core): Fix implicit path parameter definitions (#5128)"
+  ],
+  "size_mb": 8.3
+ },
+ "revive": {
+  "full": "mgechev/revive",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 0.7,
+  "sample": [
+   "fix: escape all regexp metacharacters in literal file filters (#1886)",
+   "fix: reset configuration in Configure (#1889)",
+   "function-length,import-alias-naming: fix configure errors (#1895)"
+  ],
+  "size_mb": 2.2
+ },
+ "dns": {
+  "full": "miekg/dns",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 0,
+  "seconds": 0.1,
+  "sample": [],
+  "size_mb": 0.9
+ },
+ "mitmproxy": {
+  "full": "mitmproxy/mitmproxy",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 0.9,
+  "sample": [
+   "Don't apply global listen_port to modes without a port (#8471)",
+   "Fix Set-Cookie attribute parsing for short Expires values (#8489)",
+   "Fix KeyError for unknown tags in the WBXML contentview (#8495)"
+  ],
+  "size_mb": 42.9
+ },
+ "insta": {
+  "full": "mitsuhiko/insta",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 4,
+  "seconds": 0.1,
+  "sample": [
+   "Fix `--snapshot` filter on Windows; allow partial paths (#904)",
+   "Skip the separate doctest run for nextest with `--all-targets` (#941)",
+   "Remove trailing semicolon from assert_binary_snapshot! macro body (#94"
+  ],
+  "size_mb": 2.6
+ },
+ "interceptors": {
+  "full": "mswjs/interceptors",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 23,
+  "seconds": 0.4,
+  "sample": [
+   "fix(http): preserve paths starting with double slash (#872)",
+   "fix(http): ensure auth headers per request, never per connection (#873",
+   "fix(net): improve socket interception compliance (#874)"
+  ],
+  "size_mb": 1.7
+ },
+ "gofumpt": {
+  "full": "mvdan/gofumpt",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 1,
+  "seconds": 0.6,
+  "sample": [
+   "format: sort imports in File before running the rules"
+  ],
+  "size_mb": 0.4
+ },
+ "tablewriter": {
+  "full": "olekukonko/tablewriter",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 8,
+  "seconds": 0.1,
+  "sample": [
+   "Merge pull request #338 from dualfroz/fix/tab-width-purges-cache",
+   "Merge pull request #337 from abo3losh1/fix/markdown-escape-pipes",
+   "Merge pull request #339 from yu2971512385-ui/fix/width-grapheme-cluste"
+  ],
+  "size_mb": 1.4
+ },
+ "git-cliff": {
+  "full": "orhun/git-cliff",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 0.4,
+  "sample": [],
+  "size_mb": 17.1
+ },
+ "pymodbus": {
+  "full": "pymodbus-dev/pymodbus",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 14,
+  "seconds": 0.7,
+  "sample": [
+   "Remove packet when MDAP is wrong. (#3053)",
+   "Fix convert_to_registers mutate value. (#3063)",
+   "Fix decoders.decode() (#3064)"
+  ],
+  "size_mb": 3.9
+ },
+ "trio": {
+  "full": "python-trio/trio",
+  "lang": "python",
+  "licence": "other",
+  "fixes": 2,
+  "seconds": 0.4,
+  "sample": [
+   "ThreadCache workers leaking spawner's Context on py314+ free-threaded ",
+   "Fix Path.as_uri on Python 3.14 (#3460)"
+  ],
+  "size_mb": 2.4
+ },
+ "websockets": {
+  "full": "python-websockets/websockets",
+  "lang": "python",
+  "licence": "BSD",
+  "fixes": 23,
+  "seconds": 1.6,
+  "sample": [
+   "Decode credentials in WebSocket and proxy URIs.",
+   "Fix a race condition when receiving fragmented messages.",
+   "Avoid blocking reads in the sync implementation."
+  ],
+  "size_mb": 2.5
+ },
+ "quic-go": {
+  "full": "quic-go/quic-go",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 9,
+  "seconds": 1.4,
+  "sample": [
+   "remove the fixed size cap on post-handshake CRYPTO frames (#5902)",
+   "fix MTU probing after path changes (#5887)",
+   "use packet numbers from a single packet number space (#5920)"
+  ],
+  "size_mb": 3.5
+ },
+ "recharts": {
+  "full": "recharts/recharts",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 120,
+  "seconds": 7.4,
+  "sample": [
+   "fix(ReferenceArea): skip the area when an edge is not on the axis (#80",
+   "fix(SunburstChart): apply data entry styles (#8019)",
+   "fix: guard portal setState against React 19 Suspense disappearLayoutEf"
+  ],
+  "size_mb": 121.7
+ },
+ "rhai": {
+  "full": "rhaiscript/rhai",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 17,
+  "seconds": 1.0,
+  "sample": [
+   "Merge pull request #1187 from schungx/master",
+   "Merge pull request #1190 from yuvalrakavy/fix-shared-value-is-locked-u",
+   "Merge pull request #1189 from yuvalrakavy/fix-native-call-restore-on-u"
+  ],
+  "size_mb": 4.6
+ },
+ "diff2html": {
+  "full": "rtfpessoa/diff2html",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 4.7
+ },
+ "dnspython": {
+  "full": "rthalley/dnspython",
+  "lang": "python",
+  "licence": "ISC",
+  "fixes": 9,
+  "seconds": 0.9,
+  "sample": [
+   "Apply character-string escapes as bytes in URI, HINFO, X25, ISDN, NAPT",
+   "Require an unquoted identifier for zone file directives (#1299)",
+   "Fix generic (\\#) syntax for known types with names under the origin (#"
+  ],
+  "size_mb": 2.3
+ },
+ "tough-cookie": {
+  "full": "salesforce/tough-cookie",
+  "lang": "node",
+  "licence": "BSD",
+  "fixes": 7,
+  "seconds": 0.2,
+  "sample": [
+   "Preserve explicit SameSite=None in cookie headers (#639)",
+   "fix: validate cookie names against the HTTP token grammar (#650)",
+   "fix: accept IPv4 Domain attributes instead of treating them as public "
+  ],
+  "size_mb": 0.9
+ },
+ "sqlformat-rs": {
+  "full": "shssoichiro/sqlformat-rs",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 0,
+  "seconds": 0.1,
+  "sample": [],
+  "size_mb": 0.2
+ },
+ "datasette": {
+  "full": "simonw/datasette",
+  "lang": "node",
+  "licence": "Apache-2.0",
+  "why": "no vitest or jest"
+ },
+ "sqlite-utils": {
+  "full": "simonw/sqlite-utils",
+  "lang": "python",
+  "licence": "Apache-2.0",
+  "fixes": 18,
+  "seconds": 0.7,
+  "sample": [
+   "Fixed introspection of default values TRUE / FALSE / NULL",
+   "transform: coerce empty strings to NULL when converting TEXT columns t",
+   "Fix resource leaks caused by buffered readers"
+  ],
+  "size_mb": 1.5
+ },
+ "smoltcp": {
+  "full": "smoltcp-rs/smoltcp",
+  "lang": "rust",
+  "licence": "ISC",
+  "fixes": 0,
+  "seconds": 0.2,
+  "sample": [],
+  "size_mb": 2.2
+ },
+ "sphinx": {
+  "full": "sphinx-doc/sphinx",
+  "lang": "node",
+  "licence": "BSD",
+  "why": "no vitest or jest"
+ },
+ "smol-toml": {
+  "full": "squirrelchat/smol-toml",
+  "lang": "node",
+  "licence": "BSD",
+  "fixes": 5,
+  "seconds": 0.5,
+  "sample": [
+   "fix: error message generation correctness",
+   "fix: reject invalid extra exponent sign",
+   "fix: actually properly fix exponent issues"
+  ],
+  "size_mb": 5.2
+ },
+ "starship": {
+  "full": "starship/starship",
+  "lang": "rust",
+  "licence": "ISC",
+  "fixes": 0,
+  "seconds": 1.6,
+  "sample": [],
+  "size_mb": 22.4
+ },
+ "ts-proto": {
+  "full": "stephenh/ts-proto",
+  "lang": "node",
+  "licence": "Apache-2.0",
+  "fixes": 8,
+  "seconds": 0.8,
+  "sample": [
+   "fix: skip encoding empty packed repeated fields (#1283)",
+   "fix: serialize Timestamp JSON as RFC 3339 strings (#1281)",
+   "fix: don't generate unused code for Struct wrappers with nestJs (#1288"
+  ],
+  "size_mb": 10.7
+ },
+ "strawberry": {
+  "full": "strawberry-graphql/strawberry",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 17,
+  "seconds": 2.8,
+  "sample": [
+   "Fix federation schemas dropping Query directives and repeating @compos",
+   "Fix the rich exception handler crashing when __main__ has no __file__ ",
+   "Resolve the type parameters of fields with the generic base declaring "
+  ],
+  "size_mb": 5.9
+ },
+ "stylelint": {
+  "full": "stylelint/stylelint",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 20,
+  "seconds": 1.3,
+  "sample": [
+   "Fix `custom-property-no-missing-var-function` false positives for anch",
+   "Fix `value-keyword-layout-mappings` false positives for `caption-side`",
+   "Fix `property-layout-mappings` and `unit-layout-mappings` false negati"
+  ],
+  "size_mb": 4.5
+ },
+ "calamine": {
+  "full": "tafia/calamine",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 19,
+  "seconds": 0.5,
+  "sample": [
+   "fix(xls): accept DIMENSIONS records with 2 extra trailing bytes (#735)",
+   "fix(cfb): stop allocating from unchecked header sector counts (#729)",
+   "xlsx: check/reject invalid boolean cell values (#749)"
+  ],
+  "size_mb": 23.0
+ },
+ "parse": {
+  "full": "tdewolff/parse",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 8,
+  "seconds": 0.2,
+  "sample": [
+   "JS: fix bug in variable lookup, see #132",
+   "JS: fix slow Declare when replacing an undeclared var by a declared va",
+   "Merge pull request #133 from joshuarubin/fix/js-undeclared-scope-clean"
+  ],
+  "size_mb": 0.5
+ },
+ "time": {
+  "full": "time-rs/time",
+  "lang": "rust",
+  "licence": "Apache-2.0",
+  "fixes": 4,
+  "seconds": 0.9,
+  "sample": [
+   "Restore lexer depth on the unclosed-bracket error path",
+   "Fix nano-timestamp validation",
+   "Fix `timestamp!` output for negative values"
+  ],
+  "size_mb": 2.2
+ },
+ "sqlglot": {
+  "full": "tobymao/sqlglot",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 306,
+  "seconds": 7.2,
+  "sample": [
+   "fix(fabric): don't re-wrap AT TIME ZONE that is already cast to DATETI",
+   "fix(duckdb): quote identifiers that are DuckDB reserved keywords [CLAU",
+   "fix(optimizer): preserve unsupported struct star operands (#8692)"
+  ],
+  "size_mb": 16.8
+ },
+ "axum": {
+  "full": "tokio-rs/axum",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 2,
+  "seconds": 0.7,
+  "sample": [
+   "fix(axum-macros): use OptionalFromRequest for Option<T> fields (#3760)",
+   "axum-core: fix nested error downcast (#3858)"
+  ],
+  "size_mb": 2.0
+ },
+ "eslint-plugin-import-x": {
+  "full": "un-ts/eslint-plugin-import-x",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 13,
+  "seconds": 0.2,
+  "sample": [
+   "fix(module-visitor): treat `import x = require('y')` as a module refer",
+   "fix(no-unused-modules): stop internal keys colliding with export names",
+   "fix(no-cycle): detect cycles through side-effect imports (#538)"
+  ],
+  "size_mb": 8.3
+ },
+ "urllib3": {
+  "full": "urllib3/urllib3",
+  "lang": "python",
+  "licence": "MIT",
+  "fixes": 8,
+  "seconds": 0.7,
+  "sample": [
+   "Merge commit from fork",
+   "Fix several issues with IPv6 and IPv6 zone IDs (#5260)",
+   "Fix HTTP/2 probe cache lock leak (#5254)"
+  ],
+  "size_mb": 2.0
+ },
+ "fasthttp": {
+  "full": "valyala/fasthttp",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 84,
+  "seconds": 1.5,
+  "sample": [
+   "fix(fs): resolve default FS paths with os.Root so they stay inside Roo",
+   "Add an opt-in bounded stream reader (#2488)",
+   "fix: ignore Expect: 100-continue in HTTP/1.0 requests (#2492)"
+  ],
+  "size_mb": 2.3
+ },
+ "fq": {
+  "full": "wader/fq",
+  "lang": "go",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.8,
+  "sample": [],
+  "size_mb": 117.9
+ },
+ "xmldom": {
+  "full": "xmldom/xmldom",
+  "lang": "node",
+  "licence": "MIT",
+  "fixes": 12,
+  "seconds": 0.5,
+  "sample": [
+   "fix: prevent quadratic attribute de-duplication via null-prototype mem",
+   "fix: prevent HTML raw-text output amplification via case-insensitive c",
+   "fix: prevent quadratic malformed-tag recovery and normalize() adjacent"
+  ],
+  "size_mb": 4.7
+ },
+ "excelize": {
+  "full": "xuri/excelize",
+  "lang": "go",
+  "licence": "BSD",
+  "fixes": 37,
+  "seconds": 0.6,
+  "sample": [
+   "This closes #2411, fix incorrect result of formula lookup functions HL",
+   "This closes #2417, fix incorrect result of formula function INDIRECT (",
+   "Related to #2453, fix invalid range panics in AVERAGEIFS, COUNTIFS, MA"
+  ],
+  "size_mb": 4.3
+ },
+ "chumsky": {
+  "full": "zesterer/chumsky",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 0,
+  "seconds": 0.0,
+  "sample": [],
+  "size_mb": 1.2
+ },
+ "zip2": {
+  "full": "zip-rs/zip2",
+  "lang": "rust",
+  "licence": "MIT",
+  "fixes": 44,
+  "seconds": 1.4,
+  "sample": [
+   "feat: add with_size_limit to ExtractOptions to limit total declared un",
+   "Merge commit from fork",
+   "Merge commit from fork"
+  ],
+  "size_mb": 82.7
+ }
+}

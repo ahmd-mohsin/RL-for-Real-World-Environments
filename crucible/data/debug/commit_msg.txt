@@ -1,0 +1,22 @@
+crucible: multi-language debugging lane (go, rust, node, java, python adapter)
+
+Language layer factory/langs/: the LangProfile protocol (path rules, test definitions and
+hiding, suite targets, pinned World recipes that compile dependencies only, copy-in
+--network none sandboxes with machine reports, per-language leak probes) and an
+active-profile contextvar the window machinery consults; no profile or Python keeps the
+original code path. Profiles: python (adapter), go (go test -json), rust (cargo per
+target, libtest), node (vitest/jest JSON), java (maven, surefire XML).
+
+The lane generators/debug.py: rebreak per language with fixes after 2026-05-01 (marked
+2025-09-01 fallback), executed real-fix check at the head and earlier B points,
+interacting groups, A' with source, test hunks, test data and changelog lines reverted
+(strip-mode fallback), pre-checks, no hidden check visible in the agent's tree, gates in
+the profile's scope with the load-dependent rule at S3/S8, symptom-only prompts by the
+builder (claude-code:opus-5.5) through an extended lint and the two-way ledger, and an
+intent card per task. Funnel script scripts/lh_debug.py; docs 07-debug-lane.md, DESIGN
+7.6, 04 build log; tests test_m17_debug_{langs,lane}.py.
+
+First CPU run: 13 candidates through every CPU gate and S7 in Go, TypeScript, Python and
+Rust (3 held out), below the 30 target; yield limits are in 07 section 5.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,0 +1,35 @@
+[jsoup] 0 candidate group(s)
+[jsoup] done; removed 5 image(s) no stored World uses
+[black] 2 candidate group(s)
+[lo] 1 candidate group(s)
+{"event": "window", "id": "db-python-black-ae5830b7", "repo": "black", "stage": "mutants_valid", "reason": "", "seconds": 666.9}
+[black] db-python-black-ae5830b7: mutants_valid 
+{"event": "window", "id": "db-go-lo-1e8f3c39", "repo": "lo", "stage": "mutants_valid", "reason": "", "seconds": 228.6}
+[lo] db-go-lo-1e8f3c39: mutants_valid 
+[lo] done; removed 1 image(s) no stored World uses
+{"event": "window", "id": "db-python-black-90117fa0", "repo": "black", "stage": "mutants_valid", "reason": "", "seconds": 498.7}
+[black] db-python-black-90117fa0: mutants_valid 
+[black] done; removed 3 image(s) no stored World uses
+[gin] 0 candidate group(s)
+[gin] done; removed 5 image(s) no stored World uses
+[esbuild] 1 candidate group(s)
+[go-github] 1 candidate group(s)
+{"event": "window", "id": "db-go-esbuild-5c636093", "repo": "esbuild", "stage": "mutants_valid", "reason": "", "seconds": 168.5}
+[esbuild] db-go-esbuild-5c636093: mutants_valid 
+[esbuild] done; removed 0 image(s) no stored World uses
+[cheerio] 0 candidate group(s)
+[cheerio] done; removed 2 image(s) no stored World uses
+{"event": "window", "id": "db-go-go-github-236acf8e", "repo": "go-github", "stage": "mutants_valid", "reason": "", "seconds": 543.6}
+{"event": "window", "id": "db-go-go-github-236acf8e", "repo": "go-github", "stage": "leak_ok", "reason": "0 tests fail at B (environment mismatch)", "seconds": 121.3}
+[go-github] db-go-go-github-236acf8e: leak_ok 0 tests fail at B (environment mismatch)
+[go-github] done; removed 5 image(s) no stored World uses
+[immer] 0 candidate group(s)
+[immer] done; removed 4 image(s) no stored World uses
+[eemeli-yaml] 0 candidate group(s)
+[eemeli-yaml] done; removed 3 image(s) no stored World uses
+[fastapi] 0 candidate group(s)
+[fastapi] done; removed 6 image(s) no stored World uses
+[tailwind-merge] 1 candidate group(s)
+{"event": "window", "id": "db-node-tailwind-merge-5ab7c602", "repo": "tailwind-merge", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 55.1}
+[tailwind-merge] db-node-tailwind-merge-5ab7c602: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[tailwind-merge] done; removed 2 image(s) no stored World uses
