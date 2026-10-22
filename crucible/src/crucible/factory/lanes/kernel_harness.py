@@ -93,8 +93,10 @@ def prepare_tree(tree: Path, harness_text: str) -> None:
 
 
 def cuda_arch_flag(arches: Sequence[str]) -> str:
-    """``CMAKE_CUDA_ARCHITECTURES`` for the grader: real (SASS) targets only, so no PTX can be JIT-compiled for another GPU."""
-    return ";".join(f"{a}-real" for a in arches)
+    """``CMAKE_CUDA_ARCHITECTURES`` for the grader: real (SASS) targets only, so no PTX can be JIT-compiled for another GPU.
+    Blackwell consumer parts (``12x``) build as ``12xa``: the backend's FP4 tensor-core kernels exist only there, and trees
+    from late 2025 rewrite ``12x`` to ``12xa`` only for native builds (``120-real`` failed ptxas on the mxfp4 MMQ unit)."""
+    return ";".join(f"{a}a-real" if re.fullmatch(r"12\d", str(a)) else f"{a}-real" for a in arches)
 
 
 def cmake_cuda(arches: Sequence[str]) -> list[str]:

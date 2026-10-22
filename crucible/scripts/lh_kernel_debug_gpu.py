@@ -141,7 +141,7 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     """B with the patched harness, built as root into ``ref/`` (0700): what the reference runs in every grade."""
     ref = d / "ref"
     extra = list(spec.get("harness_extra") or [])
-    stamp = "\n".join([arch, *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra)])  # the reference's identity: the GPU arch and the grader's added cases
+    stamp = "\n".join([kh.cuda_arch_flag([arch]), *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra)])  # flags and added cases  # the reference's identity: the GPU arch and the grader's added cases
     if (ref / "bin" / kh.TARGET).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == stamp:
         return {"ok": True, "cached": True}
     if ref.exists():

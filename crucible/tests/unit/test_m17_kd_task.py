@@ -334,3 +334,9 @@ def test_grader_cases_in_both_layouts_and_by_name():
     got = g.adopt_extra_cases(spec, [name], [name])
     assert spec["milestones"][0]["perf_cases"][0] == name and got["missing"] == ["X(y)"]
     assert spec["milestones"][0]["case_pool"] == []  # a perf-mode case does not join the correctness pool
+
+
+def test_blackwell_consumer_builds_its_arch_specific_target():
+    from crucible.factory.lanes import kernel_harness as kh
+
+    assert kh.cuda_arch_flag(["120"]) == "120a-real" and kh.cuda_arch_flag(["90", "121"]) == "90-real;121a-real"
