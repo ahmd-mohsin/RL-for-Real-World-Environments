@@ -177,7 +177,7 @@ def test_api_drift_repairs_follow_the_trees_own_header():
 
 def test_grader_cmake_builds_sass_only():
     flags = kh.cmake_cuda(["90", "120"])
-    assert "-DCMAKE_CUDA_ARCHITECTURES=90-real;120-real" in flags and "-DGGML_CUDA=ON" in flags and "-DGGML_NATIVE=OFF" in flags
+    assert "-DCMAKE_CUDA_ARCHITECTURES=90-real;120a-real" in flags and "-DGGML_CUDA=ON" in flags and "-DGGML_NATIVE=OFF" in flags
     assert "-DGGML_CUDA=OFF" in kh.CMAKE_CPU
 
 

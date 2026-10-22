@@ -279,6 +279,7 @@ def harness_gates(rec: dict[str, Any], g: dict[str, Any], layout: Any, tree_a: P
     ha = kh.harness_file(tree_a).read_text(errors="replace")
     try:
         pb, pa = kh.patch_harness(hb, need_perf=rec["kind"] == "perf", header=kh.ggml_header(tree_b)), kh.patch_harness(ha, header=kh.ggml_header(tree_a))
+        pb = kh.add_cases(pb, harness_extra(rec))  # the grader's own cases (if any) are part of the grader's harness at B
         g["harness_patch"] = {"ok": True, "dialect": kh.dialect_of(hb), "repairs": kh.repair_harness(hb, kh.ggml_header(tree_b))[1]}
     except kh.HarnessPatchError as e:
         g["harness_patch"] = {"ok": False, "error": str(e)}
@@ -473,6 +474,34 @@ def alone_probers(rec: dict[str, Any]) -> dict[str, str]:
     return out
 
 
+def fault_kernels(rec: dict[str, Any]) -> dict[str, list[str]]:
+    """milestone -> the kernels its fault touches at B (``kernel_debug_ops.fault_kernels``): the GPU calibration runs the
+    milestone's sanitizer checks on cases that launch one of them."""
+    from crucible.factory.lanes import kernel_debug_ops as ko
+
+    tree, layout = ROOT / "store" / rec["tree_b"], ko.Layout(**rec["layout"])
+    by_sha = {f["sha"]: f for f in rec["faults"]}
+    return {m["id"]: ko.fault_kernels(tree, by_sha[m["fault"]]["functions"], layout) for m in rec["milestones"] if m.get("fault") in by_sha}
+
+
+def cmd_stage_extras(a: argparse.Namespace) -> None:
+    """Write ``fault_kernels.json`` and ``harness_extra.json`` (the record's grader-owned cases) into every task of a staged
+    bundle; nothing else in the bundle changes (a GPU host may already have filled its pools there)."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    bundle = Path(a.bundle) if a.bundle else ROOT / "gpu_bundle"
+    for rec in kd.records(ROOT / "store"):
+        d = bundle / "tasks" / rec["id"]
+        if d.is_dir() and (not a.ids or rec["id"] in a.ids):
+            jdump(d / "fault_kernels.json", fault_kernels(rec))
+            jdump(d / "harness_extra.json", harness_extra(rec))
+            print(rec["id"], {k: len(v) for k, v in json.loads((d / "fault_kernels.json").read_text()).items()}, "extra", len(rec.get("harness_extra") or []), flush=True)
+
+
+def harness_extra(rec: dict[str, Any]) -> list[dict[str, str]]:
+    return [{k: x[k] for k in ("milestone", "code", "mode", "name") if x.get(k)} for x in rec.get("harness_extra") or []]
+
+
 def cmd_stage_gpu(a: argparse.Namespace) -> None:
     import tarfile
 
@@ -512,6 +541,8 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
         for mid, p in probers.items():
             (d / f"prober_alone-{mid}.patch").write_text(p)
         jdump(d / "milestones.json", [{k: m.get(k) for k in ("id", "kind", "class", "ops", "checks", "repeat", "cases_added")} for m in rec["milestones"]])
+        jdump(d / "fault_kernels.json", fault_kernels(rec))
+        jdump(d / "harness_extra.json", harness_extra(rec))
         index.append({"id": rec["id"], "family": rec["family"], "split": rec["split"], "kind": rec["kind"], "milestones": [m["id"] for m in rec["milestones"]],
                       "cpu_pending_host": gc.get("cpu_pending_host") or [], "probers": {f"alone-{k}": k for k in probers},
                       "mutants": {mu["id"]: mu["milestone"] for mu in rec.get("mutants") or []}})
@@ -795,12 +826,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("ingest-gpu")
     s.add_argument("--bundle")
+    s = sub.add_parser("stage-extras")
+    s.add_argument("--bundle")
+    s.add_argument("--ids", nargs="*")
     s = sub.add_parser("observe")
     s.add_argument("--report", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "report": cmd_report, "observe": cmd_observe}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe}[a.cmd](a)
     return 0
 
 

@@ -93,8 +93,10 @@ def prepare_tree(tree: Path, harness_text: str) -> None:
 
 
 def cuda_arch_flag(arches: Sequence[str]) -> str:
-    """``CMAKE_CUDA_ARCHITECTURES`` for the grader: real (SASS) targets only, so no PTX can be JIT-compiled for another GPU."""
-    return ";".join(f"{a}-real" for a in arches)
+    """``CMAKE_CUDA_ARCHITECTURES`` for the grader: real (SASS) targets only, so no PTX can be JIT-compiled for another GPU.
+    Blackwell consumer parts (``12x``) build as ``12xa``: the backend's FP4 tensor-core kernels exist only there, and trees
+    from late 2025 rewrite ``12x`` to ``12xa`` only for native builds (``120-real`` failed ptxas on the mxfp4 MMQ unit)."""
+    return ";".join(f"{a}a-real" if re.fullmatch(r"12\d", str(a)) else f"{a}-real" for a in arches)
 
 
 def cmake_cuda(arches: Sequence[str]) -> list[str]:
@@ -359,6 +361,54 @@ def patch_harness(text: str, *, need_perf: bool = False, header: str | None = No
     ci, _ = _find(text, "cpu_skip")
     out = ANCHORS["cpu_skip"][ci].sub(lambda m: m.group(0).replace("if (", "if (!getenv(\"CRUCIBLE_ALLOW_CPU\") && ", 1), out, count=1)
     return out
+
+
+EXTRA_MARK = "// crucible: grader cases"
+EXTRA_LINE = re.compile(r"^test_cases\.emplace_back\(new test_\w+\([^;]*\)\);$")  # one statement: braced shapes, no blocks
+RETURN_CASES = re.compile(r"^(?P<ind>[ \t]*)return test_cases;", re.MULTILINE)
+# where each layout keeps its case lists: ggml-2025 builds one list per mode, the 2024 layout one list inside
+# ``test_backend`` that both modes run
+LIST_FN = {"test": re.compile(r"\bmake_test_cases_eval\s*\([^)]*\)\s*\{"), "perf": re.compile(r"\bmake_test_cases_perf\s*\([^)]*\)\s*\{")}
+LIST_2024 = (re.compile(r"\bstatic bool test_backend\s*\([^)]*\)\s*\{"), re.compile(r"^(?P<ind>[ \t]*)if \(mode == MODE_TEST\) \{", re.MULTILINE))
+
+
+def add_cases(text: str, extra: Sequence[Mapping[str, str] | str]) -> str:
+    """The harness with grader-owned test cases appended to its case lists: a fault the repository's own cases never
+    reach on the grading GPU (a launch grid past 65535 rows, a batch past 1024 matrices, a quantization type the list
+    omits) gets a case of the file's own test classes at the shape the bug report describes. Each entry is a line (or
+    ``{"code", "mode"}``, mode ``test`` (default), ``perf`` or ``both``); only ``test_cases.emplace_back(new test_X(...));``
+    lines are accepted (a case, never other code). ggml-2025: before ``return test_cases;`` of ``make_test_cases_eval``
+    (test) or ``make_test_cases_perf`` (perf); the 2024 layout: before ``if (mode == MODE_TEST)`` in ``test_backend``."""
+    rows = [(e, "test") if isinstance(e, str) else (str(e["code"]), str(e.get("mode") or "test")) for e in extra]
+    rows = [(c.strip(), m) for c, m in rows if c.strip()]
+    if not rows or EXTRA_MARK in text:
+        return text
+    bad = [c for c, _m in rows if not EXTRA_LINE.match(c)] + [f"mode {m!r}" for _c, m in rows if m not in ("test", "perf", "both")]
+    if bad:
+        raise HarnessPatchError(f"not a test-case line: {bad[0][:120]}")
+
+    def block(ind: str, lines: list[str]) -> str:
+        return f"{ind}{EXTRA_MARK} (the shapes the task's report describes)\n" + "".join(f"{ind}{ln}\n" for ln in lines)
+
+    if LIST_FN["test"].search(text):
+        spots = []
+        for mode in ("test", "perf"):
+            lines = [c for c, m in rows if m in (mode, "both")]
+            if not lines:
+                continue
+            fn = LIST_FN[mode].search(text)
+            ret = RETURN_CASES.search(text, fn.end()) if fn else None
+            if ret is None:
+                raise HarnessPatchError(f"harness anchors missing: the {mode} case list's return")
+            spots.append((ret.start(), block(ret.group("ind"), lines)))
+        for pos, b in sorted(spots, reverse=True):
+            text = text[:pos] + b + text[pos:]
+        return text
+    fn = LIST_2024[0].search(text)
+    run = LIST_2024[1].search(text, fn.end()) if fn else None
+    if run is None:
+        raise HarnessPatchError("harness anchors missing: test_backend's case list")
+    return text[:run.start()] + block(run.group("ind"), [c for c, _m in rows]) + text[run.start():]
 
 
 # ---- dumps -----------------------------------------------------------------------------------------------------------------------
