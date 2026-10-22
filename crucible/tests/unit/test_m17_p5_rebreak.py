@@ -115,6 +115,11 @@ def test_interactions_are_shared_caught_test_cases() -> None:
     go = {"a": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#1"]}, "b": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#2"]},
           "c": {"ok": True, "caught": ["p_test.go::TestT", "p_test.go::TestT/#1", "p_test.go::TestT/#3"]}}
     assert interaction_edges(go) == {"a": {"c"}, "c": {"a"}}
+    # a test that only stopped building (its compiled package errors as a whole) links nothing either (mvdan-sh's zsh fixes)
+    built = {"a": {"ok": True, "caught": ["p_test.go::TestB", "p_test.go::TestA"], "caught_unbuilt": ["p_test.go::TestB"]},
+             "b": {"ok": True, "caught": ["p_test.go::TestB", "p_test.go::TestC"], "caught_unbuilt": ["p_test.go::TestB", "p_test.go::TestC"]},
+             "c": {"ok": True, "caught": ["p_test.go::TestA"]}}
+    assert interaction_edges(built) == {"a": {"c"}, "c": {"a"}}
     us =[Unit(sha=s, parent="p", merge=False, date="", subject=s, files=[f"{s}.py", "tests/test_t.py"]) for s in "abcd"]
     assert [u.sha for u in order_fixes(us, {"a": {"c"}})] == ["b", "c", "a", "d"]  # a needs c: c first, else history order
     groups = group_fixes(us, {"a": {"f"}, "c": {"f"}}, need={"a": {"b"}, "b": {"a"}}, max_size=3)
