@@ -293,8 +293,13 @@ with the fixes (results in `gpu_results_5090` once the queued run ends; ingest w
 
 Perf family. `kd-perf-llamacpp-4bc24fdb` calibrated with the fixed timing: B against itself within 0.98-1.02 on the
 large cases, m2's revert 1.5x and 1.9x slower (bar 1.071, kept); m1's revert is 1.10x on the best case against a 1.07
-bar plus the 0.10 headroom, so m1 drops and the task with it (one milestone). `kd-perf-llamacpp-3ad8a68c` (dropped at
-the CPU gates: no RMS_NORM perf case) now passes them with two grader RMS_NORM cases and is queued. The two held-out ik
+bar plus the 0.10 headroom, so m1 drops and the task with it (one milestone). `kd-perf-llamacpp-9d89aaa0`: m1 kept (two
+cases), m2's revert is at most 1.06x slower on any candidate case (noise-level) and drops. `kd-perf-llamacpp-d2084ba6`: m1 kept
+(bar 1.42, revert 1.58x), m2's revert is at most 1.12x and drops. Both end with one milestone: not gradable on the 5090 (c;
+the H100 calibrates its own bars). `kd-perf-llamacpp-3ad8a68c` (dropped at the CPU gates: no RMS_NORM perf case) passed them
+with two grader RMS_NORM cases, but its start does not build on the GPU: B's `binbcast.cu`, a unit no fault touches, uses the
+integer-division helpers m1 adds, so the CPU gate (which compiles only the touched units) missed it (c: a correct start would
+change m1's fault; a CPU gate that also compiles units including the changed headers is open). The two held-out ik
 perf tasks have no case of the speed-ups' quantization types (iq2_k/iq3_k/iq4_ks are not in the 2024 harness's type
 list); grader cases at those types (512 tokens, 8 experts) hung the reference build on its first chunk (idle, 0% GPU,
 over 30 minutes) and were withdrawn: (c) until that hang is understood.
