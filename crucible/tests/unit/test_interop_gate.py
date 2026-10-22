@@ -82,7 +82,7 @@ async def test_masked_grade_travels_as_mask_never_zero(tmp_path):
             def boom(_):
                 raise InfraError("grader host lost")
 
-            return await Plan("x", [Gate("g")], [Check("g", "g", boom)]).arun(Context(__import__("crucible.verify.runtime.trusted", fromlist=["Trusted"]).Trusted(Path(workdir))))
+            return await Plan("x", [Gate("g", "gate")], [Check("g", "g", boom)]).arun(Context(__import__("crucible.verify.runtime.trusted", fromlist=["Trusted"]).Trusted(Path(workdir))))
 
     client = TestClient(make_app({"t": Broken()}))
     client.post("/seed_session", json={"resources_session_id": "m", "task_id": "t"})

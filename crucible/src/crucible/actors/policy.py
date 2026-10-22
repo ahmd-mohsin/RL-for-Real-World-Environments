@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
+from crucible.core.ids import sha256_text
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall, openai_name
 from crucible.core.schema.state import WorldRef
 from crucible.core.schema.trace import Trace
@@ -79,12 +80,13 @@ COMPACT = ("Your context is nearly full. Write a summary of your work so far tha
 
 @dataclass
 class ContextConfig:
-    """Context management for long horizons (DESIGN §10.4). ``budget_tokens``: the context the policy may use;
+    """Context management for long horizons (DESIGN §10.4). ``budget_tokens``: the context the policy may use (None: the
+    model's window when its client knows it, ``LLMClient.context_window``, else ``DEFAULT_BUDGET_TOKENS``; M2 R-14);
     at ``trigger`` × budget the policy compacts: it writes the summary itself (a recorded model call, trained with the
     episode's advantage), and the new context is system + the task verbatim + the summary + the last
     ``keep_recent_turns`` complete turns. Each compaction starts a new segment."""
 
-    budget_tokens: int = 128_000
+    budget_tokens: int | None = None
     trigger: float = 0.8
     keep_recent_turns: int = 3
     summary_max_tokens: int = 2_000
@@ -99,6 +101,11 @@ class ContextConfig:
     strategy: str = "summary"
     tier_tool_chars: int = 200
     hybrid_summaries: int = 1
+
+
+DEFAULT_BUDGET_TOKENS = 128_000  # the compaction budget when neither ContextConfig nor the model's client gives one
+# of the window, left free when a reply is fitted to it (M2 R-1): the context past the last provider-counted prompt is an estimate
+WINDOW_MARGIN = 0.02
 
 
 IMAGE_TOKENS = 768  # estimate per image part (a 512-px tile class image on current vision APIs)
@@ -146,6 +153,11 @@ def approx_tokens(messages: list[dict[str, Any]]) -> int:
     return n // 4 + 4 * len(messages)
 
 
+# a tool-call id every provider accepts back in the history (Bedrock and Anthropic: [a-zA-Z0-9_-]; the derived ones are also
+# Mistral's 9 alphanumerics); others are replaced (M2 R-6)
+CALL_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 CUT_OFF = "Your last reply was cut off at the output limit, so nothing in it was run. Continue: make one tool call (keep any reasoning short)."
 NUDGE = "Your last reply was empty. Continue the task: call a tool, or reply with a final summary if the work is complete."
 TURN_NUDGE = "It is still your turn in the game, which is not over. Choose one of your legal actions with a tool call."
@@ -191,6 +203,7 @@ class LLMToolPolicy(Policy):
         self.trajectory_tokens = 0  # every token that entered the context, before any compaction (instruction, observations, replies)
         self._seen = 0  # messages already counted
         self._measured: tuple[int, int] | None = None  # (messages in the last prompt, its prompt + completion tokens per the provider)
+        self._ids_seen: set[str] = set()  # tool-call ids used in this episode (``_call_ids``; rebuilt from the history on load)
 
     def begin_episode(self, episode_id: str) -> None:
         self.sample_key = episode_id
@@ -255,6 +268,47 @@ class LLMToolPolicy(Policy):
         self._measured = None
         return min(keep_turns, len(starts))
 
+    async def _window(self) -> int | None:
+        """The model's context window when the client knows it (``LLMClient.context_window``: config, else a self-hosted
+        engine's /models card), else None."""
+        get = getattr(self.llm, "context_window", None)
+        return await get() if get is not None else None
+
+    async def _reply_tokens(self) -> int:
+        """``max_tokens`` for the next turn (M2 R-1; PATTERN: AReaL, slime, rLLM and ROLL send min(requested, window - prompt),
+        Apache-2.0): ``max_tokens`` cut to the room the model's window leaves after this context and ``WINDOW_MARGIN``.
+        Engines refuse a prompt plus ``max_tokens`` over the window, which ended the episode with room left (a 26,172-token
+        prompt in a 32,768 window asking for 8,000). No room at all is a ``ContextOverflow`` before the call is paid for;
+        an unknown window sends ``max_tokens`` as before."""
+        window = await self._window()
+        if not window:
+            return self.max_tokens
+        used = self.context_tokens()
+        room = window - used - int(window * WINDOW_MARGIN)
+        if room <= 0:
+            raise ContextOverflow(f"the context ({used} tokens) leaves no room for a reply in the {window}-token window")
+        return min(self.max_tokens, room)
+
+    def _call_ids(self, calls: list[dict[str, Any]], call: dict[str, Any]) -> list[str]:
+        """The id each tool call of this reply goes by (M2 R-6; PATTERN: NeMo-Gym's nemo_user_sim checks every call has a
+        non-empty id unique in the response, Apache-2.0, repaired here rather than charged to the policy, since a serving
+        stack's parser makes these). A provider id is kept when it matches ``CALL_ID`` and is new in this episode; else
+        ``c`` + 8 hex of sha256(actor:call:position), the same on every replay. Ids key the World's results, the batch in
+        flight and the format penalties: a provider numbering ids per reply charged turn 2's malformed call to turn 1 too,
+        two calls sharing an id let a message in between their results, and an id-less reply got a random id, so replays
+        missed the cache. Replaced ids are kept on the call record (``provider_ids``)."""
+        out: list[str] = []
+        for i, tc in enumerate(calls):
+            cid, k = str(tc.get("id") or ""), 0
+            while not CALL_ID.fullmatch(cid) or cid in self._ids_seen or cid in out:
+                cid = "c" + sha256_text(f"{self.actor_id}:{len(self.model_calls)}:{i}" + (f":{k}" if k else ""))[:8]
+                k += 1
+            out.append(cid)
+        self._ids_seen.update(out)
+        if any(cid != tc.get("id") for cid, tc in zip(out, calls, strict=True)):
+            call["provider_ids"] = [tc.get("id") for tc in calls]
+        return out
+
     def _new_segment(self, strategy: str, before: int, kept: int, summary_call: str | None = None) -> None:
         self.segments.append({"index": self.segment + 1, "strategy": strategy, "summary_call": summary_call, "context_before": before,
                               "context_after": approx_tokens(self.messages), "kept_turns": kept})
@@ -276,7 +330,8 @@ class LLMToolPolicy(Policy):
         cfg = self.context
         if cfg is None or cfg.mode != "compact" or self._queue or self._pending:
             return
-        if self.context_tokens() < cfg.trigger * cfg.budget_tokens:
+        budget = cfg.budget_tokens or await self._window() or DEFAULT_BUDGET_TOKENS
+        if self.context_tokens() < cfg.trigger * budget:
             return
         before = self.context_tokens()
         strategy = cfg.strategy
@@ -286,7 +341,7 @@ class LLMToolPolicy(Policy):
             done = sum(1 for sg in self.segments if sg.get("strategy") in ("summary", "hybrid:summary"))
             strategy = "hybrid:summary" if done < cfg.hybrid_summaries else "hybrid:discard_all"
         if strategy == "tiered":
-            if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * cfg.budget_tokens:
+            if self._shrink_tool_outputs(cfg.keep_recent_turns, cfg.tier_tool_chars) and approx_tokens(self.messages) < cfg.trigger * budget:
                 self._seen = len(self.messages)
                 self._measured = None
                 self._new_segment("tiered:shrink", before, len(self.messages))
@@ -341,6 +396,8 @@ class LLMToolPolicy(Policy):
         self._turn_nudges = d.get("turn_nudges", 0)
         self.tool_calls_issued, self._limit_warned = d.get("tool_calls_issued", 0), d.get("limit_warned", False)
         self._final_turn_used, self.limit_events = d.get("final_turn_used", False), list(d.get("limit_events") or [])
+        self._ids_seen = {str(c.get("id")) for m in self.messages for c in m.get("tool_calls") or []}
+        self._ids_seen |= {a[5:] for c in self.model_calls for a in c.get("actions") or [] if isinstance(a, str) and a.startswith("tool:")}
 
     def _ingest(self, obs: Observation) -> None:
         if obs.tools:
@@ -423,7 +480,7 @@ class LLMToolPolicy(Policy):
         self.messages.append({"role": "user", "content": note})
         self.limit_events.append({"kind": "final_turn", "at": self.tool_calls_issued, "text": note})
         try:
-            r = await self.llm.complete(self.messages, tools=tools, max_tokens=self.max_tokens, temperature=self.temperature,
+            r = await self.llm.complete(self.messages, tools=tools, max_tokens=await self._reply_tokens(), temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         except (LLMError, BudgetExceeded, ContextOverflow) as e:
             return Done(reason=f"the tool-call limit was reached; the final turn failed: {e}")
@@ -444,7 +501,7 @@ class LLMToolPolicy(Policy):
             call["actions"] = ["done"]
             self.limit_events.append({"kind": "final_turn_unused"})
             return Done(reason=(r.text or "")[:2000] or f"the tool-call limit ({self.tool_limit}) was reached")
-        cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
+        [cid] = self._call_ids([tc], call)
         self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "",
                               "tool_calls": [{"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}]})
         self._pending.add(cid)
@@ -459,7 +516,8 @@ class LLMToolPolicy(Policy):
             return self._queue.pop(0)
         try:
             await self._maybe_compact()  # inside: a failed summary call ends the turn like a failed turn (it crashed run_episode)
-            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=self.max_tokens, temperature=self.temperature,
+            max_tokens = await self._reply_tokens()
+            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=max_tokens, temperature=self.temperature,
                                         sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
         except ContextOverflow as e:
             self.stop = "context_overflow"  # truncated, scored: a long-horizon failure is data, not an outage
@@ -475,7 +533,8 @@ class LLMToolPolicy(Policy):
                 "step": obs.step, "model": r.model, **r.finish_fields(), "usage": r.usage,
                 "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3), "cached": r.cached, "response_id": r.response_id,
                 "tool_calls": len(r.tool_calls), "actions": [], "tokens": self._compress(r.tokens),
-                "sampling": getattr(r, "sampling", None) or {}}  # what the call sent (R-3): the rollout's Turn.sampling
+                "sampling": getattr(r, "sampling", None) or {},  # what the call sent (R-3): the rollout's Turn.sampling
+                **({"max_tokens_requested": self.max_tokens} if max_tokens < self.max_tokens else {})}  # fitted to the window (M2 R-1)
         self.model_calls.append(call)  # ``actions`` (filled below, in execution order) joins this call to its World actions and ATIF steps
         self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or "", "tool_calls": r.tool_calls or None}])
         self._measure(r.usage)
@@ -486,22 +545,35 @@ class LLMToolPolicy(Policy):
             self.stop = "content_filter"
             call["actions"] = ["done"]
             return Done(reason=f"the provider filtered the reply (finish={r.raw_finish})")
-        if not r.tool_calls and not (r.text or "").strip() and self._nudges < self.max_nudges:
+        blank = not r.tool_calls and not (r.text or "").strip()
+        dropped = f" ({len(r.tool_calls)} unfinished tool call(s) were not run)" if r.tool_calls and r.finish == "length" else ""
+        if blank and self._nudges < self.max_nudges:
             # A blank turn (e.g. a reasoning model that spent its budget thinking) is not a decision to stop.
             self._nudges += 1
+            call["nudged"] = "blank"  # its output never enters the context; the nudge does
             self.messages.append({"role": "user", "content": NUDGE})  # no empty assistant turn: some providers reject it
             return await self.act(again)
         if r.finish == "length" and self._nudges < self.max_nudges:
             # cut off mid-reply: not a decision to stop (mini-swe-agent's "you were cut off" format error). Tool calls in a
             # cut-off reply may be truncated mid-argument or missing their siblings: they are dropped, never executed.
             self._nudges += 1
-            dropped = f" ({len(r.tool_calls)} unfinished tool call(s) were not run)" if r.tool_calls else ""
+            call["nudged"] = "cut_off"
             self.messages.append({**r.raw_message, "role": "assistant", "content": (r.text or "(cut off)") + dropped})
             self.messages.append({"role": "user", "content": CUT_OFF})
             return await self.act(again)
+        if blank or r.finish == "length":
+            # M2 R-5 (PATTERN: verifiers truncates on a last length finish, mini-swe-agent ends on repeated format errors; MIT):
+            # the allowance is spent (or there was none). A cut-off reply's tool calls are still never run (the third one's
+            # ran, and reset the allowance), and a stall is not a decision to stop (it ended agent_done, untruncated).
+            # Single-turn answers (no allowance) are graded as before, under this label.
+            self.stop = "max_output_tokens" if r.finish == "length" else "format_error"
+            self.messages.append({**r.raw_message, "role": "assistant", "content": (r.text or "") + dropped})
+            call["actions"] = ["done"]
+            return Done(reason=(r.text or "")[:2000], answer=r.text if len(r.text or "") > 2000 else None)
         if not r.tool_calls and obs.legal and self._turn_nudges < self.max_nudges:
             # a turn-based game: legal actions are offered only to the seat to move; a text reply is not a resignation
             self._turn_nudges += 1
+            call["nudged"] = "turn"
             self.messages.append({**r.raw_message, "role": "assistant", "content": r.text or "(no action)"})
             self.messages.append({"role": "user", "content": TURN_NUDGE})
             return await self.act(again)
@@ -541,8 +613,7 @@ class LLMToolPolicy(Policy):
         self._compactions_in_row = 0
         calls = []
         actions: list[Action] = []
-        for tc in r.tool_calls:
-            cid = tc["id"] or f"call-{uuid.uuid4().hex[:8]}"
+        for tc, cid in zip(r.tool_calls, self._call_ids(r.tool_calls, call), strict=True):
             raw_args = tc["arguments"].get("__unparseable__") if "__unparseable__" in tc["arguments"] else None
             calls.append({"id": cid, "type": "function", "function": {"name": tc["name"], "arguments": raw_args if raw_args is not None else json.dumps(tc["arguments"])}})
             if tc["name"] == "send_message":
@@ -590,6 +661,9 @@ class EpisodeResult:
     truncated: bool = False
     model_calls: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     observed: list[dict[str, Any]] = field(default_factory=list)  # each observer's on_end summary (e.g. dense progress)
+    # M7 R7: observers that raised ([{"observer", "phase", "error"}]); each is off for the rest of the episode and its
+    # ``observed`` entry is ``{"failed": <error>}``. An observer measures the episode; its fault never ends or masks it
+    observer_failures: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: int = 50, reset: bool = True,
@@ -614,8 +688,25 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         obs = await world.reset()
     else:
         obs = dict(start_obs) if start_obs else {a: Observation(actor=a, step=world.step_index) for a in policies}
-    for o in observers:
-        await o.on_start(world)
+    observer_failures: list[dict[str, Any]] = []
+    broken: dict[int, str] = {}
+
+    async def observe(i: int, o: Any, phase: str, call: Any) -> Any:
+        """M7 R7: an observer (a progress tracker's subgoal query) that raises is switched off and recorded; it used to
+        escape ``run_episode`` and mask the episode with unknown blame, a mask the policy could choose by its actions."""
+        if i in broken:
+            return None
+        try:
+            return await call()
+        except asyncio.CancelledError:
+            raise
+        except Exception as ex:  # noqa: BLE001 -- recorded in observer_failures; the episode goes on
+            broken[i] = f"{type(ex).__name__}: {ex}"[:500]
+            observer_failures.append({"observer": type(o).__name__, "phase": phase, "error": broken[i]})
+            return None
+
+    for i, o in enumerate(observers):
+        await observe(i, o, "start", lambda o=o: o.on_start(world))
     for p in [*policies.values(), *world.responders.values()]:  # simulated people key per-episode sampling the same way
         if hasattr(p, "begin_episode"):
             p.begin_episode(sample_key or world.episode_id)
@@ -680,8 +771,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 log.setdefault(a, []).append(res.observation)
                 state["steps"] += 1
                 progressed = True
-                for o in observers:
-                    await o.on_step(world, state["steps"], a, action, res)
+                for i, o in enumerate(observers):
+                    await observe(i, o, "step", lambda o=o, a=a, action=action, res=res: o.on_step(world, state["steps"], a, action, res))
                 if after_step is not None:
                     await after_step(state["steps"])
                 if limits.snapshot_every and state["steps"] % limits.snapshot_every == 0:
@@ -709,7 +800,10 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         await asyncio.wait_for(loop(), timeout=limits.timeout_s)
     except TimeoutError:
         state["stop"] = "timeout"
-    observed = [await o.on_end(world) for o in observers]
+    observed = []
+    for i, o in enumerate(observers):
+        got = await observe(i, o, "end", lambda o=o: o.on_end(world))
+        observed.append({"failed": broken[i]} if i in broken else got)
     failures = [f for r in world.responders.values() for f in getattr(r, "failures", [])]
     # M10 lab audit R-5 item 3: a provider's Retry-After travels with the policy's failure (``episode_failure`` keeps it)
     failures += [{"kind": p.failure_kind, "reason": p.error, **({"retry_after": ra} if (ra := getattr(p, "retry_after", None)) is not None else {})}
@@ -728,8 +822,8 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
         failures.append({"kind": "crucible:answer_exposed", "reason": f"{hit['kind']} at event {hit['seq']}: {hit['evidence'][:200]}", "mask": True})
     stops = [s for p in policies.values() if (s := getattr(p, "stop", None)) not in (None, "agent_done")]
     if state["stop"] == "running":
-        # a policy's own stop label (context_overflow, too_many_errors from a self-detected stall, too_many_compactions,
-        # format_error, content_filter) is the episode's: these were reported as a voluntary agent_done (M2 audit)
+        # a policy's own stop label (context_overflow, max_output_tokens, too_many_errors from a self-detected stall,
+        # too_many_compactions, format_error, content_filter) is the episode's: these were reported as a voluntary agent_done (M2 audit)
         if stops:
             state["stop"] = next((s for s in POLICY_STOP_ORDER if s in stops), stops[0])
         elif failures and any(_masks(f) for f in failures):
@@ -744,11 +838,12 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
     return EpisodeResult(steps=state["steps"], done=state["done"], trace=trace, final=final, masked=any(_masks(f) for f in failures),
                          failures=failures, observations=log, stop_condition=state["stop"],
                          truncated=state["stop"] in TRUNCATING_STOPS, model_calls=calls,
-                         snapshots=series, observed=observed)
+                         snapshots=series, observed=observed, observer_failures=observer_failures)
 
 
-POLICY_STOP_ORDER = ("context_overflow", "too_many_errors", "too_many_compactions", "format_error", "content_filter")
-TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "too_many_errors", "too_many_compactions")  # format_error and content_filter are terminal
+# max_output_tokens (M2 R-5, verifiers' name): every reply up to the nudge allowance was cut off at max_tokens
+POLICY_STOP_ORDER = ("context_overflow", "max_output_tokens", "too_many_errors", "too_many_compactions", "format_error", "content_filter")
+TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "max_output_tokens", "too_many_errors", "too_many_compactions")  # format_error and content_filter are terminal
 
 
 def _masking_failure(world: World) -> str | None:

@@ -242,7 +242,8 @@ Ports NeMo-Gym `mcqa`, `equivalence_rule` and `math_with_judge`, and verifiers v
   - `CheckerSpec` kinds: exact, exact_raw, numeric, math, mcq, contains, regex, seq_match, weighted_seq_match, json_subset, any_of, judge. Each takes a `threshold`.
   - `Criterion` is one weighted rubric line. `score_answer` runs the rubric. `parse_judge_choice` reads a judge model's verdict.
   - `CheckerUnavailable` masks a sample instead of scoring it 0.
-- **Extra:** `crucible[answers]` installs `math-verify`. Without it, the `math` checker masks unless both sides are numbers.
+- **Extra:** `crucible[answers]` installs `math-verify`. Without it, a task with a `math` criterion is refused at load
+  (M7 R2: the old "masks unless both sides are numbers" let a task's control pass while every other answer masked).
 - **Tests** (`tests/unit/test_single_turn.py`):
   - parsers and multiple-choice modes, including ambiguity refusal and letter folding;
   - checkers, judge verdicts, row shapes and validation;

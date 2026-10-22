@@ -88,7 +88,7 @@ class FlakyGradeTask:
         def setup(_):
             raise RuntimeError(self.reason)
 
-        plan = Plan(self.id, [Gate("g")], [Check("g", "g", lambda c: True if self.crash_setup else check(c))], setup=setup if self.crash_setup else None)
+        plan = Plan(self.id, [Gate("g", "outcome")], [Check("g", "g", lambda c: True if self.crash_setup else check(c))], setup=setup if self.crash_setup else None)
         return await plan.arun(Context(Trusted(Path(d))))
 
     async def grade(self, world, d: Path):

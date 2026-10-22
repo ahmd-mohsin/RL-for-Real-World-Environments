@@ -1939,7 +1939,9 @@ class WindowTask(ExecTask):
         from crucible.world.exec import DockerExec
 
         name = ".crucible-oracle.patch"
-        (self.workspace(world) / name).write_text(patch)
+        from crucible.verify.patchio import write_patch
+
+        write_patch(self.workspace(world) / name, patch)  # M7 R3: the patch's bytes (a collected patch may hold any)
         out = await DockerExec(world._crucible_container).run(f"git apply --whitespace=nowarn {name}; rc=$?; rm -f {name}; exit $rc",
                                                               cwd=str(self.workspace(world)), timeout_s=300)
         if not out.ok:

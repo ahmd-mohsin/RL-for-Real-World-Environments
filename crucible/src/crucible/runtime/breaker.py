@@ -276,7 +276,7 @@ class Breakers:
                 st.probing = None
                 changed = True
                 self.event("breaker_probe", key=k, sample=sid, result="failed")
-                if now - (st.opened_at or now) >= self.rule.quarantine_s:
+                if now - (st.opened_at if st.opened_at is not None else now) >= self.rule.quarantine_s:
                     self._quarantine(st, now)
                 else:
                     st.state, st.until = "open", now + self._gap(st.probes_failed, ra)
@@ -321,12 +321,12 @@ class Breakers:
                    samples=len(st.samples), until_s=round(st.until - now, 3))
 
     def _close(self, st: _Key, sid: str, now: float) -> None:
-        self.event("breaker_closed", key=st.name, sample=sid, open_s=round(now - (st.opened_at or now), 3))
+        self.event("breaker_closed", key=st.name, sample=sid, open_s=round(now - (st.opened_at if st.opened_at is not None else now), 3))
         st.state, st.opened_at, st.probes_failed, st.probing = "closed", None, 0, None
         st.streak, st.samples, st.tasks, st.deferred, st.last = 0, set(), set(), set(), ""
 
     def _quarantine(self, st: _Key, now: float) -> None:
-        open_s = now - (st.opened_at or now)
+        open_s = now - (st.opened_at if st.opened_at is not None else now)
         st.state = "quarantined"
         st.reason = (f"{st.last}: open {open_s:.0f}s (quarantine after {self.rule.quarantine_s:g}s), {st.probes_failed} failed probes, "
                      f"{len(st.deferred)} samples waited")

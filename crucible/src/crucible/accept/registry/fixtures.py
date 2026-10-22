@@ -45,8 +45,12 @@ class Chk:
 
 
 def report(reward: float, gates: dict[str, str], *, infra: dict | None = None, elapsed: float = 0.1, meta: dict | None = None) -> GradeReport:
+    """A fixture grade; its gates are hard rules unless ``meta["kinds"]`` says otherwise (M7 R6: a grade declares its kinds,
+    and ``Chk``'s default ``gate_kind`` is "gate", so the A1 gold check sees the two agree)."""
+    meta = dict(meta or {})
+    meta["kinds"] = {g: "gate" for g in gates} | dict(meta.get("kinds") or {})
     return GradeReport(task="fake", tier="full", checks=[], gates=gates, reward=reward, outcome=reward, infra=infra or {"status": "ok"},
-                       trusted=True, elapsed_s=elapsed, meta=meta or {})
+                       trusted=True, elapsed_s=elapsed, meta=meta)
 
 
 @dataclass

@@ -34,7 +34,7 @@ from typing import Any
 from crucible.core.ids import sha256_text
 from crucible.core.schema.actions import MediaRef
 from crucible.runtime.identity import code_ref
-from crucible.verify.answers import CheckerSpec, CheckerUnavailable, Criterion, Judge, ParserSpec, score_answer
+from crucible.verify.answers import CheckerSpec, CheckerUnavailable, Criterion, Judge, ParserSpec, math_verify_available, score_answer
 from crucible.verify.runtime.plan import CheckResult, GradeReport
 
 ACTOR = "agent"
@@ -68,6 +68,14 @@ class SingleTurnTask:
         for c in self.criteria:
             if c.checker.kind == "judge" and c.checker.judge not in self.judges:
                 raise ValueError(f"{self.id}: criterion {c.id!r} names judge {c.checker.judge!r}, which the task does not configure")
+        # M7 R2: what would otherwise decide rewards at grade time is refused at load, naming the fix
+        if any(c.checker.kind == "math" for c in self.criteria) and not math_verify_available():
+            raise ValueError(f"{self.id}: a 'math' criterion needs math-verify (pip install 'crucible[answers]'); without it every "
+                             "grade but an equal number masks")
+        if any(c.checker.kind == "judge" for c in self.criteria) and self.control_text() is None:
+            raise ValueError(f"{self.id}: a judge criterion needs a control (control_answer, or a parser that reads the gold as it is): "
+                             f"a judge failure is decided by the control grade (M10 lab audit R-3), and a {self.parser.kind!r} parser "
+                             "has no completion to grade")
         self.system, self.history, self.instruction, self.media = _split_prompt(self.prompt, self.system)
 
     # ---- RunTask ---------------------------------------------------------------------------------------------------
@@ -275,9 +283,17 @@ def rows_from(source: str | Path | Iterable[dict[str, Any]]) -> list[dict[str, A
 
 
 def task_from_row(row: dict[str, Any], *, dataset: str, index: int, parser: ParserSpec | dict | str | None = None,
-                  criteria: list[Criterion | dict] | None = None, system: str | None = None, judges: dict[str, Judge] | None = None) -> SingleTurnTask:
-    """One row in any of the supported shapes -> a task. Row-level ``parser`` / ``criteria`` override the defaults."""
-    if "responses_create_params" in row:  # NeMo-Gym
+                  criteria: list[Criterion | dict] | None = None, system: str | None = None, judges: dict[str, Judge] | None = None,
+                  grading_mode: str | None = None) -> SingleTurnTask:
+    """One row in any of the supported shapes -> a task. Row-level ``parser`` / ``criteria`` override the defaults.
+
+    M7 R2: a NeMo-Gym multiple-choice benchmark states its grading mode in its config, not in its rows (GPQA's is
+    ``lenient_answer_colon_md``): ``grading_mode`` passes it, a row's own ``grading_mode`` overrides it, and a NeMo-Gym
+    multiple-choice row with neither is refused (it was graded as strict boxed, so ``Answer: B`` scored 0). Each task gets
+    a control completion in its parser's own format (``\\boxed{gold}``, ``Answer: <letter>``), so a checker or judge
+    failure is decided by the control instead of a mask."""
+    nemo = "responses_create_params" in row
+    if nemo:  # NeMo-Gym
         rcp = row["responses_create_params"]
         prompt: Any = rcp.get("input") if isinstance(rcp.get("input"), list) else str(rcp.get("input", ""))
         answer = row.get("expected_answer")
@@ -294,17 +310,40 @@ def task_from_row(row: dict[str, Any], *, dataset: str, index: int, parser: Pars
     tm = row.get("template_metadata") or {}
     if p is None and tm.get("output_regex"):  # NeMo-Gym: a row's own answer regex wins over the grading mode
         rx = tm["output_regex"]
-        p = {"kind": "regex", "pattern": rx if isinstance(rx, str) else "|".join(f"(?:{r})" for r in rx)}
+        p = {"kind": "regex", "pattern": rx if isinstance(rx, str) else list(rx)}  # a list is tried in turn (M7 R2)
     if p is None and options:
-        p = {"kind": "mcq", "mode": NEMO_MCQ_MODES[row.get("grading_mode", "strict_single_letter_boxed")]}
+        mode = row.get("grading_mode") or grading_mode or (None if nemo else "strict_single_letter_boxed")
+        if mode is None:
+            raise ValueError(f"{dataset}[{index}]: a NeMo-Gym multiple-choice row needs its benchmark's grading_mode (the benchmark "
+                             f"config's mcqa grading_mode, e.g. GPQA's 'lenient_answer_colon_md'): pass load_tasks(..., grading_mode=...)")
+        if mode not in NEMO_MCQ_MODES:
+            raise ValueError(f"{dataset}[{index}]: grading_mode {mode!r} is not supported (supported: {sorted(NEMO_MCQ_MODES)})")
+        p = {"kind": "mcq", "mode": NEMO_MCQ_MODES[mode]}
         if tm.get("answer_prefix"):
             p["prefix"] = tm["answer_prefix"]
     crit = row.get("criteria") or criteria or [{"id": "correct", "checker": "mcq" if options else "exact"}]
     rid = str(row.get("id") or row.get("uuid") or f"{index:06d}-{sha256_text(json.dumps(prompt, sort_keys=True, default=str))[:8]}")
-    return SingleTurnTask(id=f"{dataset}/{rid}@1", prompt=prompt, answer=answer, parser=ParserSpec.of(p), criteria=crit, options=options,
+    spec = ParserSpec.of(p)
+    return SingleTurnTask(id=f"{dataset}/{rid}@1", prompt=prompt, answer=answer, parser=spec, criteria=crit, options=options,
                           system=system, judges=dict(judges or {}), meta={k: v for k, v in (row.get("info") or row.get("metadata") or {}).items()
                                                                           if isinstance(v, str | int | float | bool)},
-                          world_id=f"single_turn/{dataset}")
+                          world_id=f"single_turn/{dataset}", control_answer=row.get("control_answer") or control_completion(spec, answer, options))
+
+
+def control_completion(parser: ParserSpec, answer: Any, options: dict[str, str] | None) -> str | None:
+    """M7 R2: the gold answer as a completion its parser reads: ``\\boxed{gold}`` (``boxed``, and the boxed multiple-choice
+    modes), ``Answer: <gold>`` (the answer-colon modes), None for a parser with no such form (``full`` grades the gold as
+    it is, ``control_text``; ``regex`` and the rest have no general form)."""
+    if isinstance(answer, bool) or not isinstance(answer, str | int | float):
+        return None
+    gold = str(answer).strip()
+    if parser.kind == "boxed":
+        return f"\\boxed{{{gold}}}"
+    if parser.kind == "answer_colon" and not parser.prefix:
+        return f"Answer: {gold}"
+    if parser.kind == "mcq" and options and gold.upper() in {k.upper() for k in options}:
+        return f"\\boxed{{{gold.upper()}}}" if parser.mode in ("strict_boxed", "lenient_boxed") else f"Answer: {gold.upper()}"
+    return None
 
 
 def _options(opts: Any) -> dict[str, str] | None:

@@ -136,7 +136,7 @@ class APTask:
 
         return [CheckSpec(id="controls/no_stopped_invoice_approved", gate="controls", gate_kind="gate", kind="invariant", app="erp", states=["controls"],
                           provenance="kb:ap_policy.md#rules-1-6"),
-                CheckSpec(id="outcome/invoices_decided_as_ap3", gate="outcome", gate_kind="gate", kind="predicate", app="erp", states=["decide"],
+                CheckSpec(id="outcome/invoices_decided_as_ap3", gate="outcome", gate_kind="outcome", kind="predicate", app="erp", states=["decide"],
                           provenance="kb:ap_policy.md#rules-1-7")]
 
     @property

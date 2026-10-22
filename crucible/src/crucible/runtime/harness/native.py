@@ -883,8 +883,10 @@ class NativeHarness:
                                                    work_attempt=work_attempt) if self.checkpoint_every else None
                     ep = await run_episode(world, probed(policies, side, world), limits=self.limits, observers=observers, reset=resume is None, start_steps=start,
                                            after_step=ckpt, sample_key=attempt.id)  # per-attempt cache key: k samples never replay one completion
-                if observers:
-                    res.grade["progress"] = ep.observed[0]
+                if observers:  # M7 R7: a tracker that raised leaves the episode graded, its progress unavailable
+                    from crucible.verify.progress import observed_progress
+
+                    res.grade["progress"] = observed_progress(ep.observed[0], attempt.dir / "progress.jsonl")
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
             from crucible.credit.hack_detector import rule_flags

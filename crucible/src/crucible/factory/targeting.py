@@ -491,6 +491,29 @@ class KeepRule:
     min_labels: int = 3  # fewer labelled failures: the intent share is unmeasured (never a pass)
 
 
+def band_power(passes: int, n: int, *, split: str, rule: KeepRule | None = None, n_max: int = 64) -> dict[str, Any]:
+    """Is the keep rule's band decision settled by ``n`` attempts (the S15 analogue of a benchmark's MDE gate,
+    ``bench.power``)? ``crosses``: the band edges the split's rule compares with (training ``train_lo`` / ``train_hi``,
+    held out ``bench_hi``) that lie strictly inside the Wilson 95% interval of the pass rate; ``decided`` when none does.
+    ``n_needed``: the attempts at the same pass rate after which the interval clears them (``n`` when decided; None
+    beyond ``n_max``, e.g. a pass rate on an edge). Reported beside the verdict, never a gate."""
+    r = rule or KeepRule()
+    if n <= 0:
+        return {"decided": False, "crosses": [], "n": 0, "n_needed": None, "ci": None}
+    edges = [r.bench_hi] if split == "heldout" else [r.train_lo, r.train_hi]
+    lo, hi = wilson(passes, n)
+    crosses = [e for e in edges if lo < e < hi]
+    p = passes / n
+    need: int | None = n if not crosses else None
+    if crosses:
+        for m in range(n + 1, n_max + 1):
+            lo_m, hi_m = wilson(round(p * m), m)
+            if not any(lo_m < e < hi_m for e in crosses):
+                need = m
+                break
+    return {"decided": not crosses, "crosses": crosses, "n": n, "n_needed": need, "ci": [round(lo, 4), round(hi, 4)]}
+
+
 def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: int, frontier: Mapping[str, Sequence[bool]] | None,
                  rule: KeepRule | None = None, world_issue: str | None = None, spec_issue: str | None = None) -> dict[str, Any]:
     """The keep rule on one task's measured evidence (``KeepRule``). ``passes`` of ``n`` unmasked student attempts;
@@ -524,7 +547,7 @@ def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: i
     in_bench = p < r.bench_hi - 1e-9
     base = {"pass_rate": round(p, 4), "passes": passes, "n": n, "ci": [round(lo, 4), round(hi, 4)], "on_intent": on_intent, "labelled": labelled,
             "intent_share": None if share is None else round(share, 4), "intent_ok": intent_ok, "fair": fair, "frontier": fr, "split": split,
-            "rule": asdict(r), "flags": flags}
+            "rule": asdict(r), "flags": flags, "power": band_power(passes, n, split=split, rule=r)}
     if world_issue:
         return {**base, "verdict": "world_bug", "keep": False, "why": f"open World defect (owner World): {world_issue}"}
     if spec_issue:

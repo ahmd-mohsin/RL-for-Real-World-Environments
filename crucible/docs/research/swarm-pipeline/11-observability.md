@@ -55,6 +55,11 @@ table with their links, `train/steps`, and the artifacts: `train-run-*` (config,
 versions, state, summary, rewards; the `tinker://` sampler and state paths in the metadata, since W&B cannot fetch
 them) and `adapter-*` (alias `latest`).
 
+**Quarantine** (`train.quarantine`, 09 §5): `quarantine/active` (tasks not sampled this step) and `quarantine/events`
+on every step's row, the table `records/quarantine` (one row per event: `quarantined`, `probation`, `released`,
+`requarantined`, `all_quarantined`, with the task, the step, the reason and the release step), and
+`quarantine.jsonl` in the `train-run` artifact.
+
 ## 3. Benchmark reports (`crucible-bench`)
 
 Per arm (`observe.bench.log_benchmark`, called by `factory.tinker.benchmark`): every number of the metrics block as
@@ -76,6 +81,11 @@ Per comparison (`log_compare`, called by `factory.tinker.compare`):
 - `compare/paired/*` scalars (mean difference, sd, MDE measured and assumed, significant, n tasks), `paired_ci_lo/hi`,
   `compare/paired_per_task`;
 - `compare/protocol` (the `check_protocol` problems, or `none`) and `compare/protocol_ok`;
+- **power** (`bench.power`, 09 §6 item 5): `compare/power/*` scalars (MDE, target, N, k, `powered`, `preregistered`, and
+  per metric the MDE, the A/A-only MDE, σ̄², the A/A difference and the tasks needed), the `compare/power` table, the tag
+  `power:powered|underpowered`, the summary's `headline` and `power_headline`; an `underpowered` stamp leads the
+  `compare/headline` subtitle. Per arm: `bench/power/<metric>/*`, the `bench/power` table, the tag and the summary's
+  `power`. `compare/paired/p_better` is P(trained > control) from the task-clustered bootstrap;
 - `compare/per_task_<arm>` tables and `compare/per_task_chart`; `compare/pass_at_k`, `compare/pass_hat_k` per arm;
   `compare/usd_per_passing_episode`; `compare/by_{language,family,skill}` tables and charts per arm;
 - the artifact `compare-report-*` with `compare.json` and `report_template.json`.

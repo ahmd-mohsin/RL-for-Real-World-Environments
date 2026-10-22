@@ -22,7 +22,6 @@ Protocol:
 from __future__ import annotations
 
 import re
-import uuid
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, ContextOverflow, LLMClient, LLMError
@@ -139,7 +138,7 @@ class BashLoopPolicy(Policy):
             if len(blocks) == 1 and blocks[0].strip():
                 self.format_errors = 0
                 cmd = blocks[0].strip()
-                self._last_call = f"bash-{uuid.uuid4().hex[:10]}"
+                self._last_call = f"bash-{len(self.model_calls)}"  # one per model call: unique in the episode, the same on a replay (M2 R-6)
                 call["actions"] = [f"tool:{self._last_call}"]
                 args: dict[str, Any] = {"command": cmd}
                 if self.timeout_s:

@@ -46,6 +46,9 @@ from crucible.verify.runtime.trusted import InfraError
 TASK = "task04_pcl_gpu_cuda12"
 CUDA = "/usr/local/cuda"
 GATES = ["static", "build", "binary", "consumers", "kinfu", "people", "ncv", "concurrency", "fresh", "sanitizer", "perf"]
+# M7 R6: the instruction's prohibitions (no texture/surface references, sm_120 device code only) are hard gates; the build,
+# the differential and incident checks and perf are outcomes (perf a score in record mode)
+KINDS = {x: "gate" if x in ("static", "binary") else "outcome" for x in GATES}
 CMAKE_FLAGS = [
     "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DWITH_CUDA=ON", "-DBUILD_GPU=ON", "-DCUDA_ARCH_BIN=120",
     "-DBUILD_apps=OFF", "-DBUILD_examples=OFF", "-DBUILD_tools=OFF", "-DBUILD_global_tests=OFF", "-DWITH_OPENNI=OFF",
@@ -534,6 +537,8 @@ def plan(ctx: Context) -> Plan:
         Check("sanitizer", "sanitizer", g.sanitizer, requires=("consumers",), provenance="incident:B.4 memcheck exact allocation", cost="expensive"),
         Check("perf", "perf", g.perf, requires=correctness, provenance="calibration:B.1 v3 speedup bars", cost="expensive"),
     ]
-    kinds = {"perf": "score"} if ctx.params.get("perf_mode") == "record" else {}
-    return Plan(TASK if g.scope_name == "full" else f"{TASK}:{g.scope_name}", [Gate(x, kinds.get(x, "gate")) for x in gates], [c for c in checks if c.gate in gates],
+    kinds = dict(KINDS)
+    if ctx.params.get("perf_mode") == "record":
+        kinds["perf"] = "score"
+    return Plan(TASK if g.scope_name == "full" else f"{TASK}:{g.scope_name}", [Gate(x, kinds[x]) for x in gates], [c for c in checks if c.gate in gates],
                 setup=g.setup)

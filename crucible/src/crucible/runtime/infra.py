@@ -38,6 +38,9 @@ NORMALIZE = {
     # M10 lab audit R-3 item 2: a reward the grader could not turn into a number (a NaN or infinite reward file or kit mask,
     # named so by ``HarborDirTask.grade_patch``): answer-sensitive, decided by the task's control
     "non_finite_reward": ("verifier_error", "non_finite_reward"),
+    # M7 R5: a missing, empty, unparseable or ambiguous reward file in a separate verifier container, where the candidate's
+    # code runs beside the test with ``/logs/verifier`` writable (``HarborDirTask.grade_patch``): answer-sensitive
+    "reward_file_invalid": ("verifier_error", "reward_file_invalid"),
     # Harbor exception names
     "RewardFileNotFoundError": ("verifier_error", "RewardFileNotFoundError"), "RewardFileEmptyError": ("verifier_error", "RewardFileEmptyError"),
     "VerifierOutputParseError": ("verifier_error", "VerifierOutputParseError"), "VerifierTimeoutError": ("verifier_error", "VerifierTimeoutError"),

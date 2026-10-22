@@ -25,6 +25,8 @@ Commands (each writes JSON under ``--out``; every paid command takes ``--cap`` U
   under a burst).
 - ``openai-check --checkpoint tinker://...``: one chat completion through Tinker's OpenAI-compatible endpoint (beta).
 - ``download --path tinker://.../sampler_weights/...``: the LoRA adapter.
+- ``power --arms LABEL=DIR ... --n 10 --k 8 --json OUT``: offline, no key, $0. The A/A noise of existing arms' attempts,
+  the MDE of an n x k paired comparison and the tasks needed for MDE <= each ``--target`` (``bench.power.study``).
 
 The toy window is built from the unit-test fixtures (``tests/unit/test_m17_w_*``: a three-commit toy repository), with a
 World image that has Python, git and pytest (``--image``, default a refreshed window image); its containers are named
@@ -161,7 +163,7 @@ def cmd_train(args) -> None:
     cfg = TrainConfig(model=args.model, lora_rank=args.rank, group_size=args.group, groups_per_step=args.groups_per_step, steps=args.steps,
                       loss_fn=args.loss, learning_rate=args.lr, turn_eta=args.eta, max_staleness=args.max_staleness, async_groups=args.async_groups,
                       max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
-                      drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale)
+                      drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r)
     try:
         out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), **_envs_kw(args)))
     finally:
@@ -202,6 +204,33 @@ def cmd_compare(args) -> None:
     finally:
         cleanup_containers()
     write(_out(args) / "compare_report.json", out)
+
+
+def arm_rows(path: Path) -> list[dict]:
+    """An arm's episode rows: ``<path>/episodes.jsonl`` (a ``benchmark`` arm) or every ``<path>/*/episodes.jsonl`` (an S15
+    arm: one directory per task)."""
+    files = [path / "episodes.jsonl"] if (path / "episodes.jsonl").exists() else sorted(path.glob("*/episodes.jsonl"))
+    return [json.loads(x) for f in files for x in f.read_text().splitlines() if x.strip()]
+
+
+def cmd_power(args) -> None:
+    """The offline power study ($0, no key): A/A noise of existing arms, the MDE of an ``--n`` x ``--k`` comparison and the
+    tasks needed for MDE <= each ``--target`` (``bench.power.study``)."""
+    from crucible.bench.power import study
+
+    sets = {}
+    for spec in args.arms:
+        label, _, p = spec.partition("=")
+        sets[label if p else Path(spec).name] = arm_rows(Path(p or spec))
+    out = study(sets, n=args.n, k=args.k, targets=args.target)
+    out["inputs"] = {lab: {"path": (s.partition("=")[2] or s), "episodes": len(sets[lab])} for lab, s in zip(sets, args.arms, strict=True)}
+    write(Path(args.json), out)
+    for lab, per in out["sets"].items():
+        for m, blk in per.items():
+            nz = blk["noise"]
+            g = blk["gates"][f"target={args.target[0]:.2f}|bounded|tau=0.0"]
+            print(f"{lab:10} {m:6} tasks={nz['n_tasks']:3} k={nz['k']} mu_c={nz['control_mean']:.3f} sigma2={nz['sigma2']:.4f} "
+                  f"AA diff {nz['aa']['diff']:+.3f} (se {nz['aa']['se']:.3f}); {args.n}x{args.k}: MDE {g['mde']:.3f} (A/A only {g['mde_aa']:.3f}) {g['verdict']}")
 
 
 def _turn_stats(run_dir: Path) -> dict:
@@ -381,6 +410,8 @@ def main() -> None:
         p.add_argument("--targeting")
         p.add_argument("--no-band", action="store_true", help="skip the per-model band check (smoke runs only)")
         p.add_argument("--keep-flat", action="store_true", help="train zero-spread groups too")
+        p.add_argument("--quarantine-q", type=int, default=2, help="flat groups on this many consecutive steps quarantine a task (0: off)")
+        p.add_argument("--quarantine-r", type=int, default=3, help="steps a quarantined task is not sampled, then retried once")
         p.set_defaults(fn=fn)
     p = sub.add_parser("eval")
     common(p)
@@ -399,6 +430,14 @@ def main() -> None:
     p.add_argument("--baseline", help="metrics.json of the fresh baseline run")
     p.add_argument("--selection", help="metrics.json of the selection run")
     p.set_defaults(fn=cmd_compare)
+    p = sub.add_parser("power", help="offline A/A noise, MDE and the tasks needed (no key, $0)")
+    p.add_argument("--arms", nargs="+", required=True, help="LABEL=DIR: an arm dir with episodes.jsonl, or a dir of <task>/episodes.jsonl")
+    p.add_argument("--n", type=int, default=10)
+    p.add_argument("--k", type=int, default=8)
+    p.add_argument("--target", type=float, nargs="+", default=[0.20, 0.15])
+    p.add_argument("--json", required=True)
+    p.add_argument("--env-file", default=str(ROOT.parent / ".env"))
+    p.set_defaults(fn=cmd_power)
     p = sub.add_parser("smoke-tools")
     common(p, cap=0.25)
     p.add_argument("--train-step", action="store_true")

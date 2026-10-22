@@ -74,7 +74,10 @@ epilogue names the language's plumbing (`epilogue_for`).
 8. **Gates** (`Debug.gates` = `base.deterministic_gates` in the profile's scope): S6, S5, S8, S3 (60 reruns), S10 (30 + 30
    oracle grades).
 9. **Prompts** (`author_debug`): the builder's bug report `prompts/<id>.json` through the window lane's lint, `lint_debug`
-   (faulty function names, hidden test names, versions) and the two-way ledger; provenance recorded.
+   (faulty function names, hidden test names, versions) and the two-way ledger; provenance recorded. An optional
+   `repro` per requirement is linted (`debug_repro.lint_repro`) and shown in the prompt (§6.2).
+10. **S7r** (`debug_repro.s7r`, `lh_debug.py repro`): each requirement's reproduction runs in the task World at A' (it
+    must show the bug) and at the oracle B (it must pass); a missing repro is `unverified`, never a failure (§6.2).
 
 ## 4. Sources and sealing
 
@@ -390,3 +393,32 @@ Held-out findings stay sealed.
 then re-measure; carbon-a783fb3a is too easy. Verifier: `go mod tidy` in a scratch module. traceaudit: the shell
 `not found` fact. Limits: black and mvdan-sh still bind at 300 for the student (27 of 36 still gaining). Remaining at
 300: black-ec71b918, pulldown-cmark, urfave-cli, h3 (in its fixed World).
+
+### 6.2 Easing support: calibration in the brief, reproductions per requirement (S7r) (2026-10-21, $0)
+
+Two builder aids for the easing round (handoff §5), patterns from rl-env-use (MIT; `tasks.py` 185-208, `scout.py`
+102-193). No model call; S7r needs Docker.
+
+**Calibration in the brief** (`factory/calibration.py`, `generators.debug.builder_calibration`, printed first by
+`lh_debug.py brief <id>`; `--targeting` names the S15 reports, default `data/targeting/debug` then `debug-300`, the later
+run overriding). For the target student: up to 3 measured training tasks per level (too easy, in band, too hard,
+unfair, by the keep rule; World and spec defects are not difficulty and are left out), each with pass k/n, mean Φ,
+per-milestone pass rates, budget stops, frontier passes, the verdict and the main failure modes, at the tool limit it
+was measured under; this window's own numbers when it is a measured training task; the knobs K1-K6 and the "never"
+list. **Held-out tasks never enter a brief**: a record is used only when its `split`, `lanes.windows.split_of` of its
+repository and the eval lease all say training; the rendered text is checked against every held-out id
+(`HeldOutLeak`); a held-out window's brief gets no calibration block (it is eased only for defects).
+
+**Reproductions, gate S7r** (`generators/debug_repro.py`; easing knob K4). A prompt may add
+`"repro": {"m01": {"command": "...", "expect": {"exit": 0, "contains": ["..."], "equals": "..."}, "timeout_s": 120}}`.
+The command runs through the World's shell in the repository root and may write scratch files under `/tmp/` only (a
+heredoc); `expect` is what a correct build shows. `author` lints each repro with the prompt's leak rules (no changed
+function, hidden test name, test name of any language, version, commit or link; paths only under `/tmp/`), plus no
+hidden test file's path and no line of 32+ characters copied from the lines the fixes added to the hidden tests, and
+renders a "How to reproduce" block after the requirements (the agent sees it; a prompt without `repro` is
+byte-identical to before). `lh_debug.py repro [--ids]` runs each repro in a World at A' (it must not pass: it shows the
+bug) and in a World at B (A' with the oracle's source files written; it must pass). Per requirement: `verified`,
+`no_bug_at_start`, `fails_at_oracle`, `unmeasured` (the World or its shell failed), `unverified` (no repro). The window
+is `failed` if a present repro failed, else `unmeasured`, `verified`, `partial` or `unverified`; only `failed` is a
+failure. Results: `data/debug/repro/<id>.json` (with the prompt's sha256), the funnel row `S7r`, and `repro_status` in
+`authored/<id>.json` (kept by a later `author` while the prompt is unchanged).

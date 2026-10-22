@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from crucible.actors.llm import LLMError, LLMResponse
+from crucible.actors.llm import ContextOverflow, LLMError, LLMResponse
 from crucible.train.chat import ChatCodec
 from crucible.train.engine import GenResult
 
@@ -214,6 +214,10 @@ class EngineLLM:
             raise EngineCallError(f"engine aborted the call after {len(res.completion_ids)} tokens", failure_kind="provider_unavailable")
         res = cut_at_stop(res, self.codec.eos_ids)
         self.spend.calls += 1
+        if res.finish == "length" and not res.completion_ids:
+            # the prompt left no room: an engine refusal (``VLLMServerEngine`` turns vLLM's 400 into this) or a full window.
+            # It was an empty reply, nudged twice and then labelled agent_done, untruncated (M2 R-1, probe tb02)
+            raise ContextOverflow(f"{self.model}: finish=length with 0 completion tokens ({len(prompt)} prompt tokens, max_tokens {max_tokens})")
         comp = list(res.completion_ids)
         tail = comp if (comp and comp[-1] in self.codec.eos_ids) else comp + list(self.codec.eos_ids[:1])
         text, calls = self.codec.parse(comp)
@@ -325,6 +329,11 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
             if rep.infra.get("status") == "masked":
                 return None
             reward = rep.reward
+            progress = None
+            if tracker is not None:  # M7 R7: a tracker that raised leaves the episode graded, its progress unavailable
+                from crucible.verify.progress import observed_progress
+
+                progress = observed_progress(ep.observed[observers.index(tracker)], prog)
             pen = limit_policy.penalty(ep.stop_condition) if limit_policy is not None else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty
                 reward = pen
@@ -336,7 +345,7 @@ def world_rollout(task_for: Callable[[str], Any], codec: ChatCodec, *, max_steps
                             outcome="completed", reward=reward, attempt=f"{rid}-a1",
                             meta={"harness": harness, "stop": ep.stop_condition, "truncated": truncated, "gates": rep.gate_bits(),
                                   "gate_kinds": rep.gate_kinds(),
-                                  **({"progress": ep.observed[observers.index(tracker)]} if tracker is not None else {})})
+                                  **({"progress": progress} if progress is not None else {})})
             segs = {a: list(p.segments) for a, p in pols.items() if getattr(p, "segments", None)}
             ro = build(rec, calls=ep.model_calls, segments=segs or None, sampling={"temperature": temperature},
                        progress=prog if tracker is not None and prog.exists() else None)

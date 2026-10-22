@@ -16,6 +16,7 @@ from crucible.core.schema.actions import ToolCall
 from crucible.core.store import Store
 from crucible.runtime.harness.native import PolicyRef
 from crucible.runtime.identity import code_ref, seed_digest, tree_digest
+from crucible.verify.patchio import write_patch
 from crucible.verify.runtime.plan import Context, GradeReport
 from crucible.verify.runtime.trusted import Trusted
 from crucible.world.world import World
@@ -255,14 +256,14 @@ class FibTask:
             subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
             if not patch.strip():
                 return Verdict(False, {"error": "empty patch"})
-            (gdir / "p.patch").write_text(patch)
+            write_patch(gdir / "p.patch", patch)
             ap = subprocess.run(["git", "apply", str(gdir / "p.patch")], cwd=repo, capture_output=True, text=True, check=False)
             if ap.returncode:
                 return Verdict(False, {"error": "patch does not apply", "log": ap.stderr[-300:]})
             r = subprocess.run(["python3", "fib.py"], cwd=repo, capture_output=True, text=True, timeout=30, check=False)
             return Verdict(r.stdout.split() == ["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], {"stdout": r.stdout[-200:]})
 
-        return await Plan(self.id, [Gate("output")], [Check("output", "output", output)]).arun(Context(Trusted(gdir / "grade")))
+        return await Plan(self.id, [Gate("output", "outcome")], [Check("output", "output", output)]).arun(Context(Trusted(gdir / "grade")))
 
     async def grade_control(self, workdir: Path) -> GradeReport:
         """M10 lab audit R-3: the task's control, the oracle patch graded by the same ``grade_patch`` (a grader that
@@ -357,7 +358,7 @@ class FibWorldTask:
             r = subprocess.run(["python3", "fib.py"], cwd=root, capture_output=True, text=True, timeout=30, check=False)
             return Verdict(r.stdout.split() == ["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], {"stdout": r.stdout[-200:]})
 
-        return await Plan(self.id, [Gate("output")], [Check("output", "output", output)]).arun(Context(Trusted(Path(workdir) / "grade")))
+        return await Plan(self.id, [Gate("output", "outcome")], [Check("output", "output", output)]).arun(Context(Trusted(Path(workdir) / "grade")))
 
 
 WORDS = ["amber", "basil", "cedar", "delta", "ember", "fjord", "glade", "harbor", "indigo", "juniper", "kestrel", "lumen", "meadow", "nectar",
@@ -406,4 +407,4 @@ class WordFileTask:
             got = path.read_text() if path.exists() else None
             return Verdict(got is not None and got.strip() == self.word, {"got": (got or "")[:100]})
 
-        return await Plan(self.id, [Gate("outcome")], [Check("file", "outcome", content)]).arun(Context(Trusted(Path(workdir))))
+        return await Plan(self.id, [Gate("outcome", "outcome")], [Check("file", "outcome", content)]).arun(Context(Trusted(Path(workdir))))

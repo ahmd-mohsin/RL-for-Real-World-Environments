@@ -29,9 +29,11 @@ import itertools
 import json
 import math
 import multiprocessing as mp
+import os
 import re
 import sys
 import unicodedata
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -144,7 +146,11 @@ _NONE = object()
 _CHOICE = re.compile(r"(?<![A-Za-z])([A-Za-z])(?![A-Za-z])")
 _BOXED_LETTER_ONLY = re.compile(r"^[^A-Za-z]*([A-Z])[^A-Za-z]*$")
 _BOXED_LETTER_LABEL = re.compile(r"^\s*([A-Z])\s*[:).\-]")
-_LEADING_LETTER = re.compile(r"^([a-zA-Z])\s*[).:\]-]")  # "B)", "B.", "B:" -- not "A good choice is C" (M7 audit V19)
+# M7 R2: a leading letter followed by anything but a letter or digit is the answer (NeMo-Gym ``^([a-zA-Z])(?![a-zA-Z0-9])``):
+# "B)", "B.", "B, because A is wrong", "B (A is a distractor)", "B I am sure"; except an article "A" / "I" followed by a
+# lowercase word ("A good choice is C", "I think B", M7 audit V19), read by the rules after it
+_LEADING_LETTER = re.compile(r"^([a-zA-Z])(?![a-zA-Z0-9])")
+_ARTICLE = re.compile(r"^[AI]\s+[a-z]")
 _LAST_LETTER = re.compile(r"\b[A-Z]\b(?!.*\b[A-Z]\b)", re.DOTALL)
 _LIST_SEP = re.compile(r"(?:\s*[/|&,;]\s*|\s+(?:or|and)\s+|\s+)", re.IGNORECASE)
 _FOLD = str.maketrans({"أ": " A", "ب": " B", "ج": " C", "د": " D", "অ": " A", "ব": " B", "ড": " C", "ঢ": " D"})
@@ -170,7 +176,7 @@ def choice_letter(payload: str, letters: set[str]) -> str | None:
         return None
     if len(cand) == 1:
         letter = cand
-    elif m := _LEADING_LETTER.match(cand):
+    elif (m := _LEADING_LETTER.match(cand)) and not _ARTICLE.match(cand):
         letter = m.group(1)
     else:
         m2 = _LAST_LETTER.search(cand)
@@ -225,14 +231,15 @@ def mcq_letter(text: str, options: dict[str, str], mode: str = "strict_boxed", p
 class ParserSpec:
     """How to read the answer. ``kind``: ``full`` (the whole text), ``boxed``, ``answer_colon``, ``xml`` (``tag``),
     ``code`` (``lang``), ``json``, ``mcq`` (``mode``, options from the task), ``regex`` (``pattern``, last match,
-    group 1 if any), ``last_line``. ``think``: ``strip`` (read after the last ``</think>``; an unclosed one is no
+    group 1 if any; a list of patterns is tried in turn and the first that captures a non-empty answer wins, NeMo-Gym
+    ``mcqa``; with options, a captured option text is its letter), ``last_line``. ``think``: ``strip`` (read after the last ``</think>``; an unclosed one is no
     answer), ``keep``. ``fallback_full``: a missing marker yields the whole text (verifiers' non-strict boxed)."""
 
     kind: str = "full"
     think: str = "strip"
     tag: str = "answer"
     lang: str | None = None
-    pattern: str | None = None
+    pattern: str | tuple[str, ...] | None = None  # a list is kept as a tuple (the spec is frozen and hashable)
     mode: str = "strict_boxed"
     prefix: str | None = None
     fallback_full: bool = False
@@ -244,10 +251,16 @@ class ParserSpec:
             raise ValueError(f"unknown parser kind {self.kind!r} (known: {self.KINDS})")
         if self.think not in ("strip", "keep"):
             raise ValueError("think must be 'strip' or 'keep'")
+        if isinstance(self.pattern, list):
+            object.__setattr__(self, "pattern", tuple(self.pattern))
         if self.kind == "regex":
             if not self.pattern:
                 raise ValueError("regex parser needs a pattern")
-            re.compile(self.pattern)
+            for p in self.patterns():
+                re.compile(p)
+
+    def patterns(self) -> list[str]:
+        return [self.pattern] if isinstance(self.pattern, str) else list(self.pattern or [])
 
     @classmethod
     def of(cls, v: ParserSpec | dict | str | None) -> ParserSpec:
@@ -284,8 +297,15 @@ class ParserSpec:
         elif self.kind == "mcq":
             return mcq_letter(body, options or {}, self.mode, self.prefix)
         elif self.kind == "regex":
-            hits = list(re.finditer(self.pattern or "", body, re.IGNORECASE | re.DOTALL))
-            got = (hits[-1].group(1) if hits[-1].groups() else hits[-1].group(0)) if hits else None
+            got = None
+            for pat in self.patterns():
+                hits = list(re.finditer(pat, body, re.IGNORECASE | re.DOTALL))
+                got = (hits[-1].group(1) if hits[-1].groups() else hits[-1].group(0)) if hits else None
+                if got is not None and got.strip():
+                    break
+            if got is not None and options and got.strip().upper() not in {k.upper() for k in options}:
+                hit = [k.upper() for k, v in options.items() if v and _norm_space(v) == _norm_space(got)]
+                got = hit[0] if len(hit) == 1 else got
         else:  # last_line
             lines = [ln for ln in body.strip().splitlines() if ln.strip()]
             got = lines[-1].strip() if lines else None
@@ -312,25 +332,76 @@ def _strip_math_delims(s: str) -> str:
 
 
 _NUM = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
+_INT = re.compile(r"^[+-]?\d+$")
+# M7 R2: a comma is a thousands separator only in a grouped string ("1,234", "-12,345.5"); "1,2" or "2,16" is a list or a
+# decimal comma, not a number (it read as 12 / 216: rLLM ``math_utils/utils.py`` keeps only grouped thousands)
+_THOUSANDS = re.compile(r"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")
+
+
+def _number_text(s: Any) -> str | None:
+    """The text of a number as ``to_number`` reads it (delimiters, grouped thousands, ``\\%``, a trailing period), or None
+    when a comma makes it not a number."""
+    t = _strip_math_delims(str(s)).replace("\\%", "%").strip().rstrip(".")
+    if "," in t:
+        core = t.rstrip("%").strip()
+        if not _THOUSANDS.match(core):
+            return None
+        t = t.replace(",", "")
+    return t
 
 
 def to_number(s: Any) -> float | None:
+    """A finite float, or None (not a number; an integer too large for a float, which scored as infinity and matched any
+    other: M7 R2)."""
     if isinstance(s, bool):
         return None
-    if isinstance(s, int | float):
-        return float(s)
-    t = _strip_math_delims(str(s)).replace(",", "").replace("\\%", "%").strip().rstrip(".")
-    pct = t.endswith("%")
-    t = t.rstrip("%").strip()
-    if m := re.fullmatch(r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}", t):
-        a, b = to_number(m.group(1)), to_number(m.group(2))
-        return a / b if a is not None and b not in (None, 0) else None
-    if m := re.fullmatch(r"([+-]?\d+)\s*/\s*(\d+)", t):
-        return int(m.group(1)) / int(m.group(2)) if int(m.group(2)) else None
-    if not _NUM.match(t):
+    try:
+        if isinstance(s, int | float):
+            v = float(s)
+            return v if math.isfinite(v) else None
+        t = _number_text(s)
+        if t is None:
+            return None
+        pct = t.endswith("%")
+        t = t.rstrip("%").strip()
+        if m := re.fullmatch(r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}", t):
+            a, b = to_number(m.group(1)), to_number(m.group(2))
+            return a / b if a is not None and b not in (None, 0) else None
+        if m := re.fullmatch(r"([+-]?\d+)\s*/\s*(\d+)", t):
+            v = int(m.group(1)) / int(m.group(2)) if int(m.group(2)) else None
+        elif not _NUM.match(t):
+            return None
+        else:
+            v = float(t)
+            v = v / 100 if pct else v
+    except (OverflowError, ValueError):  # an integer too large for a float, or for int() itself (Python's digit limit)
         return None
-    v = float(t)
-    return v / 100 if pct else v
+    return v if v is not None and math.isfinite(v) else None
+
+
+def to_integer(s: Any) -> int | None:
+    """An integer-valued answer as an exact int (no fraction, no exponent, no percent), else None."""
+    if isinstance(s, bool):
+        return None
+    if isinstance(s, int):
+        return s
+    t = _number_text(s)
+    if t is None or not _INT.match(t):
+        return None
+    try:
+        return int(t)
+    except ValueError:  # beyond Python's int-string digit limit
+        return None
+
+
+def numbers_equal(a: Any, b: Any, *, rel_tol: float = 1e-9, abs_tol: float = 1e-12) -> bool:
+    """M7 R2: two integers compare exactly ("1000000001" is not "1000000000", which a relative tolerance accepted; the
+    references all score it 0); a tolerance applies only when either side has a fraction or an exponent."""
+    x, y = to_integer(a), to_integer(b)
+    if x is not None and y is not None:
+        return x == y
+    p, q = to_number(a), to_number(b)
+    return p is not None and q is not None and math.isclose(p, q, rel_tol=rel_tol, abs_tol=abs_tol)
 
 
 def seq_match(answer: str, gold: str) -> float:
@@ -354,10 +425,29 @@ def math_verify_available() -> bool:
     return True
 
 
+_STARTED = "started"
+START_TIMEOUT_S = 120.0  # an interpreter that cannot start a child in this long is the node's problem (CheckerUnavailable)
+_SLOTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
+
+
+def _slots() -> asyncio.Semaphore:
+    """One check per CPU at a time, per event loop (NeMo-Gym ``math_with_judge``'s semaphore shape)."""
+    loop = asyncio.get_running_loop()
+    sem = _SLOTS.get(loop)
+    if sem is None:
+        sem = _SLOTS[loop] = asyncio.Semaphore(max(1, os.cpu_count() or 1))
+    return sem
+
+
 def _math_child(gold: str, pred: str, conn: Any) -> None:
     try:
         from math_verify import parse, verify
-
+    except ImportError as e:
+        conn.send(("unavailable", f"{type(e).__name__}: {e}"))
+        conn.close()
+        return
+    conn.send(_STARTED)  # the deadline starts now: the queue and the interpreter's start-up are not the answer's time
+    try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             g = parse(f"\\boxed{{{_strip_math_delims(gold)}}}", parsing_timeout=None)
             p = parse(f"\\boxed{{{pred}}}", parsing_timeout=None)
@@ -370,36 +460,56 @@ def _math_child(gold: str, pred: str, conn: Any) -> None:
 
 async def math_equal(pred: str, gold: str, *, timeout_s: float = 10.0) -> float:
     """Symbolic equivalence by math-verify in a child process with a deadline (NeMo-Gym ``math_with_judge``). Equal
-    numbers short-circuit without SymPy. A child that overruns is killed and the answer scores 0 (a pathological
-    expression is the policy's); math-verify missing raises ``CheckerUnavailable``."""
-    a, b = to_number(pred), to_number(gold)
-    if a is not None and b is not None and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12):
-        return 1.0
+    numbers short-circuit without SymPy (integers exactly, ``numbers_equal``). A child that overruns is killed and the
+    answer scores 0 (a pathological expression is the policy's).
+
+    M7 R2: math-verify missing raises ``CheckerUnavailable`` before any comparison (the numeric short-circuit let a task's
+    control pass while its answers masked; a ``math`` criterion is refused at load without it). At most one check per
+    CPU runs at a time, and the deadline starts when the child reports it has started (on macOS, 256 concurrent spawns
+    charged the queue and the start-up to the answer: 30 of 256 correct answers scored). A child that dies without a
+    verdict is the checker's fault (``CheckerUnavailable``: graded again, then decided by the control), never a 0."""
     if not math_verify_available():
         raise CheckerUnavailable("math-verify is not installed (pip install 'crucible[answers]')")
+    if numbers_equal(pred, gold):
+        return 1.0
     ctx = mp.get_context("fork" if sys.platform.startswith("linux") else "spawn")  # fork in a threaded macOS process can crash
-    recv, send = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_math_child, args=(gold, pred, send), daemon=True)
-    proc.start()
-    send.close()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout_s
-    try:
-        while proc.is_alive() and loop.time() < deadline:
-            await asyncio.sleep(0.02)
-        if proc.is_alive():
-            proc.kill()
-            proc.join(1.0)
-            return 0.0
-        proc.join(0)
-        return float(recv.recv()) if recv.poll() else 0.0
-    except EOFError:
-        return 0.0
-    finally:
-        if proc.is_alive():
-            proc.kill()
-            proc.join(1.0)
-        recv.close()
+    async with _slots():
+        recv, send = ctx.Pipe(duplex=False)
+        proc = ctx.Process(target=_math_child, args=(gold, pred, send), daemon=True)
+        proc.start()
+        send.close()
+        loop = asyncio.get_running_loop()
+        began, deadline = loop.time(), None
+        try:
+            while True:
+                got: Any = _NONE
+                try:
+                    if recv.poll():
+                        got = recv.recv()
+                except (EOFError, OSError):
+                    raise CheckerUnavailable(f"the math-verify child exited without a verdict (exit code {proc.exitcode})") from None
+                if got == _STARTED:
+                    deadline = loop.time() + timeout_s
+                    continue
+                if isinstance(got, tuple):
+                    raise CheckerUnavailable(f"math-verify cannot be imported in the child: {got[1]}"[:300])
+                if isinstance(got, float):
+                    return got
+                if not proc.is_alive() and not recv.poll():
+                    raise CheckerUnavailable(f"the math-verify child exited without a verdict (exit code {proc.exitcode})")
+                now = loop.time()
+                if deadline is None and now - began > START_TIMEOUT_S:
+                    raise CheckerUnavailable(f"the math-verify child did not start within {START_TIMEOUT_S:g}s")
+                if deadline is not None and now >= deadline:
+                    proc.kill()
+                    proc.join(1.0)
+                    return 0.0
+                await asyncio.sleep(0.02)
+        finally:
+            if proc.is_alive():
+                proc.kill()
+                proc.join(1.0)
+            recv.close()
 
 
 Judge = Callable[[dict[str, Any]], Awaitable[float | bool | None]]
@@ -420,6 +530,7 @@ class CheckerSpec:
     timeout_s: float = 10.0
     judge: str | None = None
     threshold: float = 1.0
+    max_chars: int = 8192  # M7 R2: a longer answer scores 0 before a judge is called (NeMo-Gym's cap): its error was a mask
 
     KINDS = ("exact", "exact_raw", "numeric", "math", "mcq", "contains", "regex", "seq_match", "weighted_seq_match", "json_subset", "any_of", "judge")
 
@@ -447,8 +558,7 @@ class CheckerSpec:
         if k == "exact_raw":
             return float(str(answer) == str(gold))
         if k == "numeric":
-            a, b = to_number(answer), to_number(gold)
-            return float(a is not None and b is not None and math.isclose(a, b, rel_tol=self.rel_tol, abs_tol=self.abs_tol))
+            return float(numbers_equal(answer, gold, rel_tol=self.rel_tol, abs_tol=self.abs_tol))
         if k == "math":
             return await math_equal(str(answer), str(gold), timeout_s=self.timeout_s)
         if k == "mcq":
@@ -469,6 +579,8 @@ class CheckerSpec:
         judge = (judges or {}).get(self.judge or "")
         if judge is None:
             raise CheckerUnavailable(f"judge {self.judge!r} is not configured")
+        if len(str(answer)) > self.max_chars:
+            return 0.0
         try:
             v = await judge({**(row or {}), "answer": answer, "gold": gold})
         except Exception as e:
@@ -490,8 +602,7 @@ def _subset(gold: Any, got: Any) -> bool:
     if isinstance(gold, list):
         return isinstance(got, list) and len(gold) == len(got) and all(_subset(a, b) for a, b in zip(gold, got, strict=True))
     if isinstance(gold, float) or isinstance(got, float):
-        a, b = to_number(gold), to_number(got)
-        return a is not None and b is not None and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+        return numbers_equal(gold, got)
     return gold == got
 
 

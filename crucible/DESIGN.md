@@ -107,7 +107,7 @@ Eight more come from public post-mortems of RL environments and our own audits o
 - **P25 — One choke point.** Every tool call (the policy's, simulated people's, events') passes through `World._call_tool`: validation, ACL, deadline, crash containment, fault labels, output bounds. MiMo's anti-hack guard never ran on its own RL path because the RL agent called tools around it; a check that is not at the single choke point is a check that can be bypassed.
 - **P24 — Deep, non-saturating tasks.** A task should reward doing *better*, not only passing: perf bars, quality margins and multi-property strictness keep the reward informative after correctness saturates (Appendix B.1: correctness-only migrations were within frontier reach; perf and concurrency bars separated the models).
 - **P26 — Trust only channels the candidate cannot write.** In the verifier, candidate code runs unprivileged in its own processes and produces *artifacts*; a separate trusted process compares them with references the candidate could neither read nor write. Never evidence: an exit code, a summary line or JSON row on the candidate's stdout, a test binary its own build system produced, timing measured inside its process, a file under a path it can write, a consumer package it can shadow on `PYTHONPATH`. Found in our own seeds (2026-10-09 audit, Appendix B.10): task01's hidden suite was built by the candidate's CMake and judged by doctest's exit code (`DOCTEST_CONFIG_DISABLE` passes it), task03 trusted pytest's exit code (`os._exit(0)` under pytest passes it), task02 ran candidate code as root next to the benchmark it then re-ran. CI-as-a-tool results (exit code + `expect` regex) are feedback to the policy, never reward.
-- **P27 — Answer-key probes are recorded, never scored; an exposure masks.** Every tool call that probes git history, a package registry, a code host, grader files, root or other processes is tagged in the trace (`data.probes`, M3 `agent_events.py`), with whether it *ran* and whether its output actually *exposed* an answer source (a `git log --all` listing only `base` ran and exposed nothing). Probing is not punished: exploring history is ordinary work, and grading the process punishes valid alternatives (P12, P20). But an outcome reached after an exposure is not evidence: the World masks the episode (`crucible:answer_exposed`, an environment failure under P21) and imported runs lose their label (Repo2RLEnv: "every green score was contamination").
+- **P27 — Answer-key probes are recorded, never scored; an exposure masks.** Every tool call that probes git history, a package registry, a code host, grader files, root or other processes is tagged in the trace (`data.probes`, M3 `agent_events.py`), with whether it *ran* and whether its output actually *exposed* an answer source (a `git log --all` listing only `base` ran and exposed nothing). Probing is not punished: exploring history is ordinary work, and grading the process punishes valid alternatives (P12, P20). An exposure is output the call read from an answer source: naming a grader path (`ls /tests/`, a comment, a write) or reading back a file the policy wrote there is not one, so the policy cannot choose the mask (M7 R4). But an outcome reached after an exposure is not evidence: the World masks the episode (`crucible:answer_exposed`, an environment failure under P21) and imported runs lose their label (Repo2RLEnv: "every green score was contamination").
 - **P28 — Many agents, one World.** Swarms scale by peers sharing a workspace, not by a root that holds everyone's context (Prime Intellect, "On the nature of the swarm"). A World therefore drives any number of policy agents as peers: they coordinate through shared Apps (a git repo, an issue tracker, a mailbox) and direct messages under ACLs, with no orchestrator in the loop; persistent peers keep their memory in the `WorldRef`; and credit follows writes (every edit records what it wrote, so M4 grades a later signal to the agent, or sub-agent, that made the change). Communication is a cost the benchmark reports (§11.1).
 - **P29 — Depth over bars; an honest way out.** Tasks that a fixed bar grades saturate: once a policy clears "implement this feature", there is no more signal. Deep tasks are ones an expert could pour unbounded time into (the highest-rank elliptic curve: 28 in 2006, 29 in 2024, 30 and 31 in August 2026), and their graders reward doing *better*, measured against the best known result, with no ceiling (`verify/runtime/patterns/record.py`: normalized score, 1 = the best known, above 1 = a new record with a log tail). We often will not know how to solve them; that is fine as long as the outcome is checkable (P20). Some may not be solvable at all, so a task may allow an honest **abstention**: full credit on a task constructed infeasible, nothing on a feasible one, a small constant (below the training band's floor) on an open problem; on an infeasible task any claimed solution earns 0 (§7.5).
 
@@ -860,9 +860,19 @@ non-Claude model (difficulty ladder, cross-family roles):
   staleness drop, spread), datums under one credit rule (Dr.GRPO outcome advantage, honesty composed, M6 turn credit,
   one datum per TITO sequence), `importance_sampling` / `ppo` / `cispo`, sampler refresh per step, resume from Tinker state
   with its optimizer, a per-model task band required.
+- **Quarantine** (`train/quarantine.py`, backend-neutral; 2026-10-21, pattern from rl-env-use, MIT): a training task
+  whose groups are flat (one reward, no Φ spread) on 2 consecutive steps is not sampled for 3 steps, then retried with
+  one group; Φ spread without a pass is never quarantined; held-out tasks are refused; every event is logged
+  (`quarantine.jsonl`, W&B `records/quarantine`, `quarantine/active`).
 - **Benchmark**: lh_metrics plus pass@k, pass^k, task-clustered CIs and USD per passing episode; the protocol (selection
   run, fresh baseline on a new seed, base control beside the trained adapter at identical settings, paired difference
-  with its CI) checked by `check_protocol`.
+  with its CI and P(trained > control)) checked by `check_protocol`.
+- **Power** (`bench/power.py`, 09 §6.1; 2026-10-21, pattern from rl-env-use, MIT): A/A noise from each task's attempt
+  halves (even/odd and seeded random halvings), the MDE of a paired comparison of N tasks × k, 2.80 · SE with the trained
+  arm's variance bounded by μ_t(1 − μ_t), and a planner for N. Every arm and every comparison carries the stamp
+  (`powered` / `underpowered` against the targeted +0.20, pre-registered from the fresh baseline); it never blocks, and an
+  underpowered headline says so. On the S15 student arms: a 10-task × 8 benchmark has MDE 0.16 on pass@1 (0.09 on A/A
+  alone): powered for +0.20; +0.15 needs 11-13 tasks, and 15 / 25-27 if the effect varies by 0.2 across tasks.
 - **Equivalence**: on the P6 scripted solvers the Tinker datums carry, token for token, the slime path's per-token
   advantages, and the IS loss is equal.
 - **Two TITO defects found by the live smoke, fixed in shared code**: `EngineLLM` read a call's re-render flag after its
@@ -878,7 +888,8 @@ anywhere else; the layer sits below `workflow`, above `connectors | signals`, so
 - **Projects**: `crucible-factory` (funnels, targeting, intent and verifier cards, the trace audit, findings, spend),
   `crucible-train` (per-step reward, Φ, gates, pass rate, advantages, loss, KL and ratio, staleness, drops, tokens, USD vs
   cap, sampler version; through `TinkerTrainer(sinks=)`), `crucible-bench` (per arm and per comparison: the headline
-  pass@1 per arm with task-clustered CIs as an HTML chart, the paired trained − control difference, `check_protocol`,
+  pass@1 per arm with task-clustered CIs as an HTML chart, the paired trained − control difference, the power stamp
+  (`compare/power`, `bench/power`, tag `power:*`), `check_protocol`,
   pass@k / pass^k, cost per passing episode, per-language / family / skill); a W&B Report template.
 - **Traces**: episode → one call per model turn (prompt summary, output, tool calls, Φ after, milestones gained / lost,
   ΔΦ credit) → one call per tool (arguments, result); the trace audit's verdict (first wrong step, cause, quote) attaches
@@ -1109,8 +1120,20 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   takes `spec_issue` (verdict `spec_defect`, owner the builder). The node World's pnpm runs offline without its pre-run
   install (`node.PNPM_OFFLINE`, recipe `node-5`; h3's `pnpm test` hang). Committed summaries seal held-out issue text and
   verdict reasons.
+- **Easing support (`07` §6.2, 2026-10-21, $0; patterns from rl-env-use, MIT):** the builder's brief opens with a
+  calibration block (`factory/calibration.py`): measured training tasks too easy, in band, too hard and unfair for the
+  student, with pass rate, mean Φ, per-milestone rates and budget stops from the S15 records, plus the knobs K1-K6;
+  held-out records are refused by split, repository and lease, and the text is checked against every held-out id.
+  Gate S7r (`generators/debug_repro.py`, `lh_debug.py repro`): a prompt's optional `repro` per requirement (knob K4) is
+  linted with the leak rules (never a hidden test), shown to the agent, and executed in the task World, where it must
+  show the bug at A' and pass at the oracle; a missing repro is `unverified`, never a failure. The keep rule reports
+  whether its band decision is settled by the attempts run (`targeting.band_power`, a flag).
 
 ## 8. Layer 4: verification and isolation
+
+Every gate declares its kind (M7 R6): `gate`, a rule the instruction states (its failure zeroes the reward and the
+attempt's per-turn credit); `outcome`, a correctness, consumer, incident or perf check; `score`, a graded bar. There is no
+default; a graded report with an undeclared gate raises, naming it.
 
 ### 8.1 Patterns of hidden checks (coding)
 

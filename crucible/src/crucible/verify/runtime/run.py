@@ -30,7 +30,7 @@ BUNDLE = Path(__file__).resolve().parents[3]  # <bundle>/crucible/verify/runtime
 if str(BUNDLE) not in sys.path:
     sys.path.insert(0, str(BUNDLE))
 
-from crucible.verify.runtime.plan import Context, GradeReport, prewrite_zero, write_outputs
+from crucible.verify.runtime.plan import CheckResult, Context, GradeReport, prewrite_zero, write_outputs
 from crucible.verify.runtime.trusted import Trusted
 
 
@@ -98,8 +98,12 @@ def main(argv: list[str] | None = None) -> int:
         ctx = Context(t, candidate=cand, params=params, task_dir=Path(params["tests"]) if "tests" in params else None)
         if why is not None:
             p = mod.plan(ctx)
-            report = GradeReport(p.task, a.tier, [], {g.id: "skip" for g in p.gates}, 0.0, 0.0,
-                                 {"status": "ok", "failure_kind": None, "reason": None}, t.is_root, 0.0, meta={"candidate_error": why})
+            # the candidate's patch did not apply: its failure, as in ``Plan._candidate_setup_fail`` (M7 R6): every hard gate
+            # fails, the rest are skipped, and the kinds are declared, so the record says which rule failed
+            report = GradeReport(p.task, a.tier, [CheckResult(f"_apply:{g.id}", g.id, "fail", {"candidate_error": why}) for g in p.gates if g.kind == "gate"],
+                                 {g.id: ("fail" if g.kind == "gate" else "skip") for g in p.gates}, 0.0, 0.0,
+                                 {"status": "ok", "failure_kind": None, "reason": None}, t.is_root, 0.0,
+                                 meta={"candidate_error": why, "kinds": {g.id: g.kind for g in p.gates}})
         else:
             report = mod.plan(ctx).run(ctx, tier=a.tier, on_result=lambda r: print(f"[{r.status.upper()}] {r.gate}/{r.id} {r.seconds:.0f}s", flush=True))
     except Exception as ex:  # noqa: BLE001 -- never leave an empty reward

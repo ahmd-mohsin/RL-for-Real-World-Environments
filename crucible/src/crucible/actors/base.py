@@ -24,17 +24,22 @@ class ActorBase:
         self.history: list[dict[str, Any]] = []
         self.failures: list[dict[str, Any]] = []
         self.finished = False
+        # why this actor ended its part (its Done's reason), set by the World; saved so a restored World knows (M2 R-3)
+        self.finished_reason: str | None = None
 
     async def respond(self, turn: ActorTurn) -> list[Action]:  # pragma: no cover - abstract
         raise NotImplementedError
 
     def state_dict(self) -> dict[str, Any]:
-        return {"history": list(self.history), "failures": list(self.failures), "finished": self.finished}
+        # the reason only once set: the state of an actor still talking, and so every WorldRef fingerprint, is unchanged
+        return {"history": list(self.history), "failures": list(self.failures), "finished": self.finished,
+                **({"finished_reason": self.finished_reason} if self.finished_reason else {})}
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
         self.history = list(state.get("history", []))
         self.failures = list(state.get("failures", []))
         self.finished = bool(state.get("finished", False))
+        self.finished_reason = state.get("finished_reason")
 
     @property
     def failed(self) -> bool:

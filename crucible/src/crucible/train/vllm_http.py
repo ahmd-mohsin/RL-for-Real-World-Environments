@@ -107,8 +107,9 @@ class VLLMServerEngine:
             return done([], [], [], "abort")
         if r.status_code == 400 and any(k in r.text.lower() for k in ("maximum context length", "context length", "too long", "max_model_len",
                                                                           "maximum model length")):
-            # the prompt plus max_tokens exceeds the engine's model length: the episode ends truncated (a "length" finish
-            # with no tokens), as any over-long context does; found live: it crashed a backlog run's driver as an HTTP error
+            # the prompt plus max_tokens exceeds the engine's model length: a "length" finish with no tokens, which
+            # ``EngineLLM`` raises as ContextOverflow, so the policy's episode ends context_overflow, truncated (M2 R-1: it
+            # was read as an empty reply and ended agent_done); found live: it crashed a backlog run's driver as an HTTP error
             return done([], [], [], "length")
         if r.status_code >= 400:
             raise RuntimeError(f"vLLM {r.status_code} on /v1/completions: {r.text[:600]}")  # the server's reason, not just the status
