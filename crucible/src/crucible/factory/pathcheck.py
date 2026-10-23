@@ -574,7 +574,8 @@ def check_paths(rules: PathRules, *, patch: str, trail: Sequence[ToolCall] | Non
         excusable = h.scratch + (h.reinstall if rules.allow_declared_reinstall else [])
         unexcused = h.install + (h.reinstall if not rules.allow_declared_reinstall else [])
         if excusable and (manifests or not offline):
-            why = f"manifests changed: {manifests[:5]}" if manifests else "the World was not offline"
+            why = (f"manifests changed: {manifests[:5]}" if manifests else "a network fetch was attempted in the episode" if h.fetch
+                   else "network events in the World" if network_events else "the World was not offline")
             unexcused += [f"{x} ({why})" for x in excusable]
             excusable = []
         ev = unexcused[:20] if unexcused else [f"excused: {x}" for x in excusable[:20]]

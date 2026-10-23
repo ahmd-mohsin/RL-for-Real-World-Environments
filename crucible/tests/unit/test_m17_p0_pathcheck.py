@@ -201,6 +201,9 @@ def test_a_scratch_install_fails_when_the_project_manifests_change_or_the_world_
     assert rep.gates()["path:install"] == "fail" and "manifests changed" in ev[0]
     assert check_paths(PathRules(offline_world=False), patch="", trail=sh(cmd)).gates()["path:install"] == "fail"
     assert check_paths(PathRules(), patch="", trail=sh(cmd), network_events=["dns proxy.golang.org"]).gates()["path:install"] == "fail"
+    # the verdict says why the scratch exemption was lost (a refused clone in the trail is an attempted fetch, not an online World)
+    rep = check_paths(PathRules(), patch="", trail=sh("cd /tmp && git clone --depth 1 https://github.com/o/r x") + sh(cmd))
+    assert any("a network fetch was attempted" in e for e in next(c.evidence for c in rep.checks if c.id == "path:install"))
 
 
 def test_a_bare_reinstall_of_declared_dependencies_passes_only_where_the_task_allows_it() -> None:
