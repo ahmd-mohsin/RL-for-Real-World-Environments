@@ -5,12 +5,13 @@
     python scripts/lh_kernel_debug.py build                # groups -> A'..B' records (train: ggml-org/llama.cpp, held-out: ik_llama.cpp)
     python scripts/lh_kernel_debug.py gates [--ids ...]    # CPU gates in Docker (compile units, harness on the CPU, World, floors, mutants)
     python scripts/lh_kernel_debug.py author               # the builder's symptom reports (prompts/<id>.json): lint + ledger + intent
+    python scripts/lh_kernel_debug.py write-prompts        # the swarm writes those reports (factory.swarm_prompts; --cap USD)
     python scripts/lh_kernel_debug.py stage-gpu            # the persistent GPU bundle (data/kernel_debug/gpu_bundle)
     python scripts/lh_kernel_debug.py ingest-gpu           # the bundle's calibration and GPU gates back into the records
     python scripts/lh_kernel_debug.py report               # funnel per family, candidates, pending GPU gates
 
 Everything lives under ``data/kernel_debug`` (clones, derived clones with the synthetic refs, the record store, Docker
-build dirs, prompts, the GPU bundle). No model is called; no GPU is used. Containers are ``crucible-lh-k-*`` with at
+build dirs, prompts, the GPU bundle). Only ``write-prompts`` calls models (the swarm preset on Tinker, no Claude); no GPU is used. Containers are ``crucible-lh-k-*`` with at
 most two CPUs; images are ``crucible-lh-k:*``.
 """
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import shutil
 import sys
 import time
@@ -445,6 +447,65 @@ def cmd_author(a: argparse.Namespace) -> None:
         print(rec["id"], "lint", res["findings"] or "clean", flush=True)
 
 
+def kernel_brief(rec: dict[str, Any], *, chars: int = 3000) -> dict[str, Any]:
+    """The prompt writer's hand-off for one kernel record (``factory.swarm_prompts``): per milestone the fix's message, its
+    hunks of the oracle patch (to understand, never to quote), the ops and checks a user would observe; and the strings
+    ``kernel_debug.lint_prompt`` refuses (faulty functions and kernels, changed files, hidden case names)."""
+    import subprocess
+
+    from crucible.factory.lanes import kernel_debug as kd
+
+    clone = ROOT / "clones" / str(rec.get("source_clone") or "")
+    blocks = re.split(r"(?m)^(?=diff --git )", rec.get("oracle_patch") or "")
+    ms = []
+    for m in rec["milestones"]:
+        if m["id"] in set(rec.get("dropped_milestones") or []):
+            continue
+        msg = ""
+        if clone.exists() and m.get("fault"):
+            msg = subprocess.run(["git", "-C", str(clone), "log", "-1", "--format=%s%n%b", str(m["fault"])], capture_output=True, text=True, check=False).stdout[:800]
+        hunks = "".join(b for b in blocks if any(f in b.split("\n", 1)[0] for f in m.get("files") or []))
+        ms.append({"id": m["id"], "class": m.get("class"), "kind": m.get("kind"), "ops": m.get("ops"), "checks": m.get("checks"), "fix_message": msg,
+                   "source_diff": hunks[:chars], "requires": m.get("requires") or []})
+    return {"task": rec["id"], "lane": "kernel_debug", "family": rec["family"], "repository": rec["repo"], "milestone_ids": [m["id"] for m in ms],
+            "milestones": ms, "forbidden_strings": sorted(kd.hidden_strings(rec))[:200],
+            "harness": "graded on a GPU: each requirement is checked by the repository's op test against the CPU reference, compute-sanitizer and timing"}
+
+
+def cmd_write_prompts(a: argparse.Namespace) -> None:
+    """The swarm writes the kernel symptom reports (``factory.swarm_prompts``; no Claude), one machine run per record
+    without a prompt (``--ids``, ``--redo``); ``kernel_debug.author`` (lint, ledger) is the gate, then ``author`` runs as
+    before. Training and held-out records have separate roots and journals (V9)."""
+    import asyncio
+    import copy
+
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    book = ModelBook(preset=a.preset)
+    spent = 0.0
+    for rec in kd.records(ROOT / "store"):
+        out = ROOT / "prompts" / f"{rec['id']}.json"
+        if (a.ids and rec["id"] not in a.ids) or (out.exists() and not a.redo) or rec.get("family") == "kernel-migration":
+            continue
+        if spent >= a.cap:
+            print(f"cap ${a.cap} reached (${spent:.4f}); stopping before {rec['id']}", flush=True)
+            return
+        builder = book.spec("prompt_author").ref
+
+        def lint(draft: dict, rec: dict = rec, builder: str = builder) -> list[str]:
+            return kd.author(copy.deepcopy(rec), {**draft, "builder": builder})["findings"]
+
+        brief = kernel_brief(rec)
+        sroot = ROOT / "swarm" / rec["split"]
+        job = PromptJob(rec["id"], brief["milestone_ids"], brief, ROOT / "store" / rec["tree_a"], lint, lambda t, rec=rec: kd.lint_prompt(t, rec), out)
+        res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=a.budget, max_turns=a.max_turns))
+        spent += res["usd"]
+        print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
+
+
 # ---- stage the GPU gates -------------------------------------------------------------------------------------------------------------------
 GPU_PENDING = ["S1_executed real-fix check (B passes, each single revert fails its milestone's cases)", "case calibration (milestone cases = cases each revert breaks)",
                "S6 executed edges (cases broken by two single reverts; prober A' + one fix)", "S5 oracle reward 1 on the GPU", "S8 floors 0 and mutants fail (GPU)",
@@ -636,6 +697,82 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         print(rec["id"], "milestones", [m["id"] for m in ms], "edges", [(m["id"], m["requires"]) for m in ms if m["requires"]], flush=True)
 
 
+# ---- hardware reachability and retirement ------------------------------------------------------------------------------------------
+GPU_OF = {"sm_90": ("GH200", "H100", "H200"), "sm_120": ("5090",)}  # a reach target -> the GPU names its results carry
+
+
+def cmd_reach(a: argparse.Namespace) -> None:
+    """Each stored record's faults through ``kernel_debug_reach`` (which of our GPUs compile and dispatch them, and why
+    not): ``rec["reach"][milestone]``, and milestones no GPU of ours can grade marked ``unmeasurable_on_our_gpus``."""
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.lanes import kernel_debug_mine as kdm
+    from crucible.factory.lanes import kernel_debug_ops as ko
+
+    store = ROOT / "store"
+    for rec in kd.records(store):
+        if a.ids and rec["id"] not in a.ids:
+            continue
+        repo, layout = ROOT / "clones" / rec["source_clone"], ko.Layout(**rec["layout"])
+        faults = {f["sha"]: f for f in rec["faults"]}
+        out = {}
+        for m in rec["milestones"]:
+            f = faults.get(m.get("fault") or "")
+            if f is None:
+                continue
+            r = kdm.reach_of(repo, sha=f["sha"], parent=f["parent"], subject=f["subject"], body=f["body"], kind=f["kind"], fault_class=f["fault_class"],
+                             files=f["files"], ops=m["ops"], adds_cases=f["adds_cases"], layout=layout)
+            out[m["id"]] = r.to_json()
+            if r.qualifies:
+                m.pop("unmeasurable_on_our_gpus", None)
+            else:
+                m["unmeasurable_on_our_gpus"] = "; ".join(r.reasons)
+        rec["reach"] = out
+        kd.save(store, rec)
+        q = sum(1 for v in out.values() if v["qualifies"])
+        print(f"{'ok ' if q >= 2 else 'REJ'} {rec['id']} {q}/{len(out)}", {k: v["reasons"] for k, v in out.items() if v["reasons"]}, flush=True)
+
+
+def gradable_milestones(rec: dict[str, Any]) -> tuple[set[str], bool]:
+    """Milestones some GPU of ours kept in its calibration and the reach filter qualifies, and whether every GPU the
+    record targets has run its gates (only then can a record be retired for having fewer than two)."""
+    reach = rec.get("reach") or {}
+    targets = {t for v in reach.values() for t in v.get("targets") or []} or set(GPU_OF)
+    gpus = (rec.get("gates") or {}).get("gpu") or {}
+    ran = {t for t in targets if any(any(n in name for n in GPU_OF[t]) for name in gpus)}
+    kept: set[str] = set()
+    for name, g in gpus.items():
+        spec = (rec.get("gpu_specs") or {}).get(name)
+        ids = [m["id"] for m in spec["milestones"]] if spec else ((g.get("calibration") or {}).get("kept_milestones") or [])
+        kept |= set(ids)
+    kept = {k for k in kept if (reach.get(k) or {"qualifies": True})["qualifies"]}
+    return kept, ran == targets
+
+
+def cmd_retire(a: argparse.Namespace) -> None:
+    """Retire records (``kernel_debug.retire``): ``--ids`` with ``--reason``, or ``--auto``: every record whose target
+    GPUs have all run their gates and that keeps fewer than two gradable milestones (``gradable_milestones``)."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    store = ROOT / "store"
+    for rec in kd.records(store):
+        if a.ids and rec["id"] in a.ids:
+            reason = a.reason
+        elif a.auto:
+            kept, all_ran = gradable_milestones(rec)
+            if not all_ran or len(kept) >= 2:
+                continue
+            reason = f"fewer than two milestones gradable on our GPUs (kept {sorted(kept)})"
+        else:
+            continue
+        if not reason:
+            raise SystemExit("--reason is required with --ids")
+        extra = {"work": ROOT / "work" / rec["id"], "gpu_bundle_task": ROOT / "gpu_bundle" / "tasks" / rec["id"],
+                 "prompt.json": ROOT / "prompts" / f"{rec['id']}.json"}
+        dest = kd.retire(store, rec, reason, extra=extra, at=now())
+        funnel().note("kernel_debug", rec["id"], "retired", False, reason, split=rec["split"])
+        print("retired", rec["id"], "->", dest, "|", reason, flush=True)
+
+
 # ---- report ------------------------------------------------------------------------------------------------------------------------------
 def migration_family(fam: dict[str, Any], rows: list[dict[str, Any]]) -> None:
     """The migration family's funnel and rows (``lh_kernel_debug_migrate.py``'s store)."""
@@ -773,6 +910,12 @@ def cmd_report(a: argparse.Namespace) -> None:
                      "cpu_structural_pass": bool(g.get("cpu_structural_pass")), "cpu_pending_host": g.get("cpu_pending_host"), "pools": g.get("pools"), "authored": bool(r.get("prompt")), "lint": (r.get("lint") or {}).get("findings"), "contamination": r.get("contamination"),
                      "cutoff": r.get("cutoff"), "fault_dates": sorted(v[:10] for v in (r.get("fault_dates") or {}).values()), "gpu_pending": GPU_PENDING})
     migration_family(fam, rows)
+    for x in kd.retired(ROOT / "store"):
+        f = fam.setdefault(f"{x['family']}:{x['split']}", {"mined_commits": 0, "real_changes": 0, "drop_reasons": collections.Counter()})
+        f["retired"] = f.get("retired", 0) + 1
+        rows.append({"id": x["id"], "family": x["family"], "split": x["split"], "repo": x.get("repo"), "status": kd.RETIRED, "retired_reason": x["reason"],
+                     "retired_at": x.get("at"), "gpu_pass": False, "gpu_failed_gate": kd.RETIRED, "gpu_why": x["reason"], "cpu_pass": False,
+                     "cpu_structural_pass": False, "authored": False})
     for f in fam.values():
         f["drop_reasons"] = dict(f["drop_reasons"])
         if "gpu_drops" in f:
@@ -850,10 +993,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--ids", nargs="*")
     s = sub.add_parser("observe")
     s.add_argument("--report", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
+    s = sub.add_parser("reach")
+    s.add_argument("--ids", nargs="*")
+    s = sub.add_parser("retire")
+    s.add_argument("--ids", nargs="*")
+    s.add_argument("--reason")
+    s.add_argument("--auto", action="store_true", help="retire records with fewer than two milestones gradable on our GPUs")
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
+    s = sub.add_parser("write-prompts", help="the swarm writes prompts/<id>.json (factory.swarm_prompts; no Claude)")
+    s.add_argument("--preset", default="swarm")
+    s.add_argument("--ids", nargs="*")
+    s.add_argument("--redo", action="store_true")
+    s.add_argument("--cap", type=float, default=10.0, help="USD over every record of this run")
+    s.add_argument("--budget", type=float, default=1.5, help="USD per record (the machine's budget)")
+    s.add_argument("--max-turns", type=int, default=60)
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe,
+     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts}[a.cmd](a)
     return 0
 
 

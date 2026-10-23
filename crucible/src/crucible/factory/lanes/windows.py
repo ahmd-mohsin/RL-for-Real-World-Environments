@@ -89,6 +89,7 @@ from crucible.factory.lanes.windows_timing import timing_tests
 from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
 from crucible.factory.langs.base import active as _lang
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
+from crucible.factory.pathcheck import RULES_VERSION as PATH_RULES_VERSION
 from crucible.factory.pathcheck import PathRules, RequiredAction, ToolCall, check_paths, find_trail
 
 LANE = "window"
@@ -1515,6 +1516,34 @@ class MilestoneMutant(Mutant):
 VERIFIER_RECIPE = "window-grader/p0"  # bump when the grading rule changes (path gates, import tolerance)
 
 
+def guard_tests(milestones: Sequence[Mapping[str, Any]], pre_applied: Sequence[str]) -> list[str]:
+    """A simplified start's guards: the pre-applied milestones' own tests. They pass at the new start, so they join the
+    pass-to-pass set (the regression check, ``c_regress``): undoing an earlier fix keeps Phi but loses the full pass."""
+    pre = set(pre_applied)
+    return sorted({t for m in milestones if m["id"] in pre for t in m["tests"]})
+
+
+def path_rules_of(window: Mapping[str, Any], base_dir: Path) -> PathRules:
+    """A window's path rules (``WindowTask.path_rules``): B's hidden test files protected, its required actions and step
+    budget, and the project's own names (installing one from an index fetches the oracle). ``factory.repath`` re-derives
+    them for a stored episode the same way."""
+    hidden = set(window.get("tests_b") or {}) | set(window.get("tests_deleted") or [])
+    own = {window["repo"], str((window.get("world") or {}).get("project") or ""), *(window.get("import_roots") or []),
+           *project_roots(base_dir, list(window.get("oracle_files") or {}))} - {"", "tests", "test", "testing", "docs", "doc"}
+    return PathRules(grader_paths=tuple(sorted(hidden)), required=tuple(RequiredAction(**r) for r in window.get("required_actions") or []),
+                     step_budget=window.get("step_budget"), project_names=tuple(sorted(own)))
+
+
+def path_reward(meta: Mapping[str, Any], pr: Any, phi_weight: float) -> dict[str, Any]:
+    """The episode reward once the path report ``pr`` is known (``WindowTask._apply_path``): 0 on a hack or an unapplied
+    patch, else ``phi_weight * Phi + (1 - phi_weight) * [end-state full pass and no path violation]``."""
+    end_full = bool(meta.get("end_state_full_pass", meta.get("full_pass")))
+    full = end_full and pr.ok
+    hack = pr.hack_suspect
+    reward = 0.0 if (hack or meta.get("apply_errors")) else round(phi_weight * float(meta.get("phi") or 0.0) + (1.0 - phi_weight) * float(full), 6)
+    return {"end_state_full_pass": end_full, "full_pass": full, "hack_suspect": hack, "outcome_reward": reward}
+
+
 class WindowTask(ExecTask):
     """One window under one prompt: ``ExecTask`` with the window's grader, milestones, Phi, mutants and World. It is a
     ``factory.longtask.LongTask`` (``check_longtask`` finds nothing missing): ``world``, ``prompt``, ``path_rules``,
@@ -1554,13 +1583,8 @@ class WindowTask(ExecTask):
         # tolerantly would let the start state pass tests that were fail-to-pass only through the import)
         self.import_tolerant = bool(self.window.get("import_tolerant")) if import_tolerant is None else bool(import_tolerant)
         self.grader_tests, self.guarded_imports = grader_tests({**self.window, "import_tolerant": self.import_tolerant}, self.base_dir)
-        hidden = set(self.window.get("tests_b") or {}) | set(self.window.get("tests_deleted") or [])
-        own = {self.window["repo"], str((self.window.get("world") or {}).get("project") or ""), *(self.window.get("import_roots") or []),
-               *project_roots(self.base_dir, list(self.window.get("oracle_files") or {}))} - {"", "tests", "test", "testing", "docs", "doc"}
-        self.path_rules = path_rules or PathRules(grader_paths=tuple(sorted(hidden)),
-                                                  required=tuple(RequiredAction(**r) for r in self.window.get("required_actions") or []),
-                                                  step_budget=self.window.get("step_budget"), project_names=tuple(sorted(own)))
-        self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True),
+        self.path_rules = path_rules or path_rules_of(self.window, self.base_dir)
+        self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True), PATH_RULES_VERSION,
                                             json.dumps(self.check_tests, sort_keys=True))[:16]
         self._oracle_patch: str | None = None
         # the policy's World only (the grader always runs ``window.world.image``): a seeded tooling fault (P4,
@@ -1680,10 +1704,8 @@ class WindowTask(ExecTask):
         pr = check_paths(self.path_rules, patch=patch if isinstance(patch, str) else "", entries=entries, trail=calls, trail_source=source,
                          network_events=network_events)
         m = rep.meta
-        end_full = bool(m["full_pass"])
-        full = end_full and pr.ok
-        hack = pr.hack_suspect
-        reward = 0.0 if (hack or m.get("apply_errors")) else round(self.phi_weight * m["phi"] + (1.0 - self.phi_weight) * float(full), 6)
+        pw = path_reward({"full_pass": m["full_pass"], "phi": m["phi"], "apply_errors": m.get("apply_errors")}, pr, self.phi_weight)
+        end_full, full, hack, reward = pw["end_state_full_pass"], pw["full_pass"], pw["hack_suspect"], pw["outcome_reward"]
         for gid, st in pr.gates().items():
             rep.gates[gid] = st
             m["kinds"][gid] = "gate"
@@ -1845,11 +1867,12 @@ class WindowTask(ExecTask):
             return f.read_text(errors="replace") if f.is_file() else None
 
         rec = json.loads(json.dumps(self.window, default=str))
+        guards = guard_tests(self.milestones, pre_ms)
         rec.update(id=new_id, milestones=keep, oracle_files={p: t for p, t in self.window["oracle_files"].items() if now(p) != t},
                    mutants=[x for x in self.window.get("mutants") or [] if x.get("milestone") in keep_ids],
-                   dependency_edges=sum(len(m["requires"]) for m in keep),
+                   dependency_edges=sum(len(m["requires"]) for m in keep), p2p=sorted({*(rec.get("p2p") or []), *guards}),
                    simplified_from={"task": self.task_id, "window": self.mined.id, "kind": kind, "targets": targets, "pre_applied": pre_ms,
-                                    "units": sorted(pre_units), "mode": mode})
+                                    "units": sorted(pre_units), "mode": mode, "guards": guards})
         reqs = [dict(r) for r in self.requirements if r.get("milestone") is None or r.get("milestone") in keep_ids]
         dropped = [r["id"] for r in self.requirements if r.get("milestone") and r.get("milestone") not in keep_ids]
         prompt = "".join(ln for ln in self.instruction.splitlines(keepends=True) if not any(ln.startswith(f"- [{d}] ") for d in dropped))

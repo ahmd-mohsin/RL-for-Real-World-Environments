@@ -293,6 +293,9 @@ async def test_machine_end_to_end_with_sessions_on_a_local_kernel(tmp_path: Path
     finally:
         await pool.close()
     assert res.status == "done", (res.reason, res.decision_request)
+    # the builders' Φ (builder_potential.DEFAULTS): the oracle's two milestone commits and the verifier's files, graded out of band
+    phis = {(r.state, r.entry): r.phi_final for r in pool.records}
+    assert phis[("oracle", 1)] == 1.0 and phis[("verifier", 2)] == 1.0
     assert res.entries == {"lease": 1, "plan": 2, "oracle": 1, "oracle_check": 1, "oracle_plan": 1, "verifier": 2, "review": 2, "build": 1, "prompt": 1,
                            "gates": 1, "second": 1, "hack": 1, "accept": 1}
     # S4.5 (Phase A): both planned names are added by the oracle, executed on A and on the oracle
