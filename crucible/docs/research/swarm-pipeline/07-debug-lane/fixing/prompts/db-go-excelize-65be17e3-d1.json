@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We evaluate workbook formulas with excelize (current main branch) through the cell value calculation API, and a handful of logical and matrix formulas disagree with Excel.",
+ "requirements": {
+  "m01": "Checking whether a cell holds a number reports TRUE for a cell that holds the logical value TRUE, both for a single cell reference and for a one-cell range; a logical is not a number, so the answer must be FALSE. The logical OR formula is also off: a range or array argument must count as true as soon as any one of its elements is true (non-zero numbers, or the text TRUE), text that is neither TRUE nor FALSE must give the wrong-type error (the one Excel shows for an argument of the wrong kind), and empty arguments are skipped. OR's result must also be a logical value, as in Excel, not the text TRUE: OR(1)*1 must give 1 and ISTEXT(OR(1)) must be FALSE. Aggregates over ranges that mix numbers and logicals (average including logicals, maximum, minimum, standard deviation) must give Excel's results.",
+  "m02": "The matrix determinant formula gives a wrong result for a single-cell (1 by 1) matrix: the determinant of a one-element matrix is that element itself (5 for {5}, -3 for {-3}). Matrix inversion, which relies on determinants, must give correct results for small matrices too.",
+  "m03": "An IF formula given only a condition and a value-if-true (no third argument) returns the wrong thing when the condition is false: it must return FALSE, as Excel does, while a true condition still returns the value-if-true."
+ },
+ "closing": "Results should match what Excel shows for the same workbook; the rest of the formula engine must keep working as it does now."
+}
