@@ -207,7 +207,16 @@ def overrides(specs: list[str], lane: Lane) -> dict[str, Any]:
         rest, _, why = rest.partition("@")
         knob, _, mid = rest.partition(":")
         params: dict[str, Any] = {}
-        if knob == "C1":
+        if knob == "C1" and mid:  # an explicit pre-applied set (m02+m03), prerequisite-closed or refused
+            ms = lane.store.window(tid)["milestones"]
+            pre = mid.split("+")
+            req = {m["id"]: set(m.get("requires") or []) for m in ms}
+            if not all(req.get(m, {None}) <= set(pre) for m in pre) or len(ms) - len(pre) < 2:
+                print(json.dumps({"task": tid, "override": spec, "refused": "the set is not prerequisite-closed or leaves fewer than 2 milestones"}), flush=True)
+                continue
+            params["checkpoint"] = {"pre": pre, "level": None, "remaining": [m["id"] for m in ms if m["id"] not in pre], "expected": None}
+            mid = ""
+        elif knob == "C1":
             ids = [tid]
             cp = choose_checkpoint(conditional_of(ids).get(tid), lane.store.window(tid)["milestones"])
             if cp is None:

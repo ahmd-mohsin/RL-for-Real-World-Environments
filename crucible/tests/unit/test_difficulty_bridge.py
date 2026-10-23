@@ -265,3 +265,36 @@ def test_a_frame_knob_never_rewrites_a_requirement(tmp_path: Path) -> None:
     f.write_text(json.dumps({"requirements": {"m03": "rewritten", "m04": parent["m04"]}, "areas": {"m03": "the decoder", "m04": "the encoder."}}))
     assert restore_requirements(f, parent, KnobAction("ease", "K3", "r")) == ["m03"]  # K3 appends an area to the verbatim text
     assert json.loads(f.read_text())["requirements"] == {"m03": parent["m03"] + " This is in the decoder.", "m04": parent["m04"] + " This is in the encoder."}
+
+
+async def test_a_sharpened_requirement_needs_its_executed_reproduction(tmp_path: Path) -> None:
+    from crucible.factory.difficulty_hooks import Revision
+
+    st, prompts = _parent(tmp_path)
+    gd = tmp_path / "gates"
+    gd.mkdir()
+    (gd / "p.json").write_text(json.dumps({"ok": True}))
+
+    async def write(vid: str, rec: dict, brief: dict) -> dict:
+        assert brief["format"]["repro"].keys() == {"m02"} and "really prints" in brief["instruction"]
+        (prompts / f"{vid}.json").write_text(json.dumps({"opening": "o", "requirements": {"m01": "a", "m02": "b sharper"},
+                                                          "repro": {"m02": {"command": "x"}}}))
+        return {"status": "done", "usd": 0.1}
+
+    async def never(*a: Any) -> Any:
+        raise AssertionError("no World gate for a report knob")
+
+    rv = DebugReviser(st, prompts, task_of=lambda pid: None, mined_of=lambda rec, base: {"id": rec["id"]}, write_report=write, scratch=tmp_path / "s")
+    rev = await rv.revise("p", KnobAction("ease", "K6", "stuck", milestone="m02"))
+    assert isinstance(rev, Revision)
+
+    async def wrong_claim(v: str) -> dict:
+        return {"ok": False, "status": "failed", "per_requirement": {"m02": {"status": "fails_at_oracle"}}}
+
+    async def verified(v: str) -> dict:
+        return {"ok": True, "status": "partial", "per_requirement": {"m02": {"status": "verified"}}}
+
+    g = DebugGates(st, gd, prompts, author=lambda v: {"findings": []}, world_gates=never, start_status=never, repro=wrong_claim)
+    assert not (await g.run(rev)).ok
+    g.repro = verified
+    assert (await g.run(rev)).ok

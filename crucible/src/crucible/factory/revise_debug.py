@@ -61,6 +61,10 @@ KNOB_INSTRUCTIONS: dict[str, str] = {
           "describes what the CORRECT program prints. Run every command in your sandbox before you finish. Never copy or paraphrase a hidden test."
           + VERBATIM,
     "K6": "Sharpen requirement {milestone}: give a concrete input, the output you observe and the output you expect, observed from the outside. "
+          "Every observed output you quote must be what the program in your worktree really prints: run it in your sandbox and copy it. "
+          "Add a `repro` field with one entry for {milestone}: {{\"command\": \"...\", \"expect\": {{\"exit\": 0, \"contains\": [\"...\"]}}, \"timeout_s\": 120}} "
+          "(the command runs from the repository root, offline, scratch files only under /tmp/; it must show the bug now and pass once fixed; "
+          "`expect` describes the CORRECT program's output). Never copy a hidden test. "
           "Every other requirement stays word for word as in `current_report`.",
 }
 
@@ -190,6 +194,9 @@ class DebugReviser:
         if action.knob == "K3":
             brief["format"] = {"opening": "...", "requirements": {m: "<copied unchanged>" for m in sorted(keep)}, "closing": "...",
                                "areas": {m: "<the user-visible area>" for m in sorted(keep)}}
+        if action.knob == "K6" and action.milestone:
+            brief["format"] = {"opening": "...", "requirements": {m: "..." for m in sorted(keep)}, "closing": "...",
+                               "repro": {action.milestone: {"command": "...", "expect": {"exit": 0, "contains": ["..."]}, "timeout_s": 120}}}
         if action.knob == "K4":
             brief["format"] = {"opening": "...", "requirements": {m: "..." for m in sorted(keep)}, "closing": "...",
                                "repro": {m: {"command": "...", "expect": {"exit": 0, "contains": ["..."]}, "timeout_s": 120} for m in sorted(keep)}}
@@ -260,9 +267,14 @@ class DebugGates:
                 gates["world"] = {"ok": True, "inherited_from": pid}
             else:
                 found.append(f"world gates not inheritable (tree {same_tree}, tests {same_tests}, parent gated {pg.exists()})")
-            if knob == "K4" and not found:
+            if knob in ("K4", "K6") and not found:
+                # K4's repros, and K6's concrete input and observed output, are claims about the program: executed (S7r)
+                # before they reach the agent. A K6 that quotes an output the program does not print fails here.
                 r = dict(await self.repro(vid))
-                gates["S7r"] = {"ok": bool(r.get("ok")), "status": r.get("status")}
-                if not r.get("ok") or r.get("status") in ("unverified", "unmeasured"):
-                    found.append(f"S7r: {r.get('status')}")
+                target = revision.action.milestone if knob == "K6" else None
+                per = (r.get("per_requirement") or {}).get(target) if target else None
+                status = (per or {}).get("status") if target else r.get("status")
+                gates["S7r"] = {"ok": bool(r.get("ok")), "status": r.get("status"), "milestone": target, "milestone_status": status}
+                if not r.get("ok") or status in ("unverified", "unmeasured", None) or (target and status != "verified"):
+                    found.append(f"S7r: {status or r.get('status')}" + (f" for {target}" if target else ""))
         return GateResult(not found, gates, found)
