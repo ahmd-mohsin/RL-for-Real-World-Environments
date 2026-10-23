@@ -193,14 +193,18 @@ def gate(classified: Sequence[Classified], *, writer_family: str, min_alternativ
     from crucible.factory.alternatives import Alternative, coverage
 
     acc = [c for c in classified if c.cls == "accepted"]
-    cov = coverage([Alternative(c.id, c.source, "", c.policy, c.family, accepted=True) for c in acc], writer_family=writer_family)
+    # only an alternative an independent check confirmed tests the grader's fairness: one accepted by verifier 1 alone
+    # proves nothing about verifier 1 (it is still a positive example for the audit's new checks)
+    indep = [c for c in acc if any(v is True for v in c.v2.values()) or any(v is True for v in c.repro.values())]
+    cov = coverage([Alternative(c.id, c.source, "", c.policy, c.family, accepted=True) for c in indep], writer_family=writer_family)
     ff = [c for c in classified if c.cls == "false_fail"]
-    status = "fail" if ff else ("pass" if len(acc) >= min_alternatives and cov["other_family"] >= 1 else "unmeasured")
+    status = "fail" if ff else ("pass" if len(indep) >= min_alternatives and cov["other_family"] >= 1 else "unmeasured")
     why = (f"{len(ff)} correct-looking fix(es) the grader rejects: {[c.id for c in ff][:5]}" if ff else
-           f"{len(acc)} accepted alternative(s) ({cov['families']})" if status == "pass" else
-           f"{len(acc)} accepted alternative(s), need {min_alternatives} with one from a family other than {writer_family!r}")
+           f"{len(indep)} independently confirmed alternative(s) ({cov['families']})" if status == "pass" else
+           f"{len(indep)} independently confirmed alternative(s), need {min_alternatives} with one from a family other than {writer_family!r}")
     return {"gate": "S9b", "status": status, "ok": status == "pass", "why": why, "coverage": cov,
-            "counts": {k: sum(1 for c in classified if c.cls == k) for k in ("accepted", "false_fail", "lucky_pass", "wrong", "unknown")},
+            "counts": {**{k: sum(1 for c in classified if c.cls == k) for k in ("accepted", "false_fail", "lucky_pass", "wrong", "unknown")},
+                       "confirmed": len(indep)},
             "false_fail": [c.to_json() for c in ff], "lucky_pass": [c.to_json() for c in classified if c.cls == "lucky_pass"]}
 
 

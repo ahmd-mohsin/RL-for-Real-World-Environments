@@ -135,9 +135,17 @@ Some later milestones are in band once their prerequisites hold, while the full 
 - When its upper bound falls below 0.1, it moves back.
 - Level 0 is the full task. Each move is a `start_earlier` / `start_later` event.
 
-**A known limit.** A pre-applied milestone's own tests are not added as regression guards on the variant. An agent that
-breaks a pre-applied fix loses nothing on it: its existing pass-to-pass checks still apply, but the fix's own tests
-are not among them. Adding them as `c_regress` tests is a generator change (`simplify_units`), left for its owner.
+**Regression guards (fixed 2026-10-23).** A pre-applied milestone's own tests now join the variant's pass-to-pass set
+(`windows.guard_tests`, in both `WindowTask.simplify` and `GeneratedTask.simplify_units`; listed as
+`simplified_from.guards`). They pass at the new start, so they gate the regression check `c_regress`: an agent that undoes
+an earlier fix keeps its Φ (the guards are not milestones) but loses the full pass. Test:
+`test_a_simplified_start_guards_the_pre_applied_fixes_in_the_regression_check`.
+
+**Predictor data (2026-10-23).** The 150-call targeting rows had no `budget_stops`, so their step-limit failures were
+read as skill. `backfill_budget_stops` fills them from the episodes (failed, unmasked `max_steps` stops; else the row's
+stop counts, at most its failures). Leave-one-task-out after the backfill: MAE 0.204 against 0.257 for the constant
+baseline over 12 rows of 9 tasks (before: 0.102 against 0.146 over 17 rows, flattered by budget zeros). It still
+predicts the one easy task (echo, 7/8) at 0.07: advisory only, as before.
 
 ## 5. SPELL
 

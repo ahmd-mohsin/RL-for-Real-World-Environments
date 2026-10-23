@@ -233,6 +233,21 @@ lives in the recipe.
    - **Only grade what the prompt asks for:** the ledger is two-way (exists). A check with no requirement is refused.
    - **A correct answer must never crash or trip the grader.** HUD's anti-hallucination rule flagged "ug/m3" as a file
      path. False-fail candidates from the audit are re-run on the alternatives before any check is kept.
+   - **S9b, live (2026-10-23; `factory/alternatives_gate.py`, `lh_debug_target.py fairness`).** The alternatives are
+     solver end states written from the bug report alone (stored frontier and student runs, plus S9b's own sessions
+     by families other than the prompt writer's and the suite's), one per end state. Each is judged by the grader, by
+     the blind second verifier (now in every debug-lane language: `verifier2` under the language profile) when its
+     family differs from the state's, and by the report's repros. Classes: accepted, `false_fail` candidate (the grader
+     rejects what every independent check passes: blocks the task until the audit resolves it), `lucky_pass` (a
+     `verifier_gap` candidate), wrong, unknown. κ between the two verifiers is published per task; disagreements go to
+     the tie-break. `lh_audit.py --fairness` feeds the accepted alternatives and the qualified second verifier into the
+     trace audit's acceptance (the fakes are gone there).
+   - **Path rules never punish confined work (2026-10-23).** `path:install` excuses an install in a scratch module
+     outside the repo (`cd /tmp/r && go mod tidy`) when the project's manifests and lockfiles are unchanged and the
+     World is offline: the mvdan-sh false fail (DeepSeek at Φ = 1 lost its pass). A tool installed on the machine
+     (`go install`, `cargo install`, `npm -g`), `pip` anywhere, or an install in the repo still fails. A bare reinstall
+     of declared dependencies (`pnpm install`, `npm ci`) is its own class, off by default (`allow_declared_reinstall`).
+     `factory/repath.py` re-applies path rules to stored episodes; every path report carries `RULES_VERSION`.
 
 ## 6. Long-horizon guarantees
 

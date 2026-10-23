@@ -78,6 +78,11 @@ def test_the_gate_fails_on_a_false_fail_and_needs_two_alternatives_one_from_anot
     ff = classify_one(cand("qwen", "f"), v1=v1(False, m02=False), v2=ok, v2_family="nemotron", repro=None, req_milestone=REQ_MS, milestone_tests=MS_TESTS)
     g = gate([acc("qwen", "a"), acc("deepseek", "b"), ff], writer_family="anthropic")
     assert g["status"] == "fail" and g["counts"]["false_fail"] == 1 and g["false_fail"][0]["id"] == "f"
+    # accepted by verifier 1 alone (verifier 2 of the state's own family): a positive example, never fairness evidence
+    alone = [classify_one(cand(f, f), v1=v1(True), v2=ok, v2_family=f, repro=None, req_milestone=REQ_MS, milestone_tests=MS_TESTS)
+             for f in ("qwen", "deepseek")]
+    g2 = gate(alone, writer_family="anthropic")
+    assert [c.cls for c in alone] == ["accepted", "accepted"] and g2["status"] == "unmeasured" and g2["counts"]["confirmed"] == 0
 
 
 def test_kappa_and_the_disagreements_for_the_tie_break() -> None:
