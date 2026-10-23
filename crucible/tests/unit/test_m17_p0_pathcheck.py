@@ -169,6 +169,8 @@ GO_MOD = "diff --git a/go.mod b/go.mod\n--- a/go.mod\n+++ b/go.mod\n@@ -1 +1,2 @
     "go -C /tmp/r mod tidy",
     "cd /tmp/js && npm install left-pad",
     "bash -c 'cd /tmp/r && go get example.com/y@v1'",
+    # carbon S15 (DeepSeek at Φ = 1): a nested substitution before the literal scratch cd
+    "WS=$(cd \"$(pwd)\" && pwd); cd /tmp/repro && cat > go.mod <<EOF\nmodule repro\nreplace x => $WS\nEOF\nGOFLAGS=-mod=mod go mod tidy",
 ])
 def test_an_install_in_a_scratch_module_outside_the_repo_passes(cmd: str) -> None:
     h = trail_hits(sh(cmd), projects=["mvdan.cc/sh/v3"])
@@ -184,6 +186,8 @@ def test_an_install_in_a_scratch_module_outside_the_repo_passes(cmd: str) -> Non
     "cd $WS && go mod tidy",  # a variable is never read as scratch
     "cd .. && go get example.com/y",
     "(cd /tmp/r && go mod tidy); go get example.com/y",  # a subshell's cd does not last: the second install is in the repo
+    "X=$(cd /tmp/r && pwd); go mod tidy",  # nor does a command substitution's
+    "cd $(mktemp -d) && go mod tidy",  # a substitution is never read as a scratch path
     "cd /tmp/r && go install example.com/tool@latest",  # a tool installed on the machine, wherever it ran
     "cd /tmp/r && cargo install ripgrep",
     "cd /tmp/js && npm install -g pnpm",
