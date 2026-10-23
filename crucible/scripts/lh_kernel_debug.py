@@ -128,7 +128,12 @@ def cmd_build(a: argparse.Namespace) -> None:
         layout = kdm.layout_at(clone)
         for kind in ("bug", "perf"):
             groups = kdm.group_changes(changes, kind=kind, max_size=4 if kind == "bug" else 3)
+            if a.subsets:  # after the greedy groups: every connected pair or triple of the unused changes, each change used once
+                groups = groups + kdm.connected_subsets(changes, kind=kind)
+            taken: set[str] = set()
             for g in groups:
+                if a.subsets and taken & {c.sha for c in g}:
+                    continue
                 rid = kd.record_id(kind, full, g)
                 if a.ids and rid not in a.ids:
                     continue
@@ -141,6 +146,7 @@ def cmd_build(a: argparse.Namespace) -> None:
                     print(rid, "synthesis:", syn.reason, syn.dropped)
                     continue
                 faults = syn.faults
+                taken |= {f.sha for f in faults}
                 d = store / split / rid
                 tree_a, tree_b = kd.export(derived, syn.a, d / "a"), kd.export(derived, syn.b, d / "b")
                 paths = layout.paths()
@@ -978,6 +984,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")
     s.add_argument("--unused-only", action="store_true", help="group only changes no stored record uses (adding supply)")
+    s.add_argument("--subsets", action="store_true", help="also try every connected pair and triple (kdm.connected_subsets) when a greedy group does not revert together")
     s = sub.add_parser("gates")
     s.add_argument("--ids", nargs="*")
     s.add_argument("--redo", action="store_true")

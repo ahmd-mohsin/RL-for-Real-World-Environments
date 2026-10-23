@@ -123,6 +123,17 @@ def test_groups_seed_and_absorb_post_release_first():
     assert kdm.group_changes(far, kind="bug", since="2025-01-01") == []  # more than 120 days apart
 
 
+def test_connected_subsets_give_a_failed_group_its_other_pairs():
+    cs = [ch("a", "2026-06-01T00:00:00+00:00", ["FA"], ["x.cu"]), ch("b", "2026-06-10T00:00:00+00:00", ["FA"], ["y.cu"]),
+          ch("c", "2026-07-01T00:00:00+00:00", ["FA", "NORM"], ["x.cu"]), ch("d", "2026-07-02T00:00:00+00:00", ["MM"], ["m.cu"]),
+          ch("e", "2026-03-01T00:00:00+00:00", ["FA"], ["x.cu"])]
+    subs = [[c.sha for c in g] for g in kdm.connected_subsets(cs, kind="bug")]
+    assert subs[0] == ["a", "b", "c"]  # triples first
+    assert {"a", "c"} in [set(x) for x in subs] and {"b", "c"} in [set(x) for x in subs]  # pairs the greedy group never tried
+    assert not any("d" in x for x in subs)  # an unconnected change never joins
+    assert not any("e" in x and "a" in x for x in subs)  # a pre-cut change never mixes with post-cut ones
+
+
 def git(d: Path, *a: str, date: str = "2026-06-01T00:00:00+00:00") -> str:
     env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(d)}
     return subprocess.run(["git", "-C", str(d), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True, env=env).stdout

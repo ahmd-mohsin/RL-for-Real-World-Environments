@@ -194,6 +194,32 @@ def controller_stats(lane: Lane, ids: list[str], *, report: Path | None = None) 
     return out
 
 
+def overrides(specs: list[str], lane: Lane) -> dict[str, Any]:
+    """``task=KNOB[:milestone][@why]``: a knob picked from a diagnosis (a failing test read against the report, a shared
+    test that ties two milestones), not from the controller's ranking. Journaled with its reason like every action;
+    held-out tasks are refused by the reviser as always (V9)."""
+    from crucible.factory.difficulty_bridge import choose_checkpoint
+    from crucible.factory.difficulty_hooks import KnobAction
+
+    out: dict[str, Any] = {}
+    for spec in specs or []:
+        tid, _, rest = spec.partition("=")
+        rest, _, why = rest.partition("@")
+        knob, _, mid = rest.partition(":")
+        params: dict[str, Any] = {}
+        if knob == "C1":
+            ids = [tid]
+            cp = choose_checkpoint(conditional_of(ids).get(tid), lane.store.window(tid)["milestones"])
+            if cp is None:
+                print(json.dumps({"task": tid, "override": spec, "refused": "no checkpoint level is measured in band"}), flush=True)
+                continue
+            params["checkpoint"] = cp
+        act = KnobAction("ease", knob, f"operator diagnosis: {why or 'see the pilot notes'}", milestone=mid or None, params=params)
+        jl(OUT / "actions.jsonl", {"task": tid, "override": spec, **act.to_json()})
+        out[tid] = act
+    return out
+
+
 def cmd_propose(a: argparse.Namespace, *, lane: Lane | None = None) -> dict[str, Any]:
     from crucible.factory.difficulty import Journal
     from crucible.factory.difficulty_bridge import ControlController
@@ -221,6 +247,7 @@ async def cmd_revise(a: argparse.Namespace) -> None:
     ensure_cap(a.cap)
     lane = Lane()
     acts = cmd_propose(a, lane=lane)
+    acts.update(overrides(a.override, lane))
     reviser = DebugReviser(lane.store, lane.root / "prompts", lane.task_of, lane.mined_of, lane.write_report, scratch=OUT / "scratch")
     gates = DebugGates(lane.store, lane.root / "gates", lane.root / "prompts", lane.author, lane.world_gates, lane.start_status, lane.repro)
     journal = SwarmJournal(lane.root / "swarm" / "train" / "journal")
@@ -260,8 +287,9 @@ def main() -> None:
     p = sub.add_parser("propose")
     p.add_argument("--tasks", required=True)
     r = sub.add_parser("revise")
-    r.add_argument("--tasks", required=True)
+    r.add_argument("--tasks", default="", help="tasks the controller proposes for (an --override task needs no entry here)")
     r.add_argument("--cap", type=float, default=8.0, help="USD for the swarm's report writing over this run")
+    r.add_argument("--override", action="append", default=[], help="task=KNOB[:milestone][@why]: a knob from a diagnosis (repeatable)")
     m = sub.add_parser("measure")
     m.add_argument("--ids", required=True)
     m.add_argument("--stages", default="student,frontier,audit,report")

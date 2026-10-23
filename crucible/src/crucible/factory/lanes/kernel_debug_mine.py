@@ -285,6 +285,26 @@ def group_changes(changes: Sequence[KernelChange], *, kind: str, max_size: int =
     return groups
 
 
+def connected_subsets(changes: Sequence[KernelChange], *, kind: str, sizes: Sequence[int] = (3, 2), max_span_days: int = 120,
+                      since: str = SINCE) -> list[list[KernelChange]]:
+    """Every connected subset of ``sizes`` (largest first) of one kind's changes, in history order: the candidates the
+    builder tries one by one when a seed-and-absorb group does not revert together at its B (``group_changes`` uses each
+    change once, so a group with one conflicting fault lost its other faults too). Post-cut subsets come first and never
+    mix with fallback changes; every member is connected to another one (a shared op or source file)."""
+    import itertools
+
+    pool = sorted((c for c in changes if c.kind == kind), key=lambda c: c.date)
+    out: list[list[KernelChange]] = []
+    for part in ([c for c in pool if c.date[:10] >= since], [c for c in pool if c.date[:10] < since]):
+        for n in sizes:
+            for combo in itertools.combinations(part, n):
+                if _days(combo[0].date, combo[-1].date) > max_span_days:
+                    continue
+                if all(_connected([o for o in combo if o is not c], c) for c in combo):
+                    out.append(list(combo))
+    return out
+
+
 def _connected(group: Sequence[KernelChange], c: KernelChange) -> bool:
     ops = {o for g in group for o in g.ops}
     files = {f for g in group for f in g.files if f != HARNESS}
