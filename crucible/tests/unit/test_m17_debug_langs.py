@@ -305,6 +305,8 @@ def test_node_runner_flags(tmp_path: Path) -> None:
     assert "NODE_OPTIONS='--max-old-space-size=1536 --experimental-vm-modules'" in NODE.run_script(tmp_path, ["a.test.mjs"])
     (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "vitest run"}, "devDependencies": {"vitest": "1"}}))
     assert runner_node_flags(tmp_path) == [] and "NODE_OPTIONS=--max-old-space-size=1536;" in NODE.run_script(tmp_path, ["a.test.ts"])
+    # the World setup cds into the workspace, whose host path may hold spaces ("RL env repos": every h3/unstorage attempt masked)
+    assert NODE.world_setup_cmd("/w/RL env repos/ws").startswith("cd '/w/RL env repos/ws' && ")
 
 
 def test_fairness_flags() -> None:
