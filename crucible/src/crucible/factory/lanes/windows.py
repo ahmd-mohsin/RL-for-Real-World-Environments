@@ -166,7 +166,9 @@ DEBUG_REPO_URLS.update({
     # added to the draw after the first held-out repositories' mining and before any executed mining of these three
     "caddy": "caddyserver/caddy", "go-git": "go-git/go-git", "resty": "go-resty/resty"})
 REPO_URLS.update(DEBUG_REPO_URLS)
-HELD_OUT_REPOS.update({n: "D" for n in ("kong", "chroma", "participle", "excelize", "carbon", "templ", "gleam", "rhai", "comrak", "liquidjs",
+# carbon left the draw on 2026-10-23 (the lead's call): both its held-out tasks passed above the benchmark bar (3/7, 7/8),
+# so dromara's tasks are training tasks; they were never in a measured benchmark
+HELD_OUT_REPOS.update({n: "D" for n in ("kong", "chroma", "participle", "excelize", "templ", "gleam", "rhai", "comrak", "liquidjs",
                                          "stylelint", "i18next", "cron-parser", "aiohttp", "yarl", "urllib3", "caddy", "go-git", "resty")})
 # training sources of the same draw: dense parser, formatter and protocol repositories whose orgs hold nothing held out
 DEBUG_REPO_URLS.update({
