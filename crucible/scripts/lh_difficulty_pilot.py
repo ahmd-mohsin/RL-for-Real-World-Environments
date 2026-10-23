@@ -176,6 +176,31 @@ class Lane:
             return {m["id"]: None for m in parent["milestones"]}
         return {m["id"]: g.gates.get(m["id"]) == "pass" for m in parent["milestones"]}
 
+    async def start_p2p_failing(self, vid: str) -> list[str] | None:
+        """The variant's pass-to-pass and collateral tests that fail on the empty patch (its own start)."""
+        from crucible.factory.generators.debug import scope
+
+        rec = self.store.window(vid)
+        tests = sorted(set(rec.get("p2p") or []) | set(rec.get("collateral") or []))
+        if not tests:
+            return []
+        t = self.gen(rec["repo"]).task(vid)
+        with scope(rec["lang"]):
+            g, _ = await t.grade("", checks={"p2p": tests})
+        if (g.infra or {}).get("status", "ok") != "ok":
+            return None
+        return sorted(set((g.meta or {}).get("failing_tests") or []) & set(tests))
+
+    def drop_tests(self, vid: str, drop: dict[str, str]) -> None:
+        from crucible.factory.lanes.windows_timing import drop_tests
+
+        rec = self.store.window(vid)
+        drop_tests(rec, drop)
+        rec["p2p_failing_at_start"] = sorted(drop)
+        self.store.save_window(rec)
+        self.store.save(self.mined_of(rec, self.sd / "tasks" / vid / "base"))
+        self._gens.clear()
+
     async def repro(self, vid: str) -> dict[str, Any]:
         ns = argparse.Namespace(ids=vid)
         await lh_debug.repro(ns)
@@ -261,7 +286,8 @@ async def cmd_revise(a: argparse.Namespace) -> None:
     acts = cmd_propose(a, lane=lane)
     acts.update(overrides(a.override, lane))
     reviser = DebugReviser(lane.store, lane.root / "prompts", lane.task_of, lane.mined_of, lane.write_report, scratch=OUT / "scratch")
-    gates = DebugGates(lane.store, lane.root / "gates", lane.root / "prompts", lane.author, lane.world_gates, lane.start_status, lane.repro)
+    gates = DebugGates(lane.store, lane.root / "gates", lane.root / "prompts", lane.author, lane.world_gates, lane.start_status, lane.repro,
+                       start_p2p_failing=lane.start_p2p_failing, drop_tests=lane.drop_tests)
     journal = SwarmJournal(lane.root / "swarm" / "train" / "journal")
     ok_ids = []
     for tid, act in acts.items():

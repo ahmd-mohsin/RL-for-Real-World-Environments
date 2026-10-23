@@ -298,3 +298,37 @@ async def test_a_sharpened_requirement_needs_its_executed_reproduction(tmp_path:
     assert not (await g.run(rev)).ok
     g.repro = verified
     assert (await g.run(rev)).ok
+
+
+async def test_a_regression_test_broken_at_the_checkpoint_start_leaves_the_regression_check(tmp_path: Path) -> None:
+    from crucible.factory.difficulty_hooks import Revision
+
+    st, prompts = _parent(tmp_path)
+    vid = "p-c1-y"
+    st.save_window({**st.window("p"), "id": vid, "milestones": st.window("p")["milestones"][1:], "p2p": ["a_test.go::TestRecover"],
+                    "revision": {"parent": "p", "knob": "C1", "pre_applied": ["m01"], "applied": ["C1"]}})
+    (prompts / f"{vid}.json").write_text("{}")
+    dropped: dict[str, Any] = {}
+
+    async def start(v: str, pre: Any) -> dict:
+        return {"m01": True, "m02": False}
+
+    async def world(v: str) -> dict:
+        assert dropped, "the regression set is repaired before the World gates run"
+        return {"ok": True}
+
+    async def failing(v: str) -> list[str]:
+        return ["a_test.go::TestRecover"]
+
+    def drop(v: str, d: dict) -> None:
+        dropped.update(d)
+
+    async def no_repro(v: str) -> dict:
+        return {}
+
+    g = DebugGates(st, tmp_path, prompts, author=lambda v: {"findings": []}, world_gates=world, start_status=start, repro=no_repro,
+                   start_p2p_failing=failing, drop_tests=drop)
+    r = await g.run(Revision(vid, "p", KnobAction("ease", "C1", "r"), task={}))
+    assert r.ok and list(dropped) == ["a_test.go::TestRecover"] and r.gates["start"]["p2p_failing_at_start"] == ["a_test.go::TestRecover"]
+    g.drop_tests = None
+    assert not (await g.run(Revision(vid, "p", KnobAction("ease", "C1", "r"), task={}))).ok  # without a repair it is refused

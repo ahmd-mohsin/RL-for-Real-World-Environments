@@ -223,6 +223,11 @@ class DebugGates:
     world_gates: Callable[[str], Awaitable[Mapping[str, Any]]]
     start_status: Callable[[str, Sequence[str]], Awaitable[Mapping[str, bool | None]]]
     repro: Callable[[str], Awaitable[Mapping[str, Any]]]
+    # the variant's pass-to-pass tests that FAIL at its new start (None: unmeasured). A pre-applied fix can break a
+    # regression test a later fix repairs (mvdan-sh 04056a74: TestParseRecoverErrors/#10); left in, it fails every agent's
+    # full pass for a requirement the report never states. Such tests leave the regression check, recorded.
+    start_p2p_failing: Callable[[str], Awaitable[Sequence[str] | None]] | None = None
+    drop_tests: Callable[[str, Mapping[str, str]], None] | None = None
 
     async def run(self, revision: Revision) -> GateResult:
         vid, pid, knob = revision.task_id, revision.parent_id, revision.action.knob
@@ -244,6 +249,18 @@ class DebugGates:
             probs = check_start(parent["milestones"], pre, st)
             gates["start"] = {"ok": not probs, "problems": probs, "status": dict(st)}
             found += [f"start: {p}" for p in probs]
+            if not probs and self.start_p2p_failing is not None:
+                bad = await self.start_p2p_failing(vid)
+                if bad is None:
+                    found.append("start: the pass-to-pass tests are unmeasured at the new start")
+                elif bad:
+                    if self.drop_tests is None:
+                        found.append(f"start: {len(bad)} pass-to-pass tests fail at the new start: {sorted(bad)[:5]}")
+                    else:
+                        self.drop_tests(vid, {t: "fails at the checkpoint start (a pre-applied fix breaks it; a later fix repairs it): "
+                                              "not a pass-to-pass test of this variant" for t in bad})
+                        rec = self.store.window(vid)
+                    gates["start"]["p2p_failing_at_start"] = sorted(bad)
             prev = self.gates_dir / f"{vid}.json"
             th, hh = tree_hash(Path(self.store.dir(vid)) / "base"), hidden_hash(rec)
             reuse = prev.exists() and json.loads(prev.read_text()).get("ok") and json.loads(prev.read_text()).get("tree_sha256") == th \
