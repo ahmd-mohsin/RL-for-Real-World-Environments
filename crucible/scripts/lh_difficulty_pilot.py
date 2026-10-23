@@ -149,6 +149,9 @@ class Lane:
 
         rec = self.store.window(vid)
         res = await self.gen(rec["repo"]).gates(vid, cfg=GateConfig(s3_reruns=60, flake_reruns=30))
+        from crucible.factory.revise_debug import hidden_hash, tree_hash
+
+        res.update(tree_sha256=tree_hash(self.sd / "tasks" / vid / "base"), hidden_sha256=hidden_hash(self.store.window(vid)))
         (self.root / "gates").mkdir(exist_ok=True)
         (self.root / "gates" / f"{vid}.json").write_text(json.dumps(res, indent=1, default=str))
         return res

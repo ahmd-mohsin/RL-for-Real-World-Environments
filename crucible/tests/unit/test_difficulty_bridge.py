@@ -246,3 +246,19 @@ async def test_an_infrastructure_stop_is_not_blamed_on_the_reviser(tmp_path: Pat
     j = SwarmJournal(tmp_path / "j")
     res = await revise_and_gate("t", KnobAction("ease", "K2", "r"), reviser=R(), gates=G(), journal=j)
     assert not res["ok"] and tables(tmp_path / "j")["roles"].get("reviser", {}).get("blamed", 0) == 0
+
+
+def test_a_frame_knob_never_rewrites_a_requirement(tmp_path: Path) -> None:
+    from crucible.factory.revise_debug import restore_requirements
+
+    parent = {"m03": "decoding ignores UnmarshalText ... and for date and time values", "m04": "encoding writes the raw string"}
+    f = tmp_path / "v.json"
+    f.write_text(json.dumps({"opening": "two problems", "requirements": {"m03": "decoding ignores UnmarshalText behind pointers", "m04": parent["m04"]}}))
+    assert restore_requirements(f, parent, KnobAction("ease", "C1", "r")) == ["m03"]
+    d = json.loads(f.read_text())
+    assert d["requirements"] == parent and d["swarm_requirements"] == {"m03": "decoding ignores UnmarshalText behind pointers"} and d["opening"] == "two problems"
+    f.write_text(json.dumps({"requirements": {"m03": "sharper m03", "m04": "changed m04"}}))
+    assert restore_requirements(f, parent, KnobAction("ease", "K6", "r", milestone="m03")) == ["m04"]
+    assert json.loads(f.read_text())["requirements"] == {"m03": "sharper m03", "m04": parent["m04"]}
+    f.write_text(json.dumps({"requirements": {"m03": "area: the decoder. x", "m04": "area: the encoder. y"}}))
+    assert restore_requirements(f, parent, KnobAction("ease", "K3", "r")) == []  # K3 adds an area to every requirement

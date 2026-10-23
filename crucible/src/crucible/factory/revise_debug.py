@@ -39,27 +39,54 @@ from crucible.factory.difficulty_hooks import PROMPT_KNOBS, WORLD_KNOBS, GateRes
 SUPPORTED = frozenset({"C1", "K1", "K2", "K3", "K4", "K6"})  # K5 (order): the debug lane renders requirements in milestone order, so a
 # reordered report changes nothing the agent sees; H1-H3 need a new real fault from the pool (the generator's job), not a revision
 
+# Knobs that change the report's frame, never a requirement's facts: the swarm writes the opening and closing (K4: also
+# the repro field) and every kept requirement stays word for word as the parent's measured report had it. A free rewrite
+# lost facts the hidden tests need (pilot 2026-10-23: go-toml's C1 variant dropped "date and time values" from m03, and
+# m03 went from 6/8 to 0/8 although its World and tests were unchanged).
+VERBATIM_KNOBS = frozenset({"C1", "K1", "K2", "K4"})
+VERBATIM = " Every requirement in `current_report` stays word for word: copy it unchanged."
 KNOB_INSTRUCTIONS: dict[str, str] = {
     "C1": "Some of the problems in the current report are already fixed in this version of the repository (they are no longer in the hand-off). "
-          "Write the report for the problems that are left, as the same user, with the same specificity.",
+          "Write the opening and closing for the problems that are left, as the same user." + VERBATIM,
     "K1": "One of the problems in the current report is already fixed in this version of the repository (it is no longer in the hand-off). "
-          "Write the report for the problems that are left, as the same user, with the same specificity.",
+          "Write the opening and closing for the problems that are left, as the same user." + VERBATIM,
     "K2": "Announce the structure: the opening must say how many separate problems you have seen ({n}) and that fixing one of them may change "
-          "how another one shows up. Keep every requirement's symptom at least as specific as in the current report.",
+          "how another one shows up." + VERBATIM,
     "K3": "Point to the area: each requirement must name the user-visible feature or area of the library it concerns (for example 'the encoder', "
           "'the here-document parser', 'the CLI flag handling'), never a file, a function, a test or the fix.",
     "K4": "Add a reproduction per requirement: a `repro` field mapping each requirement id to {{\"command\": \"...\", \"expect\": {{\"exit\": 0, "
           "\"contains\": [\"...\"]}}, \"timeout_s\": 120}}. The command runs from the repository root, offline, and may write scratch files only under "
           "/tmp/ (a heredoc inside the command); it must show the bug in the repository as it is now and pass once the bug is fixed. `expect` "
-          "describes what the CORRECT program prints. Run every command in your sandbox before you finish. Never copy or paraphrase a hidden test.",
+          "describes what the CORRECT program prints. Run every command in your sandbox before you finish. Never copy or paraphrase a hidden test."
+          + VERBATIM,
     "K6": "Sharpen requirement {milestone}: give a concrete input, the output you observe and the output you expect, observed from the outside. "
-          "The other requirements stay as they are.",
+          "Every other requirement stays word for word as in `current_report`.",
 }
 
 
 def variant_id(parent: str, knob: str, detail: Sequence[str] = ()) -> str:
     key = hashlib.sha256("|".join((parent, knob, *sorted(detail))).encode()).hexdigest()[:6]
     return f"{parent}-{knob.lower()}-{key}"
+
+
+def restore_requirements(path: Path, parent_reqs: Mapping[str, str], action: KnobAction) -> list[str]:
+    """Keep the knob's scope: the requirements the knob does not target go back to the parent's text (``VERBATIM_KNOBS``:
+    all of them; K6: all but its milestone). The writer's own versions stay in the file under ``swarm_requirements`` for
+    diagnosis. Returns the milestone ids restored (those whose text differed)."""
+    if not path.exists():
+        return []
+    d = json.loads(path.read_text())
+    keep_own = set() if action.knob in VERBATIM_KNOBS else ({action.milestone} if action.knob == "K6" else set(parent_reqs))
+    reqs = dict(d.get("requirements") or {})
+    changed = [m for m, t in parent_reqs.items() if m not in keep_own and m in reqs and " ".join(str(reqs[m]).split()) != " ".join(str(t).split())]
+    if changed:
+        d["swarm_requirements"] = {m: reqs[m] for m in changed}
+        for m in changed:
+            reqs[m] = parent_reqs[m]
+        d["requirements"] = reqs
+        d["restored_verbatim"] = changed
+        path.write_text(json.dumps(d, indent=1))
+    return changed
 
 
 def tree_hash(base: Path) -> str:
@@ -157,8 +184,9 @@ class DebugReviser:
                                "repro": {m: {"command": "...", "expect": {"exit": 0, "contains": ["..."]}, "timeout_s": 120} for m in sorted(keep)}}
         res = dict(await self.write_report(vid, rec, brief))
         self.spent += float(res.get("usd") or 0.0)
+        restored = restore_requirements(self.prompts / f"{vid}.json", brief["current_report"]["requirements"], action)
         row = {"variant": vid, "parent": pid, "knob": action.knob, "pre_applied": sorted(pre), "level": level, "report": res.get("status"),
-               "report_reason": str(res.get("reason") or "")[:500], "usd": res.get("usd")}
+               "report_reason": str(res.get("reason") or "")[:500], "usd": res.get("usd"), "restored_verbatim": restored}
         self.log.append(row)
         return Revision(vid, pid, action, task=rec, notes=json.dumps(row, default=str))
 
@@ -198,7 +226,13 @@ class DebugGates:
             probs = check_start(parent["milestones"], pre, st)
             gates["start"] = {"ok": not probs, "problems": probs, "status": dict(st)}
             found += [f"start: {p}" for p in probs]
-            if not probs and not found:
+            prev = self.gates_dir / f"{vid}.json"
+            th, hh = tree_hash(Path(self.store.dir(vid)) / "base"), hidden_hash(rec)
+            reuse = prev.exists() and json.loads(prev.read_text()).get("ok") and json.loads(prev.read_text()).get("tree_sha256") == th \
+                and json.loads(prev.read_text()).get("hidden_sha256") == hh
+            if not probs and not found and reuse:  # the same start tree and hidden tests were gated already (sha256)
+                gates["world"] = {"ok": True, "reused": True, "passed": json.loads(prev.read_text()).get("passed")}
+            elif not probs and not found:
                 g = dict(await self.world_gates(vid))
                 gates["world"] = {"ok": bool(g.get("ok")), "passed": g.get("passed"), "error": g.get("error")}
                 if not g.get("ok"):
