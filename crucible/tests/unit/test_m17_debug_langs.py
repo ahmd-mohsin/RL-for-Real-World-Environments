@@ -3,6 +3,7 @@ active-profile hooks and the Python no-regression rule. No Docker, no network.""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -307,6 +308,26 @@ def test_node_runner_flags(tmp_path: Path) -> None:
     assert runner_node_flags(tmp_path) == [] and "NODE_OPTIONS=--max-old-space-size=1536;" in NODE.run_script(tmp_path, ["a.test.ts"])
     # the World setup cds into the workspace, whose host path may hold spaces ("RL env repos": every h3/unstorage attempt masked)
     assert NODE.world_setup_cmd("/w/RL env repos/ws").startswith("cd '/w/RL env repos/ws' && ")
+
+
+def test_world_setup_runs_again_after_every_reset() -> None:
+    """The episode resets the World after open; the setup (node_modules link) must survive it."""
+    from crucible.factory.generators.debug import setup_after_reset
+
+    calls: list[str] = []
+
+    class FakeWorld:
+        async def reset(self) -> str:
+            calls.append("reset")
+            return "obs"
+
+    async def setup() -> None:
+        calls.append("setup")
+
+    w = FakeWorld()
+    setup_after_reset(w, setup)
+    assert asyncio.run(w.reset()) == "obs" and asyncio.run(w.reset()) == "obs"
+    assert calls == ["reset", "setup", "reset", "setup"]
 
 
 def test_fairness_flags() -> None:

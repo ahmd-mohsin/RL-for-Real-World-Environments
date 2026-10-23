@@ -249,6 +249,20 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
 
 
 # ---- the task ------------------------------------------------------------------------------------------------------------
+def setup_after_reset(world: Any, setup: Callable[[], Any]) -> None:
+    """Run the World setup again after every ``world.reset``: the episode resets the World once more before the agent's
+    first step (``actors.policy.run_episode``), and a reset re-seeds the workspace without what the setup added (h3: the
+    node_modules link gone, so the agent could run no test and tried pnpm install, which the install gate fails)."""
+    inner = world.reset
+
+    async def reset(*a: Any, **kw: Any) -> Any:
+        obs = await inner(*a, **kw)
+        await setup()
+        return obs
+
+    world.reset = reset
+
+
 class DebugTask(RebreakTask):
     """A rebreak task of any language: every bound method runs inside its profile's scope (``langs.base.use``)."""
 
@@ -290,6 +304,7 @@ class DebugTask(RebreakTask):
         except BaseException:
             await world.close()
             raise
+        setup_after_reset(world, lambda: world_setup(world._crucible_container, world._crucible_ws, profile_of(self.lang)))
         return world
 
     def card(self, **kw: Any) -> Any:
