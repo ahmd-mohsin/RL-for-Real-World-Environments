@@ -1,0 +1,1 @@
+{"text": " to=functions.repo__read_file 3 to=functions.repo__read_file 3", "tool_calls": [], "usage": {"prompt_tokens": 17735, "completion_tokens": 28, "reasoning_tokens": 28, "cached_tokens": 1891}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {}}

@@ -72,6 +72,11 @@ EPILOGUE = ("How this works: you are working in a sandboxed copy of the reposito
             "Trying to download code or reading version-control history beyond the current commit scores the run 0. Before you finish, "
             "write STATUS.json at the repository root mapping each requirement id above to your probability (0 to 1) that it is met. If you "
             "decide you cannot finish, end your final message with a line 'GIVE_UP: <reason>'; your work is graded as it stands.")
+# a record with grader-owned cases (``harness_extra``: a fault the repository's own cases never reach on the grading GPU) says so
+EPILOGUE_EXTRA = EPILOGUE.replace("(as they are in the fixed release, which can include cases you do not have)",
+                                  "(as they are in the fixed release, plus the grader's own cases at the shapes this report describes; both can "
+                                  "include cases you do not have)")
+assert EPILOGUE_EXTRA != EPILOGUE
 
 
 # ---- synthesis: A'..B' ---------------------------------------------------------------------------------------------------------
@@ -232,6 +237,36 @@ def units_for(tree: Path, files: Sequence[str], layout: ko.Layout, *, per_file: 
     return list(dict.fromkeys(out))
 
 
+IDENT = re.compile(r"\b[A-Za-z_]\w{3,}\b")
+DECLARED = re.compile(r"\b([A-Za-z_]\w{3,})\s*\(|#\s*define\s+([A-Za-z_]\w{3,})|\b(?:struct|class|enum|union|using|typedef)\s+(?:class\s+)?([A-Za-z_]\w{3,})")
+COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def declared(text: str) -> set[str]:
+    """Names a source declares or calls (functions, macros, types), comments left out."""
+    return {next(g for g in m.groups() if g) for m in DECLARED.finditer(COMMENT.sub(" ", text))}
+
+
+def start_dependents(tree_a: Path, tree_b: Path, files: Sequence[str], layout: ko.Layout) -> list[str]:
+    """Units at A' that use a name a fault's header change takes away: an identifier B's version of a changed header has
+    and A''s does not, used by an includer of that header. The start must build them as well (found 2026-10-22:
+    kd-perf-llamacpp-3ad8a68c's ``binbcast.cu``, a unit no fault touches, calls the integer-division helpers m1 adds to
+    ``common.cuh``; the gate compiled only the units the faults touch and passed a start that does not build)."""
+    inc = includers(tree_a, layout)
+    out: list[str] = []
+    for f in files:
+        hb, ha = Path(tree_b) / f, Path(tree_a) / f
+        if f.endswith(".cu") or not hb.is_file():
+            continue
+        gone = declared(hb.read_text(errors="replace")) - (set(IDENT.findall(COMMENT.sub(" ", ha.read_text(errors="replace")))) if ha.is_file() else set())
+        if not gone:
+            continue
+        for u in sorted(inc.get(f, ())):
+            if gone & set(IDENT.findall(COMMENT.sub(" ", (Path(tree_a) / u).read_text(errors="replace")))):
+                out.append(u)
+    return list(dict.fromkeys(out))
+
+
 # ---- milestones and the record ---------------------------------------------------------------------------------------------------
 def milestones_of(faults: Sequence[KernelChange], pools: Mapping[str, Sequence[str]], added: Mapping[str, Sequence[str]]) -> list[dict[str, Any]]:
     """One milestone per fault (in the given order: history order from ``synthesize``): its ops, the CPU-executed case pool of those ops, the cases the fix added,
@@ -272,6 +307,7 @@ def kdspec(rec: Mapping[str, Any]) -> dict[str, Any]:
                             "case_pool": list(m.get("case_pool") or []), "ops": m["ops"], "repeat": m.get("repeat", 1),
                             "perf_cases": list(m.get("perf_cases") or perf_candidates(m))} for m in rec["milestones"]],
             "seeds": {"fixed": [7, 123456], "fresh": 1}, "perf_bars": rec.get("perf_bars") or {}, "perf": {"r": 3, "rounds": 3},
+            "harness_extra": [{k: x[k] for k in ("milestone", "code", "mode", "name") if x.get(k)} for x in rec.get("harness_extra") or []],
             "cmake_extra": list(kh.HOST_CPU_FLAGS.get(rec["layout"]["dispatch_file"], ()))}
 
 
@@ -448,7 +484,7 @@ def compose(authored: Mapping[str, Any], rec: Mapping[str, Any]) -> tuple[str, l
     closing = str(authored.get("closing") or "").strip()
     if closing:
         text += f"\n{closing}\n"
-    text += "\n" + " ".join(LANE_SENTENCES) + "\n\n" + EPILOGUE + "\n"
+    text += "\n" + " ".join(LANE_SENTENCES) + "\n\n" + (EPILOGUE_EXTRA if rec.get("harness_extra") else EPILOGUE) + "\n"
     return text, reqs, spans
 
 
@@ -645,6 +681,38 @@ def records(store: Path, split: str | None = None) -> list[dict[str, Any]]:
     for p in sorted(Path(store).glob(f"{split or '*'}/*/record.json")):
         out.append(json.loads(p.read_text()))
     return out
+
+
+RETIRED = "retired"  # a record moved out of the store: its faults cannot be graded on the GPUs we have (``kernel_debug_reach``)
+
+
+def retire(store: Path, rec: Mapping[str, Any], reason: str, *, extra: Mapping[str, Path] | None = None, at: str = "") -> Path:
+    """Move ``rec``'s directory out of the store to ``<store>/../retired/<id>/record`` with ``retired.json`` (the reason,
+    when, where each part came from), and each of ``extra`` (label -> its work dir, staged bundle, prompt) to ``<label>``. Nothing is deleted: a
+    retired record is restored by moving its ``record`` directory back to ``store/<split>/<id>``. Staging, bundles and the
+    report read ``records(store)``, so a retired record leaves them; the report lists it under ``retired``."""
+    import shutil
+
+    src = Path(store) / rec["split"] / rec["id"]
+    dest = Path(store).parent / RETIRED / rec["id"]
+    dest.mkdir(parents=True, exist_ok=True)
+    moved = {}
+    if src.is_dir():
+        shutil.move(str(src), str(dest / "record"))
+        moved["record"] = str(src)
+    for label, x in (extra or {}).items():
+        if Path(x).exists() and not (dest / label).exists():
+            shutil.move(str(x), str(dest / label))
+            moved[label] = str(x)
+    meta = {"id": rec["id"], "family": rec.get("family"), "split": rec["split"], "repo": rec.get("repo"), "status": RETIRED,
+            "reason": reason, "at": at, "moved_from": moved}
+    (dest / "retired.json").write_text(json.dumps(meta, indent=1, sort_keys=True) + "\n")
+    return dest
+
+
+def retired(store: Path) -> list[dict[str, Any]]:
+    """The retired records' ``retired.json`` (``retire``)."""
+    return [json.loads(p.read_text()) for p in sorted((Path(store).parent / RETIRED).glob("*/retired.json"))]
 
 
 def run_sync(coro: Any) -> Any:

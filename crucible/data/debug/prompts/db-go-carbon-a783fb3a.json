@@ -1,0 +1,9 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We format dates with the dromara/carbon library (current main branch) and found two problems in its text output.",
+ "requirements": {
+  "m01": "Formatting a date with a layout string that ends in a single backslash (the escape character) crashes with an index out of range. A trailing lone backslash must simply be dropped: the layout \"Y-m-d\\\" gives \"2020-08-05\", a layout that is only a backslash gives an empty string, and an escaped backslash at the end (two backslashes) still prints one backslash.",
+  "m02": "When the week is configured to start on a day other than Monday, the weekday names come out wrong: 2024-03-10 is a Sunday, but with the week starting on Sunday the full weekday name says Monday, with the week starting on Saturday it says Tuesday, and the short name in formatted output (the D layout letter) says Mon. The weekday name, full and short, in every output method and in the D layout letter, must name the actual day and never depend on the configured week start."
+ },
+ "closing": ""
+}

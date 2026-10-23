@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 4688, "completion_tokens": 37, "reasoning_tokens": 9}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Search for zip_equal again maybe in tests.", "reasoning_details": [{"type": "reasoning.text", "text": "Search for zip_equal again maybe in tests.", "format": "unknown", "index": 0}]}}

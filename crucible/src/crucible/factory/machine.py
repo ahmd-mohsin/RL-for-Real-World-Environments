@@ -102,7 +102,8 @@ FAILURE_POLICIES: tuple[str, ...] = ("fail_fast", "escalate")  # PA:56 also has 
 PORT_TYPES: tuple[str, ...] = ("text", "json", "artifact")  # PA:57 + artifact (P1: files in the task repo, by path + hash)
 RECOVERY: tuple[str, ...] = ("reconcile", "reset")  # F:5099-5107 (P1: a field, not prose)
 # what a session state may configure (``factory/sessions.py`` reads it; validated here so a bad machine fails at load)
-SESSION_KEYS: tuple[str, ...] = ("brief", "captures", "specialist", "repo", "base", "image", "network", "read_only", "max_turns", "wall_s")
+SESSION_KEYS: tuple[str, ...] = ("brief", "captures", "specialist", "repo", "base", "image", "network", "read_only", "max_turns", "wall_s",
+                                "potential", "checkpoint_every", "checkpoint_cap", "settle_on_budget")  # potential: the builder's Φ (sessions.SessionPool)
 CAPTURE_KINDS: dict[str, str] = {"json": "json", "text": "text", "file": "artifact", "dir": "artifact", "patch": "artifact", "commits": "artifact"}
 # F:1095-1116 (``_INFRA_ERROR_MARKERS``), plus the runner errors study 01 §6.3 maps to infra: a lost or unreachable
 # container, a docker daemon that does not answer, a provider 5xx / connection fault

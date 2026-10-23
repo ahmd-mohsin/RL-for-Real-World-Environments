@@ -1,0 +1,1 @@
+{"text": "All requirements are met.", "tool_calls": [], "usage": {"prompt_tokens": 2178, "completion_tokens": 6}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "stop", "raw_message": {}}

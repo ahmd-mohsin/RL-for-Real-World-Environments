@@ -864,6 +864,21 @@ non-Claude model (difficulty ladder, cross-family roles):
   whose groups are flat (one reward, no Φ spread) on 2 consecutive steps is not sampled for 3 steps, then retried with
   one group; Φ spread without a pass is never quarantined; held-out tasks are refused; every event is logged
   (`quarantine.jsonl`, W&B `records/quarantine`, `quarantine/active`).
+- **Difficulty** (swarm-pipeline/12; 2026-10-23; patterns: Online Difficulty Filtering, arXiv 2504.03380; R-Zero, arXiv
+  2508.05004).
+  - **The tracker** (`forge/difficulty.py`): online p̂ per task and per milestone, decayed per step. It never counts masked draws, and failed budget stops stay out of p̂. Its signal is `max(4p(1-p), 4 Var Φ)`.
+  - **The sampler** (`train/curriculum.py`, backend-neutral): band filter on the Wilson interval, explore picks, learnability weights, and the quarantine left in charge of flat tasks. It runs a reverse curriculum over checkpoint starts and refuses held-out tasks.
+  - **The trainer:** `TrainConfig(sampler="difficulty")` or `tinker_rl.py --sampler difficulty`, resumable.
+  - **The factory side** (`factory/difficulty.py`):
+    - the p≈½ controller emits typed knob actions (K1–K6, C1, H1–H3, fix_task, budget_bound), journaled with R-Zero's generator reward;
+    - a stdlib ridge-logistic predictor, advisory only. Its rows take budget stops out of n, backfilled on the 150-call run from the episodes (`backfill_budget_stops`): LOO MAE 0.204 vs 0.257 baseline over 12 rows of 9 training tasks (0.10 vs 0.15 before the backfill, flattered by budget zeros);
+    - full-task vs checkpoint-conditioned difficulty via `factory.checkpoint.credited` / `potential`;
+    - checkpoint starts via `simplify_units(kind="checkpoint")` with a start check and the gates. Pre-applied milestones never earn credit: Φ0 is the baseline. Their own tests guard the regression check (`windows.guard_tests` into `p2p`, also for `WindowTask.simplify`): undoing an earlier fix keeps Φ but loses the full pass.
+  - **Views:** `observe/difficulty.py`. **Script:** `scripts/lh_difficulty.py predict|conditional`.
+- **Fairness, live (2026-10-23; swarm-pipeline/00 §5 rule 8, 07 §6.3):**
+  - **S9b** (`factory/alternatives_gate.py`, stage `lh_debug_target.py fairness`): alternatives are solver end states from the bug report alone (stored frontier and student runs, plus S9b's own sessions by families other than the prompt writer's and the suite's), deduplicated by end fingerprint, judged by the grader, the blind second verifier (counted only when its family differs from the state's) and the report's repros. Classes accepted / `false_fail` / `lucky_pass` / wrong / unknown. The gate fails on any false-fail candidate, passes with ≥ 2 independently confirmed alternatives (one from a family other than the prompt writer's), else is unmeasured. κ and the disagreements (for the tie-break) per task. `LiveAlternatives` / `LiveSecondVerifier` replace the trace audit's fakes (`lh_audit.py --fairness`).
+  - **The second verifier in every debug-lane language** (`verifier2` under the language profile): the writer places one new test file per requirement (`check_shadow_path`: a test file of the language, new at A, never a hidden one); the payload adds an existing test file of A as the style example and is proven blind through the profile (`leaks`); one grader run per file, so a file that does not compile fails only its own requirement.
+  - **Path rules** (`factory/pathcheck.py`): `path:install` excuses an install in a scratch module outside the repo when the project's manifests and lockfiles are unchanged and the World is offline; machine-wide tool installs, `pip`, and installs in the repo still fail; bare reinstalls of declared dependencies are their own class (`allow_declared_reinstall`, off). `go -C dir` parsed. `RULES_VERSION` stamps every path report and the verifier version; `factory/repath.py` (`scripts/lh_repath.py`) re-applies path rules to stored episodes offline (`windows.path_rules_of`, `path_reward`).
 - **Benchmark**: lh_metrics plus pass@k, pass^k, task-clustered CIs and USD per passing episode; the protocol (selection
   run, fresh baseline on a new seed, base control beside the trained adapter at identical settings, paired difference
   with its CI and P(trained > control)) checked by `check_protocol`.
@@ -1023,6 +1038,37 @@ build tasks that target its failures):
   sandbox (`SessionPool`). Plan usage (turns, duration, API-equivalent cost) goes to receipts, never to `spend.usd`.
   `ModelBook` raises `SameFamilyError` for any independent role (reviewer, realism, second verifier, auditor, hacker,
   tie-break, judge) on Claude Code or on the builder's family.
+- **The Tinker swarm (2026-10-23, `swarm-pipeline/13`; the user: new tasks come from the swarm, not from Claude):**
+  - **Preset `swarm`** (`models.SWARM_ROLES`, no Claude Code role, refused if one is set): builders over three families.
+    The oracle builder and oracle author are on DeepSeek-V4.1-Flash. The planner and the first verifier writer are on
+    GLM-5.3. The prompt writer, World expert and mutant builder are on Kimi-K2.6, its 128K variant. Every checker is on
+    a family nothing builds: Nemotron-3-Ultra (reviewer, second verifier, auditor), Nemotron-3-Super (hacker,
+    rewriter) and gpt-oss-120b (judge, realism, second hacker, tie-break). The fairness solvers are Qwen3.5-397B and
+    Nemotron-Ultra. The strict presets (`STRICT_PRESETS`) also refuse a fairness solver of a builder's family, and an
+    oracle builder and first verifier writer of one family (V2 by family).
+  - **Provenance** (`factory/provenance.py`): every artifact carries the families that produced it, transitively over
+    `inputs[].from` and declared service reads. A checker refuses (`SameFamilyError`) an input its own family produced.
+    It is checked before a run (`static_problems`) and at every activation, with the family of the client that runs.
+  - **Builder sessions on the RLM harness** (`factory/sessions.py`): a session may declare `potential`.
+    - **Φ:** the checkpoint sidecar grades the builder's worktree out of band (`factory/builder_potential.py`:
+      `prompt_draft`, `hidden_tests`, `oracle_commits`, each the static half of the gate its artifact faces). The policy
+      is probed, so compaction points count.
+    - **Context:** the window fits the model's context (`context_window`) and the rebuilt context (`window_floor`).
+    - **Budget:** the state's dollars stop a session mid-way (`StateBudgetClient`, a budget stop is the task's failure).
+      Its spend is re-booked into the machine's scope.
+    - **Budget stops:** a session may `settle_on_budget`, so its captures still reach the gate.
+  - **Journal, credit, diagnosis** (`factory/swarm_journal.py`, `scripts/swarm.py`): sessions, verdicts and failures are
+    logged with provenance. A failure is blamed on the producing role, and a harness stop on `harness`. Per-turn
+    builder credit runs through `credit.compose.turn_credit` over each state's attempts. Yield and cost are tabulated per
+    role and model. `diagnose` ranks the bottlenecks and lists proposals, never applied.
+  - **Lanes:** `write-prompts` in `lh_debug.py`, `lh_kernel_debug.py` and `lh_kernel_debug_migrate.py`
+    (`factory/swarm_prompts.py`). Per window, a `prompt_author` session drafts the report, the lane's own lint and
+    ledger decide, and the reviewer reads it once. `lh_swarm.py --preset swarm` fills `SwarmRunner`'s slots (now also
+    journaled, with builder Φ). `lh_debug_target.py --preset swarm` uses the swarm's judges and frontier.
+  - **Difficulty interface:** `factory/difficulty_hooks.py` (`KnobAction` K1-K6 / H1-H4, `Controller`, `Reviser`,
+    `Gates`, `revise_and_gate`; a held-out task is never revised).
+  - **Smoke fixes:** the Kimi native tool section is read by the text protocol, the sidecar probe was added for
+    compaction points, the capped client's spend was lost, and a window floor was set.
 - **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated
   against exactly it. The local dev model is `student:Qwen/Qwen3.5-4B`, for harness work and the pipeline smoke only.
   - The local path uses native OpenAI tool calls (the `qwen3_coder` parser on mlx-lm) with thinking off. Thinking is
@@ -1057,6 +1103,16 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
   (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
   and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
+- **Hardware reach (2026-10-23, `kernel_debug_reach`):** a mined fault qualifies only when the GH200 (`sm_90`) or the
+  RTX 5090 (`sm_120`) compiles and dispatches the changed code (each changed file resolved as that GPU sees it: its
+  `__CUDA_ARCH__` or the host pass, HIP/MUSA/NCCL undefined, `common.cuh`'s feature macros and `*_available(cc)`
+  predicates, runtime `cc` tests folded three-valued, code after a `return` dropped, identical branches merged; anything
+  undecided counts as reached), the bug family's change is not speed-only, launch-shape-only or a precision-only kernel
+  selection by its message, no hardware we lack is named, and the op test builds one of its ops. Mining drops the rest
+  with the reason; records carry `targets` per fault and `reach` per milestone. `retire` moves a record to
+  `data/kernel_debug/retired/<id>/` with its reason (reversible; the report lists it); `retire --auto` once every target
+  GPU has run and fewer than two milestones are gradable. Retired: llama.cpp 7ac249cc, 4b8c156e, b377258d; held-out
+  ik_llama.cpp 5b19ab0c, 4da3f014 (`10` §3.1).
 - **GPU calibration rules (lab 5090 run):** S1 executed starts with a sweep of A' (every fault in) over every case of every
   pool on the fixed seeds; the cases it fails join the 1,000-case sample the rest of the calibration grades; if A' passes
   every pool case and every sanitizer check, no fault shows on this GPU and the task drops; a milestone owns the pool cases its single revert
@@ -1068,6 +1124,38 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   a ccache (task grades never do); x86-only CPU gates (ik_llama.cpp) run on the GPU host first (`cpu_host.json`).
   The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
   under the same program name (a program that prints its argv[0] failed the oracle).
+- **GPU gate fixes and corrections (2026-10-22, `10` §8.2):** grader and runner bugs found by re-reading the failed runs:
+  `pool_cap=0` reached the plan as the integer 0 and fell back to the 1,000-case stride, so the S1 sweep "of every pool
+  case" covered 10-20% of the large pools (`kernel_debug_plan.pool_cap`); a cached pool grade's reuse key now includes the
+  grader kit (`kit_digest`), so a grade from before a grader fix is never read back; the S1 start drop skips perf
+  milestones (a perf start is correct by design) and pool grades never run the perf check (no bar exists yet: its infra
+  verdict masked every perf task's oracle pool grade); perf calibration times every candidate case on its own inside
+  one grade (`perf_each`: three grades per milestone, not three per case); S10 counts only grades that measured (a
+  masked grade is no pass), runs a perf task's sixty grades one at a time, and runs only for a task that passed S5 and
+  S8; the start of a correctness calibration no longer waits for an idle GPU (only timed steps do). New calibration
+  inputs: each sanitizer milestone runs its tool on `sanitizer_cases`, pool cases whose processes launch the fault's
+  kernels (`kernel_debug_ops.fault_kernels` at staging -> `fault_kernels.json`; a CUPTI launch profile of up to 192
+  pool cases on the reference build), not on the pool's first cases; a stability grade drops an owned case B passes
+  above half its tolerance (`case_ratio`, `MARGIN`); a record may carry grader-owned cases (`harness_extra`: only
+  `test_cases.emplace_back(new test_X(...));` lines of the file's own classes, at the shapes its report describes,
+  `kernel_harness.add_cases`), which join their milestone's pool as added cases and are disclosed in the prompt
+  (`EPILOGUE_EXTRA`). Migration grader: `compare.d2h = "none"` grades a self-checking program on its own report (its
+  copies back were 0.7-9.9 GB), and a window with no timed milestone does not wait for an idle GPU. The shared gate
+  ccache is capped at 12 GB (shared disk). Perf timing: the candidate's timed runs no longer carry the CUPTI launch hook (launches are counted on separate untimed runs; the traced build timed 4-14% slower than itself), and a passing perf check's ratios are read where it reports them. Blackwell consumer GPUs build as `12xa-real` (FP4 MMQ units failed ptxas at `120-real`).
+- **Apptainer GPU hosts (DeltaAI GH200, 2026-10-22, `10` §8.3):** both GPU runners (`run_gpu.py`, the migration
+  `stage_gpu.py`) run their containers as SIFs (`--mode apptainer`; `--build-sif` converts the bundle's Dockerfiles with
+  `kernel_plan.apptainer_def` on the GPU host, apt as root in the build) through one argv builder,
+  `kernel_plan.apptainer_argv` (`--nv --containall`, no network, the host's node-local disk bound at /tmp: a CUDA build
+  does not fit the session tmpfs). DeltaAI has no subuid range, so `--fakeroot` maps uid 0 only and the grader cannot
+  drop to its candidate uid: `CRUCIBLE_APPTAINER_ROOT=user` runs the grader as the invoking user without `--require-root`
+  and every result records `runtime.trusted: false` (fit for the gates, which grade the lane's own patches; grading a
+  policy there needs a subuid range or another sandbox). The Docker path is unchanged. Apptainer `--nv` reaches the driver's
+  libraries only through the container's LD_LIBRARY_PATH, which the grader's rebuilt environment dropped (every CUDA
+  program saw no device, "Unified Memory not supported"): `Trusted.run` appends `/.singularity.d/libs` when it exists.
+  `ingest-gpu --hardware-only` writes a second GPU model's gates to `gates.gpu[<GPU>]` and its calibrated milestones and
+  bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
+  `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
+  use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

@@ -1,13 +1,17 @@
 """The debug lane (swarm-pipeline/07) on a synthetic Go repository: fix detection under the Go profile, owned tests, the
 start tree A' (source, test hunks and changelog lines of the group reverted; strip mode; visible tests hidden), B' == B,
-the task's profile scope, and the bug-report authoring checks. No Docker."""
+the task's profile scope, the bug-report authoring checks, and ``subset`` (the candidate of named fixes). No Docker."""
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import pytest
+
+from crucible.factory.generators import debug as debug_lane
 from crucible.factory.generators.base import Candidate, Funnel, git, out, tree_of
-from crucible.factory.generators.debug import Debug, author_debug, owned_tests, scope
+from crucible.factory.generators.debug import Debug, author_debug, group_id, owned_tests, scope
 from crucible.factory.generators.rebreak import fix_units
 from crucible.factory.lanes.windows_git import RepoGit
 from crucible.factory.sources.lease import EvalLease
@@ -136,3 +140,71 @@ def test_author_debug_checks_the_bug_report(tmp_path: Path) -> None:
     bad = {**good, "builder": "", "requirements": {"m01": "Parse breaks on negatives; see TestParseNegative in calc_test.go."}}
     found = " ".join(author_debug(rec, bad, RepoGit(gen.clones["calc"]))["findings"])
     assert "provenance" in found and "faulty_name" in found and "hidden_test" in found and "file_path" in found and "unmapped_milestone" in found
+
+
+def _fake_fix_check(caught: dict[str, list[str]]):
+    """``fix_check`` without Docker: a fix is real when the revert catches a test, and the caught ids decide the edges."""
+
+    async def fake(repo, b, units, sandbox_for, images, repo_name, work, *, lang, full_suite=False):
+        return {u.sha: {"ok": bool(caught.get(u.sha)), "caught": caught.get(u.sha, []), "why": ""} for u in units}, {"ok": True, "image": "img-b"}
+
+    return fake
+
+
+def test_subset_is_mines_candidate_of_the_named_fixes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, shas = make_repo(tmp_path)
+    neg, fmt = shas["fix_neg"], shas["fix_fmt"]
+    both = "calc_test.go::TestParse"  # caught by either revert alone: the executed edge
+    monkeypatch.setattr(debug_lane, "fix_check", _fake_fix_check({neg: [both, "calc_test.go::TestParseNegative"], fmt: [both, "calc_test.go::TestFmt"]}))
+    gen = _gen(tmp_path, repo)
+    [mined] = asyncio.run(gen.candidates_for("calc"))
+    with scope("go"):
+        units = fix_units(repo, "HEAD", since="2026-05-01")
+    assert mined.id == group_id("go", "calc", units) and mined.params["needs"] == {neg: [fmt], fmt: [neg]}
+    # named in any order and by prefix, the fixes give mine's candidate: same id (the fixes' hash), same params
+    same = asyncio.run(gen.subset("calc", [fmt[:8], neg[:8]]))
+    assert same.id == mined.id and same.params == mined.params and "parent" not in same.params and "hide_modes" not in same.params
+    eased = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e1", parent=mined.id, hide="strip"))
+    assert eased.id == "db-go-calc-e1" and eased.params["parent"] == mined.id and eased.params["fixes"] == mined.params["fixes"]
+    assert eased.params["hide_modes"] == ["strip"] and "hide_tests" not in eased.params
+    named = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e2", hide_tests=["calc_test.go::TestFmt", "calc_test.go::TestFmt"]))
+    assert named.params["hide_tests"] == ["calc_test.go::TestFmt"]
+
+
+def test_build_strips_the_named_visible_tests_from_the_first_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """subset --hide-tests: a stale visible test (mvdan-sh's TestNodeEndPos) is stripped from A' before round 2 could."""
+    repo, _ = make_repo(tmp_path)
+    gen = _gen(tmp_path, repo)
+    seen: list[dict[str, set[str]]] = []
+    monkeypatch.setattr(Debug, "synthesize", lambda self, cand, *, mode="revert", extra_hide=None: (seen.append(dict(extra_hide or {})), (None, {}))[1])
+    asyncio.run(gen.build(Candidate("db-go-calc-h", "debug", "calc", params={"lang": "go", "hide_tests": ["calc_test.go::TestParse/neg"]})))
+    asyncio.run(gen.build(Candidate("db-go-calc-n", "debug", "calc", params={"lang": "go"})))
+    assert seen == [{"calc_test.go": {"TestParse"}}, {}]
+
+
+def test_build_hides_the_tests_in_the_named_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, _ = make_repo(tmp_path)
+    gen = _gen(tmp_path, repo)
+    seen: list[str] = []
+    monkeypatch.setattr(Debug, "synthesize", lambda self, cand, *, mode="revert", extra_hide=None: (seen.append(mode), (None, {}))[1])
+    for params, first in (({}, "revert"), ({"hide_modes": ["strip"]}, "strip")):  # mined: revert first; subset --hide strip: strip only
+        rec = asyncio.run(gen.build(Candidate(f"db-go-calc-{first}", "debug", "calc", params={"lang": "go", **params})))
+        assert rec["stage"] == "source" and seen[-1] == first
+
+
+def test_subset_refuses_what_mine_would_not_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, shas = make_repo(tmp_path)
+    neg, fmt = shas["fix_neg"], shas["fix_fmt"]
+    monkeypatch.setattr(debug_lane, "fix_check", _fake_fix_check({neg: ["calc_test.go::TestParseNegative"], fmt: ["calc_test.go::TestFmt"]}))
+    gen = _gen(tmp_path, repo)
+    for fixes, b, why in (([neg, shas["feat"]], "HEAD", "no fix unit"), ([neg, neg[:7]], "HEAD", "at least two fixes"),
+                          ([neg, fmt], "no-such-ref", "is not a commit"), ([neg, fmt], "HEAD", "no executed interaction")):
+        with pytest.raises(ValueError, match=why):
+            asyncio.run(gen.subset("calc", fixes, b=b))
+    with pytest.raises(ValueError, match="not revert or strip"):
+        asyncio.run(gen.subset("calc", [neg, fmt], hide="delete"))
+    other = tmp_path / "other"  # a fresh work dir: the evidence above is cached per pool
+    other.mkdir()
+    monkeypatch.setattr(debug_lane, "fix_check", _fake_fix_check({neg: ["calc_test.go::TestParseNegative"]}))
+    with pytest.raises(ValueError, match=rf"not a real fix .*{fmt[:10]}"):
+        asyncio.run(_gen(other, repo).subset("calc", [neg, fmt]))

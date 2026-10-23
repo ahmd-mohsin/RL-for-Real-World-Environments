@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 1435, "completion_tokens": 4, "reasoning_tokens": 4}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Open more.py.", "reasoning_details": [{"type": "reasoning.text", "text": "Open more.py.", "format": "unknown", "index": 0}]}}

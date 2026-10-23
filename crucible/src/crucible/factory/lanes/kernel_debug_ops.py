@@ -18,7 +18,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from crucible.factory.langs.cuda import code_mask, find_funcs
+from crucible.factory.langs.cuda import code_mask, find_funcs, kernels_of
 
 DISPATCH = "ggml_cuda_compute_forward"
 
@@ -148,6 +148,19 @@ def op_map(tree: Path, layout: Layout = GGML_ORG) -> dict[str, dict[str, set[str
         fns = reachable({e for e in ent if e in where}, calls)
         out[op] = {"functions": fns, "files": {f for n in fns for f in where.get(n, ())}}
     return out
+
+
+def fault_kernels(tree: Path, names: Sequence[str], layout: Layout = GGML_ORG) -> list[str]:
+    """The backend's ``__global__`` kernels a change touches at ``tree``: a kernel it changed, a kernel that reaches a
+    device function it changed, or a kernel a host function it changed reaches (its launcher). The GPU calibration runs a
+    milestone's sanitizer checks on cases whose processes launch one of these (CUPTI), not on whichever cases come first:
+    a race in the transposed copy path is invisible to racecheck on a contiguous copy."""
+    files = backend_files(tree, layout)
+    where, calls = definitions(tree, files)
+    ks = set(kernels_of([_read(tree, f) for f in files]))
+    targets = {n.rsplit("::", 1)[-1] for n in names} & set(where)
+    below = reachable(targets, calls)
+    return sorted(k for k in ks if k in below or targets & reachable({k}, calls))
 
 
 def ops_for(omap: Mapping[str, Mapping[str, set[str]]], files: Sequence[str], names: Sequence[str], *, limit: int = 12) -> list[str]:

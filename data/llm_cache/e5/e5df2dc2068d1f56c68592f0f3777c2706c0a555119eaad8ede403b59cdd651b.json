@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_v2xEMSZzRLllvwKGyii1X5JC", "name": "repo__shell", "arguments": {"command": "python test_calc.py"}}], "usage": {"prompt_tokens": 925, "completion_tokens": 18}, "model": "meta-llama/llama-3.3-70b-instruct", "finish": "tool_calls", "raw_message": {}}

@@ -2,14 +2,17 @@
 
     python scripts/lh_debug.py scout                      # licence, language, fix units since 2025-09-01 per clone (no Docker)
     python scripts/lh_debug.py mine  --repos a,b          # executed fix check at HEAD, interacting groups, A'..B', validate_window
+    python scripts/lh_debug.py subset --repo a --fixes s1,s2,s3 [--b B] [--id ID --parent P] [--hide revert|strip] [--no-link]   # one task of exactly these fixes
     python scripts/lh_debug.py gates [--ids ...]          # S6, S5, S8, S3, S10 on every built window that reached mutants_valid
     python scripts/lh_debug.py author                     # the builder's bug reports (prompts/<id>.json) through lint + ledger
     python scripts/lh_debug.py repro [--ids ...]          # S7r: each requirement's `repro` run in the World at A' (shows the bug) and B (passes)
     python scripts/lh_debug.py brief <id>                 # what the builder reads: calibration (training tasks only, K1-K6), then per milestone
     python scripts/lh_debug.py report                     # funnel per language, candidates, image disk
+    python scripts/lh_debug.py write-prompts [--ids ...]  # the swarm writes prompts/<id>.json (factory.swarm_prompts, Tinker roles; --cap USD)
 
-Everything lives under ``data/debug`` (clones in ``src/``, generator state in ``gen/``, funnel in ``funnel.jsonl``). No
-model is called: the prompts are written by the builder (``generators.debug.BUILDER``) into ``prompts/``.
+Everything lives under ``data/debug`` (clones in ``src/``, generator state in ``gen/``, funnel in ``funnel.jsonl``). Only
+``write-prompts`` calls models (the ``swarm`` preset: no Claude); the earlier prompts were written by the Claude builder
+(``generators.debug.BUILDER``) into ``prompts/``, and either kind goes through ``author`` unchanged.
 """
 
 from __future__ import annotations
@@ -159,6 +162,21 @@ async def mine(args: argparse.Namespace) -> None:
             await asyncio.gather(*[mine_one(gen, n, args.since or None, sem) for n in mine_repos])
 
 
+async def subset(args: argparse.Namespace) -> None:
+    """The task of exactly ``--fixes`` at ``--b`` (``Debug.subset``), built as ``mine`` builds a group: a mined task
+    rebuilt from its fixes, or eased by leaving one of them applied. The repository's images are kept for the next build."""
+    gen = generator([args.repo], split_of(args.repo))
+    try:
+        cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent,
+                                hide=args.hide, independent=args.no_link, hide_tests=[t for t in args.hide_tests.split(",") if t])
+    except ValueError as e:
+        sys.exit(f"[{args.repo}] {e}")
+    needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
+    print(f"[{args.repo}] {cand.id}: fixes {[s[:10] for s in cand.params['fixes']]}, executed edges {needs}", flush=True)
+    rec = await gen.build(cand)
+    print(f"[{args.repo}] {cand.id}: {rec.get('stage')} {rec.get('reason', '')[:160]}", flush=True)
+
+
 async def gates(args: argparse.Namespace) -> None:
     """Gate every window at ``mutants_valid`` not gated yet; with ``--loop`` keep scanning (every 2 min) until the file
     ``STOP_GATES`` exists."""
@@ -167,6 +185,17 @@ async def gates(args: argparse.Namespace) -> None:
         if not args.loop or (ROOT / "STOP_GATES").exists():
             return
         await asyncio.sleep(120)
+
+
+def merge_gates(prev: dict[str, Any], res: dict[str, Any], order: tuple[str, ...]) -> dict[str, Any]:
+    """A ``--gates`` run added to an earlier record: the gates it ran replace theirs (the replaced results stay under
+    ``earlier``, so a rerun never hides a failure), the others keep their result, and ``ok`` / ``passed`` cover every
+    gate in the record. A run that crashed is never ok."""
+    gates = {**(prev.get("gates") or {}), **(res.get("gates") or {})}
+    gates = {g: gates[g] for g in [*[g for g in order if g in gates], *[g for g in gates if g not in order]]}
+    earlier = [*(prev.get("earlier") or []), *({"gate": g, **prev["gates"][g]} for g in res.get("gates") or {} if g in (prev.get("gates") or {}))]
+    return {**res, "gates": gates, "ok": "error" not in res and all(v.get("ok") for v in gates.values()),
+            "passed": [g for g in gates if gates[g].get("ok")], **({"earlier": earlier} if earlier else {})}
 
 
 async def gates_once(args: argparse.Namespace) -> None:
@@ -183,11 +212,14 @@ async def gates_once(args: argparse.Namespace) -> None:
         if not ids:
             continue
         gen = generator(repos, split)
-        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns)
+        only = tuple(g for g in args.gates.split(",") if g)
+        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns, **({"gates": only} if only else {}))
         for w in ids:
             out = ROOT / "gates" / f"{w}.json"
             lock = ROOT / "gates" / f"{w}.running"
-            if (out.exists() and not args.redo) or lock.exists():
+            prev = json.loads(out.read_text()) if out.exists() else {}
+            # a record of fewer gates (--gates S6,S5,S8 before a quick pass) is run again in full by a later plain run
+            if (prev and not args.redo and set(cfg.gates) <= set(prev.get("gates") or {})) or lock.exists():
                 continue
             lock.parent.mkdir(parents=True, exist_ok=True)
             lock.write_text(str(time.time()))
@@ -197,6 +229,8 @@ async def gates_once(args: argparse.Namespace) -> None:
             except Exception as e:  # noqa: BLE001
                 res = {"task": w, "ok": False, "error": f"{type(e).__name__}: {e}"[:500], "gates": {}}
             res["seconds"] = round(time.monotonic() - t0, 1)
+            if only and prev.get("gates"):
+                res = merge_gates(prev, res, GateConfig().gates)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(res, indent=1, default=str))
             lock.unlink(missing_ok=True)
@@ -284,6 +318,7 @@ def cmd_intent(args: argparse.Namespace) -> None:
     """Every stored window with milestones gets its intent card (``generators.debug.task_intent``); the family-level
     skill cards go to ``intent_cards.json``; ``candidates.json`` lists every window with its language, skills, level,
     split, cutoff and stage (the matched train / benchmark split is built from it)."""
+    from crucible.factory.generators.base import GateConfig
     from crucible.factory.generators.debug import NAME, faulty_names, intent_cards, task_intent, visible_test_changes
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit
@@ -321,8 +356,10 @@ def cmd_intent(args: argparse.Namespace) -> None:
             rows.append({"id": w, "lang": it["lang"], "repo": rec["repo"], "split": split, "stage": rec.get("stage"), "skills": it["skills"],
                          "level": it["level"], "faults": it["faults"], "modules": len(it["modules"]), "edges": int(rec.get("dependency_edges") or 0), "oracle_lines": size,
                          "milestone_tests": sum(len(m["tests"]) for m in rec.get("milestones") or []),
-                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"), "gates_ok": gate.get("ok"),
-                         "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
+                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"),
+                         # gates_ok: every gate passed; gates_run_ok: every gate run so far passed (a partial record)
+                         "gates_ok": gate.get("ok") and set(GateConfig().gates) <= set(gate.get("passed") or []),
+                         "gates_run_ok": gate.get("ok"), "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
                          "fairness_flags": it.get("fairness_flags") or []})
     fixes_of = {}
     for split in ("train", "heldout"):
@@ -378,6 +415,73 @@ def cmd_brief(args: argparse.Namespace) -> None:
                 tst = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *rest], capture_output=True, text=True,
                                      check=False).stdout if rest else "(none)"
                 print("--- source diff ---\n" + src[: args.chars] + "\n--- test diff ---\n" + tst[: args.chars])
+
+
+def swarm_brief(w: str, split: str, rec: dict[str, Any], repo: Any, *, chars: int = 3000) -> dict[str, Any]:
+    """The prompt writer's hand-off (``factory.swarm_prompts``): what ``brief`` prints, as data, plus the strings the lint
+    refuses (so the writer knows them before the gate does) and the calibration block (training windows only)."""
+    from crucible.factory.generators.debug import faulty_names, hidden_names, scope
+    from crucible.factory.lanes.windows_git import Unit
+
+    units = {u["sha"]: Unit(**u) for u in rec["units"]}
+    ms = []
+    with scope(rec["lang"]):
+        for m in rec["milestones"]:
+            u = units[m["unit"]]
+            src = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *u.src_files], capture_output=True, text=True, check=False).stdout
+            rest = [p for p in u.files if p not in u.src_files]
+            tst = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *rest], capture_output=True, text=True, check=False).stdout if rest else ""
+            ms.append({"id": m["id"], "requires": m.get("requires") or [], "fix_message": f"{u.subject}\n{u.body[:600]}", "source_diff": src[:chars],
+                       "test_diff": tst[:chars], "hidden_tests": len(m["tests"])})
+    forbidden = sorted(n for n in faulty_names(rec, repo) if not (re.fullmatch(r"[a-z]+", n) and len(n) < 10)) + sorted(n for n in hidden_names(rec) if len(n) >= 6)
+    return {"task": w, "lane": "debug", "language": rec["lang"], "repository": rec["repo"], "milestone_ids": [m["id"] for m in rec["milestones"]],
+            "milestones": ms, "forbidden_strings": forbidden[:200], "calibration": calibration_text(w, split) if split == "train" else ""}
+
+
+def cmd_write_prompts(args: argparse.Namespace) -> None:
+    """The swarm writes the bug reports (``factory.swarm_prompts``; no Claude): every stored window with milestones and no
+    prompt (or ``--ids``, ``--redo``) gets one machine run: the ``prompt_author`` session drafts ``prompts/<id>.json``,
+    the lane's own lint and ledger (``author_debug``) decide, the ``reviewer`` reads it once. Then ``author`` runs as
+    before. The journal (``swarm/<split>/journal``) feeds ``scripts/swarm.py diagnose``. Training and held-out windows
+    have separate roots: no writer of training prompts ever reads a held-out window (V9)."""
+    from crucible.factory.generators.debug import author_debug, faulty_names, hidden_names, lint_debug
+    from crucible.factory.lanes.windows import WindowStore
+    from crucible.factory.lanes.windows_git import RepoGit
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    book = ModelBook(preset=args.preset)
+    only = {x for x in args.ids.split(",") if x}
+    spent = 0.0
+    for split in ("train", "heldout"):
+        sd = ROOT / "gen" / "store" / split
+        if not (sd / "split.json").exists():
+            continue
+        store = WindowStore(sd, split=split)
+        sroot = ROOT / "swarm" / split
+        journal = SwarmJournal(sroot / "journal")
+        for w in store.window_ids():
+            out = ROOT / "prompts" / f"{w}.json"
+            rec = store.window(w)
+            if (only and w not in only) or not rec.get("milestones") or (out.exists() and not args.redo):
+                continue
+            if spent >= args.cap:
+                print(f"cap ${args.cap} reached (${spent:.4f}); stopping before {w}", flush=True)
+                return
+            clone = ROOT / "gen" / "clones" / rec["repo"]
+            repo = RepoGit(clone if clone.exists() else clones()[rec["repo"]][1])
+            faulty, hidden = faulty_names(rec, repo), hidden_names(rec)
+            builder = book.spec("prompt_author").ref
+
+            def lint(draft: dict, rec: dict = rec, repo: Any = repo, sd: Path = sd, w: str = w, builder: str = builder) -> list[str]:
+                return author_debug(rec, {**draft, "builder": builder}, repo, base_dir=sd / "tasks" / w / "base")["findings"]
+
+            job = PromptJob(w, [m["id"] for m in rec["milestones"]], swarm_brief(w, split, rec, repo), sd / "tasks" / w / "base", lint,
+                            lambda t, f=faulty, h=hidden: lint_debug(t, faulty=f, hidden=h), out)
+            res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=journal, budget_usd=args.budget, max_turns=args.max_turns))
+            spent += res["usd"]
+            print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
 
 
 def funnel_table() -> tuple[str, dict[str, Any]]:
@@ -456,12 +560,27 @@ def main() -> None:
     m.add_argument("--parallel", type=int, default=2)
     m.add_argument("--max-pool", type=int, default=40)
     m.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE; FALLBACK_SINCE is the marked fallback)")
+    su = sub.add_parser("subset")
+    su.add_argument("--repo", required=True)
+    su.add_argument("--fixes", required=True, help="the fix shas (prefixes) reverted together, comma-separated")
+    su.add_argument("--b", default="HEAD", help="B, the oracle commit (default the clone's HEAD)")
+    su.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE)")
+    su.add_argument("--id", default="", help="the task id (default db-<lang>-<repo>-<hash of the fixes>, as mine names it)")
+    su.add_argument("--parent", default="", help="the task this one rebuilds or eases, recorded in its window")
+    su.add_argument("--hide", default="", choices=["", "revert", "strip"],
+                    help="how A' hides the fixes' tests (default revert, else strip); strip removes a test a fix changed instead of restoring its old assertions")
+    su.add_argument("--no-link", action="store_true", help="build it although no two fixes interact (separate bugs; S6 then needs no edge)")
+    su.add_argument("--hide-tests", default="",
+                    help="visible tests (file::Test, comma-separated) kept out of A': in revert mode, a test a fix changed whose old assertions expect the bug")
     g = sub.add_parser("gates")
     g.add_argument("--ids", default="")
     g.add_argument("--s3-reruns", type=int, default=60)
     g.add_argument("--flake-reruns", type=int, default=30)
     g.add_argument("--redo", action="store_true")
     g.add_argument("--loop", action="store_true")
+    g.add_argument("--gates", default="",
+                   help="only these gates (comma list), added to the task's record: S6,S5,S8 (~3 min) before a quick pass, then S3,S10 "
+                        "before the full run (which needs all five); a rerun gate's earlier result is kept under 'earlier'")
     sub.add_parser("author")
     rp = sub.add_parser("repro")
     rp.add_argument("--ids", default="", help="only these windows (default: every authored prompt with a repro field)")
@@ -472,11 +591,20 @@ def main() -> None:
     br.add_argument("--targeting", nargs="*", help="S15 report.json files (default: data/targeting/debug and debug-300; later override earlier)")
     br.add_argument("--no-calibration", action="store_true")
     sub.add_parser("report")
+    wp = sub.add_parser("write-prompts", help="the swarm writes prompts/<id>.json (factory.swarm_prompts; no Claude)")
+    wp.add_argument("--preset", default="swarm", help="the ModelBook preset (swarm: every role on Tinker)")
+    wp.add_argument("--ids", default="")
+    wp.add_argument("--redo", action="store_true")
+    wp.add_argument("--cap", type=float, default=10.0, help="USD over every window of this run")
+    wp.add_argument("--budget", type=float, default=1.5, help="USD per window (the machine's budget)")
+    wp.add_argument("--max-turns", type=int, default=60)
     args = ap.parse_args()
     if args.cmd == "scout":
         cmd_scout(args)
     elif args.cmd == "mine":
         asyncio.run(mine(args))
+    elif args.cmd == "subset":
+        asyncio.run(subset(args))
     elif args.cmd == "gates":
         asyncio.run(gates(args))
     elif args.cmd == "author":
@@ -487,6 +615,8 @@ def main() -> None:
         cmd_intent(args)
     elif args.cmd == "brief":
         cmd_brief(args)
+    elif args.cmd == "write-prompts":
+        cmd_write_prompts(args)
     else:
         cmd_report(args)
 

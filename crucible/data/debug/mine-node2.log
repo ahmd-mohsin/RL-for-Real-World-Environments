@@ -1,0 +1,11 @@
+[prettier] 0 candidate group(s)
+[axios] 2 candidate group(s)
+[immer] 0 candidate group(s)
+[cheerio] 0 candidate group(s)
+[es-toolkit] 0 candidate group(s)
+{"event": "window", "id": "db-node-axios-9ff8c996", "repo": "axios", "stage": "mutants_valid", "reason": "", "seconds": 2446.6}
+[axios] db-node-axios-9ff8c996: mutants_valid 
+[eemeli-yaml] 0 candidate group(s)
+{"event": "window", "id": "db-node-axios-9d8cd00c", "repo": "axios", "stage": "f2p_valid", "reason": "independent: no milestone needs an earlier one (long, not long-horizon)", "seconds": 1135.0}
+[axios] db-node-axios-9d8cd00c: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[jotai] 0 candidate group(s)

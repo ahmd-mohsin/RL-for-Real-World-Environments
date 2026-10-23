@@ -1,0 +1,11 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We use this shell parser, formatter and interpreter (the syntax and interp packages) to lint and run our deployment scripts, and several scripts are mishandled. Unless noted, the parser runs with its default bash variant and the printer with default options.",
+ "requirements": {
+  "m01": "With the parser's RecoverErrors option on, an unterminated deprecated arithmetic expansion such as \"$[incomp\" still fails with a hard error, while \"$((incomp\" is recovered. The bracket form should be recovered the same way: the parse succeeds, the expansion's closing position is marked as recovered, and exactly one missing piece is reported.",
+  "m02": "Formatting a script that ends with a word whose last character is a single unescaped backslash is not idempotent: the formatter writes the backslash followed by the final newline, so the output reads back as a line continuation and the backslash disappears. The printed literal should keep its value when the output is parsed again, so formatting the output a second time changes nothing.",
+  "m03": "Inside a backquote command substitution that is itself inside double quotes, a backslash before a double quote is kept literally. bash, dash and mksh all treat it as an escaped double quote there (echo \"`echo \\\"foobar\\\"`\" prints foobar). The parser keeps the backslashes and quotes, so the interpreter runs the wrong command and the printer's $(...) form of the substitution changes its meaning.",
+  "m04": "In bash, an array element used as the file-descriptor variable of a redirect, as in exec {fds[3]}>file or exec {fds[3]}>&-, is split at the bracket: the formatter prints a space before the redirect operator, which changes the command, and it is not treated as a descriptor variable. It should parse, print and run as a redirect whose descriptor variable is that array element. Only bash supports this; in zsh and mksh such a word stays a glob."
+ },
+ "closing": ""
+}

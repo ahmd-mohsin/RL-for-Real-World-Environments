@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 9429, "completion_tokens": 8, "reasoning_tokens": 8}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Continue generating expression.", "reasoning_details": [{"type": "reasoning.text", "text": "Continue generating expression.", "format": "unknown", "index": 0}]}}

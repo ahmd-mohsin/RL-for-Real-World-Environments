@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We run Black (current main branch) with the preview string processing enabled, and long string literals trip it up in a few ways.",
+ "requirements": {
+  "m01": "A long string literal that is not assigned to anything and ends with a trailing comma (so it is a one-item tuple) makes Black fail when string processing is enabled, because splitting the string would change what the code means. It should be wrapped in parentheses first and split inside them, keeping the trailing comma after the closing parenthesis, so the result is still a one-item tuple.",
+  "m02": "When a parenthesized group of implicitly concatenated strings is followed by a pragma comment such as # type: ignore after its closing parenthesis, string processing merges the strings into one line far over the line-length limit that can never be split again. Strings must not be merged when a pragma comment follows the closing bracket of the group; such code should stay as written.",
+  "m03": "A long string wrapped in parentheses as a dictionary value, with # type: ignore after the closing parenthesis, makes Black fail with an error that the comment would be lost. Formatting should split the string inside the parentheses and keep the # type: ignore comment after the closing parenthesis."
+ },
+ "closing": ""
+}

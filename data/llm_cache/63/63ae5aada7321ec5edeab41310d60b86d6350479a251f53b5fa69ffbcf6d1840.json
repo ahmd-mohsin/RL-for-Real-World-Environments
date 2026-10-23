@@ -1,0 +1,1 @@
+{"text": "All requirements are met to a certain degree.", "tool_calls": [], "usage": {"prompt_tokens": 9003, "completion_tokens": 10}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "stop", "raw_message": {}}

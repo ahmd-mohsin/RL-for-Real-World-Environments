@@ -272,7 +272,7 @@ class NodeProfile(CLikeProfile):
                 "ENV COREPACK_HOME=/opt/corepack COREPACK_ENABLE_NETWORK=0 COREPACK_DEFAULT_TO_LATEST=0", f"ENV {PNPM_OFFLINE}"]
 
     def world_setup_cmd(self, ws: str) -> str:
-        return (f"cd {ws} && ln -sfn /opt/deps/node_modules node_modules && mkdir -p .git/info && "
+        return (f"cd {_q(ws)} && ln -sfn /opt/deps/node_modules node_modules && mkdir -p .git/info && "
                 "(grep -qx node_modules .git/info/exclude 2>/dev/null || echo node_modules >> .git/info/exclude)")
 
     # -- runs ----------------------------------------------------------------------------------------------------------------

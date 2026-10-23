@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 3699, "completion_tokens": 38, "reasoning_tokens": 9}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "So has_path not exported. Let's search.", "reasoning_details": [{"type": "reasoning.text", "text": "So has_path not exported. Let's search.", "format": "unknown", "index": 0}]}}

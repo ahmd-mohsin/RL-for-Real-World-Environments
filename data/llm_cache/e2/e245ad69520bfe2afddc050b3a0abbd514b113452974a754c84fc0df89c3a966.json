@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 2028, "completion_tokens": 9, "reasoning_tokens": 9}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "We need to review recipes module.", "reasoning_details": [{"type": "reasoning.text", "text": "We need to review recipes module.", "format": "unknown", "index": 0}]}}

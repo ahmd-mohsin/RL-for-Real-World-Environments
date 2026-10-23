@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.factory.lanes import kernel_debug_ops as ko
+from crucible.factory.lanes import kernel_debug_reach as kr
 from crucible.factory.lanes.kernel_harness import HARNESS
 from crucible.factory.lanes.kernel_mine import licence_for
 from crucible.factory.langs import cuda
@@ -107,6 +108,7 @@ class KernelChange:
     adds_cases: bool = False
     licence: str | None = None
     licence_source: str = ""
+    targets: list[str] = field(default_factory=list)  # our GPUs that compile and dispatch the change (kernel_debug_reach)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -157,6 +159,18 @@ def backend_tree(repo: Path, sha: str, cache: Path, layout: ko.Layout = ko.GGML_
                 raise
             time.sleep(20 * (attempt + 1))
     return dest
+
+
+def reach_of(repo: Path, *, sha: str, parent: str, subject: str, body: str, kind: str, fault_class: str, files: Sequence[str],
+             ops: Sequence[str], adds_cases: bool, layout: ko.Layout) -> kr.Reach:
+    """``kernel_debug_reach.reach`` of one change, read from ``repo`` (its CUDA sources before and after, the backend's
+    ``common.cuh`` and the op test at the change)."""
+    src = [f for f in files if layout.is_backend(f) and cuda.PROFILE.is_source(f)]
+    common = layout.cuda_dir + "common.cuh"
+    return kr.reach(subject=subject, body=body, kind=kind, fault_class=fault_class, adds_cases=adds_cases,
+                    diff=_git(repo, "show", "--format=", "--no-color", "-U0", sha, "--", *src) if src else "",
+                    files={f: (show(repo, parent, f), show(repo, sha, f)) for f in src}, common=(show(repo, parent, common), show(repo, sha, common)),
+                    ops=list(ops), harness=show(repo, sha, HARNESS))
 
 
 def layout_at(repo: Path, ref: str = "HEAD") -> ko.Layout:
@@ -232,6 +246,12 @@ def mine(repo: Path, name: str, *, since: str = SINCE, until: str = "HEAD", layo
         if cache is not None and len(ops) > max_ops:
             drops.append({**row, "kind": kind, "reason": f"reaches {len(ops)} ops (shared plumbing: no milestone can own it)", "functions": sorted(names)[:8]})
             continue
+        r = reach_of(repo, sha=sha, parent=par[0], subject=subject, body=body, kind=kind, fault_class=cls, files=files, ops=ops,
+                     adds_cases=ch.adds_cases, layout=layout)
+        if not r.qualifies:  # our GPUs (sm_90, sm_120) cannot grade it: the reasons are kept with the drop
+            drops.append({**row, "kind": kind, "reason": f"not gradable on our GPUs ({'; '.join(r.reasons)})", "targets": r.targets})
+            continue
+        ch.targets = r.targets
         out.append(ch)
     return out[::-1], drops  # oldest first
 

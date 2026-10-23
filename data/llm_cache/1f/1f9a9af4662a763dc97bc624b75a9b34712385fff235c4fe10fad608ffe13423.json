@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 12990, "completion_tokens": 43, "reasoning_tokens": 4, "cached_tokens": 10832}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Let's call correctly.", "reasoning_details": [{"type": "reasoning.text", "text": "Let's call correctly.", "format": "unknown", "index": 0}]}}

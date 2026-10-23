@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "chatcmpl-tool-af581fcdaf874603", "name": "repo__read_file<|channel|>commentary", "arguments": {"path": "toolz/_signatures.py", "offset": 0, "limit": 200}}], "usage": {"prompt_tokens": 2689, "completion_tokens": 38, "reasoning_tokens": 23, "cached_tokens": 2416}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

@@ -1,0 +1,15 @@
+[go-toml] 1 candidate group(s)
+[mvdan-sh] 4 candidate group(s)
+{"event": "window", "id": "db-go-go-toml-a02114e3", "repo": "go-toml", "stage": "mutants_valid", "reason": "", "seconds": 62.9}
+{"event": "window", "id": "db-go-go-toml-a02114e3", "repo": "go-toml", "stage": "mutants_valid", "reason": "", "seconds": 42.6}
+[go-toml] db-go-go-toml-a02114e3: mutants_valid 
+{"event": "window", "id": "db-go-mvdan-sh-04056a74", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 127.1}
+[jsoup] 0 candidate group(s)
+{"event": "window", "id": "db-go-mvdan-sh-04056a74", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 555.2}
+[mvdan-sh] db-go-mvdan-sh-04056a74: mutants_valid 
+{"event": "window", "id": "db-go-mvdan-sh-dc951aeb", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 2083.1}
+[commons-lang] 0 candidate group(s)
+{"event": "window", "id": "db-go-mvdan-sh-dc951aeb", "repo": "mvdan-sh", "stage": "mutants_valid", "reason": "", "seconds": 354.0}
+[mvdan-sh] db-go-mvdan-sh-dc951aeb: mutants_valid 
+[mvdan-sh] db-go-mvdan-sh-2748a239: windows the agent's start tree does not build (build failed: mvdan.cc/sh/v3/syntax)
+[mvdan-sh] db-go-mvdan-sh-fd782519: windows hidden tests do not build at the start (a fix adds API: build failed: mvdan.cc/sh/v3/syntax)

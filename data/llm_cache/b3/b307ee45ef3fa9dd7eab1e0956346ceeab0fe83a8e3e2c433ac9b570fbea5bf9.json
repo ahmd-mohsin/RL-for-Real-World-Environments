@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 1391, "completion_tokens": 41, "reasoning_tokens": 4}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Let's open slice.", "reasoning_details": [{"type": "reasoning.text", "text": "Let's open slice.", "format": "unknown", "index": 0}]}}

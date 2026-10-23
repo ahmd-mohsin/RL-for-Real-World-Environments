@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 1434, "completion_tokens": 6, "reasoning_tokens": 6}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Let's open semver.py.", "reasoning_details": [{"type": "reasoning.text", "text": "Let's open semver.py.", "format": "unknown", "index": 0}]}}

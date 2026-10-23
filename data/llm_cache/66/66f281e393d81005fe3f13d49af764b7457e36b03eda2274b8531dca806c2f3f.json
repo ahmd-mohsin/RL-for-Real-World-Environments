@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_90a800935e02457ba8b287d2", "name": "repo__read_file", "arguments": {"path": "calc.py"}}], "usage": {"prompt_tokens": 805, "completion_tokens": 30}, "model": "qwen/qwen3.7-flash", "finish": "tool_calls", "raw_message": {}}

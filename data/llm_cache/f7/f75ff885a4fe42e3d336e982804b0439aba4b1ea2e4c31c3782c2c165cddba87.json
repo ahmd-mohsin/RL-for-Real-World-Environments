@@ -1,0 +1,1 @@
+{"text": "{\"ok\": true, \"findings\": []}", "tool_calls": [], "usage": {"prompt_tokens": 411, "completion_tokens": 11}, "model": "deepseek/deepseek-v4-flash", "finish": "stop", "raw_message": {}}

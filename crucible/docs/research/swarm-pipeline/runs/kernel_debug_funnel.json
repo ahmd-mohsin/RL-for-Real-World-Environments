@@ -1,10 +1,10 @@
 {
- "at": "2026-10-21T06:03:46Z",
+ "at": "2026-10-23T08:34:51Z",
  "families": {
   "kernel-bug:heldout": {
-   "authored_clean": 11,
-   "cpu_pass": 9,
-   "cpu_structural_pass": 11,
+   "authored_clean": 9,
+   "cpu_pass": 8,
+   "cpu_structural_pass": 9,
    "drop_reasons": {
     "reaches 13 ops": 2,
     "reaches 60 ops": 1,
@@ -12,18 +12,24 @@
     "touches code outside the CUDA backend": 7
    },
    "gpu_drops": {
-    "S1_executed": 3,
-    "calibration": 6,
-    "host_cpu_gates": 2
+    "S1_executed": 1,
+    "S5_oracle": 1,
+    "S8_mutants": 1,
+    "calibration": 5,
+    "host_cpu_gates": 1
    },
-   "grouped": 11,
+   "gpu_pass_by_hardware": {
+    "NVIDIA GeForce RTX 5090": 0
+   },
+   "grouped": 9,
    "mined_commits": 55,
-   "real_changes": 44
+   "real_changes": 44,
+   "retired": 2
   },
   "kernel-bug:train": {
-   "authored_clean": 18,
-   "cpu_pass": 18,
-   "cpu_structural_pass": 18,
+   "authored_clean": 15,
+   "cpu_pass": 15,
+   "cpu_structural_pass": 15,
    "drop_reasons": {
     "multi-GPU code only": 1,
     "no CUDA source changed": 2,
@@ -43,14 +49,18 @@
     "touches code outside the CUDA backend": 32
    },
    "gpu_drops": {
-    "S1_executed": 9,
-    "S8_mutants": 1,
-    "calibration": 6
+    "S1_executed": 6,
+    "S8_mutants": 2,
+    "calibration": 4
    },
-   "gpu_pass": 2,
-   "grouped": 19,
+   "gpu_pass": 3,
+   "gpu_pass_by_hardware": {
+    "NVIDIA GeForce RTX 5090": 3
+   },
+   "grouped": 16,
    "mined_commits": 132,
-   "real_changes": 73
+   "real_changes": 73,
+   "retired": 3
   },
   "kernel-migration:train": {
    "authored_clean": 5,
@@ -61,7 +71,8 @@
    "cpu_pass": 5,
    "drop_reasons": {},
    "gpu_drops": {
-    "S5_oracle": 3
+    "S5_oracle": 1,
+    "S8_mutants": 2
    },
    "gpu_pass": 2,
    "grouped": 5,
@@ -81,8 +92,8 @@
    "real_changes": 19
   },
   "kernel-perf:train": {
-   "authored_clean": 3,
-   "cpu_pass": 3,
+   "authored_clean": 4,
+   "cpu_pass": 4,
    "cpu_structural_pass": 4,
    "drop_reasons": {
     "older source layout": 1,
@@ -94,7 +105,10 @@
     "touches code outside the CUDA backend": 9
    },
    "gpu_drops": {
-    "pending": 3
+    "calibration": 4
+   },
+   "gpu_pass_by_hardware": {
+    "NVIDIA GeForce RTX 5090": 0
    },
    "grouped": 4,
    "mined_commits": 38,
@@ -115,8 +129,8 @@
  ],
  "sealing": {
   "contamination_by_part": {
-   "diff": 92,
-   "prompt": 4
+   "diff": 86,
+   "prompt": 9
   },
   "contamination_examples": [
    {
@@ -136,24 +150,20 @@
     "task": "kd-bug-ikllamacpp-1ef4f2f7"
    }
   ],
-  "contamination_hits": 96,
+  "contamination_hits": 95,
   "counts": {
-   "heldout": 14,
-   "train": 23
+   "heldout": 12,
+   "train": 20
   },
-  "cutoff_violations": 8,
+  "cutoff_violations": 7,
   "repos_disjoint": true,
   "shared_repos": [],
-  "time_violations": 13
+  "time_violations": 12
  },
  "tasks": [
   {
    "authored": true,
    "claimed_edges": [
-    [
-     "m2",
-     "m1"
-    ],
     [
      "m3",
      "m1"
@@ -176,8 +186,6 @@
     ]
    ],
    "classes": [
-    "precision",
-    "indexing",
     "indexing",
     "logic"
    ],
@@ -193,9 +201,15 @@
     "2026-08-31",
     "2026-10-19"
    ],
-   "faults": 4,
+   "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S5_oracle",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {
     "m1": [
      "m2",
@@ -218,11 +232,12 @@
      "m3"
     ]
    },
-   "gpu_failed_gate": "calibration",
+   "gpu_failed_gate": "S5_oracle",
    "gpu_kept_milestones": [
-    "m1"
+    "m3",
+    "m4"
    ],
-   "gpu_mutants_excluded": null,
+   "gpu_mutants_excluded": {},
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -236,7 +251,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 9, 'm2': 5, 'm3': 6, 'm4': 5}, unstable ['m1', 'm2', 'm3', 'm4'])",
+   "gpu_why": "the oracle does not score 1 on the calibrated spec",
    "id": "kd-bug-ikllamacpp-000b1a1e",
    "lint": [],
    "ops": [
@@ -292,9 +307,17 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [],
+   "gpu_kept_milestones": [
+    "m2"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -309,7 +332,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "0 milestone(s) kept after calibration (owned {'m1': 2, 'm2': 2}, unstable ['m1', 'm2'])",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 2, 'm2': 2}, unstable ['m1', 'm2'])",
    "id": "kd-bug-ikllamacpp-1ef4f2f7",
    "lint": [],
    "ops": [
@@ -336,18 +359,9 @@
     [
      "m2",
      "m1"
-    ],
-    [
-     "m3",
-     "m1"
-    ],
-    [
-     "m3",
-     "m2"
     ]
    ],
    "classes": [
-    "logic",
     "logic",
     "logic"
    ],
@@ -362,15 +376,22 @@
     "2025-11-16",
     "2025-11-27"
    ],
-   "faults": 3,
+   "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S8_mutants",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
+   "gpu_failed_gate": "S8_mutants",
    "gpu_kept_milestones": [
+    "m1",
     "m2"
    ],
-   "gpu_mutants_excluded": null,
+   "gpu_mutants_excluded": {},
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -384,7 +405,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 15, 'm3': 3}, unstable ['m1', 'm3'])",
+   "gpu_why": "a mutant passes its milestone: mutant_partial-m3, mutant_revert-m1",
    "id": "kd-bug-ikllamacpp-35d83401",
    "lint": [],
    "ops": [
@@ -445,17 +466,24 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {
     "m1": [
-     "m2",
-     "m3"
+     "m2"
     ],
-    "m3": [
+    "m2": [
      "m1"
     ]
    },
    "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [],
+   "gpu_kept_milestones": [
+    "m3"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -470,7 +498,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "0 milestone(s) kept after calibration (owned {'m1': 3, 'm2': 0, 'm3': 8}, unstable ['m1', 'm2', 'm3'])",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 2, 'm2': 5, 'm3': 3}, unstable ['m1', 'm2', 'm3'])",
    "id": "kd-bug-ikllamacpp-44b81230",
    "lint": [],
    "ops": [
@@ -523,6 +551,12 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "gpu_reference",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "host_cpu_gates",
    "gpu_kept_milestones": null,
@@ -548,149 +582,6 @@
     "MOE_FUSED_UP_GATE",
     "MUL_MAT_ID",
     "REDUCE"
-   ],
-   "pools": null,
-   "repo": "ikawrakow/ik_llama.cpp",
-   "split": "heldout"
-  },
-  {
-   "authored": true,
-   "claimed_edges": [
-    [
-     "m2",
-     "m1"
-    ]
-   ],
-   "classes": [
-    "logic",
-    "stream_async"
-   ],
-   "contamination": "fallback",
-   "cpu_pass": true,
-   "cpu_pending_host": null,
-   "cpu_structural_pass": true,
-   "cutoff": "2026-05-01",
-   "family": "kernel-bug",
-   "fault_dates": [
-    "2025-12-03",
-    "2026-01-19"
-   ],
-   "faults": 2,
-   "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
-   "gpu_kept_milestones": [],
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
-   "gpu_pending": [
-    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
-    "case calibration (milestone cases = cases each revert breaks)",
-    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
-    "S5 oracle reward 1 on the GPU",
-    "S8 floors 0 and mutants fail (GPU)",
-    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
-    "kernel-launch evidence",
-    "perf bars + noise floor (perf family)",
-    "S10 flake: 60 oracle grades at concurrency 1 and 4",
-    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
-   ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
-   "id": "kd-bug-ikllamacpp-4da3f014",
-   "lint": [],
-   "ops": [
-    "ADD",
-    "MUL",
-    "REDUCE"
-   ],
-   "pools": {
-    "m1": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 26
-    },
-    "m2": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 26
-    }
-   },
-   "repo": "ikawrakow/ik_llama.cpp",
-   "split": "heldout"
-  },
-  {
-   "authored": true,
-   "claimed_edges": [
-    [
-     "m2",
-     "m1"
-    ],
-    [
-     "m3",
-     "m1"
-    ],
-    [
-     "m3",
-     "m2"
-    ],
-    [
-     "m4",
-     "m2"
-    ],
-    [
-     "m4",
-     "m3"
-    ]
-   ],
-   "classes": [
-    "race",
-    "indexing",
-    "indexing",
-    "indexing"
-   ],
-   "contamination": "post-release",
-   "cpu_pass": false,
-   "cpu_pending_host": null,
-   "cpu_structural_pass": true,
-   "cutoff": "2026-05-01",
-   "family": "kernel-bug",
-   "fault_dates": [
-    "2026-07-17",
-    "2026-08-07",
-    "2026-08-10",
-    "2026-10-20"
-   ],
-   "faults": 4,
-   "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "host_cpu_gates",
-   "gpu_kept_milestones": null,
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
-   "gpu_pending": [
-    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
-    "case calibration (milestone cases = cases each revert breaks)",
-    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
-    "S5 oracle reward 1 on the GPU",
-    "S8 floors 0 and mutants fail (GPU)",
-    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
-    "kernel-launch evidence",
-    "perf bars + noise floor (perf family)",
-    "S10 flake: 60 oracle grades at concurrency 1 and 4",
-    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
-   ],
-   "gpu_why": "pools {'m1': {'added': 0, 'perf_pool': 0, 'pool': 0}, 'm2': {'added': 0, 'perf_pool': 0, 'pool': 0}, 'm3': {'added': 0, 'perf_pool': 0, 'pool': 0}, 'm4': {'added': 0, 'perf_pool': 0, 'pool': 1757}}, seeding True",
-   "id": "kd-bug-ikllamacpp-5b19ab0c",
-   "lint": [],
-   "ops": [
-    "FLASH_ATTN_EXT",
-    "FUSED_UP_GATE",
-    "INDEXER_TOPK",
-    "LATENT_ATTN",
-    "MASK_TOPK",
-    "MOE_FUSED_UP_GATE",
-    "MUL_MAT_ID"
    ],
    "pools": null,
    "repo": "ikawrakow/ik_llama.cpp",
@@ -731,6 +622,12 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "calibration",
    "gpu_kept_milestones": [
@@ -812,13 +709,21 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {
     "m3": [
      "m2"
     ]
    },
    "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [],
+   "gpu_kept_milestones": [
+    "m2"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -833,7 +738,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "0 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0, 'm3': 2}, unstable ['m3'])",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0, 'm3': 2}, unstable ['m3'])",
    "id": "kd-bug-ikllamacpp-5b8c07ff",
    "lint": [],
    "ops": [
@@ -889,9 +794,17 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
-   "gpu_kept_milestones": [],
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [
+    "m2"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -906,7 +819,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 2}, unstable [])",
    "id": "kd-bug-ikllamacpp-89213aa6",
    "lint": [],
    "ops": [
@@ -952,6 +865,12 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -1029,6 +948,7 @@
    "faults": 3,
    "flake": null,
    "gpu": null,
+   "gpu_by_hardware": {},
    "gpu_executed_edges": {},
    "gpu_failed_gate": "pending",
    "gpu_kept_milestones": null,
@@ -1095,6 +1015,7 @@
    "faults": 3,
    "flake": null,
    "gpu": null,
+   "gpu_by_hardware": {},
    "gpu_executed_edges": {},
    "gpu_failed_gate": "pending",
    "gpu_kept_milestones": null,
@@ -1148,6 +1069,7 @@
    "faults": 2,
    "flake": null,
    "gpu": null,
+   "gpu_by_hardware": {},
    "gpu_executed_edges": {},
    "gpu_failed_gate": "pending",
    "gpu_kept_milestones": null,
@@ -1211,6 +1133,12 @@
     "n": 60
    },
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": null,
    "gpu_kept_milestones": [
@@ -1302,25 +1230,20 @@
     "2025-05-04"
    ],
    "faults": 2,
-   "flake": {
-    "cp_upper": 0.0766,
-    "false_negatives": 1,
-    "masked": 0,
-    "n": 60
-   },
+   "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "S8_mutants",
-   "gpu_kept_milestones": [
-    "m1",
-    "m3"
-   ],
-   "gpu_mutants_excluded": {
-    "mutant_partial-m1": {
-     "status": "equivalent",
-     "why": "breaks no pool case and no sanitizer check on this GPU"
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
     }
    },
+   "gpu_executed_edges": {},
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [
+    "m1"
+   ],
+   "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -1334,7 +1257,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "a mutant passes its milestone: mutant_revert-m3",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 25, 'm2': 0, 'm3': 0}, unstable [])",
    "id": "kd-bug-llamacpp-3af2e58d",
    "lint": [],
    "ops": [
@@ -1386,6 +1309,12 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -1450,8 +1379,14 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
+   "gpu_failed_gate": "calibration",
    "gpu_kept_milestones": [],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
@@ -1467,7 +1402,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
+   "gpu_why": "0 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
    "id": "kd-bug-llamacpp-44d1bb19",
    "lint": [],
    "ops": [
@@ -1486,74 +1421,6 @@
      "added": 0,
      "perf_pool": 0,
      "pool": 5097
-    }
-   },
-   "repo": "ggml-org/llama.cpp",
-   "split": "train"
-  },
-  {
-   "authored": true,
-   "claimed_edges": [
-    [
-     "m2",
-     "m1"
-    ]
-   ],
-   "classes": [
-    "launch_config",
-    "indexing"
-   ],
-   "contamination": "post-release",
-   "cpu_pass": true,
-   "cpu_pending_host": null,
-   "cpu_structural_pass": true,
-   "cutoff": "2026-05-01",
-   "family": "kernel-bug",
-   "fault_dates": [
-    "2026-08-08",
-    "2026-10-02"
-   ],
-   "faults": 2,
-   "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [
-    "m2"
-   ],
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
-   "gpu_pending": [
-    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
-    "case calibration (milestone cases = cases each revert breaks)",
-    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
-    "S5 oracle reward 1 on the GPU",
-    "S8 floors 0 and mutants fail (GPU)",
-    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
-    "kernel-launch evidence",
-    "perf bars + noise floor (perf family)",
-    "S10 flake: 60 oracle grades at concurrency 1 and 4",
-    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
-   ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 2}, unstable [])",
-   "id": "kd-bug-llamacpp-4b8c156e",
-   "lint": [],
-   "ops": [
-    "CONT",
-    "CPY",
-    "DUP",
-    "SET"
-   ],
-   "pools": {
-    "m1": {
-     "added": 4,
-     "perf_pool": 0,
-     "pool": 694
-    },
-    "m2": {
-     "added": 4,
-     "perf_pool": 0,
-     "pool": 694
     }
    },
    "repo": "ggml-org/llama.cpp",
@@ -1594,6 +1461,12 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -1646,80 +1519,6 @@
     [
      "m2",
      "m1"
-    ]
-   ],
-   "classes": [
-    "overflow",
-    "launch_config",
-    "logic"
-   ],
-   "contamination": "fallback",
-   "cpu_pass": true,
-   "cpu_pending_host": null,
-   "cpu_structural_pass": true,
-   "cutoff": "2026-05-01",
-   "family": "kernel-bug",
-   "fault_dates": [
-    "2026-02-03",
-    "2026-04-01",
-    "2026-04-01"
-   ],
-   "faults": 3,
-   "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [
-    "m3"
-   ],
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
-   "gpu_pending": [
-    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
-    "case calibration (milestone cases = cases each revert breaks)",
-    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
-    "S5 oracle reward 1 on the GPU",
-    "S8 floors 0 and mutants fail (GPU)",
-    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
-    "kernel-launch evidence",
-    "perf bars + noise floor (perf family)",
-    "S10 flake: 60 oracle grades at concurrency 1 and 4",
-    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
-   ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0, 'm3': 32}, unstable [])",
-   "id": "kd-bug-llamacpp-7ac249cc",
-   "lint": [],
-   "ops": [
-    "FLASH_ATTN_EXT",
-    "MUL_MAT",
-    "MUL_MAT_ID"
-   ],
-   "pools": {
-    "m1": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 1986
-    },
-    "m2": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 686
-    },
-    "m3": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 3616
-    }
-   },
-   "repo": "ggml-org/llama.cpp",
-   "split": "train"
-  },
-  {
-   "authored": true,
-   "claimed_edges": [
-    [
-     "m2",
-     "m1"
     ],
     [
      "m3",
@@ -1755,6 +1554,12 @@
    "faults": 4,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -1809,35 +1614,17 @@
    "authored": true,
    "claimed_edges": [
     [
-     "m2",
-     "m1"
-    ],
-    [
      "m3",
      "m1"
     ],
     [
      "m3",
      "m2"
-    ],
-    [
-     "m4",
-     "m1"
-    ],
-    [
-     "m4",
-     "m2"
-    ],
-    [
-     "m4",
-     "m3"
     ]
    ],
    "classes": [
     "grid_limit",
-    "launch_config",
-    "logic",
-    "stream_async"
+    "logic"
    ],
    "contamination": "fallback",
    "cpu_pass": true,
@@ -1851,13 +1638,31 @@
     "2025-11-07",
     "2025-11-08"
    ],
-   "faults": 4,
+   "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S8_mutants",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
-   "gpu_kept_milestones": [],
-   "gpu_mutants_excluded": null,
+   "gpu_failed_gate": "S8_mutants",
+   "gpu_kept_milestones": [
+    "m1",
+    "m3"
+   ],
+   "gpu_mutants_excluded": {
+    "mutant_partial-m1": {
+     "status": "uninformative",
+     "why": "does not build for this GPU"
+    },
+    "mutant_partial-m3": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    }
+   },
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -1871,7 +1676,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
+   "gpu_why": "a mutant passes its milestone: mutant_revert-m3",
    "id": "kd-bug-llamacpp-a45699aa",
    "lint": [],
    "ops": [
@@ -1929,6 +1734,12 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "calibration",
    "gpu_kept_milestones": [
@@ -1978,71 +1789,6 @@
     [
      "m2",
      "m1"
-    ]
-   ],
-   "classes": [
-    "precision",
-    "logic"
-   ],
-   "contamination": "fallback",
-   "cpu_pass": true,
-   "cpu_pending_host": null,
-   "cpu_structural_pass": true,
-   "cutoff": "2026-05-01",
-   "family": "kernel-bug",
-   "fault_dates": [
-    "2024-11-17",
-    "2024-12-09"
-   ],
-   "faults": 2,
-   "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [
-    "m2"
-   ],
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
-   "gpu_pending": [
-    "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
-    "case calibration (milestone cases = cases each revert breaks)",
-    "S6 executed edges (cases broken by two single reverts; prober A' + one fix)",
-    "S5 oracle reward 1 on the GPU",
-    "S8 floors 0 and mutants fail (GPU)",
-    "sanitizer checks (racecheck/synccheck/memcheck) clean on B, dirty on the revert",
-    "kernel-launch evidence",
-    "perf bars + noise floor (perf family)",
-    "S10 flake: 60 oracle grades at concurrency 1 and 4",
-    "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
-   ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 32}, unstable [])",
-   "id": "kd-bug-llamacpp-b377258d",
-   "lint": [],
-   "ops": [
-    "MUL_MAT_ID"
-   ],
-   "pools": {
-    "m1": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 198
-    },
-    "m2": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 198
-    }
-   },
-   "repo": "ggml-org/llama.cpp",
-   "split": "train"
-  },
-  {
-   "authored": true,
-   "claimed_edges": [
-    [
-     "m2",
-     "m1"
     ],
     [
      "m3",
@@ -2068,6 +1814,12 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "calibration",
    "gpu_kept_milestones": [
@@ -2140,11 +1892,15 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
-   "gpu_kept_milestones": [
-    "m2"
-   ],
+   "gpu_failed_gate": "S1_executed",
+   "gpu_kept_milestones": [],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -2159,7 +1915,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
+   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
    "id": "kd-bug-llamacpp-c434b3a5",
    "lint": [],
    "ops": [
@@ -2210,6 +1966,12 @@
     "n": 60
    },
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": null,
    "gpu_kept_milestones": [
@@ -2302,10 +2064,25 @@
    "faults": 3,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S8_mutants",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
-   "gpu_kept_milestones": [],
-   "gpu_mutants_excluded": null,
+   "gpu_failed_gate": "S8_mutants",
+   "gpu_kept_milestones": [
+    "m1",
+    "m2",
+    "m3"
+   ],
+   "gpu_mutants_excluded": {
+    "mutant_partial-m3": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    }
+   },
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -2319,7 +2096,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
+   "gpu_why": "a mutant passes its milestone: mutant_revert-m2",
    "id": "kd-bug-llamacpp-cef66d4a",
    "lint": [],
    "ops": [
@@ -2373,6 +2150,7 @@
    "faults": 2,
    "flake": null,
    "gpu": null,
+   "gpu_by_hardware": {},
    "gpu_executed_edges": {},
    "gpu_failed_gate": "pending",
    "gpu_kept_milestones": null,
@@ -2437,6 +2215,12 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -2498,13 +2282,33 @@
     "2026-09-07"
    ],
    "faults": 2,
-   "flake": null,
+   "flake": {
+    "cp_upper": 0.0487,
+    "false_negatives": 0,
+    "masked": 0,
+    "measured": 60,
+    "n": 60
+   },
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "S1_executed",
-   "gpu_kept_milestones": [],
-   "gpu_mutants_excluded": null,
-   "gpu_pass": false,
+   "gpu_failed_gate": null,
+   "gpu_kept_milestones": [
+    "m1",
+    "m2"
+   ],
+   "gpu_mutants_excluded": {
+    "mutant_partial-m1": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    }
+   },
+   "gpu_pass": true,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
     "case calibration (milestone cases = cases each revert breaks)",
@@ -2517,7 +2321,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not real on this GPU: the start (every fault in) passes every pool case and every sanitizer check",
+   "gpu_why": "",
    "id": "kd-bug-llamacpp-efe7d4b1",
    "lint": [],
    "ops": [
@@ -2563,6 +2367,12 @@
    "faults": 2,
    "flake": null,
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S1_executed",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
    "gpu_failed_gate": "S1_executed",
    "gpu_kept_milestones": [],
@@ -2602,7 +2412,7 @@
    "split": "train"
   },
   {
-   "authored": false,
+   "authored": true,
    "claimed_edges": [
     [
      "m2",
@@ -2623,7 +2433,7 @@
     "perf"
    ],
    "contamination": "fallback",
-   "cpu_pass": false,
+   "cpu_pass": true,
    "cpu_pending_host": null,
    "cpu_structural_pass": true,
    "cutoff": "2026-05-01",
@@ -2635,9 +2445,15 @@
    ],
    "faults": 3,
    "flake": null,
-   "gpu": null,
+   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
+   "gpu_failed_gate": "calibration",
    "gpu_kept_milestones": null,
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
@@ -2653,9 +2469,9 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "the start did not build on this host: .dir/cross-entropy-loss.cu.o\\n[40/188] Building CUDA object ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/cpy.cu.o\\n[41/188] Building CUDA object ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/fattn.cu.o\\n[42/188] Building CUDA object ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/fattn-tile.cu.o\\n[43/188] Building CUDA object ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/convert.cu.o\\n[44/188] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/ops.cpp.o\\n[45/188] Building CUDA object ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/fattn-wmma-f16.cu.o\\nninja: build stopped: subcommand failed.\\n\"}",
    "id": "kd-perf-llamacpp-3ad8a68c",
-   "lint": null,
+   "lint": [],
    "ops": [
     "MUL_MAT",
     "MUL_MAT_ID",
@@ -2664,9 +2480,9 @@
    ],
    "pools": {
     "m1": {
-     "added": 0,
-     "perf_pool": 0,
-     "pool": 8
+     "added": 2,
+     "perf_pool": 2,
+     "pool": 10
     },
     "m2": {
      "added": 0,
@@ -2706,10 +2522,18 @@
    ],
    "faults": 2,
    "flake": null,
-   "gpu": null,
+   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
-   "gpu_kept_milestones": null,
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [
+    "m2"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -2724,7 +2548,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
    "id": "kd-perf-llamacpp-4bc24fdb",
    "lint": [],
    "ops": [
@@ -2769,10 +2593,18 @@
    ],
    "faults": 2,
    "flake": null,
-   "gpu": null,
+   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
-   "gpu_kept_milestones": null,
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [
+    "m1"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -2787,7 +2619,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
    "id": "kd-perf-llamacpp-9d89aaa0",
    "lint": [],
    "ops": [
@@ -2833,10 +2665,18 @@
    ],
    "faults": 2,
    "flake": null,
-   "gpu": null,
+   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
-   "gpu_kept_milestones": null,
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [
+    "m1"
+   ],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -2851,7 +2691,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
    "id": "kd-perf-llamacpp-d2084ba6",
    "lint": [],
    "ops": [
@@ -2893,7 +2733,7 @@
    "flake": {
     "cp_upper": 1.0,
     "false_negatives": 60,
-    "masked": 0,
+    "masked": 60,
     "n": 60
    },
    "generation": "cuda12",
@@ -2906,7 +2746,7 @@
     "S10 flake",
     "S12-S15"
    ],
-   "gpu_why": "oracle reward 0.0, gates {}",
+   "gpu_why": "oracle reward None, gates {}",
    "id": "km-cuda12-cudahandbook-19a4af6-3",
    "kinds": [
     "texref"
@@ -2928,18 +2768,18 @@
    "contamination": "post-release",
    "cpu_pass": true,
    "executed_cross_edges": 0,
-   "executed_edges": 4,
+   "executed_edges": 2,
    "family": "kernel-migration",
    "fault_mutants_pending_gpu": 3,
    "flake": {
-    "cp_upper": 1.0,
-    "false_negatives": 60,
+    "cp_upper": 0.0487,
+    "false_negatives": 0,
     "masked": 0,
     "n": 60
    },
    "generation": "cuda12",
    "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_failed_gate": "S5_oracle",
+   "gpu_failed_gate": "S8_mutants",
    "gpu_pass": false,
    "gpu_pending": [
     "run milestones: golden vs the original on fresh seeds, launches, binary check",
@@ -2947,13 +2787,13 @@
     "S10 flake",
     "S12-S15"
    ],
-   "gpu_why": "oracle reward 0.0, gates {}",
+   "gpu_why": "a fault mutant passes every milestone: mutant_fault-addr_clamp_to_border-texturing_surf2Dmemset, mutant_fault-filter_linear_to_point-texturing_surf2Dmemset, mutant_fault-filter_point_to_linear-texturing_surf2Dmemset",
    "id": "km-cuda12-cudahandbook-b62f9ad-4",
    "kinds": [
     "surfref",
     "texref"
    ],
-   "milestones": 8,
+   "milestones": 6,
    "programs": 4,
    "repo": "ArchaeaSoftware/cudahandbook",
    "rung": "L2-short",
@@ -3019,14 +2859,14 @@
    "family": "kernel-migration",
    "fault_mutants_pending_gpu": 3,
    "flake": {
-    "cp_upper": 1.0,
-    "false_negatives": 60,
+    "cp_upper": 0.0487,
+    "false_negatives": 0,
     "masked": 0,
     "n": 60
    },
    "generation": "cuda13",
    "gpu": "NVIDIA GeForce RTX 5090",
-   "gpu_failed_gate": "S5_oracle",
+   "gpu_failed_gate": "S8_mutants",
    "gpu_pass": false,
    "gpu_pending": [
     "run milestones: golden vs the original on fresh seeds, launches, binary check",
@@ -3034,7 +2874,7 @@
     "S10 flake",
     "S12-S15"
    ],
-   "gpu_why": "oracle reward 0.0, gates {}",
+   "gpu_why": "a fault mutant passes every milestone: mutant_fault-drop_syncwarp-src_softmax_online_cuda_main, mutant_fault-mask_active-src_softmax_online_cuda_main, mutant_fault-shfl_down_to_up-src_softmax_online_cuda_main",
    "id": "km-cuda13-hecbench-8fcc759-4",
    "kinds": [
     "cccl3_functors",
@@ -3087,6 +2927,81 @@
    "repo": "zjin-lcf/HeCBench",
    "rung": "L2-short",
    "split": "train"
+  },
+  {
+   "authored": false,
+   "cpu_pass": false,
+   "cpu_structural_pass": false,
+   "family": "kernel-bug",
+   "gpu_failed_gate": "retired",
+   "gpu_pass": false,
+   "gpu_why": "no GPU we have grades two of its faults: m2 is a pre-Ampere bf16 path (both of our GPUs take the Ampere branch)",
+   "id": "kd-bug-ikllamacpp-4da3f014",
+   "repo": "ikawrakow/ik_llama.cpp",
+   "retired_at": "2026-10-23T08:28:04Z",
+   "retired_reason": "no GPU we have grades two of its faults: m2 is a pre-Ampere bf16 path (both of our GPUs take the Ampere branch)",
+   "split": "heldout",
+   "status": "retired"
+  },
+  {
+   "authored": false,
+   "cpu_pass": false,
+   "cpu_structural_pass": false,
+   "family": "kernel-bug",
+   "gpu_failed_gate": "retired",
+   "gpu_pass": false,
+   "gpu_why": "no GPU we have grades two of its faults: m1-m3 change ops (MASK_TOPK, INDEXER_TOPK) the repository's op test has no case class for",
+   "id": "kd-bug-ikllamacpp-5b19ab0c",
+   "repo": "ikawrakow/ik_llama.cpp",
+   "retired_at": "2026-10-23T08:28:04Z",
+   "retired_reason": "no GPU we have grades two of its faults: m1-m3 change ops (MASK_TOPK, INDEXER_TOPK) the repository's op test has no case class for",
+   "split": "heldout",
+   "status": "retired"
+  },
+  {
+   "authored": false,
+   "cpu_pass": false,
+   "cpu_structural_pass": false,
+   "family": "kernel-bug",
+   "gpu_failed_gate": "retired",
+   "gpu_pass": false,
+   "gpu_why": "no GPU we have grades two of its faults: m1 only reshapes the launch (the old one-thread blocks compute the same values)",
+   "id": "kd-bug-llamacpp-4b8c156e",
+   "repo": "ggml-org/llama.cpp",
+   "retired_at": "2026-10-23T08:27:56Z",
+   "retired_reason": "no GPU we have grades two of its faults: m1 only reshapes the launch (the old one-thread blocks compute the same values)",
+   "split": "train",
+   "status": "retired"
+  },
+  {
+   "authored": false,
+   "cpu_pass": false,
+   "cpu_structural_pass": false,
+   "family": "kernel-bug",
+   "gpu_failed_gate": "retired",
+   "gpu_pass": false,
+   "gpu_why": "no GPU we have grades two of its faults: m1 is a speed change (64-bit strides so the compiler unrolls; same results), m2 an AMD-only kernel selection (not dispatched on sm_90 or sm_120)",
+   "id": "kd-bug-llamacpp-7ac249cc",
+   "repo": "ggml-org/llama.cpp",
+   "retired_at": "2026-10-23T08:27:56Z",
+   "retired_reason": "no GPU we have grades two of its faults: m1 is a speed change (64-bit strides so the compiler unrolls; same results), m2 an AMD-only kernel selection (not dispatched on sm_90 or sm_120)",
+   "split": "train",
+   "status": "retired"
+  },
+  {
+   "authored": false,
+   "cpu_pass": false,
+   "cpu_structural_pass": false,
+   "family": "kernel-bug",
+   "gpu_failed_gate": "retired",
+   "gpu_pass": false,
+   "gpu_why": "no GPU we have grades two of its faults: m1 moves FP16 activations to another kernel whose results stay inside the case tolerance",
+   "id": "kd-bug-llamacpp-b377258d",
+   "repo": "ggml-org/llama.cpp",
+   "retired_at": "2026-10-23T08:27:56Z",
+   "retired_reason": "no GPU we have grades two of its faults: m1 moves FP16 activations to another kernel whose results stay inside the case tolerance",
+   "split": "train",
+   "status": "retired"
   }
  ],
  "unclassified_drops": {

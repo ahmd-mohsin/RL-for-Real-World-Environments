@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "7d6xvrsdt", "name": "repo__shell", "arguments": {"command": "python -m unittest discover -s tests", "timeout_s": 60}}], "usage": {"prompt_tokens": 1564, "completion_tokens": 41, "cached_tokens": 1024}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "tool_calls", "raw_message": {}}

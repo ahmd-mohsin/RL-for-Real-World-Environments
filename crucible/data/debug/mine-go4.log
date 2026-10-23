@@ -1,0 +1,29 @@
+[mvdan-sh] 4 candidate group(s)
+[mvdan-sh] db-go-mvdan-sh-04056a74: mutants_valid 
+[mvdan-sh] db-go-mvdan-sh-dc951aeb: mutants_valid 
+[mvdan-sh] db-go-mvdan-sh-2748a239: windows the agent's start tree does not build (build failed: mvdan.cc/sh/v3/syntax)
+[mvdan-sh] db-go-mvdan-sh-fd782519: windows hidden tests do not build at the start (a fix adds API: build failed: mvdan.cc/sh/v3/syntax)
+[yq] 3 candidate group(s)
+[yq] db-go-yq-8986d651: f2p_valid independent: no milestone needs an earlier one (long, not long-horizon)
+[yq] db-go-yq-da09996a: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[validator] 2 candidate group(s)
+[validator] db-go-validator-240822eb: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[validator] db-go-validator-0a5f3c9e: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[fiber] 1 candidate group(s)
+[fiber] db-go-fiber-9d2247ec: windows the agent's start tree does not build (build failed: github.com/gofiber/fiber/v3)
+[go-toml] 1 candidate group(s)
+[go-toml] db-go-go-toml-a02114e3: mutants_valid 
+{"event": "window", "id": "db-go-yq-f43e6bbb", "repo": "yq", "stage": "leak_ok", "reason": "1 milestone(s) with fail-to-pass tests (need 2)", "seconds": 127.6}
+[yq] db-go-yq-f43e6bbb: leak_ok 1 milestone(s) with fail-to-pass tests (need 2)
+[echo] 1 candidate group(s)
+{"event": "window", "id": "db-go-echo-61eca05b", "repo": "echo", "stage": "mutants_valid", "reason": "", "seconds": 116.1}
+[go-github] 0 candidate group(s)
+{"event": "window", "id": "db-go-echo-61eca05b", "repo": "echo", "stage": "mutants_valid", "reason": "", "seconds": 109.7}
+[echo] db-go-echo-61eca05b: mutants_valid 
+[lo] 0 candidate group(s)
+[gin] 0 candidate group(s)
+[esbuild] 0 candidate group(s)
+[minify] 1 candidate group(s)
+{"event": "window", "id": "db-go-minify-bb23edaf", "repo": "minify", "stage": "mutants_valid", "reason": "", "seconds": 29.5}
+[minify] db-go-minify-bb23edaf: mutants_valid 
+[jsoup] 0 candidate group(s)

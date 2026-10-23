@@ -145,6 +145,13 @@ worktree and sandbox**, not single calls (`swarm-pipeline/01` fact 10).
 | Auditor | call / agent | reviewer family | traces + environment evidence + verdicts | — | first wrong step, cause, defects |
 | Tie-break | call | third family | the disputed item | — | decision |
 
+**3.2.1 Families since 2026-10-23 (the Tinker swarm, `08` §1.1, `13`).** "Author family" became three families: the
+oracle builder is DeepSeek, the planner and the first verifier writer are GLM (V2 by family), and the prompt writer,
+World expert and mutant builder are Kimi. "Reviewer family" became the families nothing builds: Nemotron and
+gpt-oss. The rule is checked per artifact: every artifact carries the families that produced it (`factory/provenance.py`),
+and a checker refuses an input its own family produced. Builder sessions run on the M16 RLM harness with the checkpoint
+sidecar, so a builder's Φ, per-turn credit and honesty are journaled like a student's.
+
 **3.3 Communication rules** (`EVALS` L6):
 - Hand-offs lose specification: prose costs about 8.5 points per hand-off, structured about 2.8. Sending the full
   original spec loses least.
@@ -233,6 +240,21 @@ lives in the recipe.
    - **Only grade what the prompt asks for:** the ledger is two-way (exists). A check with no requirement is refused.
    - **A correct answer must never crash or trip the grader.** HUD's anti-hallucination rule flagged "ug/m3" as a file
      path. False-fail candidates from the audit are re-run on the alternatives before any check is kept.
+   - **S9b, live (2026-10-23; `factory/alternatives_gate.py`, `lh_debug_target.py fairness`).** The alternatives are
+     solver end states written from the bug report alone (stored frontier and student runs, plus S9b's own sessions
+     by families other than the prompt writer's and the suite's), one per end state. Each is judged by the grader, by
+     the blind second verifier (now in every debug-lane language: `verifier2` under the language profile) when its
+     family differs from the state's, and by the report's repros. Classes: accepted, `false_fail` candidate (the grader
+     rejects what every independent check passes: blocks the task until the audit resolves it), `lucky_pass` (a
+     `verifier_gap` candidate), wrong, unknown. κ between the two verifiers is published per task; disagreements go to
+     the tie-break. `lh_audit.py --fairness` feeds the accepted alternatives and the qualified second verifier into the
+     trace audit's acceptance (the fakes are gone there).
+   - **Path rules never punish confined work (2026-10-23).** `path:install` excuses an install in a scratch module
+     outside the repo (`cd /tmp/r && go mod tidy`) when the project's manifests and lockfiles are unchanged and the
+     World is offline: the mvdan-sh false fail (DeepSeek at Φ = 1 lost its pass). A tool installed on the machine
+     (`go install`, `cargo install`, `npm -g`), `pip` anywhere, or an install in the repo still fails. A bare reinstall
+     of declared dependencies (`pnpm install`, `npm ci`) is its own class, off by default (`allow_declared_reinstall`).
+     `factory/repath.py` re-applies path rules to stored episodes; every path report carries `RULES_VERSION`.
 
 ## 6. Long-horizon guarantees
 
@@ -267,6 +289,14 @@ A task is pool-eligible only if:
 5. **prerequisite probe:** the policy can build the World and run the tests;
 6. **paraphrase stability:** two paraphrases of the prompt (same requirements, same ledger) give a pass rate inside the
    original's CI (`EVALS` L2: 46% of meaning-preserving paraphrases changed generated code).
+
+**Difficulty control** (swarm-pipeline/12; exists, 2026-10-23). Measured difficulty drives the generator:
+- `factory.difficulty.control` turns a measured rate, the cause labels and the failure modes into one typed knob action: ease (K1–K6, or C1 a checkpoint start), harden (H1–H3), keep, sample_more, fix_task or budget_bound. Each action carries R-Zero's generator reward `1 − 2|p − ½|` and is journaled. Held-out tasks are refused.
+- A cheap advisory predictor orders the expensive k=8 measurements. It never keeps or rejects a task.
+- `conditional` separates full-task difficulty from p(m | prerequisites).
+- Checkpoint starts (`simplify_units`, kind `checkpoint`) re-run every gate.
+
+At training time, `train.curriculum.DifficultySampler` filters by online p̂ and runs the reverse curriculum.
 
 ---
 

@@ -59,6 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from crucible.actors.llm import BudgetExceeded, SpendScope, book_scoped
 from crucible.factory.handoff import HandoffError, TaskRepo, build_handoff
 from crucible.factory.machine import PARAMS, CaptureLost, InfraError, Settle, StateContext, StateFailed, artifact_digest, book_tokens
 
@@ -315,6 +316,81 @@ class SessionRecord:
     handoff_commit: str
     capture_commit: str | None
     specialist: str | None = None
+    role: str | None = None
+    family: str | None = None  # the family of the client that ran the session (provenance)
+    model: str | None = None
+    phi_final: float | None = None  # the builder potential at the end (``session.potential``), None when none is declared
+    failure_kind: str | None = None
+
+
+class StateBudgetExceeded(BudgetExceeded):
+    """The session spent the state's USD budget (``ctx.budget["usd"]``): a budget stop, the task's failure (never masked).
+    A ``BudgetExceeded``, so the RLM agent ends the episode cleanly with this kind instead of raising."""
+
+    failure_kind = "crucible:state_budget"
+
+
+def _family_of(llm: Any) -> str | None:
+    from crucible.factory.provenance import family_of_client
+
+    return family_of_client(llm)
+
+
+class StateBudgetClient:
+    """A role client whose calls stop once ``cap_usd`` has been booked through it (the SpendScope of each call). The
+    machine's ledger settles after the state; this stops a session mid-way, before it spends past the state's budget."""
+
+    def __init__(self, inner: Any, cap_usd: float):
+        self.inner, self.cap_usd, self.usd = inner, float(cap_usd), 0.0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    async def _call(self, fn: Any, *a: Any, **kw: Any) -> Any:
+        if self.usd >= self.cap_usd:
+            raise StateBudgetExceeded(f"the state's budget of ${self.cap_usd:.4f} is spent (${self.usd:.4f})")
+        scope = SpendScope()
+        try:
+            with scope:
+                return await fn(*a, **kw)
+        finally:  # the call's dollars count here and, re-booked, in the machine's scope around the state (its ledger, V10)
+            self.usd += scope.usd
+            book_scoped(scope.usd)
+
+    async def complete(self, *a: Any, **kw: Any) -> Any:
+        return await self._call(self.inner.complete, *a, **kw)
+
+    async def complete_json(self, *a: Any, **kw: Any) -> Any:
+        return await self._call(self.inner.complete_json, *a, **kw)
+
+
+def context_window(llm: Any, cfg: Any) -> int | None:
+    """The compaction window a session on ``llm`` can hold: the model's context (a Tinker client's ``lock_settings()``)
+    minus one reply and a margin, when that is below the configured window; None when the model's context is unknown or the
+    window already fits. The Tinker sampler refuses a prompt that overflows (``ContextOverflow``); the RLM harness compacts
+    before that point only if its window knows the model's limit."""
+    ctx = None
+    with contextlib.suppress(Exception):
+        ctx = (llm.lock_settings() or {}).get("context")
+    if not isinstance(ctx, int) or ctx <= 0:
+        return None
+    want = int(cfg.window_tokens or cfg.budget_tokens or 0)
+    fit = ctx - int(cfg.max_tokens) - 4096
+    return fit if want == 0 or want > fit else None
+
+
+def window_floor(task_chars: int, cfg: Any) -> int:
+    """The smallest compaction window a session with a TASK of ``task_chars`` can survive: after a compaction the context
+    is rebuilt from the system message, the TASK, the summary and the kernel state, and the next summary request must
+    still fit under the threshold (``ContextSpec.threshold``: about 7/8 of the window minus one reply). Smoke,
+    2026-10-23: a 10K window and a 3K-token hand-off ended a DeepSeek session ``compaction_failed`` (rebuilt 4,894 tokens,
+    threshold 6,750; with only the TASK counted, 10.2K still failed: the RLM system message and tool index are ~3K more).
+    Tokens are counted at 3 characters each (conservative for code and JSON)."""
+    summary = int(getattr(cfg, "summary_max_tokens", 2000) or 2000)
+    return int((task_chars // 3 + SYSTEM_ALLOWANCE + 2 * summary + 1500 + int(cfg.max_tokens)) * 8 / 7) + 1
+
+
+SYSTEM_ALLOWANCE = 3_000  # tokens: the RLM system message, the tool index and the footer
 
 
 def _resolve(ref: Any, params: Mapping[str, Any]) -> Any:
@@ -335,7 +411,14 @@ class SessionPool:
     def __init__(self, root: Path, *, repo: TaskRepo, machine: Mapping[str, Any], run_id: str, params: Mapping[str, Any],
                  llms: Mapping[str, Any] | None = None, llm_for: Callable[[str], Any] | None = None, image: str = SESSION_IMAGE,
                  specialists: SpecialistBook | None = None, kernel: str = "sandbox", max_steps: int = 400, rlm_config: Any = None,
-                 sandbox_factory: Callable[..., Sandbox] | None = None, task_id: str | None = None):
+                 sandbox_factory: Callable[..., Sandbox] | None = None, task_id: str | None = None,
+                 potentials: Mapping[str, Callable[[StateContext, GitWorkspace], Any]] | None = None, checkpoint: Any = None,
+                 on_session: Callable[[dict[str, Any]], None] | None = None):
+        """``potentials``: name -> ``(ctx, workspace) -> MilestoneTask`` for session states that declare
+        ``session.potential``: the checkpoint sidecar (``factory.checkpoint``) grades the builder's worktree out of band
+        (at commits, every K calls, at compaction, at the end) and its Φ series and per-call ΔΦ land in the attempt
+        directory (``progress.jsonl``, ``checkpoints.jsonl``) and the session record; ``checkpoint`` is its
+        ``CheckpointConfig``. ``on_session(row)`` receives every session's journal row (``factory.swarm_journal``)."""
         from crucible.factory.machine import canonicalize
 
         self.root = Path(root).resolve()
@@ -350,6 +433,7 @@ class SessionPool:
         self.workspaces: dict[str, GitWorkspace] = {}
         self.sandboxes: dict[str, Sandbox] = {}
         self.records: list[SessionRecord] = []
+        self.potentials, self.checkpoint, self.on_session = dict(potentials or {}), checkpoint, on_session
         self.dir = self.root / "runs" / safe(run_id)
         self.dir.mkdir(parents=True, exist_ok=True)
         if kernel not in ("sandbox", "local"):
@@ -537,13 +621,34 @@ class SessionPool:
             if prior:
                 brief += (f"\n\n[memory] You are the persistent specialist `{spec_id}`. Your ledger holds your {prior} earlier session(s): "
                           "`await history.windows()`, `await history.search(\"...\")`.")
+        import dataclasses
+
         budget_tokens = (ctx.budget or {}).get("tokens")
         cfg = self.rlm_config or RLMConfig(temperature=0.0, tree_max_depth=0, wall_s=float(sess.get("wall_s", 3600)),
                                            max_turns=int(sess.get("max_turns", 200)))
         if budget_tokens is not None:
-            import dataclasses
-
             cfg = dataclasses.replace(cfg, tree_max_total_new_tokens=max(1, int(budget_tokens)))
+        floor = window_floor(len(brief), cfg)  # a window the rebuilt context fits after a compaction
+        if cfg.window_tokens and cfg.window_tokens < floor:
+            cfg = dataclasses.replace(cfg, window_tokens=floor)
+        win = context_window(llm, cfg)  # compaction before the model's own context overflows (Kimi: 128K, DeepSeek: 256K)
+        if win is not None:
+            cfg = dataclasses.replace(cfg, window_tokens=win)
+        family, model = _family_of(llm), str(getattr(llm, "model", "") or "")
+        usd_cap = (ctx.budget or {}).get("usd")
+        if usd_cap is not None:  # the state's dollars stop the session mid-way, not only in the ledger after it
+            llm = StateBudgetClient(llm, float(usd_cap))
+        sidecar = None
+        if sess.get("potential"):  # the builder's Φ: the checkpoint sidecar grades its worktree out of band
+            from crucible.factory.builder_potential import DEFAULTS
+            from crucible.factory.checkpoint import CheckpointConfig, CheckpointSidecar
+
+            make = self.potentials.get(str(sess["potential"])) or DEFAULTS.get(str(sess["potential"]))
+            if make is None:
+                raise StateFailed(f"state {sid} declares potential {sess['potential']!r} but the pool has none by that name")
+            ck = self.checkpoint or CheckpointConfig(every=int(sess.get("checkpoint_every", 10)), cap=int(sess.get("checkpoint_cap", 15)),
+                                                     concurrency=1, grade_timeout_s=300.0)
+            sidecar = CheckpointSidecar(make(ctx, ws), attempt_dir, ck)
         if sb is not None:
             dex = DockerExec(sb.name)  # type: ignore[arg-type]
 
@@ -563,7 +668,12 @@ class SessionPool:
                 await world.start()
                 if sb is not None:
                     world.apps["repo"].ctx.extra["policy_exec"] = DockerExec(sb.name)  # type: ignore[arg-type]
-                ep = await run_episode(world, {"agent": policy}, limits=EpisodeLimits(max_steps=self.max_steps))
+                from crucible.runtime.harness.native import probed
+
+                # the sidecar sees each chosen action before the World applies it (its compaction checkpoints: smoke bug,
+                # 2026-10-23: without the probe a session that compacted recorded no compaction point)
+                ep = await run_episode(world, probed({"agent": policy}, sidecar, world), limits=EpisodeLimits(max_steps=self.max_steps),
+                                       observers=[sidecar] if sidecar else ())
             except (InfraError, StateFailed):
                 raise
             except Exception as e:  # a World that cannot start or step: infra (the sandbox), never the agent's failure
@@ -578,16 +688,23 @@ class SessionPool:
         book_tokens(tokens)
         usd = sum(float(c.get("cost_usd") or 0.0) for c in calls)
         stop = policy.stop
+        progress = dict(sidecar.summary) if sidecar is not None and sidecar.summary else None
         rec = SessionRecord(sid, ctx.entry, ctx.attempt, stop, policy.counters.get("turns", 0), tokens, usd, sb.name if sb else None, hcommit,
-                            None, spec_id)
+                            None, spec_id, role=str(ctx.role), family=family, model=model,
+                            phi_final=progress.get("phi_final") if progress else None, failure_kind=policy.failure_kind)
         self.records.append(rec)
 
         def write_record() -> None:
-            (attempt_dir / "session.json").write_text(json.dumps({**rec.__dict__, "stop_reason": policy.stop_reason[:2000],
-                                                                  "failure_kind": policy.failure_kind, "steps": ep.steps if ep else 0,
-                                                                  "masked": ep.masked if ep else None}, default=str, indent=1))
+            (attempt_dir / "session.json").write_text(json.dumps({**rec.__dict__, "run": self.run_id, "stop_reason": policy.stop_reason[:2000],
+                                                                  "steps": ep.steps if ep else 0, "masked": ep.masked if ep else None,
+                                                                  "calls": len(calls), "progress": progress, "dir": str(attempt_dir)},
+                                                                 default=str, indent=1))
+            if self.on_session is not None:
+                self.on_session(json.loads((attempt_dir / "session.json").read_text()))
 
         write_record()
+        if policy.failure_kind == StateBudgetExceeded.failure_kind:  # a budget stop is the task's failure, never infra
+            raise StateFailed(f"the {ctx.role} session spent the state's budget: {policy.error or policy.stop_reason}"[:500])
         if spec_id:
             self.specialists.record(spec_id, {"run": self.run_id, "state": sid, "entry": ctx.entry, "attempt": ctx.attempt, "stop": stop,
                                               "turns": rec.turns, "at": time.time()})
@@ -603,6 +720,11 @@ class SessionPool:
             raise InfraError(f"session {sid}: the episode was masked ({', '.join(kinds) or 'no failure kind'}): {why}"[:500], "crucible:backend_error")
         if stop == "agent_gave_up":
             raise StateFailed(f"the {ctx.role} gave up: {policy.stop_reason}"[:500])
+        if sess.get("settle_on_budget") and str(stop or "").startswith("budget:"):
+            # the builder spent its turns or wall clock without calling finish: whatever it captured goes to the gate,
+            # which decides (V6); nothing captured fails the state as before (smoke, 2026-10-23: a Kimi writer reached
+            # Φ = 1 at turn 9 and never finished, so a correct report was thrown away at turn 24)
+            return await self._settle_captures(ctx, sess, ws, rel, hcommit, rec, write_record)
         if stop != "agent_done":
             raise StateFailed(f"the {ctx.role} session ended without finishing ({stop}: {policy.stop_reason})"[:500])
         return await self._settle_captures(ctx, sess, ws, rel, hcommit, rec, write_record)

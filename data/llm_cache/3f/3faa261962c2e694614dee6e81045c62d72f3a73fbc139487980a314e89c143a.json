@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "7wrdywnsj", "name": "repo__read_file", "arguments": {"limit": 10000, "offset": 0, "path": "parse.py"}}], "usage": {"prompt_tokens": 1749, "completion_tokens": 31, "cached_tokens": 1536}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "tool_calls", "raw_message": {}}

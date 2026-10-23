@@ -50,6 +50,11 @@ def test_observation_compares():
     assert kp.compare_obs(obs(ref["stdout"], ref["d2h"][:8]), ref, {})[0]["d2h"] == "length"
     assert kp.compare_obs(obs(ref["stdout"], ref["d2h"], {"out.txt": b"x"}), {**ref, "files": {"out.txt": b"y"}}, {})
     assert kp.empty_obs(obs("Time: 3 ms\n")) and not kp.empty_obs(obs("", b"\0"))
+    # a self-checking program (its copies back are gigabytes): its report is the observation, the copies are not read
+    assert kp.compare_obs(obs(ref["stdout"], b""), ref, {"d2h": "none"}) == []
+    assert kp.compare_obs(obs("result 1.0000 2.5\nMISMATCH at 7\n"), ref, {"d2h": "none"})  # its own check failing still fails
+    rows = {"d2h": "none", "volatile": [kp.DEFAULT_VOLATILE, r"^[-+0-9.\s]+$"]}
+    assert kp.compare_obs(obs("Unroll 1 2\n4 21.5 30.1\n"), obs("Unroll 1 2\n4 19.0 33.3\n"), rows) == []  # bandwidth rows are timings
 
 
 def test_sanitizer_rule_reads_every_summary_line():
@@ -99,3 +104,19 @@ def test_plan_grades_compile_milestones_on_the_cpu(tmp_path: Path, monkeypatch):
     assert rows["start"].gates["c01"] == "fail" and rows["migrated"].gates["c01"] == "pass"
     for rep in rows.values():
         assert rep.gates["r01"] == "infra" and rep.infra["status"] == "masked"  # the GPU milestone was not run: never a 0
+
+
+def test_rebuilt_environment_keeps_the_apptainer_driver_libraries(tmp_path: Path, monkeypatch):
+    import sys
+
+    from crucible.verify.runtime import trusted as tr
+
+    show = [sys.executable, "-c", "import os; print(os.environ.get('LD_LIBRARY_PATH', ''))"]
+    monkeypatch.setattr(tr, "APPTAINER_DRIVER_LIBS", str(tmp_path / "absent"))
+    t = Trusted(tmp_path / "w")
+    assert t.run(show, env={"LD_LIBRARY_PATH": "/k/ref/bin"}).stdout.strip() == "/k/ref/bin"  # Docker hosts: unchanged
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    monkeypatch.setattr(tr, "APPTAINER_DRIVER_LIBS", str(libs))
+    assert t.run(show, env={"LD_LIBRARY_PATH": "/k/ref/bin"}).stdout.strip() == f"/k/ref/bin:{libs}"  # the grader's own path first
+    assert t.run(show).stdout.strip() == str(libs)

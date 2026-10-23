@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "zma7rjhdp", "name": "repo__shell", "arguments": {"command": "git status --short"}}], "usage": {"prompt_tokens": 1467, "completion_tokens": 19}, "model": "meta-llama/llama-3.1-8b-instruct", "finish": "tool_calls", "raw_message": {}}

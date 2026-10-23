@@ -422,3 +422,35 @@ bug) and in a World at B (A' with the oracle's source files written; it must pas
 is `failed` if a present repro failed, else `unmeasured`, `verified`, `partial` or `unverified`; only `failed` is a
 failure. Results: `data/debug/repro/<id>.json` (with the prompt's sha256), the funnel row `S7r`, and `repro_status` in
 `authored/<id>.json` (kept by a later `author` while the prompt is unchanged).
+
+### 6.3 Fairness, live: S9b, the second verifier in every language, the install rule (2026-10-23, $0.135)
+
+**The install false fail.** `path:install` read `cd /tmp/r1 && go mod tidy` (a reproduction's own module, `replace` =>
+the workspace) as an install, so DeepSeek lost the full pass on mvdan-sh at Φ = 1. The rule now excuses an install in a
+scratch directory outside the repo (a literal `/tmp`, `/var/tmp`, `/root`, `/home/<u>` path: a variable, `..` or a
+subshell's `cd` never counts) for package-manager subcommands whose effect stays in that directory, when the diff
+leaves every manifest and lockfile unchanged and the World was offline. `go install`, `cargo install`, `npm -g`, `pip`
+anywhere, and any install in the repo still fail; a bare reinstall of declared dependencies is its own class, off by
+default. `go -C dir mod tidy` was not even parsed as `go mod` before (the flag's value was read as the subcommand).
+
+**Re-path of every stored episode** (`scripts/lh_repath.py`, no model call, no test run: the stored trail and diff
+under the window's own rules, `runs/repath_install.json`). 321 attempts of the 150- and 300-call targeting runs: 17
+flips, 12 rewards up, none down, 11 full passes gained. 8 of the full passes come from the scratch rule (7 DeepSeek
+fairness episodes on mvdan-sh ×4 windows and carbon, 1 student episode); the other flips are verdicts stored under
+older rules (all 321 lacked a rules version: every path report now carries `RULES_VERSION`). With bare reinstalls also
+excused (`--allow-declared-reinstall`, `runs/repath_install_reinstall.json`): 36 flips and 20 full passes, the extra 9
+on h3 and unstorage (`pnpm install` in the repo, the unjs owner): a policy decision, left off.
+
+**S9b smoke** (`lh_debug_target.py fairness`, training task `db-go-echo-61eca05b`, cap $10, spent $0.135).
+- The second verifier (DeepSeek-V4.1-Flash, `second_verifier`) wrote a Go suite blind (payload proven by `leaks`):
+  2 files, 9 tests, all sound on the oracle, both requirements gating (fail at the start and on their mutants); $0.025.
+- One alternative session from the bug report alone (GLM-5.3-Flash, 150 calls, $0.110): end-state full pass, Φ = 1.
+- 13 candidates after dedup (the stored Qwen3.5-397B, DeepSeek and student episodes plus the GLM one): 11 accepted
+  (10 confirmed by the independent suite; DeepSeek's own states are judged by verifier 1 alone), 1 wrong (a student
+  state verifier 2 also fails on R2), 1 unknown (a DeepSeek state verifier 1 fails and nothing independent measured),
+  0 false fails, 0 lucky passes. κ = 0.889 over 30 (state, requirement) pairs; the one disagreement is the `revert_m01`
+  mutant on R2 (verifier 1 fails the dependent milestone, verifier 2 passes it: truth unknown, for the tie-break).
+  The gate passes: 10 independently confirmed alternatives from glm and qwen.
+- **A remaining strictness, found by the smoke.** The GLM session still lost its full pass on `path:install`: it built
+  its reproduction module inside the repo (`cd _chk && go mod tidy`). The rule reads a relative `cd` as staying in the
+  repo, so this stays a failure until a nested module's manifests can be told from the project's on the diff.

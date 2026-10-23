@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 12340, "completion_tokens": 11, "reasoning_tokens": 11}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "Look at parser __init__ building expression.", "reasoning_details": [{"type": "reasoning.text", "text": "Look at parser __init__ building expression.", "format": "unknown", "index": 0}]}}

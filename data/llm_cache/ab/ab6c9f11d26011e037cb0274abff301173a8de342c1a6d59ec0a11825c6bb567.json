@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "call_CyrdhuaAq6NHAupIeJevJbwe", "name": "repo__write_file", "arguments": {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n\ndef mul(a, b):\n    return a * b\n"}}], "usage": {"prompt_tokens": 405, "completion_tokens": 53}, "model": "openai/gpt-4.1-nano", "finish": "tool_calls", "raw_message": {}}

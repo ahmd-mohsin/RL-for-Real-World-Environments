@@ -67,6 +67,7 @@ from crucible.factory.lanes.windows import (
     WindowStore,
     changed_defs,
     normalize_ids,
+    subtests_of,
     suite_targets,
     validate_window,
 )
@@ -198,13 +199,20 @@ def interaction_edges(evidence: Mapping[str, Mapping[str, Any]]) -> dict[str, se
     """``{k: {j, ...}}`` (symmetric): fixes k and j interact when a test that passes at B fails both with k alone reverted
     and with j alone reverted (``real_fix_check``'s ``caught``, test-case ids): that test passes only once both faults are
     fixed, so in the task its milestone needs the other fix (the prober's executed edge). Only fixes whose own revert is
-    caught (``ok``) count. Test-case ids matter: two fixes that each add cases to one parametrized test do not interact."""
-    ok = {s: set(ev.get("caught") or []) for s, ev in evidence.items() if ev.get("ok")}
+    caught (``ok``) count. Test-case ids matter: two fixes that each add cases to one parametrized test do not interact, nor
+    do two that each break a different subtest of one Go parent test, which fails with either (``subtests_of``), nor a
+    test that only stopped building (``caught_unbuilt``: a compiled package one revert breaks errors every test in it), nor
+    a test both fixes wrote (``caught_written``: a changed definition or case file): it checks both behaviours side by side,
+    as black's case file docstring.py did for ae5830b7's tab and module-docstring fixes, so either revert fails it with no
+    interaction. A link is one fix's revert breaking a test only the other fix wrote (go-toml's round trip, pulldown-cmark's
+    unclosed blocks, h3's onError middleware test)."""
+    ok = {s: set(ev.get("caught") or []) - set(ev.get("caught_unbuilt") or []) for s, ev in evidence.items() if ev.get("ok")}
+    own = {s: set(ev.get("caught_written") or []) for s, ev in evidence.items()}
     need: dict[str, set[str]] = {}
     shas = sorted(ok)
     for i, a in enumerate(shas):
         for b in shas[i + 1:]:
-            if ok[a] & ok[b]:
+            if any(not subtests_of(t, ok[a] | ok[b]) and not (t in own[a] and t in own[b]) for t in ok[a] & ok[b]):
                 need.setdefault(a, set()).add(b)
                 need.setdefault(b, set()).add(a)
     return need

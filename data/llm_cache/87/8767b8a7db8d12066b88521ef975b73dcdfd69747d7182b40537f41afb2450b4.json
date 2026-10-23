@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [{"id": "fc_ba91cf1f-4208-4388-be0b-c9565cbdc33a", "name": "repo__read_file", "arguments": {"path": "src/humanize/time.py"}}], "usage": {"prompt_tokens": 10679, "completion_tokens": 35, "reasoning_tokens": 26, "cached_tokens": 768}, "model": "openai/gpt-oss-20b", "finish": "tool_calls", "raw_message": {}}

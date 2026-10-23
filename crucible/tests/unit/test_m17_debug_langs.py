@@ -3,13 +3,14 @@ active-profile hooks and the Python no-regression rule. No Docker, no network.""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from crucible.factory import langs
-from crucible.factory.langs.base import active, code_mask, match_bracket, strip_added_lines, use
+from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, use
 from crucible.factory.langs.golang import escape_module, import_name, prune_imports
 
 GO = langs.get("go")
@@ -241,6 +242,17 @@ def test_strip_added_lines() -> None:
     assert strip_added_lines("# Changes\n- fix a\n- fix b\n", ["- fix b"]) == "# Changes\n- fix a\n"
 
 
+def test_release_changelog_entries_citing_a_fix_are_removed() -> None:
+    """A changelog written at release time cites the fix by PR, issue or short sha (h3, unstorage, mvdan-sh)."""
+    refs = fix_refs("fix(node): call `onError` for stream errors (#1571)", "Fixes #1398.", "884502a9b4e1")
+    assert refs == {"#1571", "#1398", "884502a"}
+    log = ("## v2\n\n- **node:** Call `onError` for stream errors ([#1571](https://github.com/h3js/h3/pull/1571))\n"
+           "- **cache:** Encode key segments ([884502a](https://github.com/unjs/unstorage/commit/884502a))\n"
+           "- Implement `help`, as well as `$-`\n  (wrapped) - #1398\n- Keep #15710 and 884502ab\n")
+    assert CHANGELOG_FILE.search("CHANGELOG.md") and CHANGELOG_FILE.search("docs/RELEASE_NOTES.rst") and not CHANGELOG_FILE.search("README.md")
+    assert strip_ref_entries(log, refs) == ("## v2\n\n- Keep #15710 and 884502ab\n", 4)
+
+
 def test_profiles_registry() -> None:
     assert langs.get("golang") is GO and langs.get("ts") is NODE
     with pytest.raises(KeyError):
@@ -294,6 +306,28 @@ def test_node_runner_flags(tmp_path: Path) -> None:
     assert "NODE_OPTIONS='--max-old-space-size=1536 --experimental-vm-modules'" in NODE.run_script(tmp_path, ["a.test.mjs"])
     (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "vitest run"}, "devDependencies": {"vitest": "1"}}))
     assert runner_node_flags(tmp_path) == [] and "NODE_OPTIONS=--max-old-space-size=1536;" in NODE.run_script(tmp_path, ["a.test.ts"])
+    # the World setup cds into the workspace, whose host path may hold spaces ("RL env repos": every h3/unstorage attempt masked)
+    assert NODE.world_setup_cmd("/w/RL env repos/ws").startswith("cd '/w/RL env repos/ws' && ")
+
+
+def test_world_setup_runs_again_after_every_reset() -> None:
+    """The episode resets the World after open; the setup (node_modules link) must survive it."""
+    from crucible.factory.generators.debug import setup_after_reset
+
+    calls: list[str] = []
+
+    class FakeWorld:
+        async def reset(self) -> str:
+            calls.append("reset")
+            return "obs"
+
+    async def setup() -> None:
+        calls.append("setup")
+
+    w = FakeWorld()
+    setup_after_reset(w, setup)
+    assert asyncio.run(w.reset()) == "obs" and asyncio.run(w.reset()) == "obs"
+    assert calls == ["reset", "setup", "reset", "setup"]
 
 
 def test_fairness_flags() -> None:

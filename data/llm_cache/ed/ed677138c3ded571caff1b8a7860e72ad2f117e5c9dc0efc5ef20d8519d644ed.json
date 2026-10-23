@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 11089, "completion_tokens": 11, "reasoning_tokens": 11}, "model": "openai/gpt-oss-20b", "finish": "error", "raw_message": {"reasoning": "We need to modify lines 124-130. Let's edit.", "reasoning_details": [{"type": "reasoning.text", "text": "We need to modify lines 124-130. Let's edit.", "format": "unknown", "index": 0}]}}

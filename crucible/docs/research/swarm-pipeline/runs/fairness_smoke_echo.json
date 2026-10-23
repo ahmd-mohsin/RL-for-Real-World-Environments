@@ -1,0 +1,426 @@
+{
+ "summary": {
+  "alt_models": [
+   "zai-org/GLM-5.3-Flash:peft:262144"
+  ],
+  "second_verifier": "tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144",
+  "spent_usd": 0.135,
+  "tasks": {
+   "db-go-echo-61eca05b": {
+    "candidates": 13,
+    "counts": {
+     "accepted": 11,
+     "confirmed": 10,
+     "false_fail": 0,
+     "lucky_pass": 0,
+     "unknown": 1,
+     "wrong": 1
+    },
+    "disagreements": 1,
+    "kappa": 0.8889,
+    "pairs": 30,
+    "status": "pass",
+    "why": "10 independently confirmed alternative(s) (['glm', 'qwen'])"
+   }
+  }
+ },
+ "task": {
+  "agreement": {
+   "agree": 29,
+   "disagreements": [
+    {
+     "kind": "mutant",
+     "milestone": "m02",
+     "requirement": "R2",
+     "state": "revert_m01",
+     "v1": false,
+     "v2": true
+    }
+   ],
+   "kappa": 0.8889,
+   "pairs": 30
+  },
+  "classified": [
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "glm",
+    "id": "alt-zai-org_GLM-5.3-Flash/4979390aa5ebc9f6/a1",
+    "policy": "solver:tinker:zai-org/GLM-5.3-Flash:peft:262144@tinker",
+    "repro": {},
+    "source": "session",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "Qwen_Qwen3.5-397B-A17B/45f768da64ca3b68/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.5-397B-A17B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "Qwen_Qwen3.5-397B-A17B/65ad0321940e0858/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.5-397B-A17B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "unknown",
+    "failing_hidden": [
+     "json_test.go::TestDefaultJSONCodec_Decode_RejectsTrailingData"
+    ],
+    "family": "deepseek",
+    "id": "deepseek-ai_DeepSeek-V4.1-Flash/92ebb98441daf57c/a1",
+    "policy": "solver:tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": false,
+    "v1_milestones": {
+     "m01": true,
+     "m02": false
+    },
+    "v2": {
+     "R1": null,
+     "R2": null
+    },
+    "v2_independent": false,
+    "why": "no independent check measured: verifier 1 alone fails it"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "deepseek",
+    "id": "deepseek-ai_DeepSeek-V4.1-Flash/d2f3f495d9b8d95b/a1",
+    "policy": "solver:tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": null,
+     "R2": null
+    },
+    "v2_independent": false,
+    "why": "verifier 1 full pass; no independent check measured"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/23bd677026e5a807/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/44a67e985560b053/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "wrong",
+    "failing_hidden": [
+     "bind_test.go::TestDefaultBinder_BindBody",
+     "bind_test.go::TestDefaultBinder_BindBody/nok,_JSON_POST_body_bind_failure",
+     "bind_test.go::TestDefaultBinder_BindToStructFromMixedSources",
+     "bind_test.go::TestDefaultBinder_BindToStructFromMixedSources/nok,_POST_body_bind_failure",
+     "json_test.go::TestDefaultJSONCodec_Decode_RejectsTrailingData"
+    ],
+    "family": "qwen",
+    "id": "student/4eea07e837f60446/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": false,
+    "v1_milestones": {
+     "m01": true,
+     "m02": false
+    },
+    "v2": {
+     "R1": true,
+     "R2": false
+    },
+    "v2_independent": true,
+    "why": "verifier 1 and an independent check both fail it"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/4fe5f42a46640325/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/68095da1ad8ca59e/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/a3380ad4f97b9e36/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/cc6ed8181b3539a7/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   },
+   {
+    "cls": "accepted",
+    "failing_hidden": [],
+    "family": "qwen",
+    "id": "student/d2c482818550d4c8/a1",
+    "policy": "solver:tinker:Qwen/Qwen3.6-35B-A3B:peft:262144@tinker",
+    "repro": {},
+    "source": "solver",
+    "v1_full": true,
+    "v1_milestones": {
+     "m01": true,
+     "m02": true
+    },
+    "v2": {
+     "R1": true,
+     "R2": true
+    },
+    "v2_independent": true,
+    "why": "both verifiers pass"
+   }
+  ],
+  "counts": {
+   "accepted": 11,
+   "confirmed": 10,
+   "false_fail": 0,
+   "lucky_pass": 0,
+   "unknown": 1,
+   "wrong": 1
+  },
+  "coverage": {
+   "accepted": 10,
+   "families": [
+    "glm",
+    "qwen"
+   ],
+   "ids": [
+    "alt-zai-org_GLM-5.3-Flash/4979390aa5ebc9f6/a1",
+    "Qwen_Qwen3.5-397B-A17B/45f768da64ca3b68/a1",
+    "Qwen_Qwen3.5-397B-A17B/65ad0321940e0858/a1",
+    "student/23bd677026e5a807/a1",
+    "student/44a67e985560b053/a1",
+    "student/4fe5f42a46640325/a1",
+    "student/68095da1ad8ca59e/a1",
+    "student/a3380ad4f97b9e36/a1",
+    "student/cc6ed8181b3539a7/a1",
+    "student/d2c482818550d4c8/a1"
+   ],
+   "ok": true,
+   "other_family": 10
+  },
+  "false_fail": [],
+  "gate": "S9b",
+  "lucky_pass": [],
+  "ok": true,
+  "qualification": {
+   "counts": {
+    "fails_alternative": 0,
+    "fails_oracle": 0,
+    "sound": 9,
+    "unmeasured": 0
+   },
+   "gating": [
+    "R1",
+    "R2"
+   ],
+   "requirements": {
+    "R1": {
+     "discriminates": true,
+     "mutants": {
+      "revert_m01": true
+     },
+     "sound": [
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForSlices",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForUnmarshalParam",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedOnRepeatedBinds",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedWithFieldName",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorsIsAndAsFindOriginal"
+     ],
+     "state": "gating",
+     "tests": [
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForSlices",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForUnmarshalParam",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedOnRepeatedBinds",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedWithFieldName",
+      "bind_shadow_r1_test.go::TestShadowR1ErrorsIsAndAsFindOriginal"
+     ],
+     "why": []
+    },
+    "R2": {
+     "discriminates": true,
+     "mutants": {
+      "revert_m02": true
+     },
+     "sound": [
+      "bind_shadow_r2_test.go::TestShadowR2TrailingGarbageRejected",
+      "bind_shadow_r2_test.go::TestShadowR2TrailingJSONValueRejected",
+      "bind_shadow_r2_test.go::TestShadowR2TruncatedBodyUnexpectedEndOfJSON",
+      "bind_shadow_r2_test.go::TestShadowR2ValidBodyStillAccepted"
+     ],
+     "state": "gating",
+     "tests": [
+      "bind_shadow_r2_test.go::TestShadowR2TrailingGarbageRejected",
+      "bind_shadow_r2_test.go::TestShadowR2TrailingJSONValueRejected",
+      "bind_shadow_r2_test.go::TestShadowR2TruncatedBodyUnexpectedEndOfJSON",
+      "bind_shadow_r2_test.go::TestShadowR2ValidBodyStillAccepted"
+     ],
+     "why": []
+    }
+   },
+   "tests": {
+    "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForSlices": "sound",
+    "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedForUnmarshalParam": "sound",
+    "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedOnRepeatedBinds": "sound",
+    "bind_shadow_r1_test.go::TestShadowR1ErrorPrefixedWithFieldName": "sound",
+    "bind_shadow_r1_test.go::TestShadowR1ErrorsIsAndAsFindOriginal": "sound",
+    "bind_shadow_r2_test.go::TestShadowR2TrailingGarbageRejected": "sound",
+    "bind_shadow_r2_test.go::TestShadowR2TrailingJSONValueRejected": "sound",
+    "bind_shadow_r2_test.go::TestShadowR2TruncatedBodyUnexpectedEndOfJSON": "sound",
+    "bind_shadow_r2_test.go::TestShadowR2ValidBodyStillAccepted": "sound"
+   }
+  },
+  "status": "pass",
+  "suite": {
+   "family": "deepseek",
+   "files": [
+    "bind_shadow_r1_test.go",
+    "bind_shadow_r2_test.go"
+   ],
+   "model": "tinker:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144",
+   "problems": []
+  },
+  "task": "db-go-echo-61eca05b",
+  "why": "10 independently confirmed alternative(s) (['glm', 'qwen'])"
+ }
+}

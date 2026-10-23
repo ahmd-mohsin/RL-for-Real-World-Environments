@@ -1,0 +1,214 @@
+{
+ "task": "db-go-lo-1e8f3c39",
+ "generator": "debug",
+ "gates": {
+  "S6": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "executed_edges": 1,
+    "milestones": 4
+   },
+   "seconds": 1.0
+  },
+  "S5": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "clean_world_ok": true,
+    "null_ok": true,
+    "refused_checks": [],
+    "spec_defects": 0
+   },
+   "seconds": 76.6
+  },
+  "S8": {
+   "ok": true,
+   "findings": [],
+   "alternatives_pending": [
+    "0 valid alternative(s), need 2 (one from another family)"
+   ],
+   "evidence": {
+    "failed": [],
+    "false_fail_checks": [],
+    "alternatives": [],
+    "rows": {
+     "oracle_patch": {
+      "kind": "oracle",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "no_op": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "claims_only": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "test_edit": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "oracle_steps": {
+      "kind": "alternative",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "revert_m01": {
+      "kind": "mutant",
+      "reward": 0.375,
+      "phi": 0.75,
+      "ok": true
+     },
+     "revert_m02": {
+      "kind": "mutant",
+      "reward": 0.375,
+      "phi": 0.75,
+      "ok": true
+     },
+     "revert_m03": {
+      "kind": "mutant",
+      "reward": 0.25,
+      "phi": 0.5,
+      "ok": true
+     },
+     "revert_m04": {
+      "kind": "mutant",
+      "reward": 0.375,
+      "phi": 0.75,
+      "ok": true
+     }
+    }
+   },
+   "seconds": 109.5
+  },
+  "S3": {
+   "ok": false,
+   "findings": [
+    "S3 fails: reruns_clean"
+   ],
+   "evidence": {
+    "checks": {
+     "builds": true,
+     "existing_tests_run": true,
+     "leak_probes_hold": true,
+     "reruns_clean": false,
+     "grading_unchanged": true
+    },
+    "reruns": {
+     "n": 60,
+     "clean": 39,
+     "unclean": [
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "concurrency_test.go::TestWaitForWithContext",
+        "concurrency_test.go::TestWaitForWithContext/exist_condition_works"
+       ]
+      },
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "time_test.go::TestDurationX",
+        "time_test.go::TestDurationX/Duration3"
+       ]
+      },
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "channel_test.go::TestDispatchingStrategyRoundRobin",
+        "channel_test.go::TestDispatchingStrategyRoundRobin/index_0_selects_channel_0",
+        "channel_test.go::TestDispatchingStrategyRoundRobin/index_1_selects_channel_1",
+        "channel_test.go::TestDispatchingStrategyRoundRobin/index_2_selects_channel_2",
+        "channel_test.go::TestDispatchingStrategyRoundRobin/index_3_wraps_back_to_channel_0",
+        "condition_test.go::TestIfElse",
+        "condition_test.go::TestIfElse/both_conditions_true",
+        "condition_test.go::TestIfElse/first_condition_true",
+        "condition_test.go::TestIfElse/no_condition_true",
+        "condition_test.go::TestIfElse/second_condition_true"
+       ]
+      },
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "time_test.go::TestDurationX",
+        "time_test.go::TestDurationX/Duration6",
+        "time_test.go::TestDurationX/Duration7"
+       ]
+      },
+      {
+       "infra": "ok",
+       "why": "",
+       "differs": [
+        "concurrency_test.go::TestWaitFor",
+        "concurrency_test.go::TestWaitFor/counter_is_incremented"
+       ]
+      }
+     ],
+     "cp_upper": 0.4636,
+     "concurrency": [
+      1,
+      4
+     ]
+    },
+    "existing": {
+     "targets": 63,
+     "counts": {
+      "passed": 3072
+     }
+    },
+    "leak": {
+     "no_new_test_names_in_image": "pass",
+     "git_log_only_base": "pass",
+     "fetch_project_fails": "pass",
+     "no_installed_project_source": "pass"
+    },
+    "grading": {
+     "oracle_milestones": {
+      "m01": true,
+      "m02": true,
+      "m03": true,
+      "m04": true
+     },
+     "start_any_milestone_test": {
+      "m01": false,
+      "m02": false,
+      "m03": false,
+      "m04": false
+     },
+     "infra": [
+      "ok",
+      "ok"
+     ]
+    }
+   },
+   "seconds": 802.6
+  },
+  "S10": {
+   "ok": null,
+   "findings": [
+    "not_run: an earlier gate failed"
+   ]
+  }
+ },
+ "ok": false,
+ "passed": [
+  "S6",
+  "S5",
+  "S8"
+ ],
+ "seconds": 990.1
+}

@@ -43,6 +43,41 @@ The loop:
 - **OpenRouter is a fallback only.** The v1 map is the preset `openrouter`, and a bare `org/model` id still resolves to
   the `openrouter` provider. The default never uses it.
 
+## 1.1 The swarm map (preset `swarm`, 2026-10-23): no Claude in any role
+
+From 2026-10-23 the user's swarm builds new tasks on Tinker: "all next steps should be done by my swarm intelligence not
+claude". On the builder: "all three [DeepSeek, GLM, Kimi] but for different things". `ModelBook(preset="swarm")`
+refuses any role on Claude Code.
+
+| role | model | family | why this one |
+|---|---|---|---|
+| oracle builder, oracle author | DeepSeek-V4.1-Flash (256K) | deepseek | the long sessions in the repository: the only model we measured at Φ = 1 on a 300-call debugging task (mvdan-sh, `07` §6.1); the cheapest 256K builder ($0.60 / $3.60 per M) |
+| planner, first (blind) verifier writer | GLM-5.3 (256K) | glm | reasoning-heavy, short-output roles; a family other than the oracle builder's (V2 by family) |
+| prompt writer (`author`, `prompt_author`), World expert, mutant builder | Kimi-K2.6 (`:peft:131072`) | kimi | text over a brief, not 300-call sessions; the 32K base cannot hold a session; the text protocol now also reads its native tool section (§1.2) |
+| reviewer, second verifier, trace auditor | Nemotron-3-Ultra-550B (256K) | nemotron | judgement roles on a family nothing builds; never Qwen on the Qwen student |
+| hacker, alternative (`rewriter_nemotron`) | Nemotron-3-Super-120B | nemotron | |
+| judge, realism, second hacker, tie-break | gpt-oss-120b (`:peft:131072`) | openai | cheap; a third checker family (the tie-break differs from the reviewer and second verifier) |
+| alternative (`rewriter_qwen`) | Qwen3.5-397B | qwen | an alternative solution by a family that neither built the oracle nor wrote the verifier |
+| fairness solvers | Qwen3.5-397B, Nemotron-3-Ultra | qwen, nemotron | never a builder's family: a builder's family solving its own family's task is no fairness check |
+| target student | Qwen3.6-35B-A3B | qwen | unchanged |
+
+**Rules:** the role rule (`family_problems`) and the strict-preset rules hold, and the provenance rule
+(`factory/provenance.py`) applies per artifact: no checker reads an artifact its own family produced (`13` §2).
+
+### 1.2 Measured in the smoke (2026-10-23, `scripts/swarm.py smoke`, $1.07 of Tinker in all)
+
+- **One JSON call per distinct model, $0.0024 for all seven:** GLM-5.3 $0.00033 (43 prompt / 14 completion tokens),
+  DeepSeek $0.00008, Kimi $0.0015 (262 completion tokens: it opens `<think>` whatever the switch says), Nemotron-Ultra
+  $0.00017, Nemotron-Super $0.00005, gpt-oss-120b $0.00006, Qwen3.5-397B $0.00019. All returned valid JSON.
+- **One prompt-writer session per builder family**, on the RLM harness in an offline sandbox, with the potential
+  `prompt_draft`. This is the final run, after the fixes in `13` §6:
+
+| family | turns | tokens | USD | compaction | Φ end | Brier (STATUS.json) |
+|---|---|---|---|---|---|---|
+| DeepSeek-V4.1-Flash | 7 | 46,313 | 0.0236 | at turn 7, accepted | 1.0 | 0.0025 |
+| GLM-5.3 | 7 | 22,622 | 0.0389 | none: it printed only the first 3,000 characters of the long file | 1.0 | 0.0025 |
+| Kimi-K2.6 | 19 | 126,911 | 0.1340 | at turn 9 (2 attempts) | 1.0 | 0.0025 |
+
 ## 2. The builder client (`actors/claude_code.py`)
 
 `ClaudeCodeClient` has the `LLMClient` / `JsonClient` shape that every factory role already takes. Each call is one

@@ -1,0 +1,9 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We evaluate workbook formulas with excelize (current main branch) through the cell value calculation API, and several formula results are wrong or crash the program.",
+ "requirements": {
+  "m03": "The exclusive percentile formula panics with an index out of range when the requested fraction k falls outside the range the data supports: for example k so small or so large that k times (count + 1) is below 1 or above the number of values, and also when k times (count + 1) lands exactly on the last value. A k outside the valid rank range must give the #NUM! error instead of crashing, and a rank that lands exactly on the last value must return the largest value.",
+  "m04": "The spreadsheet function that counts numeric values gives results that differ from Excel when its arguments come from cell references and ranges. Text in referenced cells, including text that looks like a number such as \"5\", must not be counted, and logical TRUE / FALSE values in referenced cells must not be counted either; a numeric string or a logical typed directly as an argument is still counted the way Excel counts it. Arrays and ranges nested inside the arguments must be counted element by element with the same rules as referenced cells."
+ },
+ "closing": "Results should match what Excel shows for the same workbook; the rest of the formula engine must keep working as it does now."
+}

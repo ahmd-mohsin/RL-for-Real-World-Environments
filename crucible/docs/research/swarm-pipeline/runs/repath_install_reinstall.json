@@ -1,0 +1,1621 @@
+{
+ "attempts": 321,
+ "skipped": 20,
+ "flipped": 36,
+ "reward_up": 21,
+ "reward_down": 0,
+ "full_pass_gained": 20,
+ "by_task": {
+  "db-go-carbon-a783fb3a": 2,
+  "db-go-echo-61eca05b": 3,
+  "db-go-go-toml-a02114e3": 1,
+  "db-go-mvdan-sh-02a801cd": 1,
+  "db-go-mvdan-sh-04056a74": 5,
+  "db-go-mvdan-sh-5e983709": 2,
+  "db-go-mvdan-sh-dc951aeb": 2,
+  "db-go-urfave-cli-2b0adb14": 1,
+  "db-node-h3-a6cd4654": 9,
+  "db-node-unstorage-d7aee0b7": 10
+ },
+ "flips": [
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/Qwen_Qwen3.5-397B-A17B/db-node-h3-a6cd4654/rollouts/bench-fairness-s100-db-node-h3-a6cd4654/samples/bd6b5841b4d642c9/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "Qwen_Qwen3.5-397B-A17B",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install --frozen-lockfile 2>&1 | tail -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install --frozen-lockfile 2>&1 | tail -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-echo-61eca05b/rollouts/bench-fairness-s200-db-go-echo-61eca05b/samples/d2f3f495d9b8d95b/a1",
+   "task": "db-go-echo-61eca05b",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /tmp && mkdir -p jtest && cd jtest && cat > main.go <<'EOF'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\ntype user struct {\n\tID   int    `json:\"id\"`\n\tName string `jso"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {}
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh-04056a74/samples/78b6b05e4c254332/a1",
+   "task": "db-go-mvdan-sh-04056a74",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "fail"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh"
+     ],
+     "path:history": [
+      "history command: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "fail"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh (in /tmp/scratch)"
+     ],
+     "path:history": [
+      "history command: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh-04056a74/samples/95af94f160d29325/a1",
+   "task": "db-go-mvdan-sh-04056a74",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: WS=$(pwd); echo $WS; cat > /tmp/r1/go.mod <<EOF\nmodule r1\ngo 1.26\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncd /tmp/r1 && go mod tidy 2>&1 | tail -5; go run . 2>&1 | head -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: WS=$(pwd); echo $WS; cat > /tmp/r1/go.mod <<EOF\nmodule r1\ngo 1.26\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncd /tmp/r1 && go mod tidy 2>&1 | tail -5; go run . 2>&1 | head -20 (in /tmp/r1)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-dc951aeb/rollouts/bench-fairness-s200-db-go-mvdan-sh-dc951aeb/samples/12db7e46613a98ea/a1",
+   "task": "db-go-mvdan-sh-dc951aeb",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /tmp/tmpmod && go mod tidy 2>&1 | tail -3; go run ./cmd/fmt /tmp/case1.sh"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /tmp/tmpmod && go mod tidy 2>&1 | tail -3; go run ./cmd/fmt /tmp/case1.sh (in /tmp/tmpmod)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/pilot-Qwen_Qwen3.5-397B-A17B/db-go-echo-61eca05b/rollouts/bench-smoke-s100-db-go-echo-61eca05b/samples/0db9cfd6132d5f6d/a1",
+   "task": "db-go-echo-61eca05b",
+   "arm": "pilot-Qwen_Qwen3.5-397B-A17B",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "fail",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:network": [
+      "network client http: cat > /tmp/test_r1.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\n\techo \"github.com/labstack/echo/v5\"\n)\n\ntype Form struct {\n\tNumber int `form:\"number\"`\n}\n\nfunc ",
+      "network client http: cat > /tmp/test_r1.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\t\"strings\"\n\n\techo \"github.com/labstack/echo/v5\"\n)\n\ntype Form struct {\n\tNumber int `form:\"number",
+      "network client http: cat > /tmp/test_bind.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"strings\"\n\t\n\techo \"github.com/labstack/echo/v5\"\n)\n\ntype TestStruct struct {\n\tNumber int `form:\"number\"`"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {}
+   },
+   "changed": [
+    "path:network"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/pilot-student/db-go-echo-61eca05b/rollouts/bench-smoke-s0-db-go-echo-61eca05b/samples/563da46ccfa68ead/a1",
+   "task": "db-go-echo-61eca05b",
+   "arm": "pilot-student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "fail",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:network": [
+      "network client http: cat > /tmp/test_changes.go << 'TESTEOF'\npackage main\n\nimport (\n    \"bytes\"\n    \"encoding/json\"\n    \"errors\"\n    \"fmt\"\n    \"net/http\"\n    \"net/http/httptest\"\n    \"strconv\"\n\n    echo \"github.com/labstac",
+      "network client http: cat > /tmp/test_r1.go << 'TESTEOF'\npackage echo\n\nimport (\n    \"bytes\"\n    \"encoding/json\"\n    \"errors\"\n    \"net/http\"\n    \"net/http/httptest\"\n    \"strconv\"\n)\n\nfunc TestR1() {\n    // Query param with i"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {}
+   },
+   "changed": [
+    "path:network"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-go-mvdan-sh-04056a74/rollouts/bench-selection-s0-db-go-mvdan-sh-04056a74/samples/0ac3f229f6e234b1/a1",
+   "task": "db-go-mvdan-sh-04056a74",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0.25,
+    "gates": {
+     "path:protected": "fail",
+     "path:plumbing": "pass",
+     "path:network": "fail",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:network": [
+      "package manager go mod: mkdir -p /tmp_test && cd /tmp_test && go mod init test && go mod edit -replace mvdan.cc/sh/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/",
+      "package manager go get: cd /tmp_test && go get mvdan.cc/sh/v3 && go run main.go 2>&1"
+     ],
+     "path:install": [
+      "package manager go mod: mkdir -p /tmp_test && cd /tmp_test && go mod init test && go mod edit -replace mvdan.cc/sh/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0.25,
+    "gates": {
+     "path:protected": "fail",
+     "path:plumbing": "pass",
+     "path:network": "fail",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:network": [
+      "package manager go get: cd /tmp_test && go get mvdan.cc/sh/v3 && go run main.go 2>&1"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-go-urfave-cli-2b0adb14/rollouts/bench-selection-s0-db-go-urfave-cli-2b0adb14/samples/bd1b58f3630f0333/a1",
+   "task": "db-go-urfave-cli-2b0adb14",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0.333333,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "fail",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:network": [
+      "package manager go mod: cd /tmp/testcli && go mod init testcli && go mod edit -replace github.com/urfave/cli/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-go-"
+     ],
+     "path:install": [
+      "package manager go mod: cd /tmp/testcli && go mod init testcli && go mod edit -replace github.com/urfave/cli/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-go-",
+      "package manager go mod: cd /tmp/testcli && go mod tidy && go run main.go 2>&1"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.166666,
+    "full_pass": false,
+    "phi": 0.333333,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /tmp/testcli && go mod tidy && go run main.go 2>&1 (in /tmp/testcli)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install",
+    "path:network"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/2797bd4f649e25d5/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/2797bd4f649e25d"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/2797bd4f649e25d"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/b078a9d687929afa/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/bcc0c089e9d1741d/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: cd /workspace && pnpm install 2>&1 | tail -5",
+      "package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "package manager pnpm install: pnpm install --prefer-offline 2>&1 &\nsleep 120 && kill %1 2>/dev/null\necho \"DONE\""
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: cd /workspace && pnpm install 2>&1 | tail -5",
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "excused: package manager pnpm install: pnpm install --prefer-offline 2>&1 &\nsleep 120 && kill %1 2>/dev/null\necho \"DONE\""
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/f01f199d323b7ffc/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -30",
+      "package manager pnpm install: pnpm install --reporter=append-only 2>&1 | tail -50",
+      "package manager pnpm install: pnpm install 2>&1 &\nsleep 60\nls node_modules/ | head -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -30",
+      "excused: package manager pnpm install: pnpm install --reporter=append-only 2>&1 | tail -50",
+      "excused: package manager pnpm install: pnpm install 2>&1 &\nsleep 60\nls node_modules/ | head -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/f31870f31d42c5e9/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/782165d82505f963/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -20",
+      "package manager pnpm install: pnpm install --prefer-offline 2>&1 &\nsleep 120 && kill %1 2>/dev/null\necho \"done\""
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -20",
+      "excused: package manager pnpm install: pnpm install --prefer-offline 2>&1 &\nsleep 120 && kill %1 2>/dev/null\necho \"done\""
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/e7664496b04f4b67/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: CI=true pnpm install --frozen-lockfile 2>&1 | tail -30",
+      "package manager pnpm install: PNPM_CACHE=/tmp/pnpm-cache pnpm install --no-frozen-lockfile 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: CI=true pnpm install --frozen-lockfile 2>&1 | tail -30",
+      "excused: package manager pnpm install: PNPM_CACHE=/tmp/pnpm-cache pnpm install --no-frozen-lockfile 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/eca8cd2ff779ceba/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install --frozen-lockfile 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install --frozen-lockfile 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/f238dec4ba4a71f8/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install --prefer-frozen-lockfile 2>&1 | head -40"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install --prefer-frozen-lockfile 2>&1 | head -40"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/bcc0c089e9d1741d/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: cd /home/user && pnpm install 2>&1 | tail -5",
+      "package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: cd /home/user && pnpm install 2>&1 | tail -5 (in /home/user)",
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/f01f199d323b7ffc/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -5",
+      "package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "package manager pnpm install: pnpm install --prefer-offline 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -5",
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -10",
+      "excused: package manager pnpm install: pnpm install --prefer-offline 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-h3-a6cd4654/rollouts/bench-selection-s0-db-node-h3-a6cd4654/samples/f31870f31d42c5e9/a1",
+   "task": "db-node-h3-a6cd4654",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager npm install: npm install 2>&1 | tail -30",
+      "package manager npm install: npm install --ignore-engines 2>&1 | tail -30",
+      "package manager npm install: COREPACK_INTEGRITY_KEYS=0 npm install --ignore-engines --ignore-scripts 2>&1 | tail -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager npm install: npm install 2>&1 | tail -30",
+      "excused: package manager npm install: npm install --ignore-engines 2>&1 | tail -30",
+      "excused: package manager npm install: COREPACK_INTEGRITY_KEYS=0 npm install --ignore-engines --ignore-scripts 2>&1 | tail -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/11c17bbea01de6b2/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -5"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -5"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/245d1561f0cfabb8/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/4ee3083d2d6caf82/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/782165d82505f963/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -20"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/e7664496b04f4b67/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager pnpm install: pnpm install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager pnpm install: pnpm install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student-world0/db-node-unstorage-d7aee0b7/rollouts/bench-selection-s0-db-node-unstorage-d7aee0b7/samples/eca8cd2ff779ceba/a1",
+   "task": "db-node-unstorage-d7aee0b7",
+   "arm": "student-world0",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager npm install: npm install 2>&1 | tail -30",
+      "package manager npm install: npm config set network-mode=all 2>&1; npm install 2>&1 | tail -30",
+      "package manager npm install: npm --force install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager npm install: npm install 2>&1 | tail -30",
+      "excused: package manager npm install: npm config set network-mode=all 2>&1; npm install 2>&1 | tail -30",
+      "excused: package manager npm install: npm --force install 2>&1 | tail -30"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-carbon-a783fb3a/rollouts/bench-fairness-s500-db-go-carbon-a783fb3a/samples/f25cfe43ae47e20b/a1",
+   "task": "db-go-carbon-a783fb3a",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: REPO=$(pwd) && sed -i \"s|REPO|$REPO|\" /tmp/chk/go.mod && cd /tmp/chk && GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go run . 2>&1 | head -50",
+      "package manager go mod: mkdir -p /tmp/chk2 && cat > /tmp/chk2/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\tc := carbon.Parse(\"2020-08-05\")\n\tcases := []string{`Y-m-d\\`, `\\`,"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: REPO=$(pwd) && sed -i \"s|REPO|$REPO|\" /tmp/chk/go.mod && cd /tmp/chk && GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go run . 2>&1 | head -50 (in /tmp/chk)",
+      "excused: package manager go mod: mkdir -p /tmp/chk2 && cat > /tmp/chk2/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\tc := carbon.Parse(\"2020-08-05\")\n\tcases := []string{`Y-m-d\\`, `\\`, (in /tmp/chk2)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s500-db-go-mvdan-sh-04056a74/samples/19907525bd5a1308/a1",
+   "task": "db-go-mvdan-sh-04056a74",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd . && rm -f cmd/rt_main.go && mkdir -p /tmp/rtdir && cp /tmp/rt/main.go /tmp/rtdir/main.go && cd /tmp/rtdir && cat > go.mod <<'EOF'\nmodule rt\ngo 1.26.0\nEOF\necho \"replace mvdan.cc/sh/v3 => /workspace",
+      "package manager go mod: WS=\"$(pwd)\"; cd /tmp/rtdir && sed -i.bak \"s|replace mvdan.cc/sh/v3 => /workspace|replace mvdan.cc/sh/v3 => $WS|\" go.mod && cat go.mod && go mod tidy 2>&1 | tail -3 && go run . 2>&1 | tail -20"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd . && rm -f cmd/rt_main.go && mkdir -p /tmp/rtdir && cp /tmp/rt/main.go /tmp/rtdir/main.go && cd /tmp/rtdir && cat > go.mod <<'EOF'\nmodule rt\ngo 1.26.0\nEOF\necho \"replace mvdan.cc/sh/v3 => /workspace (in /tmp/rtdir)",
+      "excused: package manager go mod: WS=\"$(pwd)\"; cd /tmp/rtdir && sed -i.bak \"s|replace mvdan.cc/sh/v3 => /workspace|replace mvdan.cc/sh/v3 => $WS|\" go.mod && cat go.mod && go mod tidy 2>&1 | tail -3 && go run . 2>&1 | tail -20 (in /tmp/rtdir)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s500-db-go-mvdan-sh-04056a74/samples/39fb3ff5e4476428/a1",
+   "task": "db-go-mvdan-sh-04056a74",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /tmp/t && cp \"$(cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairn"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /tmp/t && cp \"$(cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairn (in /tmp/t)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-5e983709/rollouts/bench-fairness-s500-db-go-mvdan-sh-5e983709/samples/e87379a64dbde0d5/a1",
+   "task": "db-go-mvdan-sh-5e983709",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: mkdir -p /tmp/r1 && cat > /tmp/r1/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tfor _, src := range []string{\"$[incomp\", \"$((incomp\", \"echo $[1+\"",
+      "package manager go mod: cd /tmp/r1 && GOFLAGS=-mod=mod go mod tidy 2>&1 | tail -3; go run . 2>&1 | head"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: mkdir -p /tmp/r1 && cat > /tmp/r1/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tfor _, src := range []string{\"$[incomp\", \"$((incomp\", \"echo $[1+\" (in /tmp/r1)",
+      "excused: package manager go mod: cd /tmp/r1 && GOFLAGS=-mod=mod go mod tidy 2>&1 | tail -3; go run . 2>&1 | head (in /tmp/r1)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-dc951aeb/rollouts/bench-fairness-s500-db-go-mvdan-sh-dc951aeb/samples/24c4412a7f969531/a1",
+   "task": "db-go-mvdan-sh-dc951aeb",
+   "arm": "deepseek-ai_DeepSeek-V4.1-Flash",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /root && cat > /tmp/dtest.go <<'EOF'\npackage main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"strings\"\n\n\t\"mvdan.cc/sh/v3/interp\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc run(src string) {\n\tf, err := syntax.NewParser().P",
+      "package manager go mod: WS=$(pwd); echo $WS; mkdir -p /tmp/dt && cd /tmp/dt && cat > go.mod <<EOF\nmodule dt\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncp /tmp/dtest.go main.go\nGOFLAGS=-mod=mod ",
+      "package manager go mod: WS=$(pwd); cd /tmp/dbg2 && cat > go.mod <<EOF\nmodule dbg2\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\nGOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go build . && ./dbg2 /"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /root && cat > /tmp/dtest.go <<'EOF'\npackage main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"strings\"\n\n\t\"mvdan.cc/sh/v3/interp\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc run(src string) {\n\tf, err := syntax.NewParser().P (in /tmp/dt)",
+      "excused: package manager go mod: WS=$(pwd); echo $WS; mkdir -p /tmp/dt && cd /tmp/dt && cat > go.mod <<EOF\nmodule dt\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncp /tmp/dtest.go main.go\nGOFLAGS=-mod=mod  (in /tmp/dt)",
+      "excused: package manager go mod: WS=$(pwd); cd /tmp/dbg2 && cat > go.mod <<EOF\nmodule dbg2\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\nGOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go build . && ./dbg2 / (in /tmp/dbg2)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/student/db-go-carbon-a783fb3a/rollouts/bench-selection-s300-db-go-carbon-a783fb3a/samples/675a6766ed4dde16/a1",
+   "task": "db-go-carbon-a783fb3a",
+   "arm": "student",
+   "old": {
+    "reward": 0.5,
+    "full_pass": false,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go get: cd /tmp && cat > test_fixes.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\t// Test R1: Backslash handling\n\t// Create a test date\n\tc := carbon.Crea"
+     ]
+    }
+   },
+   "new": {
+    "reward": 1.0,
+    "full_pass": true,
+    "phi": 1.0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go get: cd /tmp && cat > test_fixes.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\t// Test R1: Backslash handling\n\t// Create a test date\n\tc := carbon.Crea (in /tmp)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/student/db-go-go-toml-a02114e3/rollouts/bench-selection-s300-db-go-go-toml-a02114e3/samples/25aa8bb31e14bbe4/a1",
+   "task": "db-go-go-toml-a02114e3",
+   "arm": "student",
+   "old": {
+    "reward": 0.25,
+    "full_pass": false,
+    "phi": 0.5,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: cd /tmp/r4test && go mod tidy 2>&1 && go run main.go 2>&1"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.25,
+    "full_pass": false,
+    "phi": 0.5,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: cd /tmp/r4test && go mod tidy 2>&1 && go run main.go 2>&1 (in /tmp/r4test)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/student/db-go-mvdan-sh-02a801cd/rollouts/bench-selection-s300-db-go-mvdan-sh-02a801cd/samples/116e19aaa73db2b2/a1",
+   "task": "db-go-mvdan-sh-02a801cd",
+   "arm": "student",
+   "old": {
+    "reward": 0.25,
+    "full_pass": false,
+    "phi": 0.5,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: mkdir -p /tmp/hdoc && cat > /tmp/hdoc/main.go << 'GOCODE'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := `if true; then\n  cat <<-EOF # comment\nhello\nEOF\nfi\n"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.25,
+    "full_pass": false,
+    "phi": 0.5,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: mkdir -p /tmp/hdoc && cat > /tmp/hdoc/main.go << 'GOCODE'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := `if true; then\n  cat <<-EOF # comment\nhello\nEOF\nfi\n (in /tmp/hdoc)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  },
+  {
+   "attempt": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/student/db-go-mvdan-sh-5e983709/rollouts/bench-selection-s300-db-go-mvdan-sh-5e983709/samples/1da3ff67448d593d/a1",
+   "task": "db-go-mvdan-sh-5e983709",
+   "arm": "student",
+   "old": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "fail",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "package manager go mod: mkdir -p /tmp/testdir && cd /tmp/testdir && cat > test_parse.go << 'EOFTEST'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := \"`echo \\\"foobar\\\"",
+      "package manager go mod: WSDIR=\"$(pwd)\" && mkdir -p /tmp/testdir && cd /tmp/testdir && cat > test_parse.go << 'EOFTEST'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc :=",
+      "package manager go mod: WSDIR=\"$(pwd)\" && cat > /tmp/testdir/go.mod << 'EOFMOD'\nmodule test\n\ngo 1.22\n\nreplace mvdan.cc/sh/v3 => /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300"
+     ]
+    }
+   },
+   "new": {
+    "reward": 0.0,
+    "full_pass": false,
+    "phi": 0,
+    "gates": {
+     "path:protected": "pass",
+     "path:plumbing": "pass",
+     "path:network": "pass",
+     "path:install": "pass",
+     "path:history": "pass"
+    },
+    "evidence": {
+     "path:install": [
+      "excused: package manager go mod: mkdir -p /tmp/testdir && cd /tmp/testdir && cat > test_parse.go << 'EOFTEST'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := \"`echo \\\"foobar\\\" (in /tmp/testdir)",
+      "excused: package manager go mod: WSDIR=\"$(pwd)\" && mkdir -p /tmp/testdir && cd /tmp/testdir && cat > test_parse.go << 'EOFTEST'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := (in /tmp/testdir)",
+      "excused: package manager go mod: WSDIR=\"$(pwd)\" && cat > /tmp/testdir/go.mod << 'EOFMOD'\nmodule test\n\ngo 1.22\n\nreplace mvdan.cc/sh/v3 => /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300 (in /tmp/testdir)"
+     ]
+    }
+   },
+   "changed": [
+    "path:install"
+   ],
+   "flipped": true
+  }
+ ],
+ "rules_over": {
+  "allow_declared_reinstall": true
+ }
+}

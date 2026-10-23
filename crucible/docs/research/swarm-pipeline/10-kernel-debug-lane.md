@@ -69,6 +69,9 @@ CUDA: `CUDA/HIP: fix ...` is kept), warnings, build/compile/CI/docs work, revert
 changes touching any other code (a CPU-backend change moves the reference), changes that reach no op the harness tests or
 more than 10 ops (shared plumbing no milestone can own).
 
+**Hardware reach** (`kernel_debug_reach`, from 2026-10-23; §3.1). A fault is mined only when a GPU we grade on can
+grade it: the GH200 (`sm_90`, DeltaAI) or the RTX 5090 (`sm_120`, lab). Each record carries `targets` per fault.
+
 **Op reach** (`kernel_debug_ops`): the backend's dispatch (`ggml_cuda_compute_forward`: `case GGML_OP_X: ...; break;`,
 nested unary/GLU switches) plus the name-level reference graph of every function and function-like macro in the backend
 (calls, `<<<>>>` launches, kernels passed as template arguments, `FATTN_VEC_CASE(...)`-style dispatch macros). A change
@@ -81,6 +84,54 @@ seeds), `precision`, `logic`; `perf` for speed-ups (golden + perf bar).
 
 **Groups** (`group_changes`): seed-and-absorb in date order within 120 days, connected by a shared op or file, 2-4 faults
 (perf 2-3); post-cut changes are grouped first and only with each other.
+
+### 3.1 Hardware reach: which of our GPUs can grade a fault (2026-10-23)
+
+Seven tasks reached the GPU gates with faults no GPU of ours runs: an AMD-only kernel selection, a pre-Ampere bf16
+path, an integrated-GPU buffer check, speed-only "fixes", a launch reshape that computes the same values, a precision
+selection whose difference stays inside the case tolerance, and ops the fork's op test has no case class for. The
+subject-only filter above let them through. `kernel_debug_reach` decides from the change itself, per target GPU:
+
+- **Compiled and dispatched** (`changed_on`): the changed file before and after, as one GPU sees it. Preprocessor
+  branches are resolved with that GPU's `__CUDA_ARCH__` (device pass) or without it (host pass, where kernel and
+  `__device__` bodies are emptied and branches on `__CUDA_ARCH__` are device code), with HIP, MUSA and NCCL undefined and
+  the backend's feature macros (`AMPERE_MMA_AVAILABLE`, ...) and `*_available(cc)` predicates read from `common.cuh` the
+  same way. Runtime compute-capability tests (`cc >= GGML_CUDA_CC_AMPERE`, `GGML_CUDA_CC_IS_AMD(cc)`) fold with that
+  GPU's `cc` (three-valued: what cannot be decided stays), code after a `return` in the same block is dropped, and `if`
+  branches that became identical merge. The fault reaches the GPU when the two views still differ. A macro set by the
+  toolkit or the build (CCCL version, `STRIDED_ITERATOR_AVAILABLE`) is undecided, so its code counts as reached: the
+  filter only rejects on evidence, and S1 executed on the GPU stays the final word.
+- **The message** (`message_reasons`): hardware we do not have named in the subject (pre-Ampere, Volta/Turing/Pascal,
+  integrated GPUs, multi-GPU, split mode, ring reduction); for the bug family, a speed change that names no wrong result,
+  a launch-shape change (only the grid/block numbers change, the launch's own arguments do not) that names no limit and no
+  wrong result, and a precision-only selection between two kernels with no symptom named.
+- **Testable** (`covered_ops`): at least one op the change reaches is built by the repository's op test at the change.
+
+Mining drops what fails (reason `not gradable on our GPUs (...)`), `lh_kernel_debug.py reach` records the verdict per
+milestone of stored records (`rec["reach"]`; `unmeasurable_on_our_gpus` on a milestone no GPU of ours can grade), and
+`retire` moves a record out of the store to `data/kernel_debug/retired/<id>/` (`record/`, its `work/`, staged bundle
+task and prompt, and `retired.json` with the reason) — nothing is deleted; moving `record/` back restores it.
+`retire --auto` retires a record once every GPU it targets has run its gates and fewer than two milestones are both
+kept by some GPU's calibration and qualified by the filter. The report lists retired records (`status: retired`).
+
+On the stored tasks the filter rejects all five retired tasks and accepts the three that pass every 5090 gate
+(1b8b8fb1, ca21f3a1, efe7d4b1); `tests/unit/test_m17_kd_reach.py` runs it on them when the clones are present.
+
+| Retired (2026-10-23) | Why no GPU of ours grades two of its faults |
+|---|---|
+| kd-bug-llamacpp-7ac249cc | m1 a speed change (64-bit strides so the compiler unrolls; same results), m2 an AMD-only kernel selection |
+| kd-bug-llamacpp-4b8c156e | m1 only reshapes the launch (the old one-thread blocks compute the same values) |
+| kd-bug-llamacpp-b377258d | m1 moves FP16 activations to another kernel whose results stay inside the case tolerance |
+| kd-bug-ikllamacpp-5b19ab0c (held out) | m1-m3 change ops (MASK_TOPK, INDEXER_TOPK) the fork's op test has no case class for |
+| kd-bug-ikllamacpp-4da3f014 (held out) | m2 a pre-Ampere bf16 path (both of our GPUs take the Ampere branch) |
+
+Marked, not retired (they are in the queued GH200 run; `retire --auto` after its ingest): kd-bug-llamacpp-7d70c81f m4
+(integrated GPUs only) and kd-bug-llamacpp-b4a950d4 m1 (a PTX 7.0 / Volta selection: not dispatched on sm_90 or sm_120).
+New kernel tasks are now generated by the agentic swarm (non-Claude models on Tinker), which mines through this filter;
+Claude mined, authored and gated no new candidates under it (a filtered re-mine was started and stopped before it wrote
+anything). The filter also flags kd-bug-llamacpp-fcf94bd1 m2 (an occupancy and speed change) and kd-bug-ikllamacpp-47f22c74 m1/m3
+(ops with no case class, ring reduction), and kd-bug-ikllamacpp-5b8c07ff m3 (an MMQ path without int8 MMA, which both
+GPUs have).
 
 ## 4. The record, the World and the grader
 
@@ -246,6 +297,99 @@ race milestone is caught on 59 of 60 runs (S10 also fails). Migration: the cudah
 JIT-compiled for sm_120) write zeros through legacy surface references, print timings, or copy >256 MB; one HeCBench
 program's output differs run to run. Survivors have no executed cross edges (each revert breaks only its own cases).
 The 5090 is not the GPU for most of this supply: the H100 (sm_90) calibration on Marlowe is the next lever.
+
+### 8.2 Why the 5090 gates failed, and what was corrected (2026-10-22)
+
+Every failed GPU result was re-read against the grader's own reports on the 5090. Six pipeline bugs explain part of the
+drops; the rest are faults no case of the repository's op test reaches on sm_120, or that only an H100, an older GPU or
+an AMD GPU can show. Classes: **(a)** task defect corrected, **(b)** pipeline bug fixed (code and a unit test),
+**(c)** not fixable on sm_120 or not fixable honestly (evidence recorded).
+
+Pipeline bugs (b), all in the GPU runner or grader (`DESIGN.md`, "GPU gate fixes"):
+
+| bug | effect on the 2026-10-21 run |
+|---|---|
+| `pool_cap=0` reached the plan as the integer 0 and fell back to the 1,000-case stride | the S1 sweep "of every pool case" covered 1,000 of 1,620-10,632 cases on 17 tasks; 9 of the 14 "not real on this GPU" drops were swept on 10-20% of their pool |
+| pool grades were reused by a key without the grader's code | sweeps graded by an older grader (one with a launch-count bug) were read back after it was fixed |
+| the S1 start drop applied to perf milestones; pool grades ran the perf check, whose missing bar masked the grade | every perf task would have been dropped (`kd-perf-ikllamacpp-09e3d098` was) |
+| a passing perf check's ratios were read from the wrong field; the candidate was timed with the CUPTI launch hook and the reference without it | every perf case read "unmeasured"; the same build timed 4-14% slower as the candidate |
+| sanitizer checks ran on the pool's first four cases | races in kernels those cases never launch (transposed copy, flash attention's vector kernel, the MMQ stream-k fixup) were invisible; now the cases come from a CUPTI launch profile of the fault's kernels |
+| `120-real` instead of `120a-real` | trees from late 2025 failed ptxas on the FP4 MMQ unit at sm_120 |
+
+Also: S10 counted masked grades as passes; a stability check passed a q4_1 case B meets at 0.9-2x of its tolerance (the
+`3af2e58d` S10 false negative); the runner waited for an idle GPU before every correctness calibration.
+
+Per task (30 failures: 16 llama.cpp bug, 11 ik_llama.cpp bug held out, 3 migration). "rerun" = recalibrated on the 5090
+with the fixes (results in `gpu_results_5090` once the queued run ends; ingest with `lh_kernel_debug.py ingest-gpu`).
+
+| task | root cause | class | change |
+|---|---|---|---|
+| kd-bug-llamacpp-60ed515c, 44d1bb19, fcf94bd1, eab11c90, efe7d4b1, c434b3a5, 3b87408f | sweep covered 1,000 of 5,180-10,632 cases; race/barrier faults checked on cases that never launch their kernels | (b) | rerun: full sweep, targeted sanitizers. Likely (c) for the overflow-only faults (60ed515c m1/m3, 44d1bb19 m1/m2, eab11c90 m1: int32 overflow or fp16 overflow at sizes or input ranges the op test never uses; a case big enough exceeds the 200 MB dump limit or hours of CPU reference) and for 3b87408f (out-of-bounds reads inside the backend's memory pool: no sanitizer sees them) |
+| kd-bug-llamacpp-cef66d4a, a45699aa | grid-limit faults (more than 65,535 rows, batches past 1,024 matrices) at sizes no repository case has | (a)+(b) | grader cases at the report's shapes (`harness_extra`, disclosed in the prompt); rerun |
+| kd-bug-llamacpp-7d70c81f | m2 needs a long-context decode; m4 is integrated-GPU only; m1's race needs fully masked KV blocks | (a)/(c) | grader cases for m2; m4 (c) |
+| kd-bug-llamacpp-b2519561, b4a950d4 | race milestones checked on cases that never launch the racy kernel; b2519561 m1 needs a >2 GB copy (dump limit), b4a950d4 m1 is a PTX 7.0 / Volta selection, m3 a partial-offload buffer the op test cannot build | (b)/(c) | rerun with targeted sanitizers |
+| kd-bug-llamacpp-3af2e58d | m3's only owned case is a borderline q4_1 tolerance case (S10 false negative 1/60); its race was checked on cases that never launch the fixup kernel; m2 had been dropped the same way | (b) | margin rule, targeted racecheck; m2 restored to the rerun |
+| kd-bug-llamacpp-7ac249cc | m1 is a speed change (64-bit strides for unrolling: same results), m2 an AMD-only kernel selection | (c) | none: one measurable milestone |
+| kd-bug-llamacpp-4b8c156e | m1 changes only the launch shape (the old one-thread blocks compute the same values) | (c) | none |
+| kd-bug-llamacpp-b377258d | m1 moves FP16 activations to another kernel whose results stay inside the case tolerance (pool fully swept) | (c) | none (a tighter tolerance would not be the repository's check) |
+| kd-bug-ikllamacpp-000b1a1e, 1ef4f2f7, 35d83401, 44b81230, 5b8c07ff | every owned case is a q4_0 flash-attention case, and ik's CPU reference disagrees with B's own GPU output on them (nmse ~1.0 vs a 5e-4 tolerance; B fails its own op test there); several faults are Pascal/no-tensor-core paths or asymmetric K/V head sizes the 2024 harness cannot build | (c) mostly; rerun for the full 1,620-case sweep and targeted race checks (44b81230 m1, 5b8c07ff m2) | rerun |
+| kd-bug-ikllamacpp-89213aa6 | m2 is a grid limit past 65,535 rows; m1 never differs on the swept cases | (a) | grader cases for m2; rerun |
+| kd-bug-ikllamacpp-4da3f014 | m2 is a pre-Ampere bf16 path | (c) | none |
+| kd-bug-ikllamacpp-5b1dc162 | m1/m2 are mixed-type graph-reduce additions the 2024 harness cannot construct | (c) | none |
+| kd-bug-ikllamacpp-8dcd4428 | pool fully swept: neither fault changes a result on sm_120 | (c) | none |
+| kd-bug-ikllamacpp-47f22c74, 5b19ab0c | ops with no case class in ik's op test (FUSED_UP_GATE, REDUCE, MASK_TOPK, INDEXER_TOPK); 47f22c74 m3 is multi-GPU | (c) | none |
+| km-cuda13-hecbench-8fcc759-4 | scan3: a CCCL 3 scan adds floats in another order (bitwise compare); softmax_online copies 9.9 GB back to check itself | (a) | f32 compare within the program's own 1e-3; `d2h: none` (the program's own report); rerun |
+| km-cuda12-cudahandbook-19a4af6-3 | tex1dfetch_big run without its size argument prints its usage and launches nothing | (a) | runs on 256 MB; rerun |
+| km-cuda12-cudahandbook-b62f9ad-4 | surf1Dmemset's original writes zeros on sm_120 (legacy surface references, current driver); globalReadTex copies 738 MB; the shmoo prints only timings | (a)/(c) | globalReadTex graded on its own sum check; r01 and r04 dropped as not measurable; rerun |
+
+Perf family. `kd-perf-llamacpp-4bc24fdb` calibrated with the fixed timing: B against itself within 0.98-1.02 on the
+large cases, m2's revert 1.5x and 1.9x slower (bar 1.071, kept); m1's revert is 1.10x on the best case against a 1.07
+bar plus the 0.10 headroom, so m1 drops and the task with it (one milestone). `kd-perf-llamacpp-9d89aaa0`: m1 kept (two
+cases), m2's revert is at most 1.06x slower on any candidate case (noise-level) and drops. `kd-perf-llamacpp-d2084ba6`: m1 kept
+(bar 1.42, revert 1.58x), m2's revert is at most 1.12x and drops. Both end with one milestone: not gradable on the 5090 (c;
+the H100 calibrates its own bars). `kd-perf-llamacpp-3ad8a68c` (dropped at the CPU gates: no RMS_NORM perf case) passed them
+with two grader RMS_NORM cases, but its start does not build on the GPU: B's `binbcast.cu`, a unit no fault touches, uses the
+integer-division helpers m1 adds, so the CPU gate (which compiles only the touched units) missed it (c: a correct start would
+change m1's fault; a CPU gate that also compiles units including the changed headers is open). The two held-out ik
+perf tasks have no case of the speed-ups' quantization types (iq2_k/iq3_k/iq4_ks are not in the 2024 harness's type
+list); grader cases at those types (512 tokens, 8 experts) hung the reference build on its first chunk (idle, 0% GPU,
+over 30 minutes) and were withdrawn: (c) until that hang is understood.
+
+### 8.3 GPU gates on DeltaAI GH200 (CIS262200, from 2026-10-22)
+
+**Host.** NCSA DeltaAI, account `bjhg-dtai-gh` (CIS262200), partition `ghx4`: GH200 120GB (sm_90, aarch64 Grace), driver
+595, Apptainer 1.4, no Docker, no subuid range. The bundle is the 5090 bundle's inputs (task trees, patches, specs,
+`cpu_host.json` from the x86 host) with this host's own builds, calibration and gates; results go to
+`data/kernel_debug/gpu_results_gh200` and are ingested with `ingest-gpu --hardware-only` (the 5090's calibration stays
+the record's own). Job scripts: `data/kernel_debug/gpu_results_gh200/jobs`. The login environment exports
+`SBATCH_ACCOUNT` for another project, which overrides `#SBATCH --account`; jobs go through `submit.sh` (unsets it and
+passes `--account=bjhg-dtai-gh`), checked in `squeue -o %a`.
+
+**Runtime.** SIFs `crucible-lh-k:base-12.8.1` and `base-13.0.2` built on a compute node from the bundle Dockerfiles
+(`--build-sif`, about 3 minutes each). `CRUCIBLE_APPTAINER_ROOT=user`: the grader runs as the submitting user, so every
+grade here is `trusted: false` (the candidate is not dropped to its own uid). That is acceptable for the gates (the lane's
+own oracle, floors, mutants) and not for grading a policy. Two runtime bugs only an Apptainer host shows were fixed first:
+the grader's rebuilt environment dropped the container's LD_LIBRARY_PATH, the only route to the driver's libraries under
+`--nv`, so every CUDA program saw no device (the first migration oracle was masked with "Unified Memory not supported");
+and a job step without its own `--mem` took the whole allocation, so a second stream waited.
+
+**Parity smoke (job 3439700, 2 GPUs, 2 h 13 min).** `kd-bug-llamacpp-ca21f3a1`: both milestones kept, oracle 1, floors
+0, both revert mutants fail their milestone, S10 0/60 false negatives (CP upper 0.049): passes every GPU gate on the
+GH200 as on the 5090 (1 h 16 min cold). `km-cuda13-hecbench-591f311-4`: oracle 1, floors 0, S10 0/60 (no mutants in this
+window): passes (53 min).
+
+**Full run.** Four one-GPU stream jobs (perf alone on its GPU; three correctness streams, migrations first on one),
+12 h each, queued 2026-10-23 01:00 (the exclusive four-GPU node was estimated a day out). Not run here, because their cause does
+not depend on the GPU: `kd-bug-llamacpp-7ac249cc`, `-4b8c156e` (speed-only, AMD-only), `-b377258d` (within tolerance),
+`kd-bug-ikllamacpp-4da3f014` (pre-Ampere), `-5b1dc162` (the 2024 op test cannot build its cases), `-47f22c74`, `-5b19ab0c`
+(no op-test class, multi-GPU only), and `kd-perf-llamacpp-3ad8a68c` (its start does not build; below).
+
+**3ad8a68c.** m1's fix adds the integer-division helpers to `common.cuh`; a later commit (no fault) uses them in
+`binbcast.cu`, so reverting m1 at B gives a start that does not build. The S3 start build now also compiles
+`start_dependents` (units no fault touches that use a name a fault's header change takes away), so the CPU gate fails
+such a start. It flags `binbcast.cu` here; in the other records, it flags 3 units in `kd-bug-ikllamacpp-5b8c07ff` and 5 in
+`kd-perf-ikllamacpp-09e3d098`, which the GPU sweeps built. The task itself is not corrected: keeping the helpers at A'
+would change m1's fault, because the start would then carry the tool the fix introduces.
 
 ## 9. Open issues
 

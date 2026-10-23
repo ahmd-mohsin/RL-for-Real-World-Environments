@@ -1,0 +1,1 @@
+{"text": "", "tool_calls": [], "usage": {"prompt_tokens": 29006, "completion_tokens": 45, "reasoning_tokens": 3, "cached_tokens": 768}, "model": "openai/gpt-oss-20b", "finish": "stop", "raw_message": {"reasoning": "Continue.", "reasoning_details": [{"type": "reasoning.text", "text": "Continue.", "format": "unknown", "index": 0}]}}

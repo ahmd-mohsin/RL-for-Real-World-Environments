@@ -1,0 +1,24 @@
+[pulldown-cmark] 1 candidate group(s)
+{"event": "window", "id": "db-rust-pulldown-cmark-e072a230", "repo": "pulldown-cmark", "stage": "mutants_valid", "reason": "", "seconds": 94.0}
+{"event": "window", "id": "db-rust-pulldown-cmark-e072a230", "repo": "pulldown-cmark", "stage": "mutants_valid", "reason": "", "seconds": 63.2}
+[pulldown-cmark] db-rust-pulldown-cmark-e072a230: windows hidden checks visible: 4 milestone test(s) fail in the agent's own tree
+[pulldown-cmark] done; removed 2 image(s) no stored World uses
+[fd] 0 candidate group(s)
+[fd] done; removed 6 image(s) no stored World uses
+[toml-rs] 0 candidate group(s)
+[toml-rs] done; removed 6 image(s) no stored World uses
+[clap] 0 candidate group(s)
+[clap] done; removed 6 image(s) no stored World uses
+[saphyr] 0 candidate group(s)
+[saphyr] done; removed 4 image(s) no stored World uses
+[ripgrep] 0 candidate group(s)
+[ripgrep] done; removed 4 image(s) no stored World uses
+[kdl-rs] 0 candidate group(s)
+[kdl-rs] done; removed 1 image(s) no stored World uses
+[serde-json] 0 candidate group(s)
+[serde-json] done; removed 1 image(s) no stored World uses
+[syn] 0 candidate group(s)
+[syn] done; removed 1 image(s) no stored World uses
+[regex] 0 candidate group(s)
+[regex] done; removed 2 image(s) no stored World uses
+exit 0
