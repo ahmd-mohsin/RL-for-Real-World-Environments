@@ -160,7 +160,36 @@ def parse_glm(text: str) -> tuple[str, list[dict[str, Any]]]:
     return text.split("<tool_call>", 1)[0].strip(), calls
 
 
-PARSERS = {"qwen_xml": parse_qwen_xml, "dsml": parse_dsml, "glm": parse_glm, "hermes": _parse_hermes, "text": _parse_hermes}
+# Kimi K2's native tool-call section (pattern: the model card's tool-calling guide). A Kimi model told the text protocol
+# still answers in its own format once a conversation is under way (swarm smoke, 2026-10-23: its third reply was a
+# native section, read as a final answer, so the session "finished" without writing anything): the text protocol reads it too
+_KIMI_SECTION = "<|tool_calls_section_begin|>"
+_KIMI_CALL = re.compile(r"<\|tool_call_begin\|>\s*(?:functions\.)?(?P<name>[\w\-\.]+?)(?::\d+)?\s*<\|tool_call_argument_begin\|>(?P<args>.*?)<\|tool_call_end\|>",
+                        re.DOTALL)
+
+
+def parse_text(text: str) -> tuple[str, list[dict[str, Any]]]:
+    """The text protocol: Hermes JSON blocks; failing those, Kimi's native section (an unterminated call is an
+    unparseable call the World answers with an error, never a silent final answer)."""
+    content, calls = _parse_hermes(text)
+    if calls or "<|tool_call_begin|>" not in text:
+        return content, calls
+    for m in _KIMI_CALL.finditer(text):
+        raw = m.group("args").strip()
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            calls.append(_bad(raw, "tool call is not JSON"))
+            continue
+        calls.append(_call(m.group("name"), _arguments(d)))
+    tail = text.rsplit("<|tool_call_end|>", 1)[-1] if calls else text
+    if "<|tool_call_begin|>" in tail:
+        calls.append(_bad(tail[tail.index("<|tool_call_begin|>"):], "unterminated tool call"))
+    head = text.split(_KIMI_SECTION, 1)[0].split("<|tool_call_begin|>", 1)[0]
+    return head.strip(), calls
+
+
+PARSERS = {"qwen_xml": parse_qwen_xml, "dsml": parse_dsml, "glm": parse_glm, "hermes": _parse_hermes, "text": parse_text}
 
 TEXT_PROTOCOL = ("# Tools\n\nYou can call these tools:\n{tools}\n\nTo call a tool, reply with one block per call and nothing after it:\n"
                  "<tool_call>{{\"name\": \"<tool name>\", \"arguments\": {{<arguments as a JSON object>}}}}</tool_call>\n"

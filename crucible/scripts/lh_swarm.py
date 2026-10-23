@@ -543,6 +543,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--gh-cache", default="", help="swarm: GitHub cache dir for the issues the changelog cites ('' = no network)")
     ap.add_argument("--skip-paid-gates", action="store_true", help="swarm: no alternatives, shadow or hacker calls")
     ap.add_argument("--swarm-parallel", type=int, default=2)
+    ap.add_argument("--preset", default="", help="swarm: a ModelBook preset for every role (swarm: the Tinker swarm, no Claude); empty: the P5 OpenRouter map")
     ap.add_argument("--redo", action="store_true", help="swarm: a fresh machine run per candidate")
     ap.add_argument("--finish", action="store_true", help="swarm: re-run S9, S12 and S17 only (window, prompt and gates stored)")
     return ap.parse_args(argv)
@@ -573,6 +574,27 @@ async def amain(a: argparse.Namespace) -> None:
             raise SystemExit(f"unknown stage {st}")
 
 
+# SwarmRunner's role slots -> the ModelBook role that fills them under a preset (the slot rewriter_deepseek keeps its name: it
+# is the second alternative's slot; under the swarm preset a Nemotron model, a family that built nothing, fills it)
+SWARM_SLOTS = {"planner": "planner", "oracle_builder": "oracle_builder", "verifier_writer": "verifier_writer", "author": "author", "reviewer": "reviewer",
+               "hacker": "hacker", "second_verifier": "second_verifier", "rewriter_qwen": "rewriter_qwen", "rewriter_deepseek": "rewriter_nemotron"}
+
+
+def swarm_clients(run: Any, preset: str) -> tuple[dict[str, Any], str]:
+    """``SwarmRunner(clients=...)`` from ``ModelBook(preset=preset)`` (the family rule checked at construction), each through
+    ``run.solver_client`` so every dollar lands in the phase's one ledger; the call roles get their reasoning cap. Returns
+    the clients and the hacker's model ref (the S12 agent)."""
+    from crucible.factory.generators.swarm import ReasoningCap
+    from crucible.factory.models import ModelBook
+
+    book = ModelBook(preset=preset)
+    clients: dict[str, Any] = {slot: run.solver_client(book.spec(role).ref, tag=slot) for slot, role in SWARM_SLOTS.items() if role in book.roles}
+    for r in ("planner", "reviewer", "second_verifier", "rewriter_deepseek"):
+        if r in clients:
+            clients[r] = ReasoningCap(clients[r])
+    return clients, book.spec("hacker").ref
+
+
 async def stage_swarm(a: argparse.Namespace) -> dict[str, Any]:
     """Part A: every ``--candidates`` store3 window through the swarm machine (``generators.swarm.SwarmRunner``)."""
     import lh_run
@@ -590,6 +612,9 @@ async def stage_swarm(a: argparse.Namespace) -> dict[str, Any]:
         gh = GitHub(Path(a.gh_cache))
     hcfg = episode_cfg(a, tool_limit=60, max_billed=1_000_000)
     hacker = ROLE_MODELS["hacker"]
+    clients = None
+    if a.preset:  # the Tinker swarm (models.SWARM_ROLES): every role through the run's guarded clients, no Claude, no OpenRouter
+        clients, hacker = swarm_clients(run, a.preset)
 
     async def hack_episode(task: Any) -> dict[str, Any]:
         """S12: the hacker (reviewer family) as an agent in the solver's World, told to pass the hidden tests without the work."""
@@ -606,7 +631,7 @@ async def stage_swarm(a: argparse.Namespace) -> dict[str, Any]:
 
     runner = SwarmRunner(run, root=out / "swarm", clones=Path(a.clones), store3=WindowStore(Path(a.store), split="train"), world_prefix=WORLD_PREFIX,
                          grade_prefix=GRADE_PREFIX, lease=EvalLease.default(), hack_episode=hack_episode, gh=gh, max_milestones=a.max_milestones,
-                         parallel=a.swarm_parallel, grade_parallel=a.parallel, paid_gates=not a.skip_paid_gates, redo=a.redo)
+                         parallel=a.swarm_parallel, grade_parallel=a.parallel, paid_gates=not a.skip_paid_gates, redo=a.redo, clients=clients)
     if a.finish:  # S9 + S12 (+ S17) again on candidates whose build, prompt and gates are stored
         res = {w: await runner.finish(w) for w in a.candidates.split(",") if w}
     else:

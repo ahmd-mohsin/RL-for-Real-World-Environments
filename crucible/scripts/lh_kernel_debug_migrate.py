@@ -215,6 +215,57 @@ def cmd_author(a: argparse.Namespace) -> None:
         print(w["id"], "lint", lint or "clean", "ledger", led_problems[:3] or "clean", flush=True)
 
 
+def migration_lint(w: dict[str, Any], opening: str) -> list[str]:
+    """``author``'s checks of one opening (compose, ledger, both lints), without writing the window."""
+    import copy
+
+    from crucible.factory.lanes import kernel as K
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.lanes import kernel_debug_migrate as kdm
+
+    w = copy.deepcopy(w)
+    w["opening"] = opening
+    w["prompt"], w["spans"] = kdm.compose(opening, w, w["generation"])
+    w["requirements"] = kdm.migration_requirements(w, w["generation"])
+    _led, led_problems = K.ledger_of(w)
+    return K.lint_prompt(w["prompt"], w) + [f for f in kd.lint_prompt(opening, {"milestones": []}) if "hidden" not in f] + list(led_problems)
+
+
+def cmd_write_prompts(a: argparse.Namespace) -> None:
+    """The swarm writes the maintainer's request of each migration window (``factory.swarm_prompts``; no Claude): one
+    machine run per window without a prompt; ``migration_lint`` is the gate, then ``author`` runs as before."""
+    import asyncio
+
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    book = ModelBook(preset=a.preset)
+    spent = 0.0
+    for w in windows():
+        out = ROOT / "prompts" / f"{w['id']}.json"
+        if (a.ids and w["id"] not in a.ids) or (out.exists() and not a.redo):
+            continue
+        if spent >= a.cap:
+            print(f"cap ${a.cap} reached (${spent:.4f}); stopping before {w['id']}", flush=True)
+            return
+        tree = next((p for p in (MIG / "store" / str(w.get("tree_a") or ""), ROOT / "store" / str(w.get("tree_a") or "")) if w.get("tree_a") and p.is_dir()), None)
+        if tree is None:
+            print(w["id"], "no start tree on disk", flush=True)
+            continue
+        brief = {"task": w["id"], "lane": "kernel_migration", "generation": w["generation"], "repository": w["repo"], "milestone_ids": ["opening"],
+                 "format": {"opening": "<one or two sentences in a maintainer's voice: the toolkit you moved to and what fails to build or run; no file "
+                                       "names, no API names the toolkit removed, no fix>"},
+                 "programs": sorted(w.get("programs") or {}), "build_failures": [m.get("kind") for m in w.get("milestones") or []][:40], "forbidden_strings": []}
+        job = PromptJob(w["id"], ["opening"], brief, tree, lambda d, w=w: migration_lint(w, str(d.get("opening") or "")),
+                        lambda t: [f for f in kd.lint_prompt(t, {"milestones": []}) if "hidden" not in f], out)
+        sroot = ROOT / "swarm" / str(w.get("split") or "train")
+        res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=a.budget, max_turns=a.max_turns))
+        spent += res["usd"]
+        print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
+
+
 def cmd_stage_gpu(a: argparse.Namespace) -> None:
     """The migration windows' GPU bundle: the kernel lane's bundle (``lh_kernel.py stage-gpu``: base tree, oracle, floors,
     fault mutants, kspec, the kit with ``kernel_plan``, ``run_gpu.sh`` + ``stage_gpu.py``) with per-window images
@@ -309,8 +360,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--out")
     s = sub.add_parser("ingest-gpu")
     s.add_argument("--bundle")
+    s = sub.add_parser("write-prompts", help="the swarm writes prompts/<id>.json (factory.swarm_prompts; no Claude)")
+    s.add_argument("--preset", default="swarm")
+    s.add_argument("--ids", nargs="*")
+    s.add_argument("--redo", action="store_true")
+    s.add_argument("--cap", type=float, default=5.0)
+    s.add_argument("--budget", type=float, default=1.0)
+    s.add_argument("--max-turns", type=int, default=40)
     a = ap.parse_args(argv)
-    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu}[a.cmd](a)
+    {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu,
+     "write-prompts": cmd_write_prompts}[a.cmd](a)
     return 0
 
 

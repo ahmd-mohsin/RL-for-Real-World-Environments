@@ -690,7 +690,7 @@ async def stage_audit(ph: Phase, tids: Sequence[str], *, arm: str = "student") -
     from crucible.factory.models import ModelBook
     from crucible.factory.traceaudit import deterministic_cause, facts, first_wrong_step, trace_of
 
-    book = ModelBook()  # the default tinker map: auditor GLM-5.3, judge GLM-5.3-Flash (SameFamilyError on a violation)
+    book = ModelBook(preset=ph.a.preset)  # tinker: auditor GLM-5.3, judge GLM-5.3-Flash; swarm: Nemotron-Ultra, gpt-oss-120b (SameFamilyError)
     judges = {role: Auditor(book.client(role), model=book.spec(role).model, config=AuditConfig(concurrency=ph.a.audit_concurrency,
                                                                                                            quote_retries=ph.a.quote_retries),
                             max_tokens=ph.a.audit_max_tokens) for role in ("auditor", "judge")}
@@ -1095,7 +1095,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--cap", type=float, default=10.0, help="hard USD cap of the whole phase (one meter: spend.jsonl)")
     ap.add_argument("--tasks", default="", help="comma list (default: every candidate)")
     ap.add_argument("--student", default=STUDENT)
-    ap.add_argument("--frontier", default=",".join(FRONTIER))
+    ap.add_argument("--preset", default="tinker", help="the ModelBook preset of the judges and the default frontier (swarm: tasks the Tinker swarm "
+                    "built; its frontier never shares a builder's family)")
+    ap.add_argument("--frontier", default="", help="comma list (default: the preset's frontier; tinker: " + ",".join(FRONTIER) + ")")
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--seed-offset", type=int, default=0, help="added to every arm's run seed: a re-measurement draws fresh samples and its run ids "
                     "(bench-<purpose>-s<seed>-<task>, the Weave trace keys) never collide with an earlier phase's")
@@ -1129,6 +1131,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     a.out = a.out or str(d / "targeting" / "debug")
     a.debug = a.debug or str(d / "debug")
     a.frontier = [m for m in a.frontier.split(",") if m]
+    if not a.frontier:  # the preset's fairness solvers (models.PRESET_FRONTIER), Tinker ids
+        from crucible.factory.models import ModelBook
+
+        a.frontier = [s.model for s in ModelBook(preset=a.preset).frontier]
     return a
 
 

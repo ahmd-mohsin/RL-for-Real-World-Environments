@@ -1023,6 +1023,37 @@ build tasks that target its failures):
   sandbox (`SessionPool`). Plan usage (turns, duration, API-equivalent cost) goes to receipts, never to `spend.usd`.
   `ModelBook` raises `SameFamilyError` for any independent role (reviewer, realism, second verifier, auditor, hacker,
   tie-break, judge) on Claude Code or on the builder's family.
+- **The Tinker swarm (2026-10-23, `swarm-pipeline/13`; the user: new tasks come from the swarm, not from Claude):**
+  - **Preset `swarm`** (`models.SWARM_ROLES`, no Claude Code role, refused if one is set): builders over three families.
+    The oracle builder and oracle author are on DeepSeek-V4.1-Flash. The planner and the first verifier writer are on
+    GLM-5.3. The prompt writer, World expert and mutant builder are on Kimi-K2.6, its 128K variant. Every checker is on
+    a family nothing builds: Nemotron-3-Ultra (reviewer, second verifier, auditor), Nemotron-3-Super (hacker,
+    rewriter) and gpt-oss-120b (judge, realism, second hacker, tie-break). The fairness solvers are Qwen3.5-397B and
+    Nemotron-Ultra. The strict presets (`STRICT_PRESETS`) also refuse a fairness solver of a builder's family, and an
+    oracle builder and first verifier writer of one family (V2 by family).
+  - **Provenance** (`factory/provenance.py`): every artifact carries the families that produced it, transitively over
+    `inputs[].from` and declared service reads. A checker refuses (`SameFamilyError`) an input its own family produced.
+    It is checked before a run (`static_problems`) and at every activation, with the family of the client that runs.
+  - **Builder sessions on the RLM harness** (`factory/sessions.py`): a session may declare `potential`.
+    - **Φ:** the checkpoint sidecar grades the builder's worktree out of band (`factory/builder_potential.py`:
+      `prompt_draft`, `hidden_tests`, `oracle_commits`, each the static half of the gate its artifact faces). The policy
+      is probed, so compaction points count.
+    - **Context:** the window fits the model's context (`context_window`) and the rebuilt context (`window_floor`).
+    - **Budget:** the state's dollars stop a session mid-way (`StateBudgetClient`, a budget stop is the task's failure).
+      Its spend is re-booked into the machine's scope.
+    - **Budget stops:** a session may `settle_on_budget`, so its captures still reach the gate.
+  - **Journal, credit, diagnosis** (`factory/swarm_journal.py`, `scripts/swarm.py`): sessions, verdicts and failures are
+    logged with provenance. A failure is blamed on the producing role, and a harness stop on `harness`. Per-turn
+    builder credit runs through `credit.compose.turn_credit` over each state's attempts. Yield and cost are tabulated per
+    role and model. `diagnose` ranks the bottlenecks and lists proposals, never applied.
+  - **Lanes:** `write-prompts` in `lh_debug.py`, `lh_kernel_debug.py` and `lh_kernel_debug_migrate.py`
+    (`factory/swarm_prompts.py`). Per window, a `prompt_author` session drafts the report, the lane's own lint and
+    ledger decide, and the reviewer reads it once. `lh_swarm.py --preset swarm` fills `SwarmRunner`'s slots (now also
+    journaled, with builder Φ). `lh_debug_target.py --preset swarm` uses the swarm's judges and frontier.
+  - **Difficulty interface:** `factory/difficulty_hooks.py` (`KnobAction` K1-K6 / H1-H4, `Controller`, `Reviser`,
+    `Gates`, `revise_and_gate`; a held-out task is never revised).
+  - **Smoke fixes:** the Kimi native tool section is read by the text protocol, the sidecar probe was added for
+    compaction points, the capped client's spend was lost, and a window floor was set.
 - **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated
   against exactly it. The local dev model is `student:Qwen/Qwen3.5-4B`, for harness work and the pipeline smoke only.
   - The local path uses native OpenAI tool calls (the `qwen3_coder` parser on mlx-lm) with thinking off. Thinking is
