@@ -683,6 +683,38 @@ def records(store: Path, split: str | None = None) -> list[dict[str, Any]]:
     return out
 
 
+RETIRED = "retired"  # a record moved out of the store: its faults cannot be graded on the GPUs we have (``kernel_debug_reach``)
+
+
+def retire(store: Path, rec: Mapping[str, Any], reason: str, *, extra: Mapping[str, Path] | None = None, at: str = "") -> Path:
+    """Move ``rec``'s directory out of the store to ``<store>/../retired/<id>/record`` with ``retired.json`` (the reason,
+    when, where each part came from), and each of ``extra`` (label -> its work dir, staged bundle, prompt) to ``<label>``. Nothing is deleted: a
+    retired record is restored by moving its ``record`` directory back to ``store/<split>/<id>``. Staging, bundles and the
+    report read ``records(store)``, so a retired record leaves them; the report lists it under ``retired``."""
+    import shutil
+
+    src = Path(store) / rec["split"] / rec["id"]
+    dest = Path(store).parent / RETIRED / rec["id"]
+    dest.mkdir(parents=True, exist_ok=True)
+    moved = {}
+    if src.is_dir():
+        shutil.move(str(src), str(dest / "record"))
+        moved["record"] = str(src)
+    for label, x in (extra or {}).items():
+        if Path(x).exists() and not (dest / label).exists():
+            shutil.move(str(x), str(dest / label))
+            moved[label] = str(x)
+    meta = {"id": rec["id"], "family": rec.get("family"), "split": rec["split"], "repo": rec.get("repo"), "status": RETIRED,
+            "reason": reason, "at": at, "moved_from": moved}
+    (dest / "retired.json").write_text(json.dumps(meta, indent=1, sort_keys=True) + "\n")
+    return dest
+
+
+def retired(store: Path) -> list[dict[str, Any]]:
+    """The retired records' ``retired.json`` (``retire``)."""
+    return [json.loads(p.read_text()) for p in sorted((Path(store).parent / RETIRED).glob("*/retired.json"))]
+
+
 def run_sync(coro: Any) -> Any:
     return asyncio.run(coro)
 

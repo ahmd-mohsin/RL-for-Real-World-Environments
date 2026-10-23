@@ -132,7 +132,7 @@ def test_mine_a_synthetic_backend(tmp_path: Path):
     d = tmp_path / "r"
     write(d, {"ggml/src/ggml-cuda/ggml-cuda.cu": DISPATCH, "ggml/src/ggml-cuda/softmax.cu": KERNELS, "ggml/src/ggml-cuda/common.cuh": COMMON,
               "ggml/src/ggml-cuda/norm.cu": NORM, "LICENSE": "MIT License\n\nPermission is hereby granted, free of charge, to any person\n",
-              "tests/test-backend-ops.cpp": "int main() {}\n", "ggml/src/ggml-cpu/ops.cpp": "int x;\n"})
+              "tests/test-backend-ops.cpp": "int main() { ggml_soft_max(ctx, a); }\n", "ggml/src/ggml-cpu/ops.cpp": "int x;\n"})
     git(d, "init", "-q")
     git(d, "add", "-A")
     git(d, "commit", "-qm", "init", date="2026-05-02T00:00:00+00:00")
@@ -146,6 +146,7 @@ def test_mine_a_synthetic_backend(tmp_path: Path):
     got, drops = kdm.mine(d, "r", since="2026-05-01", cache=tmp_path / "cache")
     assert [(c.subject, c.fault_class, c.ops) for c in got] == [("CUDA: fix race in soft max", "race", ["SOFT_MAX"])]
     assert got[0].functions == ["soft_max_kernel"] and got[0].kernels == ["soft_max_kernel"] and got[0].licence == "MIT"
+    assert got[0].targets == ["sm_90", "sm_120"]  # the hardware filter (kernel_debug_reach): both of our GPUs run it
     reasons = {d_["subject"]: d_["reason"] for d_ in drops}
     assert reasons["fix norm on CPU and CUDA"].startswith("touches code outside the CUDA backend")
     assert reasons["HIP: fix norm on gfx1100"].startswith("platform-specific")
