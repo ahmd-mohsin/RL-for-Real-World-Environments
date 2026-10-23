@@ -218,8 +218,10 @@ def cmd_gates(a: argparse.Namespace) -> None:
             g["units"] = units
             if cfg["ok"]:
                 g["compile_b"] = {u: r.to_json() for u, r in kdw.compile_units(tree_b, bld, units).items()}
-                # a unit a fault adds (a new template instance) does not exist at A': the start builds without it
-                g["compile_a"] = {u: r.to_json() for u, r in kdw.compile_units(tree_a, bld, [u for u in units if (tree_a / u).is_file()]).items()}
+                # a unit a fault adds (a new template instance) does not exist at A': the start builds without it; units no fault
+                # touches that use a name a fault's header change takes away must build at A' too
+                g["start_dependents"] = [u for u in kd.start_dependents(tree_a, tree_b, files, layout) if u not in units]
+                g["compile_a"] = {u: r.to_json() for u, r in kdw.compile_units(tree_a, bld, [u for u in units if (tree_a / u).is_file()] + g["start_dependents"]).items()}
             ok_b = cfg["ok"] and all(v["ok"] for v in (g.get("compile_b") or {}).values()) and bool(units)
             ok_a = cfg["ok"] and all(v["ok"] for v in (g.get("compile_a") or {}).values()) and bool(units)
             g["S4_oracle_builds"], g["S3_start_builds"] = ok_b, ok_a
@@ -573,7 +575,9 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
     """Write a bundle's calibration and GPU gates back to the records: each milestone's calibrated cases, its executed
     ``requires`` edges (``requires_evidence: executed``), sanitizer checks kept or dropped, perf cases and bars per GPU
     model; milestones the calibration dropped leave the record with their requirements (the prompt is re-composed by
-    ``author``); ``gates.gpu`` holds S5/S8/S10 per GPU model."""
+    ``author``); ``gates.gpu`` holds S5/S8/S10 per GPU model. ``--hardware-only`` (a second GPU model's run, as the GH200
+    after the 5090): the gates go to ``gates.gpu[<GPU>]`` and that GPU's calibrated milestones, dropped milestones and perf
+    bars to ``gpu_specs[<GPU>]``; the record's own milestones and CPU gates stay as they are."""
     from crucible.factory.lanes import kernel_debug as kd
 
     bundle = Path(a.bundle) if a.bundle else ROOT / "gpu_bundle"
@@ -583,7 +587,7 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         if not res_p.exists():
             continue
         res = json.loads(res_p.read_text())
-        if res.get("cpu_host"):  # the CPU gates the GPU host ran (x86 AVX2): the pools, the seeding, the fixes' own cases
+        if res.get("cpu_host") and not a.hardware_only:  # the CPU gates the GPU host ran (x86 AVX2): the pools, the seeding, the fixes' own cases
             g, host = rec["gates"]["cpu"], res["cpu_host"]
             pooled = {m["id"]: m for m in json.loads((bundle / "tasks" / rec["id"] / "kdspec.json").read_text())["milestones"]}
             added = {m["id"]: m.get("cases_added") or [] for m in json.loads((bundle / "tasks" / rec["id"] / "milestones.json").read_text())}
@@ -602,7 +606,15 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         summary["gradable"] = bool((res.get("calibration") or {}).get("gradable"))
         summary["pass"] = bool(summary["gradable"] and res.get("S5_oracle") and res.get("S8_floors") and res.get("S10")
                                and all((res.get("S8_mutants_fail_their_milestone") or {}).values()))
+        summary["runtime"] = res.get("runtime")
         rec.setdefault("gates", {}).setdefault("gpu", {})[gpu] = summary
+        if a.hardware_only:
+            cal = json.loads(cal_p.read_text()) if cal_p.exists() and summary["gradable"] else {"milestones": []}
+            rec.setdefault("gpu_specs", {})[gpu] = {"milestones": cal["milestones"], "perf_bars": cal.get("perf_bars") or {},
+                                                    "dropped_milestones": sorted({m["id"] for m in rec["milestones"]} - {m["id"] for m in cal["milestones"]})}
+            kd.save(store, rec)
+            print(rec["id"], gpu, "pass" if summary["pass"] else "fail", [m["id"] for m in cal["milestones"]], flush=True)
+            continue
         if not cal_p.exists() or not summary["gradable"]:
             kd.save(store, rec)
             print(rec["id"], "not gradable on", gpu, res.get("error") or (res.get("reference") or {}).get("ok"), flush=True)
@@ -747,8 +759,12 @@ def cmd_report(a: argparse.Namespace) -> None:
                 f["gpu_pass"] = f.get("gpu_pass", 0) + 1
             else:
                 f["gpu_drops"][failed] += 1
+        by_hw = {name: gpu_verdict(v)[0] for name, v in ((r.get("gates") or {}).get("gpu") or {}).items()}  # each GPU model's own gates
+        for name, verdict_hw in by_hw.items():
+            f.setdefault("gpu_pass_by_hardware", collections.Counter())[name] += int(verdict_hw is None)
         rows.append({"id": r["id"], "family": r["family"], "split": r["split"], "repo": r["repo"], "faults": len(r["milestones"]),
                      "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "gpu_by_hardware": {name: {"pass": v is None, "failed_gate": v} for name, v in by_hw.items()},
                      "gpu_kept_milestones": ((gpu[1] or {}).get("calibration") or {}).get("kept_milestones"),
                      "gpu_executed_edges": {k: v for k, v in (((gpu[1] or {}).get("calibration") or {}).get("executed_edges") or {}).items() if v},
                      "gpu_mutants_excluded": (gpu[1] or {}).get("S8_mutants_excluded"), "flake": (gpu[1] or {}).get("flake"),
@@ -761,6 +777,8 @@ def cmd_report(a: argparse.Namespace) -> None:
         f["drop_reasons"] = dict(f["drop_reasons"])
         if "gpu_drops" in f:
             f["gpu_drops"] = dict(f["gpu_drops"])
+        if "gpu_pass_by_hardware" in f:
+            f["gpu_pass_by_hardware"] = dict(f["gpu_pass_by_hardware"])
     rep = {"at": now(), "families": fam, "unclassified_drops": {k: dict(v) for k, v in unclassified.items()}, "tasks": rows, "gpu_pending": GPU_PENDING,
            "sealing": sealing_report(recs)}
     jdump(Path(a.out), rep)
@@ -826,6 +844,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--redo", action="store_true")
     s = sub.add_parser("ingest-gpu")
     s.add_argument("--bundle")
+    s.add_argument("--hardware-only", dest="hardware_only", action="store_true", help="a second GPU model: gates and its own spec per GPU, record unchanged")
     s = sub.add_parser("stage-extras")
     s.add_argument("--bundle")
     s.add_argument("--ids", nargs="*")

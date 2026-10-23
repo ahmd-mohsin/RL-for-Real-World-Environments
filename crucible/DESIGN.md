@@ -1086,6 +1086,20 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   (`EPILOGUE_EXTRA`). Migration grader: `compare.d2h = "none"` grades a self-checking program on its own report (its
   copies back were 0.7-9.9 GB), and a window with no timed milestone does not wait for an idle GPU. The shared gate
   ccache is capped at 12 GB (shared disk). Perf timing: the candidate's timed runs no longer carry the CUPTI launch hook (launches are counted on separate untimed runs; the traced build timed 4-14% slower than itself), and a passing perf check's ratios are read where it reports them. Blackwell consumer GPUs build as `12xa-real` (FP4 MMQ units failed ptxas at `120-real`).
+- **Apptainer GPU hosts (DeltaAI GH200, 2026-10-22, `10` §8.3):** both GPU runners (`run_gpu.py`, the migration
+  `stage_gpu.py`) run their containers as SIFs (`--mode apptainer`; `--build-sif` converts the bundle's Dockerfiles with
+  `kernel_plan.apptainer_def` on the GPU host, apt as root in the build) through one argv builder,
+  `kernel_plan.apptainer_argv` (`--nv --containall`, no network, the host's node-local disk bound at /tmp: a CUDA build
+  does not fit the session tmpfs). DeltaAI has no subuid range, so `--fakeroot` maps uid 0 only and the grader cannot
+  drop to its candidate uid: `CRUCIBLE_APPTAINER_ROOT=user` runs the grader as the invoking user without `--require-root`
+  and every result records `runtime.trusted: false` (fit for the gates, which grade the lane's own patches; grading a
+  policy there needs a subuid range or another sandbox). The Docker path is unchanged. Apptainer `--nv` reaches the driver's
+  libraries only through the container's LD_LIBRARY_PATH, which the grader's rebuilt environment dropped (every CUDA
+  program saw no device, "Unified Memory not supported"): `Trusted.run` appends `/.singularity.d/libs` when it exists.
+  `ingest-gpu --hardware-only` writes a second GPU model's gates to `gates.gpu[<GPU>]` and its calibrated milestones and
+  bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
+  `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
+  use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

@@ -237,6 +237,36 @@ def units_for(tree: Path, files: Sequence[str], layout: ko.Layout, *, per_file: 
     return list(dict.fromkeys(out))
 
 
+IDENT = re.compile(r"\b[A-Za-z_]\w{3,}\b")
+DECLARED = re.compile(r"\b([A-Za-z_]\w{3,})\s*\(|#\s*define\s+([A-Za-z_]\w{3,})|\b(?:struct|class|enum|union|using|typedef)\s+(?:class\s+)?([A-Za-z_]\w{3,})")
+COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def declared(text: str) -> set[str]:
+    """Names a source declares or calls (functions, macros, types), comments left out."""
+    return {next(g for g in m.groups() if g) for m in DECLARED.finditer(COMMENT.sub(" ", text))}
+
+
+def start_dependents(tree_a: Path, tree_b: Path, files: Sequence[str], layout: ko.Layout) -> list[str]:
+    """Units at A' that use a name a fault's header change takes away: an identifier B's version of a changed header has
+    and A''s does not, used by an includer of that header. The start must build them as well (found 2026-10-22:
+    kd-perf-llamacpp-3ad8a68c's ``binbcast.cu``, a unit no fault touches, calls the integer-division helpers m1 adds to
+    ``common.cuh``; the gate compiled only the units the faults touch and passed a start that does not build)."""
+    inc = includers(tree_a, layout)
+    out: list[str] = []
+    for f in files:
+        hb, ha = Path(tree_b) / f, Path(tree_a) / f
+        if f.endswith(".cu") or not hb.is_file():
+            continue
+        gone = declared(hb.read_text(errors="replace")) - (set(IDENT.findall(COMMENT.sub(" ", ha.read_text(errors="replace")))) if ha.is_file() else set())
+        if not gone:
+            continue
+        for u in sorted(inc.get(f, ())):
+            if gone & set(IDENT.findall(COMMENT.sub(" ", (Path(tree_a) / u).read_text(errors="replace")))):
+                out.append(u)
+    return list(dict.fromkeys(out))
+
+
 # ---- milestones and the record ---------------------------------------------------------------------------------------------------
 def milestones_of(faults: Sequence[KernelChange], pools: Mapping[str, Sequence[str]], added: Mapping[str, Sequence[str]]) -> list[dict[str, Any]]:
     """One milestone per fault (in the given order: history order from ``synthesize``): its ops, the CPU-executed case pool of those ops, the cases the fix added,

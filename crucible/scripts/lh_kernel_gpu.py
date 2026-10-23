@@ -11,8 +11,12 @@ at 4 (S10: Clopper-Pearson upper bound <= 5%). Results: ``results/<wid>.json``.
 
 Shared-machine rules (lab): containers are named ``crucible-k-gpu-*`` and only those are removed; nothing is pruned; each
 grade waits for an idle GPU first. Docker needs ``--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all`` on the lab.
-Apptainer (Marlowe): the same OCI images, ``--nv``; the grader needs root inside the container to drop privileges, so
-``--fakeroot`` is required, else grades are reported ``trusted: false``.
+Apptainer: the same images as SIFs (``--build-sif`` builds them from the bundle's Dockerfiles on the host, into
+``CRUCIBLE_SIF_DIR``, default ``sif/``), ``--nv``. The grader needs root inside the container to drop privileges, so
+``CRUCIBLE_APPTAINER_ROOT=fakeroot`` (default; Marlowe) keeps ``--fakeroot``; ``CRUCIBLE_APPTAINER_ROOT=user`` (DeltaAI: no
+subuid range) runs it as the invoking user without ``--require-root`` and grades are reported ``trusted: false``.
+``CRUCIBLE_APPTAINER_TMP``: the host directory each container's /tmp lives in. ``CRUCIBLE_IDLE_LOAD``: the host load below
+which a timed step may start (default 8).
 """
 
 from __future__ import annotations
@@ -35,13 +39,19 @@ sys.path.insert(0, str(HERE / "kit"))
 from crucible.factory.lanes import kernel_plan as kp
 
 BASE_TAG, LEGACY_TAG = "crucible-k-base:12.8.1", "crucible-k-legacy:11.8.0"
+MODE = "docker"  # set by ``main`` (``--mode``)
+SIF_DIR = Path(os.environ.get("CRUCIBLE_SIF_DIR") or HERE / "sif")
+APPTAINER_ROOT = os.environ.get("CRUCIBLE_APPTAINER_ROOT", "fakeroot")
+APPTAINER_TMP = Path(os.environ.get("CRUCIBLE_APPTAINER_TMP") or "/tmp/crucible-apptainer")
+IDLE_LOAD = float(os.environ.get("CRUCIBLE_IDLE_LOAD") or 8.0)
 
 
 def sh(cmd: list[str], *, timeout: float = 7200, input: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, input=input, check=False, errors="replace")
 
 
-def idle(max_util: int = 10, max_load: float = 8.0, wait_s: float = 3600) -> dict:
+def idle(max_util: int = 10, max_load: float | None = None, wait_s: float = 3600) -> dict:
+    max_load = IDLE_LOAD if max_load is None else max_load
     t0 = time.time()
     while True:
         u = sh(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"], timeout=30).stdout.split(",")
@@ -62,6 +72,37 @@ def images_of(wdir: Path) -> tuple[str, str]:
         d = json.loads(f.read_text())
         return d.get("base", BASE_TAG), d.get("legacy", LEGACY_TAG)
     return BASE_TAG, LEGACY_TAG
+
+
+def apptainer(tag: str, mounts: list[tuple[Path, str, bool]], args: list[str], *, workdir: str | None = None, net_none: bool = True,
+              timeout: float = 7200) -> subprocess.CompletedProcess:
+    """One gate container on an Apptainer host: image ``tag``'s SIF, this host's root mode, a fresh host /tmp."""
+    env = [(k, os.environ[k]) for k in ("CRUCIBLE_CUDA_ARCH", "CUDA_VISIBLE_DEVICES") if os.environ.get(k)]
+    tmp = APPTAINER_TMP / f"k-{uuid.uuid4().hex[:8]}"
+    tmp.mkdir(parents=True)
+    try:
+        return sh(kp.apptainer_argv(SIF_DIR / kp.sif_name(tag), mounts, args, env=tuple(env), root=APPTAINER_ROOT, tmp=tmp, net_none=net_none, workdir=workdir),
+                  timeout=timeout)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def ensure_sifs(needed: set[str], *, build: bool) -> None:
+    """Apptainer: each needed image's SIF, built from its bundle Dockerfile when missing and ``build`` (on the GPU host, in a job)."""
+    dfs = {BASE_TAG: HERE / "Dockerfile.base", LEGACY_TAG: HERE / "Dockerfile.legacy"}
+    if (HERE / "images.json").exists():
+        dfs = {tag: HERE / df for tag, df in json.loads((HERE / "images.json").read_text()).items()}
+    for tag in sorted(needed):
+        sif = SIF_DIR / kp.sif_name(tag)
+        if not sif.exists() and build:
+            SIF_DIR.mkdir(parents=True, exist_ok=True)
+            (SIF_DIR / f"{sif.stem}.def").write_text(kp.apptainer_def(dfs[tag].read_text()))
+            p = sh(["apptainer", "build", "--fakeroot", str(sif) + ".part", str(SIF_DIR / f"{sif.stem}.def")], timeout=7200)
+            if p.returncode != 0:
+                raise RuntimeError(f"build {sif}: {p.stderr[-800:]}")
+            os.replace(str(sif) + ".part", sif)
+        if not sif.exists():
+            raise RuntimeError(f"no {sif}: build it on this host with --build-sif (inside a job, not on a login node)")
 
 
 def ensure_images(needed: set[str] | None = None) -> None:
@@ -95,6 +136,11 @@ def build_launch_lib(tag: str = BASE_TAG) -> None:
     if lib.exists():
         return
     cmd = " ".join(kp.LAUNCH_BUILD)
+    if MODE == "apptainer":
+        p = apptainer(tag, [(hooks, "/h", True)], ["bash", "-c", cmd], workdir="/h", net_none=False)
+        if p.returncode != 0 or not (hooks / "libcrucible_launch.so").exists():
+            raise RuntimeError(f"CUPTI injection build failed: {p.stderr[-600:]}")
+        return
     p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-cupti-{uuid.uuid4().hex[:8]}", "-v", f"{hooks}:/h", "-w", "/h", tag,
             "bash", "-c", cmd])
     if p.returncode != 0:
@@ -112,8 +158,12 @@ def build_originals(wdir: Path, spec: dict, legacy: dict) -> dict:
                               legacy_arch=la, nvcc="nvcc")
         lines.append(f"( cd /t && {' '.join(map(_q, cmd))} ) > /o/{pid}.log 2>&1; echo $? > /o/{pid}.rc")
     (wdir / "legacy_build.sh").write_text("\n".join(lines) + "\n")
-    p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-legacy-{uuid.uuid4().hex[:8]}", "--network", "none", "-v", f"{wdir / 'base'}:/t:ro",
-            "-v", f"{HERE / 'hooks'}:/h:ro", "-v", f"{out}:/o", "-v", f"{wdir / 'legacy_build.sh'}:/b.sh:ro", images_of(wdir)[1], "bash", "/b.sh"])
+    if MODE == "apptainer":
+        p = apptainer(images_of(wdir)[1], [(wdir / "base", "/t", False), (HERE / "hooks", "/h", False), (out, "/o", True), (wdir / "legacy_build.sh", "/b.sh", False)],
+                      ["bash", "/b.sh"])
+    else:
+        p = sh(["docker", "run", "--rm", "--name", f"crucible-k-gpu-legacy-{uuid.uuid4().hex[:8]}", "--network", "none", "-v", f"{wdir / 'base'}:/t:ro",
+                "-v", f"{HERE / 'hooks'}:/h:ro", "-v", f"{out}:/o", "-v", f"{wdir / 'legacy_build.sh'}:/b.sh:ro", images_of(wdir)[1], "bash", "/b.sh"])
     res = {pid: (out / f"{pid}.rc").read_text().strip() == "0" if (out / f"{pid}.rc").exists() else False for pid in spec["programs"]}
     if p.returncode != 0:
         res["_container"] = p.stderr[-400:]
@@ -133,22 +183,19 @@ def grade(wdir: Path, patch: Path, arch: str, mode: str, tag: str) -> dict:
     out.mkdir(parents=True)
     args = ["python3", "-I", "/crucible_verify/crucible/verify/runtime/run.py", "--plan", "crucible.factory.lanes.kernel_plan", "--out", "/out",
             "--base", "/k/base", "--patch", "/k/patch", "--param", "spec=/k/kspec.json", "--param", f"arch={arch}", "--param", "base_tree=/k/base",
-            "--param", "legacy_dir=/k/legacy", "--param", "hooks_dir=/k/hooks", "--require-root"]
+            "--param", "legacy_dir=/k/legacy", "--param", "hooks_dir=/k/hooks", *(() if mode == "apptainer" and APPTAINER_ROOT == "user" else ("--require-root",))]
     build_launch_lib(images_of(wdir)[0])
     mounts = [(HERE / "kit", "/crucible_verify"), (wdir / "base", "/k/base"), (wdir / "legacy", "/k/legacy"), (hooks_of(images_of(wdir)[0]), "/k/hooks"),
               (wdir / "kspec.json", "/k/kspec.json"), (patch, "/k/patch"), (out, "/out")]
     if mode == "apptainer":
-        cmd = ["apptainer", "exec", "--nv", "--fakeroot", "--containall", "--net", "--network", "none"]
-        for src, dst in mounts:
-            cmd += ["-B", f"{src}:{dst}" + ("" if dst == "/out" else ":ro")]
-        cmd += [f"docker-daemon://{images_of(wdir)[0]}", *args]
+        p = apptainer(images_of(wdir)[0], [(src, dst, dst == "/out") for src, dst in mounts], args)
     else:
         cmd = ["docker", "run", "--rm", "--name", f"crucible-k-gpu-{tag}-{uuid.uuid4().hex[:8]}", "--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all",
                "-e", f"CRUCIBLE_CUDA_ARCH={arch}", "--network", "none", "--init", "--shm-size", "2g"]
         for src, dst in mounts:
             cmd += ["-v", f"{src}:{dst}" + ("" if dst == "/out" else ":ro")]
         cmd += [images_of(wdir)[0], *args]
-    p = sh(cmd, timeout=7200)
+        p = sh(cmd, timeout=7200)
     rj = out / "crucible_reward.json"
     doc = json.loads(rj.read_text()) if rj.exists() else {"infra": {"status": "masked", "failure_kind": "no_reward", "reason": p.stderr[-400:]}}
     return {"reward": doc.get("reward"), "gates": doc.get("gates"), "infra": doc.get("infra")}
@@ -178,7 +225,8 @@ def window(wid: str, a: argparse.Namespace) -> dict:
         with tarfile.open(wdir / "base.tar.gz") as t:
             t.extractall(wdir, filter="data")
     spec = json.loads((wdir / "kspec.json").read_text())
-    res = {"id": wid, "arch": a.arch, "gpu": sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).stdout.strip(), "at": time.strftime("%FT%TZ", time.gmtime())}
+    res = {"id": wid, "arch": a.arch, "gpu": sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).stdout.strip(), "at": time.strftime("%FT%TZ", time.gmtime()),
+           "runtime": {"mode": a.mode, **({"root": APPTAINER_ROOT, "trusted": APPTAINER_ROOT == "fakeroot"} if a.mode == "apptainer" else {"trusted": True})}}
     res["originals"] = build_originals(wdir, spec, json.loads((wdir / "legacy.json").read_text()))
     os.chmod(wdir / "legacy", 0o700)
     # only a window with a timed milestone needs a quiet GPU: correctness windows can share the host with other gate runs
@@ -208,9 +256,16 @@ def main() -> int:
     ap.add_argument("--mode", default="docker", choices=("docker", "apptainer"))
     ap.add_argument("--flake", type=int, default=60)
     ap.add_argument("--only", nargs="*")
+    ap.add_argument("--build-sif", action="store_true", help="apptainer: build missing SIFs from the bundle's Dockerfiles")
     a = ap.parse_args()
+    global MODE
+    MODE = a.mode
+    os.environ["CRUCIBLE_CUDA_ARCH"] = a.arch
     chosen = [w for w in json.loads((HERE / "index.json").read_text()) if not a.only or w["id"] in a.only]
-    ensure_images({t for w in chosen for t in images_of(HERE / "windows" / w["id"])})
+    if a.mode == "apptainer":
+        ensure_sifs({t for w in chosen for t in images_of(HERE / "windows" / w["id"])}, build=a.build_sif)
+    else:
+        ensure_images({t for w in chosen for t in images_of(HERE / "windows" / w["id"])})
     for w in chosen:
         build_launch_lib(images_of(HERE / "windows" / w["id"])[0])
     for w in json.loads((HERE / "index.json").read_text()):

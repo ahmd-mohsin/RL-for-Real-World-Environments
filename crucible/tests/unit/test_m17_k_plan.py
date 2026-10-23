@@ -104,3 +104,19 @@ def test_plan_grades_compile_milestones_on_the_cpu(tmp_path: Path, monkeypatch):
     assert rows["start"].gates["c01"] == "fail" and rows["migrated"].gates["c01"] == "pass"
     for rep in rows.values():
         assert rep.gates["r01"] == "infra" and rep.infra["status"] == "masked"  # the GPU milestone was not run: never a 0
+
+
+def test_rebuilt_environment_keeps_the_apptainer_driver_libraries(tmp_path: Path, monkeypatch):
+    import sys
+
+    from crucible.verify.runtime import trusted as tr
+
+    show = [sys.executable, "-c", "import os; print(os.environ.get('LD_LIBRARY_PATH', ''))"]
+    monkeypatch.setattr(tr, "APPTAINER_DRIVER_LIBS", str(tmp_path / "absent"))
+    t = Trusted(tmp_path / "w")
+    assert t.run(show, env={"LD_LIBRARY_PATH": "/k/ref/bin"}).stdout.strip() == "/k/ref/bin"  # Docker hosts: unchanged
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    monkeypatch.setattr(tr, "APPTAINER_DRIVER_LIBS", str(libs))
+    assert t.run(show, env={"LD_LIBRARY_PATH": "/k/ref/bin"}).stdout.strip() == f"/k/ref/bin:{libs}"  # the grader's own path first
+    assert t.run(show).stdout.strip() == str(libs)

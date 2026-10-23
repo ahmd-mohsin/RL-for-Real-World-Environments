@@ -340,3 +340,68 @@ def test_blackwell_consumer_builds_its_arch_specific_target():
     from crucible.factory.lanes import kernel_harness as kh
 
     assert kh.cuda_arch_flag(["120"]) == "120a-real" and kh.cuda_arch_flag(["90", "121"]) == "90-real;121a-real"
+
+
+def test_apptainer_hosts_command_and_definition():
+    from crucible.factory.lanes import kernel_plan as kp
+
+    assert kp.sif_name("crucible-lh-k:base-12.8.1") == "crucible-lh-k_base-12.8.1.sif"
+    user = kp.apptainer_argv("/s/x.sif", [("/h/a", "/k/a", False), ("/h/o", "/out", True)], ["python3", "-V"], env=(("CRUCIBLE_CUDA_ARCH", "90"),),
+                             root="user", tmp="/n/t1")
+    assert user[:4] == ["apptainer", "exec", "--nv", "--containall"] and "--fakeroot" not in user  # DeltaAI: one uid, no fake root
+    assert user[user.index("--network") + 1] == "none" and "CRUCIBLE_CUDA_ARCH=90" in user
+    assert ["-B", "/n/t1:/tmp"] == user[user.index("/n/t1:/tmp") - 1:user.index("/n/t1:/tmp") + 1]  # a build fits node disk, not the session tmpfs
+    assert "/h/a:/k/a:ro" in user and "/h/o:/out" in user and user[-3:] == ["/s/x.sif", "python3", "-V"]
+    assert "--fakeroot" in kp.apptainer_argv("/s/x.sif", [], ["true"])  # the default keeps the grader root inside
+    with pytest.raises(ValueError):
+        kp.apptainer_argv("/s/x.sif", [], ["true"], root="sudo")
+    d = kp.apptainer_def("FROM nvidia/cuda:12.8.1-devel-ubuntu24.04\nENV DEBIAN_FRONTEND=noninteractive\n"
+                         "RUN apt-get update && apt-get install -y \\\n    ccache\nENV PATH=/usr/local/cuda/bin:$PATH\n")
+    assert d.startswith("Bootstrap: docker\nFrom: nvidia/cuda:12.8.1-devel-ubuntu24.04\n")
+    post, env = d.split("%environment")
+    assert "APT::Sandbox::User" in post and "apt-get install -y      ccache" in post and post.index("DEBIAN_FRONTEND") < post.index("apt-get")
+    assert "export PATH=/usr/local/cuda/bin:$PATH" in env
+    with pytest.raises(ValueError):
+        kp.apptainer_def("FROM x\nCOPY a b\n")
+
+
+def test_gpu_runner_apptainer_user_mode_drops_require_root(monkeypatch, tmp_path):
+    g = load_gpu_runner()
+    seen = []
+    monkeypatch.setattr(g, "sh", lambda cmd, **kw: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(g, "APPTAINER_ROOT", "user")
+    monkeypatch.setattr(g, "APPTAINER_TMP", tmp_path / "t")
+    monkeypatch.setattr(g, "SIF_DIR", tmp_path / "sif")
+    monkeypatch.setattr(g, "USE_CCACHE", False)
+    d = tmp_path / "task"
+    (d / "ref").mkdir(parents=True)
+    patch, spec = tmp_path / "p.patch", tmp_path / "s.json"
+    patch.write_text("")
+    spec.write_text("{}")
+    r = g.grade(d, patch, spec, "apptainer", "90", "oracle")
+    cmd = seen[-1]
+    assert cmd[0] == "apptainer" and "--fakeroot" not in cmd and "--require-root" not in cmd and str(tmp_path / "sif" / "crucible-lh-k_base-12.8.1.sif") in cmd
+    assert r["infra"]["status"] == "masked"  # no reward file: masked, never a pass
+    assert not list((tmp_path / "t").iterdir())  # each container's /tmp is removed afterwards
+    monkeypatch.setattr(g, "APPTAINER_ROOT", "fakeroot")
+    g.grade(d, patch, spec, "apptainer", "90", "oracle")
+    assert "--fakeroot" in seen[-1] and "--require-root" in seen[-1]
+    g.grade(d, patch, spec, "docker", "120", "oracle")
+    assert seen[-1][:3] == ["docker", "run", "--rm"] and "--require-root" in seen[-1]  # the 5090 path is unchanged
+    with pytest.raises(RuntimeError, match="build-sif"):
+        g.ensure_image("apptainer")
+
+
+def test_start_gate_compiles_untouched_units_that_use_what_a_fault_takes_away(tmp_path):
+    lay = ko.Layout(cuda_dir="g/cuda/", dispatch_file="g/cuda/main.cu")
+    for side, extra in (("b", "static __device__ uint32_t fastdiv(uint32_t n, uint3 v) { return n; }\n"), ("a", "")):
+        d = tmp_path / side / "g" / "cuda"
+        d.mkdir(parents=True)
+        (d / "common.cuh").write_text("// fastdiv: see the paper\n#pragma once\n" + extra)
+        (d / "main.cu").write_text('#include "common.cuh"\nint main() { return 0; }\n')
+        (d / "norm.cu").write_text('#include "common.cuh"\n__global__ void k(uint32_t n, uint3 v) { n = ' + ("fastdiv(n, v)" if side == "b" else "n / v.z") + "; }\n")
+        (d / "binbcast.cu").write_text('#include "common.cuh"\n__global__ void b(uint32_t n, uint3 v) { n = fastdiv(n, v); }\n')  # no fault touches it
+        (d / "other.cu").write_text('#include "common.cuh"\n// fastdiv would help here\n__global__ void o() {}\n')
+    got = kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/common.cuh", "g/cuda/norm.cu"], lay)
+    assert got == ["g/cuda/binbcast.cu"]  # a mention in a comment is not a use; the touched unit is compiled anyway
+    assert kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/norm.cu"], lay) == []  # no header change: nothing taken away
