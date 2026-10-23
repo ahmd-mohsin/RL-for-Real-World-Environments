@@ -69,6 +69,9 @@ CUDA: `CUDA/HIP: fix ...` is kept), warnings, build/compile/CI/docs work, revert
 changes touching any other code (a CPU-backend change moves the reference), changes that reach no op the harness tests or
 more than 10 ops (shared plumbing no milestone can own).
 
+**Hardware reach** (`kernel_debug_reach`, from 2026-10-23; §3.1). A fault is mined only when a GPU we grade on can
+grade it: the GH200 (`sm_90`, DeltaAI) or the RTX 5090 (`sm_120`, lab). Each record carries `targets` per fault.
+
 **Op reach** (`kernel_debug_ops`): the backend's dispatch (`ggml_cuda_compute_forward`: `case GGML_OP_X: ...; break;`,
 nested unary/GLU switches) plus the name-level reference graph of every function and function-like macro in the backend
 (calls, `<<<>>>` launches, kernels passed as template arguments, `FATTN_VEC_CASE(...)`-style dispatch macros). A change
@@ -81,6 +84,54 @@ seeds), `precision`, `logic`; `perf` for speed-ups (golden + perf bar).
 
 **Groups** (`group_changes`): seed-and-absorb in date order within 120 days, connected by a shared op or file, 2-4 faults
 (perf 2-3); post-cut changes are grouped first and only with each other.
+
+### 3.1 Hardware reach: which of our GPUs can grade a fault (2026-10-23)
+
+Seven tasks reached the GPU gates with faults no GPU of ours runs: an AMD-only kernel selection, a pre-Ampere bf16
+path, an integrated-GPU buffer check, speed-only "fixes", a launch reshape that computes the same values, a precision
+selection whose difference stays inside the case tolerance, and ops the fork's op test has no case class for. The
+subject-only filter above let them through. `kernel_debug_reach` decides from the change itself, per target GPU:
+
+- **Compiled and dispatched** (`changed_on`): the changed file before and after, as one GPU sees it. Preprocessor
+  branches are resolved with that GPU's `__CUDA_ARCH__` (device pass) or without it (host pass, where kernel and
+  `__device__` bodies are emptied and branches on `__CUDA_ARCH__` are device code), with HIP, MUSA and NCCL undefined and
+  the backend's feature macros (`AMPERE_MMA_AVAILABLE`, ...) and `*_available(cc)` predicates read from `common.cuh` the
+  same way. Runtime compute-capability tests (`cc >= GGML_CUDA_CC_AMPERE`, `GGML_CUDA_CC_IS_AMD(cc)`) fold with that
+  GPU's `cc` (three-valued: what cannot be decided stays), code after a `return` in the same block is dropped, and `if`
+  branches that became identical merge. The fault reaches the GPU when the two views still differ. A macro set by the
+  toolkit or the build (CCCL version, `STRIDED_ITERATOR_AVAILABLE`) is undecided, so its code counts as reached: the
+  filter only rejects on evidence, and S1 executed on the GPU stays the final word.
+- **The message** (`message_reasons`): hardware we do not have named in the subject (pre-Ampere, Volta/Turing/Pascal,
+  integrated GPUs, multi-GPU, split mode, ring reduction); for the bug family, a speed change that names no wrong result,
+  a launch-shape change (only the grid/block numbers change, the launch's own arguments do not) that names no limit and no
+  wrong result, and a precision-only selection between two kernels with no symptom named.
+- **Testable** (`covered_ops`): at least one op the change reaches is built by the repository's op test at the change.
+
+Mining drops what fails (reason `not gradable on our GPUs (...)`), `lh_kernel_debug.py reach` records the verdict per
+milestone of stored records (`rec["reach"]`; `unmeasurable_on_our_gpus` on a milestone no GPU of ours can grade), and
+`retire` moves a record out of the store to `data/kernel_debug/retired/<id>/` (`record/`, its `work/`, staged bundle
+task and prompt, and `retired.json` with the reason) — nothing is deleted; moving `record/` back restores it.
+`retire --auto` retires a record once every GPU it targets has run its gates and fewer than two milestones are both
+kept by some GPU's calibration and qualified by the filter. The report lists retired records (`status: retired`).
+
+On the stored tasks the filter rejects all five retired tasks and accepts the three that pass every 5090 gate
+(1b8b8fb1, ca21f3a1, efe7d4b1); `tests/unit/test_m17_kd_reach.py` runs it on them when the clones are present.
+
+| Retired (2026-10-23) | Why no GPU of ours grades two of its faults |
+|---|---|
+| kd-bug-llamacpp-7ac249cc | m1 a speed change (64-bit strides so the compiler unrolls; same results), m2 an AMD-only kernel selection |
+| kd-bug-llamacpp-4b8c156e | m1 only reshapes the launch (the old one-thread blocks compute the same values) |
+| kd-bug-llamacpp-b377258d | m1 moves FP16 activations to another kernel whose results stay inside the case tolerance |
+| kd-bug-ikllamacpp-5b19ab0c (held out) | m1-m3 change ops (MASK_TOPK, INDEXER_TOPK) the fork's op test has no case class for |
+| kd-bug-ikllamacpp-4da3f014 (held out) | m2 a pre-Ampere bf16 path (both of our GPUs take the Ampere branch) |
+
+Marked, not retired (they are in the queued GH200 run; `retire --auto` after its ingest): kd-bug-llamacpp-7d70c81f m4
+(integrated GPUs only) and kd-bug-llamacpp-b4a950d4 m1 (a PTX 7.0 / Volta selection: not dispatched on sm_90 or sm_120).
+New kernel tasks are now generated by the agentic swarm (non-Claude models on Tinker), which mines through this filter;
+Claude mined, authored and gated no new candidates under it (a filtered re-mine was started and stopped before it wrote
+anything). The filter also flags kd-bug-llamacpp-fcf94bd1 m2 (an occupancy and speed change) and kd-bug-ikllamacpp-47f22c74 m1/m3
+(ops with no case class, ring reduction), and kd-bug-ikllamacpp-5b8c07ff m3 (an MMQ path without int8 MMA, which both
+GPUs have).
 
 ## 4. The record, the World and the grader
 

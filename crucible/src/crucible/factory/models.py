@@ -108,8 +108,47 @@ OPENROUTER_ROLES: dict[str, str] = {
     "mutant_builder": AUTHORING, "reviewer": REVIEW, "realism": REVIEW, "second_verifier": REVIEW, "auditor": REVIEW, "hacker": REVIEW,
     "tie_break": TIE_BREAK,
 }
+# ---- the swarm map (user, 2026-10-23: "all next steps by my swarm intelligence, not Claude"; every role on Tinker) ------------
+# The builders span three families by strength (swarm-pipeline/08 §1.1 has the evidence): DeepSeek-V4.1-Flash, the only
+# model we measured at Φ = 1 on a 300-call debugging task and the cheapest 256K builder, holds the long agentic sessions in
+# the repository (oracle builder, oracle author); GLM-5.3, the strongest reasoner on the price table, plans and writes the
+# first (blind) verifier, a different family from the oracle builder (V2); Kimi-K2.6 (its 128K variant: the 32K base
+# cannot hold a session) writes the user's report, the World notes and the mutants: text work over a brief, not 300-call
+# repository sessions. Every checker is on a family nothing builds: Nemotron (Ultra for the judgement roles, Super for a
+# hacker) and gpt-oss-120b; the fairness solvers are Qwen3.5-397B and Nemotron-Ultra (never a builder's family: a builder's
+# family solving its own family's task is no fairness check).
+KIMI = f"{TINKER}:moonshotai/Kimi-K2.6:peft:131072"
+NEMOTRON_ULTRA = f"{TINKER}:nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16:peft:262144"
+GPT_OSS = f"{TINKER}:openai/gpt-oss-120b:peft:131072"
+SWARM_FRONTIER = (QWEN_FRONTIER, NEMOTRON_ULTRA)
+SWARM_ROLES: dict[str, str] = {
+    "planner": GLM,
+    "verifier_writer": GLM,  # the first (blind) verifier writer: never the oracle builder's family (V2)
+    "oracle_builder": DEEPSEEK,
+    "oracle_author": DEEPSEEK,
+    "author": KIMI,  # World + prompt (the prompt writer)
+    "prompt_author": KIMI,
+    "world_expert": KIMI,
+    "mutant_builder": KIMI,
+    "second_verifier": NEMOTRON_ULTRA,  # S9, blind to the first verifier, a family nothing builds
+    "reviewer": NEMOTRON_ULTRA,
+    "auditor": NEMOTRON_ULTRA,  # the trace auditor of the Qwen student: never Qwen, never a builder's family
+    "realism": GPT_OSS,
+    "judge": GPT_OSS,
+    "hacker": NEMOTRON,
+    "hacker_2": GPT_OSS,
+    "rewriter_qwen": QWEN_FRONTIER,  # alternatives: families that neither built the oracle nor wrote the verifier
+    "rewriter_nemotron": NEMOTRON,
+    "tie_break": GPT_OSS,  # a third family against the reviewer and the second verifier (both nemotron)
+}
 PRESETS: dict[str, tuple[dict[str, str], tuple[str, ...]]] = {"tinker": (DEFAULT_ROLES, SOLVER_RUNGS),
-                                                              "openrouter": (OPENROUTER_ROLES, OPENROUTER_SOLVER_RUNGS)}
+                                                              "openrouter": (OPENROUTER_ROLES, OPENROUTER_SOLVER_RUNGS),
+                                                              "swarm": (SWARM_ROLES, SOLVER_RUNGS)}
+PRESET_FRONTIER: dict[str, tuple[str, ...]] = {"tinker": FRONTIER_SOLVERS, "openrouter": (), "swarm": SWARM_FRONTIER}
+# presets with the strict rules: the oracle builder and the first verifier writer are two families (V2 by family, not only
+# by context), and no fairness solver is a builder's family. The legacy maps keep their own: both builders on one model
+# (Claude Code, qwen3.7-flash) in separate contexts (05 §12), and Qwen3.5-397B judging fairness of qwen-built P5 tasks
+STRICT_PRESETS: frozenset[str] = frozenset({"swarm"})
 
 # The roles that build a task, and the roles that judge, review, hack or audit work (00 §3.2, V2): an independent role is
 # never the family of a builder (it would grade its own family's task) nor of a student (it would audit its own family's
@@ -117,6 +156,9 @@ PRESETS: dict[str, tuple[dict[str, str], tuple[str, ...]]] = {"tinker": (DEFAULT
 BUILDER_ROLES: tuple[str, ...] = ("planner", "author", "oracle_author", "oracle_builder", "verifier_writer", "mutant_builder", "prompt_author",
                                   "world_expert")
 INDEPENDENT_ROLES: tuple[str, ...] = ("reviewer", "realism", "second_verifier", "auditor", "hacker", "hacker_2", "tie_break", "judge")
+# every role that checks an artifact: the independent roles plus the alternatives (an oracle rewrite by a family that built
+# the oracle or wrote the verifier is no independent solution); the legacy rewriter_deepseek / rewriter_glm keep their maps
+CHECKER_ROLES: tuple[str, ...] = (*INDEPENDENT_ROLES, "rewriter_qwen", "rewriter_nemotron")
 HACKER_ROLES: tuple[str, ...] = ("hacker", "hacker_2")
 # providers whose family is not in the model id
 PROVIDER_FAMILIES: dict[str, str] = {CLAUDE_CODE: "anthropic"}
@@ -207,6 +249,7 @@ FAMILY_ALIASES: dict[str, str] = {
     "google": "gemini",
     "anthropic": "anthropic", "claude": "anthropic", "claude-code": "anthropic",
     "openai": "openai",
+    "moonshotai": "kimi", "moonshot": "kimi",
 }
 
 
@@ -254,9 +297,10 @@ class ModelBook:
     def __init__(self, roles: Mapping[str, Any] | None = None, solvers: Sequence[Any] | None = None, *, config: Config | None = None,
                  budget_usd_per_client: float | None = None, builder: Any = None, builder_kwargs: Mapping[str, Any] | None = None,
                  preset: str = TINKER, frontier: Sequence[Any] | None = None, check_families: bool = True):
-        """``preset``: ``tinker`` (the default map) or ``openrouter`` (the v1 fallback). ``solvers``: the student rungs (the
-        ladder and the target; default the preset's); ``frontier``: the fairness / frontier solvers. ``check_families=False``
-        leaves the family rule to the machine validator alone (a test of that second line)."""
+        """``preset``: ``tinker`` (the default map: Claude builds), ``swarm`` (every role on Tinker, the builders over three
+        families, no Claude anywhere) or ``openrouter`` (the v1 fallback). ``solvers``: the student rungs (the ladder and the
+        target; default the preset's); ``frontier``: the fairness / frontier solvers. ``check_families=False`` leaves the
+        family rule to the machine validator alone (a test of that second line)."""
         if preset not in PRESETS:
             raise ValueError(f"preset must be one of {sorted(PRESETS)}")
         base_roles, base_rungs = PRESETS[preset]
@@ -266,7 +310,7 @@ class ModelBook:
         self.preset = preset
         self.roles: dict[str, ModelSpec] = {r: parse_spec(v) for r, v in merged.items()}
         self.solvers: list[ModelSpec] = [parse_spec(v) for v in (solvers if solvers is not None else base_rungs)]
-        self.frontier: list[ModelSpec] = [parse_spec(v) for v in (frontier if frontier is not None else (FRONTIER_SOLVERS if preset == TINKER else ()))]
+        self.frontier: list[ModelSpec] = [parse_spec(v) for v in (frontier if frontier is not None else PRESET_FRONTIER[preset])]
         self._config = config
         self.budget_usd_per_client = budget_usd_per_client
         self.builder_kwargs = dict(builder_kwargs or {})  # ClaudeCodeClient options (receipts_path, budget_usd, effort, binary)
@@ -278,6 +322,8 @@ class ModelBook:
         bad = [s.ref for s in [*self.solvers, *self.frontier] if s.provider == CLAUDE_CODE]
         if bad:
             raise ValueError(f"{bad}: Claude Code builds tasks, it is never a solver rung (no OpenAI tool calls)")
+        if preset == "swarm" and (claude := sorted(r for r, s in self.roles.items() if s.provider == CLAUDE_CODE)):
+            raise SameFamilyError(f"the swarm preset runs no role on Claude Code: {claude}")
 
     def family_problems(self) -> list[str]:
         """Every independent role (judge, review, hack, audit) on Claude Code, on a builder's family (it would grade its own
@@ -298,9 +344,20 @@ class ModelBook:
                 out.append(f"role {r!r} ({s.ref}) shares family {s.family!r} with the builder role {built[s.family]!r}")
             elif s.family in students:
                 out.append(f"role {r!r} ({s.ref}) shares family {s.family!r} with the student {students[s.family]} whose work it judges")
+        for r in CHECKER_ROLES:
+            s = self.roles.get(r)
+            if r not in INDEPENDENT_ROLES and s is not None and s.family in built:
+                out.append(f"role {r!r} ({s.ref}) shares family {s.family!r} with the builder role {built[s.family]!r}")
         hackers = [self.roles[r] for r in HACKER_ROLES if r in self.roles]
         if len(hackers) > 1 and len({h.family for h in hackers}) < 2:
             out.append(f"the hackers {[h.ref for h in hackers]} must span >= 2 families")
+        if self.preset in STRICT_PRESETS:
+            for s in self.frontier:  # a fairness solver of a builder's family would solve its own family's task
+                if s.family in built:
+                    out.append(f"frontier solver {s.ref} shares family {s.family!r} with the builder role {built[s.family]!r}")
+            ob, vw = self.roles.get("oracle_builder"), self.roles.get("verifier_writer")
+            if ob is not None and vw is not None and ob.family == vw.family:
+                out.append(f"V2: the oracle builder ({ob.ref}) and the first verifier writer ({vw.ref}) share family {ob.family!r}")
         return out
 
     @classmethod
@@ -358,9 +415,17 @@ class ModelBook:
 
     def client(self, role: str) -> LLMClient:
         spec = self.spec(role)
-        if role in INDEPENDENT_ROLES and spec.provider == CLAUDE_CODE:  # also after a later edit of ``roles``
+        if role in CHECKER_ROLES and spec.provider == CLAUDE_CODE:  # also after a later edit of ``roles``
             raise SameFamilyError(f"role {role!r} may never run on the Claude Code builder ({spec.ref})")
         return self._make(f"role:{role}", spec)
+
+    def builder_families(self) -> dict[str, list[str]]:
+        """family -> the builder roles on it (the producers every checker must be independent of)."""
+        out: dict[str, list[str]] = {}
+        for r, s in self.roles.items():
+            if r in BUILDER_ROLES:
+                out.setdefault(s.family, []).append(r)
+        return out
 
     def clients(self, roles: Sequence[str] | None = None) -> dict[str, LLMClient]:
         return {r: self.client(r) for r in (roles or list(self.roles))}

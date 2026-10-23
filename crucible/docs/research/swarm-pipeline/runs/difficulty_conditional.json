@@ -1,0 +1,293 @@
+{
+ "db-go-go-toml-a02114e3": {
+  "n": 8,
+  "masked": 0,
+  "budget": 0,
+  "p_full": 0.0,
+  "phi_mean": 0.46875,
+  "phi_var": 0.0693359375,
+  "milestones": {
+   "m01": {
+    "p": 0.625,
+    "p_given_prereqs": 0.625,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 0.0,
+    "p_given_prereqs": 0.0,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.75,
+    "p_given_prereqs": 0.75,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m04": {
+    "p": 0.5,
+    "p_given_prereqs": 0.6666666666666666,
+    "n_given": 6,
+    "requires": [
+     "m03"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0.5,
+  "stalled_after_first": 0.375
+ },
+ "db-go-mvdan-sh-02a801cd": {
+  "n": 3,
+  "masked": 0,
+  "budget": 5,
+  "p_full": 0.0,
+  "phi_mean": 0.3333333333333333,
+  "phi_var": 0.013888888888888888,
+  "milestones": {
+   "m01": {
+    "p": 0.3333333333333333,
+    "p_given_prereqs": 0.3333333333333333,
+    "n_given": 3,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 3,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.0,
+    "p_given_prereqs": 0.0,
+    "n_given": 3,
+    "requires": [
+     "m02"
+    ],
+    "level": 1
+   },
+   "m04": {
+    "p": 0.0,
+    "p_given_prereqs": null,
+    "n_given": 0,
+    "requires": [
+     "m03"
+    ],
+    "level": 2
+   }
+  },
+  "stall_level": 0,
+  "stalled_after_first": 1.0
+ },
+ "db-go-mvdan-sh-04056a74": {
+  "n": 4,
+  "masked": 0,
+  "budget": 4,
+  "p_full": 0.0,
+  "phi_mean": 0.375,
+  "phi_var": 0.015625,
+  "milestones": {
+   "m01": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 4,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 0.25,
+    "p_given_prereqs": 0.25,
+    "n_given": 4,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.25,
+    "p_given_prereqs": 0.25,
+    "n_given": 4,
+    "requires": [],
+    "level": 0
+   },
+   "m04": {
+    "p": 0.0,
+    "p_given_prereqs": null,
+    "n_given": 0,
+    "requires": [
+     "m02",
+     "m03"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0.0,
+  "stalled_after_first": 1.0
+ },
+ "db-go-mvdan-sh-5e983709": {
+  "n": 6,
+  "masked": 0,
+  "budget": 2,
+  "p_full": 0.0,
+  "phi_mean": 0.4583333333333333,
+  "phi_var": 0.050347222222222224,
+  "milestones": {
+   "m01": {
+    "p": 0.8333333333333334,
+    "p_given_prereqs": 0.8333333333333334,
+    "n_given": 6,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 0.3333333333333333,
+    "p_given_prereqs": 0.3333333333333333,
+    "n_given": 6,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.6666666666666666,
+    "p_given_prereqs": 0.6666666666666666,
+    "n_given": 6,
+    "requires": [],
+    "level": 0
+   },
+   "m04": {
+    "p": 0.0,
+    "p_given_prereqs": 0.0,
+    "n_given": 4,
+    "requires": [
+     "m03"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0.0,
+  "stalled_after_first": 0.8333333333333334
+ },
+ "db-go-mvdan-sh-dc951aeb": {
+  "n": 8,
+  "masked": 0,
+  "budget": 0,
+  "p_full": 0.0,
+  "phi_mean": 0.4375,
+  "phi_var": 0.01171875,
+  "milestones": {
+   "m01": {
+    "p": 0.875,
+    "p_given_prereqs": 0.875,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 0.875,
+    "p_given_prereqs": 0.875,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.0,
+    "p_given_prereqs": 0.0,
+    "n_given": 8,
+    "requires": [],
+    "level": 0
+   },
+   "m04": {
+    "p": 0.0,
+    "p_given_prereqs": null,
+    "n_given": 0,
+    "requires": [
+     "m02",
+     "m03"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0.0,
+  "stalled_after_first": 1.0
+ },
+ "db-python-black-90117fa0": {
+  "n": 3,
+  "masked": 0,
+  "budget": 5,
+  "p_full": 0.3333333333333333,
+  "phi_mean": 0.7777777777777777,
+  "phi_var": 0.024691358024691364,
+  "milestones": {
+   "m01": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 3,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 3,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 0.3333333333333333,
+    "p_given_prereqs": 0.3333333333333333,
+    "n_given": 3,
+    "requires": [
+     "m02"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0,
+  "stalled_after_first": 0.6666666666666666
+ },
+ "db-python-black-ae5830b7": {
+  "n": 2,
+  "masked": 0,
+  "budget": 6,
+  "p_full": 0.0,
+  "phi_mean": 0.625,
+  "phi_var": 0.015625,
+  "milestones": {
+   "m01": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 2,
+    "requires": [],
+    "level": 0
+   },
+   "m02": {
+    "p": 0.0,
+    "p_given_prereqs": 0.0,
+    "n_given": 2,
+    "requires": [],
+    "level": 0
+   },
+   "m03": {
+    "p": 1.0,
+    "p_given_prereqs": 1.0,
+    "n_given": 2,
+    "requires": [],
+    "level": 0
+   },
+   "m04": {
+    "p": 0.5,
+    "p_given_prereqs": 0.5,
+    "n_given": 2,
+    "requires": [
+     "m03"
+    ],
+    "level": 1
+   }
+  },
+  "stall_level": 0.5,
+  "stalled_after_first": 0.5
+ }
+}

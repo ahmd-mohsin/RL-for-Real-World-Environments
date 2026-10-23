@@ -92,12 +92,13 @@ def arm_name(model: str) -> str:
 
 
 # ---- the candidates as tasks -------------------------------------------------------------------------------------------
-def candidates(debug: Path) -> list[dict[str, Any]]:
-    """Every candidate through every CPU gate with a clean S7 prompt (``candidates.json`` + ``authored/<id>.json``)."""
+def candidates(debug: Path, *, cheap_gates: bool = False) -> list[dict[str, Any]]:
+    """Every candidate through every CPU gate with a clean S7 prompt (``candidates.json`` + ``authored/<id>.json``);
+    ``cheap_gates`` (a quick pass) also takes one whose partial gate record passed (``lh_debug.py gates --gates S6,S5,S8``)."""
     out = []
     for r in json.loads((debug / "candidates.json").read_text()):
         a = debug / "authored" / f"{r['id']}.json"
-        if r.get("gates_ok") and a.exists() and not json.loads(a.read_text()).get("findings"):
+        if (r.get("gates_ok") or (cheap_gates and r.get("gates_run_ok"))) and a.exists() and not json.loads(a.read_text()).get("findings"):
             out.append(r)
     return out
 
@@ -105,14 +106,14 @@ def candidates(debug: Path) -> list[dict[str, Any]]:
 class Tasks:
     """The debug lane's tasks (``generators.debug.DebugTask``) under their authored prompts, in this phase's containers."""
 
-    def __init__(self, debug: Path, *, grade_parallel: int = 2, out: Path | None = None):
+    def __init__(self, debug: Path, *, grade_parallel: int = 2, out: Path | None = None, cheap_gates: bool = False):
         import lh_debug
 
         from crucible.factory.generators.debug import debug_sandboxes
 
         lh_debug.ROOT = debug  # the lane's durable data dir (the main checkout's), never the worktree's
         self.debug, self.lh = debug, lh_debug
-        self.rows = {r["id"]: r for r in candidates(debug)}
+        self.rows = {r["id"]: r for r in candidates(debug, cheap_gates=cheap_gates)}
         self.gens: dict[str, Any] = {}
         self.sandboxes = debug_sandboxes(parallel=grade_parallel, prefix=f"{PREFIX}grade-")
         self._tasks: dict[str, Any] = {}
@@ -247,7 +248,7 @@ class Phase:
 
         self.meter = shared_meter()  # the phase's one cap (persisted: a restart starts from the booked total)
         self.meter.cap_usd = float(a.cap)
-        self.tasks = Tasks(Path(a.debug), grade_parallel=a.grade_parallel, out=self.out)
+        self.tasks = Tasks(Path(a.debug), grade_parallel=a.grade_parallel, out=self.out, cheap_gates=a.cheap_gates)
         self.slots = Slots(a.slots)
         self._codecs: dict[str, Any] = {}
         self._backend: Any = None
@@ -617,6 +618,65 @@ async def stage_regrade(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
     return out
 
 
+async def stage_fairness(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
+    """S9b (``factory.alternatives_gate``): per task, the blind second verifier's suite (``verifier2.write_shadow`` on the
+    ``second_verifier`` role, under the language profile, its payload proven blind by ``leaks``), alternative sessions from
+    the bug report alone by ``--alt-models`` (each a family other than the prompt writer's and the suite's, the lane's
+    World and harness), every stored end state with progress under this phase and ``--harvest`` (frontier and student
+    runs), both verifiers and the report's repros on each, and the gate. Writes ``fairness/<task>.json`` (the gate,
+    kappa, the classes, the accepted patches) and ``fairness/<task>.suite.json``: ``alternatives_gate.LiveAlternatives``
+    and ``LiveSecondVerifier`` read them."""
+    from crucible.factory.alternatives_gate import harvest, run_gate
+    from crucible.factory.generators.debug import scope
+    from crucible.factory.generators.debug_repro import parse_repros
+    from crucible.factory.models import ModelBook, family_of
+    from crucible.factory.verifier2 import ShadowSuite, write_shadow
+
+    a = ph.a
+    out_dir = ph.out / "fairness"
+    book = ModelBook.from_config()
+    sv_spec = book.spec("second_verifier")
+    alt_models = [m for m in a.alt_models.split(",") if m]
+    roots = [ph.out, *[Path(r) for r in a.harvest.split(",") if r]]
+    res: dict[str, Any] = {}
+    for tid in tids:
+        task = ph.tasks.task(tid)
+        if task.split != "train" and not a.fairness_heldout:
+            print(f"[fairness] {tid}: held out, skipped (--fairness-heldout)", flush=True)
+            continue
+        authored = jload(ph.tasks.debug / "authored" / f"{tid}.json", {}) or {}
+        builder = str((authored.get("provenance") or {}).get("builder") or "")
+        writer = "anthropic" if builder.startswith("claude") else (family_of(builder.split(":", 1)[-1]) if builder else "")
+        sp = out_dir / f"{tid}.suite.json"
+        if sp.exists() and not a.redo:
+            suite = ShadowSuite.from_json(jload(sp))
+        else:
+            t0 = ph.meter.spent
+            with scope(task.lang):
+                suite = await write_shadow(book.client("second_verifier"), prompt=task.instruction, requirements=task.requirements, base_dir=task.base_dir,
+                                           model=sv_spec.ref, family=sv_spec.family,
+                                           guard={"oracle_files": task.window["oracle_files"], "hidden_tests": task.window.get("tests_b") or {}})
+            suite.usd = round(ph.meter.spent - t0, 6)
+            jsave(sp, suite.to_json())
+        print(f"[fairness] {tid}: suite {sorted(suite.requirements)} by {suite.family} problems {suite.problems[:3]} usd {suite.usd}", flush=True)
+        for m in alt_models:
+            fam = family_of(m)
+            if fam in (writer, suite.family):
+                print(f"[fairness] {tid}: {m} skipped: family {fam} wrote the prompt or the suite", flush=True)
+                continue
+            await ph.job(m, tid, k=a.alt_k, seed=7_000 + a.seed_offset, purpose="fairness", concurrency=a.alt_k, tag=f"alt-{arm_name(m)}")
+        cands = harvest(tid, roots)
+        mids = [m["id"] for m in task.milestones]
+        repros, _ = parse_repros(authored, mids)
+        r = await run_gate(task, cands, suite=suite, writer_family=writer, repros=repros or None)
+        jsave(out_dir / f"{tid}.json", r)
+        res[tid] = {k: r[k] for k in ("status", "why", "counts")} | {"kappa": r["agreement"]["kappa"], "pairs": r["agreement"]["pairs"],
+                                                                     "disagreements": len(r["agreement"]["disagreements"]), "candidates": len(r["classified"])}
+        print(f"[fairness] {tid}: {json.dumps(res[tid])}", flush=True)
+    jsave(out_dir / "summary.json", {"tasks": res, "spent_usd": round(ph.meter.spent, 4), "second_verifier": sv_spec.ref, "alt_models": alt_models})
+    return res
+
+
 # ---- the trace audit ---------------------------------------------------------------------------------------------------------
 REPRO = r"\b(go\s+run|go\s+build|cargo\s+(run|build)|node\s|npx\s+(tsx|ts-node)|python3?\s|mvn\b)"
 NON_SKILL = ("world_bug", "spec_defect", "unstated_format", "verifier_defect", "env_flake")
@@ -690,7 +750,7 @@ async def stage_audit(ph: Phase, tids: Sequence[str], *, arm: str = "student") -
     from crucible.factory.models import ModelBook
     from crucible.factory.traceaudit import deterministic_cause, facts, first_wrong_step, trace_of
 
-    book = ModelBook()  # the default tinker map: auditor GLM-5.3, judge GLM-5.3-Flash (SameFamilyError on a violation)
+    book = ModelBook(preset=ph.a.preset)  # tinker: auditor GLM-5.3, judge GLM-5.3-Flash; swarm: Nemotron-Ultra, gpt-oss-120b (SameFamilyError)
     judges = {role: Auditor(book.client(role), model=book.spec(role).model, config=AuditConfig(concurrency=ph.a.audit_concurrency,
                                                                                                            quote_retries=ph.a.quote_retries),
                             max_tokens=ph.a.audit_max_tokens) for role in ("auditor", "judge")}
@@ -1095,7 +1155,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--cap", type=float, default=10.0, help="hard USD cap of the whole phase (one meter: spend.jsonl)")
     ap.add_argument("--tasks", default="", help="comma list (default: every candidate)")
     ap.add_argument("--student", default=STUDENT)
-    ap.add_argument("--frontier", default=",".join(FRONTIER))
+    ap.add_argument("--preset", default="tinker", help="the ModelBook preset of the judges and the default frontier (swarm: tasks the Tinker swarm "
+                    "built; its frontier never shares a builder's family)")
+    ap.add_argument("--frontier", default="", help="comma list (default: the preset's frontier; tinker: " + ",".join(FRONTIER) + ")")
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--seed-offset", type=int, default=0, help="added to every arm's run seed: a re-measurement draws fresh samples and its run ids "
                     "(bench-<purpose>-s<seed>-<task>, the Weave trace keys) never collide with an earlier phase's")
@@ -1119,6 +1181,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--result-chars", type=int, default=1500, help="per tool result in the audited trace")
     ap.add_argument("--quote-retries", type=int, default=1, help="audit.AuditConfig.quote_retries: a non-verbatim quote is asked again")
     ap.add_argument("--prior-worldfix", default="", help="worldfix: a previous phase's worldfix dir; its accepted World must fail the reproduction")
+    ap.add_argument("--alt-models", default="", help="fairness: models whose sessions write alternatives from the bug report alone (comma list)")
+    ap.add_argument("--alt-k", type=int, default=1, help="fairness: alternative sessions per model and task")
+    ap.add_argument("--harvest", default="", help="fairness: more phase dirs whose stored episodes are alternative candidates (comma list)")
+    ap.add_argument("--fairness-heldout", action="store_true", help="fairness: also held-out tasks (their own benchmark fairness; never training)")
+    ap.add_argument("--cheap-gates", action="store_true",
+                    help="a quick pass: also measure tasks that passed only S6, S5 and S8 (lh_debug.py gates --gates S6,S5,S8); never for the full run")
     ap.add_argument("--redo", action="store_true")
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--obs-rev", type=int, default=0, help="report: a revision W&B run (tables only; traces and audits are already logged)")
@@ -1129,6 +1197,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     a.out = a.out or str(d / "targeting" / "debug")
     a.debug = a.debug or str(d / "debug")
     a.frontier = [m for m in a.frontier.split(",") if m]
+    if not a.frontier:  # the preset's fairness solvers (models.PRESET_FRONTIER), Tinker ids
+        from crucible.factory.models import ModelBook
+
+        a.frontier = [s.model for s in ModelBook(preset=a.preset).frontier]
     return a
 
 
@@ -1151,6 +1223,8 @@ async def amain(a: argparse.Namespace) -> None:
                 await stage_disclose(ph, tids)
             elif st == "regrade":
                 await stage_regrade(ph, tids)
+            elif st == "fairness":
+                await stage_fairness(ph, tids)
             elif st == "audit":
                 await stage_audit(ph, tids)
             elif st == "mine":

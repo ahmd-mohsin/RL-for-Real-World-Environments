@@ -1,0 +1,168 @@
+{
+ "tasks": 9,
+ "rows": 12,
+ "mae": 0.2044,
+ "mae_baseline": 0.2572,
+ "predictions": [
+  {
+   "task": "db-go-echo-61eca05b",
+   "p_true": 0.875,
+   "p_pred": 0.068,
+   "baseline": 0.0244,
+   "n": 8
+  },
+  {
+   "task": "db-go-go-toml-a02114e3",
+   "p_true": 0.0,
+   "p_pred": 0.3198,
+   "baseline": 0.2105,
+   "n": 3
+  },
+  {
+   "task": "db-go-go-toml-a02114e3",
+   "p_true": 0.0,
+   "p_pred": 0.2192,
+   "baseline": 0.2105,
+   "n": 8
+  },
+  {
+   "task": "db-go-mvdan-sh-02a801cd",
+   "p_true": 0.0,
+   "p_pred": 0.013,
+   "baseline": 0.1739,
+   "n": 3
+  },
+  {
+   "task": "db-go-mvdan-sh-04056a74",
+   "p_true": 0.0,
+   "p_pred": 0.0096,
+   "baseline": 0.1778,
+   "n": 4
+  },
+  {
+   "task": "db-go-mvdan-sh-5e983709",
+   "p_true": 0.0,
+   "p_pred": 0.0156,
+   "baseline": 0.186,
+   "n": 6
+  },
+  {
+   "task": "db-go-mvdan-sh-dc951aeb",
+   "p_true": 0.0,
+   "p_pred": 0.0163,
+   "baseline": 0.2,
+   "n": 1
+  },
+  {
+   "task": "db-go-mvdan-sh-dc951aeb",
+   "p_true": 0.0,
+   "p_pred": 0.0153,
+   "baseline": 0.2,
+   "n": 8
+  },
+  {
+   "task": "db-python-black-90117fa0",
+   "p_true": 0.5,
+   "p_pred": 0.0204,
+   "baseline": 0.1489,
+   "n": 2
+  },
+  {
+   "task": "db-python-black-ae5830b7",
+   "p_true": 0.0,
+   "p_pred": 0.0281,
+   "baseline": 0.1778,
+   "n": 2
+  },
+  {
+   "task": "db-python-black-ae5830b7",
+   "p_true": 0.0,
+   "p_pred": 0.0257,
+   "baseline": 0.1778,
+   "n": 2
+  },
+  {
+   "task": "db-python-black-ec71b918",
+   "p_true": 0.0,
+   "p_pred": 0.5035,
+   "baseline": 0.1702,
+   "n": 2
+  }
+ ],
+ "fit": {
+  "coef": {
+   "bias": -3.254343084470671,
+   "faults": -1.589479998124648,
+   "edges": -0.21992943026302203,
+   "modules": -0.15625409835237727,
+   "oracle_lines_log": 0.19155490604373127,
+   "milestone_tests_log": -0.5078684179205858,
+   "tool_limit_300": -0.02371633259381657,
+   "fairness_flags": -0.07365904619133978,
+   "lang_go": 0.14348168648690618,
+   "lang_python": -0.1434816864869062,
+   "lang_rust": 0.0,
+   "lang_node": 0.0,
+   "lang_java": 0.0,
+   "lang_cuda": 0.0
+  },
+  "mean": {
+   "bias": 0.0,
+   "faults": 3.6666666666666665,
+   "edges": 1.3333333333333333,
+   "modules": 1.1666666666666667,
+   "oracle_lines_log": 4.037266333032896,
+   "milestone_tests_log": 3.035221263680782,
+   "tool_limit_300": 0.7916666666666666,
+   "fairness_flags": 0.5,
+   "lang_go": 0.6666666666666666,
+   "lang_python": 0.3333333333333333,
+   "lang_rust": 0.0,
+   "lang_node": 0.0,
+   "lang_java": 0.0,
+   "lang_cuda": 0.0
+  },
+  "scale": {
+   "bias": 1.0,
+   "faults": 0.6236095644623235,
+   "edges": 0.4714045207910317,
+   "modules": 0.37267799624996495,
+   "oracle_lines_log": 0.5815374693832628,
+   "milestone_tests_log": 1.042131167263323,
+   "tool_limit_300": 0.24650332429581734,
+   "fairness_flags": 0.5,
+   "lang_go": 0.4714045207910317,
+   "lang_python": 0.4714045207910317,
+   "lang_rust": 1.0,
+   "lang_node": 1.0,
+   "lang_java": 1.0,
+   "lang_cuda": 1.0
+  },
+  "n_tasks": 12,
+  "prior_strength": 4.0
+ },
+ "before_backfill": {
+  "rows": 17,
+  "tasks": 10,
+  "mae": 0.1016,
+  "mae_baseline": 0.1459
+ },
+ "inputs": {
+  "runs": [
+   "s15_debug_targeting.json",
+   "s15_debug_targeting_t300.json"
+  ],
+  "arms": [
+   "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms",
+   "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms"
+  ],
+  "candidates": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/candidates.json",
+  "split": "train only",
+  "budget_stops": {
+   "s15_debug_targeting.json": [
+    "episodes"
+   ],
+   "s15_debug_targeting_t300.json": []
+  }
+ }
+}

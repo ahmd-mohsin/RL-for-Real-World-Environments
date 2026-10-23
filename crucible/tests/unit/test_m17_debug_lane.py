@@ -185,7 +185,20 @@ def test_subset_is_mines_candidate_of_the_named_fixes(tmp_path: Path, monkeypatc
     assert same.id == mined.id and same.params == mined.params and "parent" not in same.params and "hide_modes" not in same.params
     eased = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e1", parent=mined.id, hide="strip"))
     assert eased.id == "db-go-calc-e1" and eased.params["parent"] == mined.id and eased.params["fixes"] == mined.params["fixes"]
-    assert eased.params["hide_modes"] == ["strip"]
+    assert eased.params["hide_modes"] == ["strip"] and "hide_tests" not in eased.params
+    named = asyncio.run(gen.subset("calc", [neg[:8], fmt[:8]], cid="db-go-calc-e2", hide_tests=["calc_test.go::TestFmt", "calc_test.go::TestFmt"]))
+    assert named.params["hide_tests"] == ["calc_test.go::TestFmt"]
+
+
+def test_build_strips_the_named_visible_tests_from_the_first_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """subset --hide-tests: a stale visible test (mvdan-sh's TestNodeEndPos) is stripped from A' before round 2 could."""
+    repo, _ = make_repo(tmp_path)
+    gen = _gen(tmp_path, repo)
+    seen: list[dict[str, set[str]]] = []
+    monkeypatch.setattr(Debug, "synthesize", lambda self, cand, *, mode="revert", extra_hide=None: (seen.append(dict(extra_hide or {})), (None, {}))[1])
+    asyncio.run(gen.build(Candidate("db-go-calc-h", "debug", "calc", params={"lang": "go", "hide_tests": ["calc_test.go::TestParse/neg"]})))
+    asyncio.run(gen.build(Candidate("db-go-calc-n", "debug", "calc", params={"lang": "go"})))
+    assert seen == [{"calc_test.go": {"TestParse"}}, {}]
 
 
 def test_build_hides_the_tests_in_the_named_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

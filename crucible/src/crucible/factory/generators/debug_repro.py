@@ -233,6 +233,28 @@ async def _run_state(task: Any, repros: Mapping[str, Repro], state: str, workdir
     return out
 
 
+async def run_on(task: Any, repros: Mapping[str, Repro], patch: str, *, workdir: Path | None = None) -> dict[str, bool | None]:
+    """Every requirement's reproduction on A plus ``patch`` (an alternative's end state, S9b): milestone id -> the
+    command shows the expected (fixed) result, or None when it could not run."""
+    with tempfile.TemporaryDirectory(prefix="s9b-") as td:
+        root = Path(workdir) if workdir is not None else Path(td)
+        try:
+            world = await task.open(root / "alt")
+        except Exception:  # noqa: BLE001 -- a World that does not open is infrastructure: no verdict
+            return dict.fromkeys(repros)
+        out: dict[str, bool | None] = {}
+        try:
+            if patch:
+                await task.apply_patch_in_world(world, patch)
+            for n, (mid, r) in enumerate(sorted(repros.items())):
+                res, ok = await _shell(world, r.command, r.timeout_s, n)
+                rc, to, text = parse_shell(str(getattr(res, "content", "") or ""))
+                out[mid] = judge(r, rc, to, text)[0] if ok and not (rc is None and not to) else None
+        finally:
+            await world.close()
+    return out
+
+
 async def s7r(task: Any, repros: Mapping[str, Repro], *, workdir: Path | None = None) -> dict[str, Any]:
     """Run every repro at A' (must show the bug) and at the oracle B (must pass) in the task's World (module doc)."""
     mids = [m["id"] for m in task.window.get("milestones") or []]

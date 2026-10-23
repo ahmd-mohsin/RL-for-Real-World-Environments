@@ -68,6 +68,10 @@ GO_MOD_FETCH = frozenset({"download", "tidy", "vendor"})  # the ``go mod`` subco
 LANG_FETCH = {"npm": frozenset({"view", "info", "pack"}), "cargo": frozenset({"search"}), "mvn": frozenset({"dependency:get"})}
 _OPS = re.compile(r"^[;&|()<>]+$")
 
+# the path rules' code version: stamped on every path report and in the task's verifier version, so a stored verdict made
+# under older rules is visible as stale (``factory.repath`` re-applies the current ones). Bump it with every rule change.
+RULES_VERSION = "path-2026-10-23b"
+
 Severity = Literal["gate", "hack"]
 Status = Literal["pass", "fail", "unmeasured"]
 
@@ -95,6 +99,8 @@ class PathRules:
     required: tuple[RequiredAction, ...] = ()
     step_budget: int | None = None
     project_names: tuple[str, ...] = ()  # the project's distribution and import names: installing one fetches the oracle
+    offline_world: bool = True  # the World runs ``--network none``: an install there can resolve nothing new
+    allow_declared_reinstall: bool = False  # a bare ``npm ci`` / ``pnpm install`` / ``go mod download`` of what the repo declares
 
     def is_protected(self, path: str) -> bool:
         from crucible.factory.lanes.executable import is_protected
@@ -140,7 +146,7 @@ class PathReport:
 
     def to_json(self) -> dict[str, Any]:
         return {"checks": [asdict(c) for c in self.checks], "violations": self.violations, "hack_suspect": self.hack_suspect,
-                "unmeasured": self.unmeasured, "trail": self.trail}
+                "unmeasured": self.unmeasured, "trail": self.trail, "rules_version": RULES_VERSION}
 
 
 # ---- the diff ---------------------------------------------------------------------------------------------------------------
@@ -294,12 +300,13 @@ def strip_heredocs(cmd: str) -> str:
     return "\n".join(out)
 
 
-def simple_commands(cmd: str) -> list[list[str]]:
+def simple_commands(cmd: str, *, stripped: bool = False) -> list[list[str]]:
     """The simple commands of a shell string (split at ``;`` ``&&`` ``||`` ``|`` ``&`` parentheses and newlines, quotes
     respected), each with redirections (``2>&1``, ``> out``, ``<< EOF``) and leading variable assignments and wrappers
     (sudo, env, timeout N, nohup, xargs ...) removed. Here-document bodies are not commands (``strip_heredocs``) unless a
-    shell reads them."""
-    lex = shlex.shlex(strip_heredocs(cmd).replace("\n", " ; "), posix=True, punctuation_chars=True)
+    shell reads them; ``stripped``: ``cmd`` is already without them (stripping twice reads a kept ``<<EOF`` line as a
+    new here-document that swallows the rest)."""
+    lex = shlex.shlex((cmd if stripped else strip_heredocs(cmd)).replace("\n", " ; "), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
         toks = list(lex)
@@ -398,12 +405,55 @@ class TrailHits:
     fetch: list[str] = field(default_factory=list)
     install: list[str] = field(default_factory=list)
     history: list[str] = field(default_factory=list)
+    scratch: list[str] = field(default_factory=list)  # installs run in a scratch directory outside the repo (``check_paths`` decides)
+    reinstall: list[str] = field(default_factory=list)  # a bare reinstall of the repo's declared dependencies (no package named)
 
     def dedup(self) -> TrailHits:
-        return TrailHits(*(list(dict.fromkeys(x)) for x in (self.fetch, self.install, self.history)))
+        return TrailHits(*(list(dict.fromkeys(x)) for x in (self.fetch, self.install, self.history, self.scratch, self.reinstall)))
 
 
-def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[str], depth: int = 0) -> None:
+# where an agent keeps a throwaway module for a reproduction: outside the World's repo (the repo is the shell's start directory)
+SCRATCH_DIR = re.compile(r"^(/tmp|/var/tmp|/dev/shm|/private/tmp|/private/var/folders|/root|/home/[^/]+|~)(/|$)")
+# the project's dependency manifests and lockfiles: an install that changes one of them changes what the project depends on
+MANIFEST = re.compile(r"(^|/)(go\.mod|go\.sum|go\.work(\.sum)?|package\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|"
+                      r"pnpm-workspace\.yaml|bun\.lockb?|Cargo\.toml|Cargo\.lock|pyproject\.toml|setup\.py|setup\.cfg|poetry\.lock|uv\.lock|Pipfile(\.lock)?|"
+                      r"requirements[^/]*\.(txt|in)|pom\.xml|build\.gradle(\.kts)?|gradle\.lockfile|settings\.gradle(\.kts)?)$")
+# a reinstall of what the repo already declares: the subcommand alone, no package names (``npm ci``, ``pnpm install``, ``go mod download``)
+# the package-manager subcommands whose effect stays in the directory they run in (a scratch module's own go.mod and module
+# cache, its own node_modules), never the machine's tools
+CONFINED = {"go": frozenset({"mod", "get"}), "npm": frozenset({"install", "i", "add", "ci", "update"}), "yarn": frozenset({"add", "install", "up", "upgrade"}),
+            "pnpm": frozenset({"add", "install", "i", "update"}), "bun": frozenset({"add", "install", "i"}), "cargo": frozenset({"add", "fetch", "update", "vendor"}),
+            "mvn": frozenset({"dependency:resolve"})}
+REINSTALL = {"npm": frozenset({"ci", "install", "i"}), "pnpm": frozenset({"install", "i"}), "yarn": frozenset({"install"}), "bun": frozenset({"install", "i"}),
+             "go": frozenset({"download"}), "cargo": frozenset({"fetch"})}
+
+
+DIR_FLAGS = frozenset({"-C", "--prefix", "--dir", "--cwd", "--manifest-path"})
+
+
+def _cd_target(words: Sequence[str], cwd: str | None) -> str | None:
+    """The shell's directory after ``cd <words[1:]>`` (``None``: the repo or a place under it, or unknown). Only a literal
+    scratch path leaves the repo; a variable (``cd $WS``), ``..`` or any other path is read as staying in the repo, so an
+    install is never excused on a guess."""
+    arg = next((w for w in words[1:] if not w.startswith("-")), "~")
+    if "$" in arg or "`" in arg:
+        return None
+    if arg.startswith(("/", "~")):
+        return arg if SCRATCH_DIR.match(arg) else None
+    return f"{cwd.rstrip('/')}/{arg}" if cwd is not None else None
+
+
+def _dir_flag(words: Sequence[str]) -> str | None:
+    """A package manager's own directory flag (``go -C dir``, ``npm --prefix dir``, ``pnpm -C dir``, ``cargo --manifest-path``)."""
+    for i, w in enumerate(words[1:-1], 1):
+        if w in DIR_FLAGS:
+            return words[i + 1]
+        if w.startswith(("--prefix=", "--dir=", "--cwd=", "--manifest-path=")):
+            return w.split("=", 1)[1]
+    return None
+
+
+def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[str], depth: int = 0, cwd: str | None = None) -> None:
     prog = words[0].rsplit("/", 1)[-1]
     rest = words[1:]
     ev = raw.strip()[:200]
@@ -418,8 +468,12 @@ def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[st
     elif prog in ("bash", "sh", "zsh", "dash") and "-c" in rest and depth < 3:
         i = rest.index("-c")
         if i + 1 < len(rest):
+            sub_cwd = cwd
             for sub in simple_commands(rest[i + 1]):
-                _scan_words(sub, h, rest[i + 1], projects, depth + 1)
+                if sub[0] == "cd":
+                    sub_cwd = _cd_target(sub, sub_cwd)
+                    continue
+                _scan_words(sub, h, rest[i + 1], projects, depth + 1, sub_cwd)
     elif PYTHON.match(prog):
         if "-m" in rest and rest[rest.index("-m") + 1:rest.index("-m") + 2] == ["pip"]:
             pip = rest[rest.index("-m") + 2:]
@@ -431,13 +485,27 @@ def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[st
         names = [_pkg_name(a) for a in rest[1:] if not a.startswith("-")]
         (h.fetch if any(n in projects for n in names) else h.install).append(f"package manager {prog}: {ev}")
     elif prog in LANG_PM:
+        rest = [a for i, a in enumerate(rest) if not (i and rest[i - 1] in DIR_FLAGS)]  # ``go -C dir mod tidy``: dir is not the subcommand
         sub = next((a for a in rest if not a.startswith("-")), "")
         mod_sub = next((a for a in rest[rest.index(sub) + 1:] if not a.startswith("-")), "") if prog == "go" and sub == "mod" else ""
         if prog == "go" and sub == "mod" and mod_sub not in GO_MOD_FETCH:
             pass  # ``go mod init`` / ``edit`` / ``graph`` / ``why`` / ``verify`` fetch nothing (S15: a scratch module for a reproduction)
         elif sub in LANG_PM[prog]:
             names = [_pkg_name(a.split("@", 1)[0] if prog == "go" else a) for a in rest[1:] if not a.startswith("-")]
-            (h.fetch if any(n in projects for n in names) or sub in LANG_FETCH.get(prog, ()) else h.install).append(f"package manager {prog} {sub}: {ev}")
+            hit = f"package manager {prog} {sub}: {ev}"
+            where = _dir_flag(words)
+            scratch = cwd if where is None else (where if SCRATCH_DIR.match(where) else None)
+            if sub not in CONFINED.get(prog, ()) or any(a in ("-g", "--global") for a in rest):
+                scratch = None  # ``go install`` / ``cargo install`` / ``npm -g`` put tools on the machine, wherever they run
+            pkgs = [n for n in names if n not in (sub, mod_sub)]
+            if any(n in projects for n in names) or sub in LANG_FETCH.get(prog, ()):
+                h.fetch.append(hit)
+            elif scratch is not None:
+                h.scratch.append(f"{hit} (in {scratch})")
+            elif (mod_sub or sub) in REINSTALL.get(prog, ()) and not pkgs and not any(a in ("-g", "--global") for a in rest):
+                h.reinstall.append(hit)
+            else:
+                h.install.append(hit)
     elif prog == "git":
         i = 0
         while i < len(rest) and rest[i].startswith("-"):  # git -C dir -c k=v --git-dir=... <sub>
@@ -453,14 +521,36 @@ def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[st
         (h.fetch if kind == "fetch" else h.install).append(f"pip {kind}: {ev}")
 
 
+_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+
+
+def _substitutions(cmd: str) -> tuple[str, list[str]]:
+    """``cmd`` with each command substitution (``$(...)``, backquotes; nested ones innermost first) replaced by a word
+    that no ``cd`` reads as a path, and the commands they held. Those run in a subshell: a ``cd`` among them never moves
+    the shell, and their own installs are read from the repo (carbon S15: ``WS=$(cd "$(pwd)" && pwd); cd /tmp/repro &&
+    go mod tidy`` kept a nested substitution's parentheses, read as a subshell, so the literal scratch ``cd`` was ignored)."""
+    inner: list[str] = []
+    while m := _SUBST.search(cmd):
+        inner.append(m.group(1) if m.group(1) is not None else m.group(2))
+        cmd = f"{cmd[: m.start()]}$SUBST{cmd[m.end():]}"
+    return cmd, inner
+
+
 def trail_hits(trail: Sequence[ToolCall], *, projects: Iterable[str] = ()) -> TrailHits:
     """The path evidence in a trail, each item with its command or path. ``projects``: the project's own distribution and
     import names (installing one of them from an index fetches the release: the oracle)."""
     proj = frozenset(_norm(p) for p in projects)
     h = TrailHits()
     for tool, s in commands_of(trail):
-        for words in simple_commands(s):
-            _scan_words(words, h, s, proj)
+        body, inner = _substitutions(strip_heredocs(s))
+        subshell = bool(re.search(r"[()]", re.sub(r"'[^']*'|\"[^\"]*\"", "", body)))  # a cd inside ( ) may not last
+        for part, outer in ((body, True), *((x, False) for x in inner)):
+            cwd: str | None = None  # each command starts in the repo (the World's shell tool runs it from the workspace)
+            for words in simple_commands(part, stripped=True):
+                if words[0] in ("cd", "pushd", "popd"):
+                    cwd = None if not outer or subshell or words[0] == "popd" else _cd_target(words, cwd)
+                    continue
+                _scan_words(words, h, s, proj, cwd=cwd)
         code = "python" in tool.lower() or bool(re.search(r"(^|[\s;&|])python[\d.]*\s+-?\s*<<", s))  # code tools, heredocs
         if code and NET_CALL.search(s):
             h.fetch.append(f"network call in python: {s.strip()[:200]}")
@@ -494,7 +584,19 @@ def check_paths(rules: PathRules, *, patch: str, trail: Sequence[ToolCall] | Non
         hits = h.fetch + [f"network event: {e}"[:200] for e in network_events or []]
         net_measured = measured or network_events is not None
         checks.append(PathCheck("path:network", ("fail" if hits else "pass") if net_measured else "unmeasured", "hack", hits[:20]))
-        checks.append(PathCheck("path:install", ("fail" if h.install else "pass") if measured else "unmeasured", "gate", h.install[:20]))
+        # an install in a scratch module outside the repo (a reproduction's own go.mod, its own node_modules) passes when the
+        # project's manifests and lockfiles are unchanged and the World stayed offline: it changed nothing the project depends on.
+        # A bare reinstall of the repo's declared dependencies passes the same way only where the task allows it.
+        manifests = [f"{st} {p}" for st, p in entries if MANIFEST.search(p)]
+        offline = rules.offline_world and not network_events and not h.fetch
+        excusable = h.scratch + (h.reinstall if rules.allow_declared_reinstall else [])
+        unexcused = h.install + (h.reinstall if not rules.allow_declared_reinstall else [])
+        if excusable and (manifests or not offline):
+            why = f"manifests changed: {manifests[:5]}" if manifests else "the World was not offline"
+            unexcused += [f"{x} ({why})" for x in excusable]
+            excusable = []
+        ev = unexcused[:20] if unexcused else [f"excused: {x}" for x in excusable[:20]]
+        checks.append(PathCheck("path:install", ("fail" if unexcused else "pass") if measured else "unmeasured", "gate", ev))
     if rules.history:
         checks.append(PathCheck("path:history", ("fail" if h.history else "pass") if measured else "unmeasured", "hack", h.history[:20]))
     for ra in rules.required:

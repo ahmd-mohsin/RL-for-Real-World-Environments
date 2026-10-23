@@ -15,8 +15,10 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 | `db-go-urfave-cli-2b0adb14-d1` (benchmark) | applied an undone fix the report never described; added a missing ordering rule to one paragraph |
 | `db-node-h3-a6cd4654` (benchmark) | unchanged task; fixed a changelog hint and two Node environment bugs |
 
-Set aside so far: pulldown-cmark (too hard even after dropping a bug), unstorage (too easy), and the tasks whose "link"
-between bugs turned out fake (mvdan-sh ×4, black ae5830b7 / ec71b918, carbon ×2, excelize ×2). echo is too easy.
+Before the lead's call below, pulldown-cmark, unstorage, echo and the tasks whose "link" between bugs turned out fake
+(mvdan-sh, black ae5830b7, carbon ×2, excelize ×2) were set aside. Now **no task is set aside**: only mvdan-sh 04056a74 and
+black-ec71b918 are dropped (each repeats most of another task's fixes); every other task is changed and measured again
+until it is kept.
 
 ## The rules now
 
@@ -28,6 +30,8 @@ between bugs turned out fake (mvdan-sh ×4, black ae5830b7 / ec71b918, carbon ×
   be dropped** (use `subset --no-link`). Making a too-easy task harder (adding a bug) is allowed for echo and unstorage.
 - **Stay close to Ahmed's task:** keep his fixes and his paragraphs word for word where you can. Prefer the smallest
   change: drop one bug, swap one bug, add one bug, or fix one defect.
+- **No more dropped tasks** (Uzair, 2026-10-23): a quick pass at 0/3 or 3/3 means change the task again (drop, swap or
+  add a bug, fix a defect) and re-measure, never stop. Leaving one of a task's bugs applied is still the same task.
 - **Held-out tasks** are never made easier; fix real defects only. A held-out task's own failure traces must not shape a
   training task.
 - **No reward hacking, no hinting, no mistakes** (Ahmed): run the checklist below before measuring anything.
@@ -57,18 +61,26 @@ Every command below runs from `crucible/` after `set -a && source ../.env && set
    paragraphs to milestones by the bug (the `subject` in `window.json`), not by number: with `--no-link` the milestones
    follow commit history, so the numbering can change.
 4. **Lint:** `.venv/bin/python scripts/lh_debug.py author` → your task must show `findings=0`.
-5. **Gates:** `.venv/bin/python scripts/lh_debug.py gates --ids <new-id>` → `ok=True` for S6 S5 S8 S3 S10 (minutes to an
-   hour). A one-off S8 failure under heavy load can be noise: check with `.venv/bin/python data/debug/dbg_grade.py <id>
-   <train|heldout>` (grades the real fix and prints what failed), then `gates --ids <id> --redo`.
+5. **Cheap gates:** `.venv/bin/python scripts/lh_debug.py gates --ids <new-id> --gates S6,S5,S8` → `ok=True` (~3 min).
+   S6 the link (or `--no-link`), S5 the real fix passes and doing nothing fails, S8 cheating scores 0 and every bug's
+   own revert fails its milestone. The record is partial: measurement refuses it unless asked (`--cheap-gates`).
+   A one-off S8 failure under heavy load can be noise: check with `.venv/bin/python data/debug/dbg_grade.py <id>
+   <train|heldout>` (grades the real fix and prints what failed), then `gates --ids <id> --gates S6,S5,S8 --redo`.
 6. **Checklist** (below).
 7. **Quick pass** (~$5–10): `.venv/bin/python scripts/lh_debug.py intent` then
-   `.venv/bin/python scripts/lh_debug_target.py student frontier --tasks <id> --k 3 --frontier "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144" --frontier-k 1 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-quick --audit-reserve 0 --cap 30`
-   Read `data/targeting/<out>/arms/*/<id>/episodes.jsonl` (`passed`, `milestones`, `turns`, `stop`, `gates`).
-8. **Full measurement** (~$20–35) if the quick pass looks in range:
+   `.venv/bin/python scripts/lh_debug_target.py student frontier --tasks <id> --k 3 --frontier "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144" --frontier-k 1 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-quick --audit-reserve 0 --cap 30 --cheap-gates`
+   Read `data/targeting/<out>/arms/*/<id>/episodes.jsonl` (`passed`, `milestones`, `turns`, `stop`, `gates`). A variant
+   that misses the band is changed again without ever paying for S3/S10.
+8. **All gates** before the full run: `.venv/bin/python scripts/lh_debug.py gates --ids <id> --gates S3,S10` (~27 min;
+   added to the cheap gates' record; S3 is the World, leak probes and 60 reruns of the existing suite, S10 grades the
+   real fix 60 times, since 0 false fails in 60 is the fewest that bounds the rate under 5%). Run it on a quiet host:
+   one false fail under load (mvdan-sh 02a801cd-e1 beside a full run) fails S10. To rerun one gate after such a noise
+   failure: `--gates S10 --redo` (the failed result stays in the record under `earlier`). Then `lh_debug.py intent`.
+9. **Full measurement** (~$20–35) if the quick pass looks in range (needs all five gates; never `--cheap-gates`):
    `.venv/bin/python scripts/lh_debug_target.py student frontier disclose audit mine report --tasks <id> --k 8 --frontier-k 2 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-full --cap 90`
    The verdict is in `data/targeting/<out>/report.json` → `tasks.<id>.keep` (`train`, `bench`, `too_hard`, `too_easy`,
    `unfair`).
-9. **Write a task note** like `notes/go-toml-a02114e3.md`: before, what changed, after.
+10. **Write a task note** like `notes/go-toml-a02114e3.md`: before, what changed, after.
 
 ## Checklist before measuring
 
@@ -76,7 +88,12 @@ Every command below runs from `crucible/` after `set -a && source ../.env && set
       the fixes' new cases and expected outputs are gone. Use the default/`--hide revert` for black.
 - [ ] **No stale assertion:** copy `base/`, overwrite it with `window.json`'s `oracle_files` (the fixed source), run the
       whole visible test suite in the task's World image: everything must pass. A failure means a visible test still
-      expects the bug (go-toml e1 had one).
+      expects the bug (go-toml e1 had one). Revert mode restores the old version of every test a fix changed. Fix:
+      rebuild with `subset --hide-tests <file::Test,...>` naming each stale test function (revert mode then keeps the
+      table drivers visible; mvdan-sh's `TestNodeEndPos` with its `// TODO: want 22` offsets). When the stale lines sit
+      in a table that a whole driver reads (mvdan-sh's printer rows), hiding the driver, or `--hide strip`, leaves the
+      agent blind to its regressions (02a801cd-d1: 0/3, every attempt broke other printer cases): leave that bug applied
+      or swap it instead.
 - [ ] **No hint:** no changelog/NEWS/docs line in `base/` describing an undone fix (the pipeline now strips release
       changelog entries that cite one; check anyway), no `.git`.
 - [ ] **Report matches the tests:** read each paragraph against its hidden tests (`lh_debug.py brief <id>`). A test that

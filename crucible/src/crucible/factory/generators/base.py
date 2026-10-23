@@ -287,7 +287,7 @@ class GeneratedTask(WindowTask):
         import json as _json
 
         from crucible.factory.lanes.executable import sha256_text
-        from crucible.factory.lanes.windows import locate, mined_of
+        from crucible.factory.lanes.windows import guard_tests, locate, mined_of
         from crucible.factory.lanes.windows_git import Unit
 
         if not pre_units:
@@ -328,11 +328,15 @@ class GeneratedTask(WindowTask):
             return f.read_text(errors="replace") if f.is_file() else None
 
         rec = _json.loads(_json.dumps(self.window, default=str))
+        # the pre-applied milestones' own tests pass at the new start: they guard the regression check (c_regress), so an
+        # agent cannot undo an earlier fix for free (it keeps Phi but loses the full pass)
+        guards = guard_tests(self.milestones, pre_ms)
+        rec.update(p2p=sorted({*(rec.get("p2p") or []), *guards}))
         rec.update(id=new_id, milestones=keep, oracle_files={p: t for p, t in self.window["oracle_files"].items() if now(p) != t},
                    mutants=[x for x in self.window.get("mutants") or [] if x.get("milestone") in keep_ids],
                    dependency_edges=sum(len(m["requires"]) for m in keep),
                    simplified_from={"task": self.task_id, "window": self.mined.id, "kind": kind, "targets": sorted(keep_ids), "pre_applied": pre_ms,
-                                    "units": sorted(pre_units), "mode": mode})
+                                    "units": sorted(pre_units), "mode": mode, "guards": guards})
         reqs = [dict(r) for r in self.requirements if r.get("milestone") is None or r.get("milestone") in keep_ids]
         dropped = [r["id"] for r in self.requirements if r.get("milestone") and r.get("milestone") not in keep_ids]
         prompt = "".join(ln for ln in self.instruction.splitlines(keepends=True) if not any(ln.startswith(f"- [{d}] ") for d in dropped))

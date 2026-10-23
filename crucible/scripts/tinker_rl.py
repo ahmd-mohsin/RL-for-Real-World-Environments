@@ -163,7 +163,8 @@ def cmd_train(args) -> None:
     cfg = TrainConfig(model=args.model, lora_rank=args.rank, group_size=args.group, groups_per_step=args.groups_per_step, steps=args.steps,
                       loss_fn=args.loss, learning_rate=args.lr, turn_eta=args.eta, max_staleness=args.max_staleness, async_groups=args.async_groups,
                       max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
-                      drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r)
+                      drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r,
+                      sampler=args.sampler, band_lo=args.band_lo, band_hi=args.band_hi, explore=args.explore, difficulty_decay=args.difficulty_decay)
     try:
         out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), **_envs_kw(args)))
     finally:
@@ -412,6 +413,12 @@ def main() -> None:
         p.add_argument("--keep-flat", action="store_true", help="train zero-spread groups too")
         p.add_argument("--quarantine-q", type=int, default=2, help="flat groups on this many consecutive steps quarantine a task (0: off)")
         p.add_argument("--quarantine-r", type=int, default=3, help="steps a quarantined task is not sampled, then retried once")
+        p.add_argument("--sampler", default="round_robin", choices=["round_robin", "difficulty"],
+                       help="difficulty: online p̂ filtering and learnability weights (train.curriculum, swarm-pipeline/12)")
+        p.add_argument("--band-lo", type=float, default=0.1, help="difficulty sampler: lower edge of the p̂ band")
+        p.add_argument("--band-hi", type=float, default=0.7, help="difficulty sampler: upper edge of the p̂ band")
+        p.add_argument("--explore", type=float, default=0.1, help="difficulty sampler: share of picks that re-measure out-of-band tasks")
+        p.add_argument("--difficulty-decay", type=float, default=0.9, help="difficulty sampler: per-step decay of old p̂ evidence")
         p.set_defaults(fn=fn)
     p = sub.add_parser("eval")
     common(p)

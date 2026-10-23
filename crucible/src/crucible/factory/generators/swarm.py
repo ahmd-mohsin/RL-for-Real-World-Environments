@@ -630,6 +630,11 @@ ROLE_MODELS = {"planner": "qwen/qwen3.8-flash", "oracle_builder": "qwen/qwen3.7-
                "second_verifier": "deepseek/deepseek-v4-flash"}
 
 
+# states whose handlers read the build through ``SwarmServices`` instead of ports: their provenance includes it (and so the
+# planner's, the oracle builder's and the verifier writer's families: factory.provenance)
+SERVICE_READS: dict[str, tuple[str, ...]] = {"prompt": ("build",), "gates": ("build", "prompt"), "second": ("build", "prompt"), "hack": ("build", "prompt")}
+
+
 def swarm_machine(*, budget_usd: float = 2.0, oracle_turns: int = 150, verifier_turns: int = 150) -> dict[str, Any]:
     j = "json"
     v = [{"name": "verdict", "type": j}]
@@ -639,7 +644,7 @@ def swarm_machine(*, budget_usd: float = 2.0, oracle_turns: int = 150, verifier_
          "outputs": [{"name": "plan", "type": j}, *v]},
         {"id": "oracle", "role": "oracle_builder", "canary": True, "mutates": True, "recovery": "reconcile", "retries": 1, "max_entries": 5,
          "inputs": [{"name": "plan", "type": j, "from": "plan.plan"}],
-         "session": {"brief": "(set per run)", "captures": [{"output": "oracle", "kind": "commits"}], "max_turns": oracle_turns},
+         "session": {"brief": "(set per run)", "captures": [{"output": "oracle", "kind": "commits"}], "max_turns": oracle_turns, "potential": "oracle_commits"},
          "outputs": [{"name": "oracle", "type": "artifact"}]},
         {"id": "oracle_check", "fn": "oracle_check", "max_entries": 5, "inputs": [{"name": "oracle", "type": "artifact", "from": "oracle.oracle"},
                                                                                   {"name": "plan", "type": j, "from": "plan.plan"}], "outputs": v},
@@ -647,7 +652,8 @@ def swarm_machine(*, budget_usd: float = 2.0, oracle_turns: int = 150, verifier_
                                                                                 {"name": "plan", "type": j, "from": "plan.plan"}], "outputs": v},
         {"id": "verifier", "role": "verifier_writer", "isolated_from": ["oracle", "oracle_check", "oracle_plan"], "mutates": True, "recovery": "reset", "retries": 1,
          "max_entries": 6, "inputs": [{"name": "plan", "type": j, "from": "plan.plan"}],
-         "session": {"brief": "(set per run)", "captures": [{"output": "tests", "kind": "dir", "path": HIDDEN_DIR}], "max_turns": verifier_turns},
+         "session": {"brief": "(set per run)", "captures": [{"output": "tests", "kind": "dir", "path": HIDDEN_DIR}], "max_turns": verifier_turns,
+                     "potential": "hidden_tests"},
          "outputs": [{"name": "tests", "type": "artifact"}]},
         {"id": "review", "role": "reviewer", "handler": "review", "different_family_from": ["verifier"], "max_entries": 6,
          "inputs": [{"name": "tests", "type": "artifact", "from": "verifier.tests"}, {"name": "plan", "type": j, "from": "plan.plan"}], "outputs": v},
@@ -953,11 +959,9 @@ class ReasoningCap:
 
 
 def _family_of_client(c: Any) -> str:
-    from crucible.factory.audit import policy_model
-    from crucible.factory.models import family_of
+    from crucible.factory.provenance import family_of_client
 
-    fam = getattr(c, "family", None) or getattr(getattr(c, "_client", None), "family", None)
-    return str(fam) if fam else family_of(policy_model(str(getattr(c, "model", "") or "")))
+    return family_of_client(c) or ""
 
 
 def checked_overrides(current: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
@@ -1013,6 +1017,19 @@ class SwarmRunner:
         self._booked = {r: 0.0 for r in self.clients}
         self._lane: Any = None
         self._lock = asyncio.Lock()
+        from crucible.factory.swarm_journal import SwarmJournal
+
+        self.journal = SwarmJournal(self.root / "journal")  # sessions, verdicts, failures: scripts/swarm.py diagnose
+
+    def families(self) -> dict[str, str]:
+        """role -> the family of the client that runs it (the machine validator's ``different_family_from``), the P5 map's
+        families where a client names none."""
+        from crucible.factory.models import family_of
+        from crucible.factory.provenance import family_of_client
+
+        out = {r: family_of(m) for r, m in ROLE_MODELS.items()}
+        out.update({r: f for r, c in self.clients.items() if (f := family_of_client(c))})
+        return out
 
     # -- spend: one row per role and candidate in the phase's ledger -----------------------------------------------------------
     def flush_spend(self, who: str) -> dict[str, float]:
@@ -1121,8 +1138,14 @@ class SwarmRunner:
                   "holder": f"root/{cand.id}", "parent": f"{cand.repo}@{cand.window.get('a_ref')}"}
         # 80 turns ended a 4-milestone oracle build with its four commits made but rlm.finish not yet called (P5b run, boltons)
         cfg = RLMConfig(temperature=0.3, tree_max_depth=0, max_turns=150, window_tokens=60_000, max_tokens=12000, cell_timeout_s=300.0, wall_s=3600.0)
+        from crucible.factory.provenance import ProvenanceLedger, family_of_client
+
+        # the oracle builder's and verifier writer's Φ: builder_potential.DEFAULTS (oracle_commits, hidden_tests)
         pool = SessionPool(self.root / "factory", repo=self.family, machine=m, run_id=cand.id, params=params, llm_for=lambda role: self.clients[role],
-                           image=cand.image, rlm_config=cfg, sandbox_factory=world_sandbox_class(self.world_prefix), task_id=cand.id, max_steps=200)
+                           image=cand.image, rlm_config=cfg, sandbox_factory=world_sandbox_class(self.world_prefix), task_id=cand.id, max_steps=200,
+                           on_session=self.journal.session)
+        ledger = ProvenanceLedger(m, family_for=lambda role: family_of_client(self.clients.get(role)), model_for=lambda role: str(getattr(self.clients.get(role), "model", "")),
+                                  reads=SERVICE_READS)
         svc = SwarmServices(cand=cand, clone=clone, work=self.root / "work" / cand.id, funnel=self.funnel, max_milestones=self.max_milestones,
                             clients=self.clients, pool=pool)
         svc.results["base"], svc.results["a_suite"], svc.results["targets"] = str(base), info["a_suite"], info["targets"]
@@ -1130,14 +1153,16 @@ class SwarmRunner:
         svc.oracle_plan_fn = lambda shas, plan: self.oracle_plan(svc, base, shas, plan)
         svc.build_fn, svc.prompt_fn, svc.gates_fn = (lambda ctx: self.build(svc, ctx)), (lambda ctx: self.prompt(svc, ctx)), (lambda ctx: self.gates(svc, ctx))
         svc.second_fn, svc.hack_fn = (lambda ctx: self.second(svc, ctx)), (lambda ctx: self.hack(svc, ctx))
-        run = MachineRun(m, run_dir=self.root / "machines" / cand.id, run_id=cand.id, models=ROLE_MODELS, params=pool.params,
-                         handlers=handlers(svc, lease=lease_state(self.family), accept=accept_state(self.family)), services=svc, **pool.machine_kwargs())
+        run = MachineRun(m, run_dir=self.root / "machines" / cand.id, run_id=cand.id, models=self.families(), params=pool.params,
+                         handlers=self.journal.guard(handlers(svc, lease=lease_state(self.family), accept=accept_state(self.family)), ledger), services=svc,
+                         **pool.machine_kwargs())
         t0 = time.monotonic()
         try:
             res = await run.run()
         finally:
             await pool.close()
             spent = self.flush_spend(cand.id)
+        self.journal.run_end(run=cand.id, status=res.status, reason=res.reason, usd=sum(spent.values()), task=cand.id, accepted=res.status == "done")
         ann = ((res.outputs.get("lease") or {}).get("lease") or {}).get("announcement")
         if ann and res.status in ("rejected", "paused", "failed", "stopped") and not ((res.outputs.get("accept") or {}).get("accept") or {}).get("commit"):
             with contextlib.suppress(Exception):  # the scope is free again (a dropped or paused run never holds it)

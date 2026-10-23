@@ -71,6 +71,66 @@ def shadow_path(rid: str) -> str:
     return f"{SHADOW_DIR}/test_shadow_{re.sub(r'[^a-z0-9_]', '_', rid.lower())}.py"
 
 
+# ---- other languages (the debug lane, swarm-pipeline/07): the profile active in ``langs.base.use`` decides ------------------
+# A non-Python suite is one new test file per requirement that the writer places where the language's runner finds it (a
+# Go test file in the package it tests, a Rust integration test under tests/, a JUnit class under the test source root, a
+# Node test file the repository's runner collects). The file must be new at A and never a hidden test file.
+LANG_RULES: dict[str, str] = {
+    "go": ("Write Go tests with the standard testing package: one new file per requirement named crucible_shadow_<requirement id lower "
+           "case>_test.go, placed in the directory of the package it tests, declaring that directory's package name (or <name>_test "
+           "for black-box tests), test functions named TestShadow<RequirementId><What>."),
+    "rust": ("Write Rust integration tests: one new file per requirement at tests/crucible_shadow_<requirement id lower case>.rs using the "
+             "crate's public API, #[test] functions named shadow_<requirement id lower case>_<what>."),
+    "node": ("Write tests for the repository's own test runner (the one its existing test files use: vitest, jest, mocha or node:test): "
+             "one new file per requirement named crucible_shadow_<requirement id lower case>.test.<the extension its tests use>, next to "
+             "existing test files, importing the package the way those tests do."),
+    "java": ("Write JUnit tests in the style of the repository's existing tests: one new class per requirement named "
+             "CrucibleShadow<RequirementId>Test under the test source root, in the package of the class it tests."),
+}
+LANG_BRIEF = (
+    "You are an independent verifier for a coding task. A developer was given the request below and a copy of the "
+    "repository as it is now. You write hidden tests that decide whether each requirement was met, from the request and "
+    "the current repository only (you never see a solution). Rules: use only public names the request states or that the "
+    "repository already has; test observable behaviour (return values, errors, state changes, output properties); when "
+    "the request does not fix an exact text or format, assert properties instead of exact strings; never read source "
+    "files, no network, temporary files only; deterministic and fast; 2 to 6 focused tests per requirement. {rules} "
+    "Return JSON {{\"tests\": [{{\"requirement\": id, \"path\": repository-relative path of the new test file, \"code\": file source}}], "
+    "\"notes\": str}}.")
+
+
+def _lang() -> Any:
+    """The active language profile, or None for Python (the P2 suite: pytest modules under ``crucible_shadow/``)."""
+    from crucible.factory.langs.base import active
+
+    p = active()
+    return None if p is None or getattr(p, "name", "python") == "python" else p
+
+
+def shadow_brief() -> str:
+    p = _lang()
+    return SHADOW_BRIEF if p is None else LANG_BRIEF.format(rules=LANG_RULES.get(p.name, LANG_RULES["node"]))
+
+
+def check_shadow_path(path: str, *, base_dir: Path, hidden: Mapping[str, Any]) -> str | None:
+    """Why a non-Python shadow file's ``path`` is refused (None: accepted): it must be a test file of the language, new at A,
+    never a hidden test file, inside the repository, in a directory A has."""
+    p = _lang()
+    if p is None:
+        return None
+    if not path or path.startswith(("/", "../")) or "/../" in path or "\x00" in path:
+        return "not a repository-relative path"
+    if not p.is_test_file(path):
+        return f"not a {p.name} test file"
+    if path in hidden:
+        return "a hidden test file"
+    if (Path(base_dir) / path).exists():
+        return "an existing file (shadow tests are new files)"
+    parent = Path(path).parent
+    if str(parent) not in ("", ".") and not (Path(base_dir) / parent).is_dir() and not path.startswith("tests/"):
+        return f"no directory {parent} at the start"
+    return None
+
+
 # ---- the payload: prompt + requirements + the repository at A, nothing else (V2) -------------------------------------------
 def prompt_names(text: str) -> list[str]:
     """Identifiers the request mentions (in backticks, dotted, snake_case, CamelCase, or called)."""
@@ -85,8 +145,34 @@ def prompt_names(text: str) -> list[str]:
 
 
 def _source_files(base_dir: Path) -> list[Path]:
+    prof = _lang()
+    if prof is not None:
+        return sorted(p for p in Path(base_dir).rglob("*") if p.is_file() and prof.is_source(p.relative_to(base_dir).as_posix())
+                      and not prof.is_test_path(p.relative_to(base_dir).as_posix()))
     skip = re.compile(r"(^|/)(\.|tests?/|testing/|docs?/|examples?/|benchmarks?/|build/|dist/)|(^|/)(setup|noxfile|conftest)\.py$|(^|/)test_[^/]*\.py$")
     return sorted(p for p in Path(base_dir).rglob("*.py") if p.is_file() and not skip.search(p.relative_to(base_dir).as_posix()))
+
+
+# a definition of ``name`` in any of the debug lane's languages (def / class / func / fn / function / type / struct / interface)
+_DEF_ANY = r"^\s*(?:pub(?:\([^)]*\))?\s+|export\s+(?:default\s+)?|async\s+|public\s+|private\s+|protected\s+|static\s+|final\s+)*" \
+           r"(?:def|class|func(?:\s*\([^)]*\))?|fn|function|type|struct|interface|enum|trait|impl)\s+{n}\b"
+
+
+def style_example(base_dir: Path, modules: Sequence[str], *, budget: int = 6000) -> dict[str, str]:
+    """One existing test file at A next to the most relevant module (the repository's own test style, framework and imports),
+    for a non-Python suite. It is A's file: the agent's World has it too."""
+    prof = _lang()
+    if prof is None:
+        return {}
+    base_dir = Path(base_dir)
+    tests = sorted(p for p in base_dir.rglob("*") if p.is_file() and prof.is_test_file(p.relative_to(base_dir).as_posix()))
+    for m in modules:
+        d = Path(m).parent
+        near = [t for t in tests if t.parent == base_dir / d] or [t for t in tests if Path(m).stem in t.name]
+        if near:
+            t = min(near, key=lambda x: x.stat().st_size)
+            return {t.relative_to(base_dir).as_posix(): t.read_text(errors="replace")[:budget]}
+    return {tests[0].relative_to(base_dir).as_posix(): tests[0].read_text(errors="replace")[:budget]} if tests else {}
 
 
 def outline(text: str) -> str:
@@ -127,11 +213,16 @@ def repo_context(base_dir: Path, prompt: str, *, budget: int = CONTEXT_CHARS) ->
     files = _source_files(base_dir)
     names = prompt_names(prompt)
     score: dict[Path, int] = {}
+    generic = _lang() is not None
     for f in files:
         text = f.read_text(errors="replace")
         rel = f.relative_to(base_dir).as_posix()
-        s = sum(3 for n in names if re.search(rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(n)}\b|^{re.escape(n)}\s*=", text, re.MULTILINE))
-        s += sum(2 for n in names if n in rel.replace("/", ".").removesuffix(".py").split("."))
+        if generic:
+            s = sum(3 for n in names if re.search(_DEF_ANY.format(n=re.escape(n)), text, re.MULTILINE))
+            s += sum(2 for n in names if n.lower() in re.split(r"[/._-]", rel.lower()))
+        else:
+            s = sum(3 for n in names if re.search(rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(n)}\b|^{re.escape(n)}\s*=", text, re.MULTILINE))
+            s += sum(2 for n in names if n in rel.replace("/", ".").removesuffix(".py").split("."))
         if f.name == "__init__.py" and rel.count("/") <= 2:
             s += 1
         if s:
@@ -140,7 +231,8 @@ def repo_context(base_dir: Path, prompt: str, *, budget: int = CONTEXT_CHARS) ->
     left = budget
     for f in sorted(score, key=lambda p: (-score[p], p.as_posix())):
         text = f.read_text(errors="replace")
-        body = text if len(text) <= FILE_CHARS else "# outline (the module is large)\n" + outline(text)[:FILE_CHARS]
+        body = text if len(text) <= FILE_CHARS else ("(truncated: the file is large)\n" + text[:FILE_CHARS] if generic
+                                                     else "# outline (the module is large)\n" + outline(text)[:FILE_CHARS])
         if len(body) > left:
             body = body[:left]
         if not body.strip() or left <= 200:
@@ -148,8 +240,12 @@ def repo_context(base_dir: Path, prompt: str, *, budget: int = CONTEXT_CHARS) ->
         modules[f.relative_to(base_dir).as_posix()] = body
         left -= len(body)
     readme = next(iter(sorted(base_dir.glob("README*"))), None)
-    return {"files": [f.relative_to(base_dir).as_posix() for f in files][:400], "readme_head": readme.read_text(errors="replace")[:1500] if readme else "",
-            "modules": modules, "names": names[:60]}
+    out = {"files": [f.relative_to(base_dir).as_posix() for f in files][:400], "readme_head": readme.read_text(errors="replace")[:1500] if readme else "",
+           "modules": modules, "names": names[:60]}
+    if generic:
+        out["language"] = _lang().name
+        out["test_style_example"] = style_example(base_dir, list(modules))
+    return out
 
 
 def shadow_payload(prompt: str, requirements: Sequence[Mapping[str, Any]], base_dir: Path) -> dict[str, Any]:
@@ -180,6 +276,21 @@ def leaks(payload: Mapping[str, Any], *, oracle_files: Mapping[str, str | None],
     walk(payload)
     sent = {ln.strip() for x in strings for ln in x.splitlines()}
     out = []
+    prof = _lang()
+    if prof is not None:  # every language: B's source lines and hidden test names, through the profile
+        a_lines = {ln.strip() for f in Path(base_dir).rglob("*") if f.is_file() and f.stat().st_size < 2_000_000
+                   for ln in f.read_text(errors="replace").splitlines()} if Path(base_dir).is_dir() else set()
+        for p, t in oracle_files.items():
+            if t is None:
+                continue
+            hit = next((s for s in (ln.strip() for ln in t.splitlines()) if len(s) >= 40 and s not in a_lines and s in sent), None)
+            if hit:
+                out.append(f"oracle line from {p}: {hit[:80]}")
+        a_names = {k for f in Path(base_dir).rglob("*") if f.is_file() and prof.is_test_file(f.relative_to(base_dir).as_posix())
+                   for k in prof.test_defs(f.read_text(errors="replace"), f.relative_to(base_dir).as_posix())}
+        names = {k for p, txt in hidden_tests.items() for k in prof.test_defs(txt, p)} - a_names
+        out += [f"hidden test name {n}" for n in sorted(names) if len(n) > 4 and re.search(rf"\b{re.escape(n.rsplit('/', 1)[-1])}\b", blob)]
+        return out
     a_lines = {ln.strip() for f in Path(base_dir).rglob("*") if f.is_file() and f.suffix in (".py", ".md", ".rst", ".txt", ".cfg", ".toml", "")
                for ln in f.read_text(errors="replace").splitlines()} if Path(base_dir).is_dir() else set()
     for p, t in oracle_files.items():
@@ -223,19 +334,36 @@ class ShadowSuite:
         return cls(**{k: d[k] for k in ("files", "requirements", "model", "family", "notes", "problems", "usd") if k in d})
 
 
-def parse_shadow(out: Any, requirement_ids: Sequence[str]) -> tuple[dict[str, str], dict[str, str], list[str]]:
+def parse_shadow(out: Any, requirement_ids: Sequence[str], *, base_dir: Path | None = None,
+                 hidden: Mapping[str, Any] | None = None) -> tuple[dict[str, str], dict[str, str], list[str]]:
     """The model's JSON -> (files, requirement -> path, problems). A module that does not parse, an unknown requirement
-    id or a module with no test function is a problem (and left out)."""
+    id or a module with no test function is a problem (and left out). Another language (``_lang``): each row names its
+    file's ``path``, which ``check_shadow_path`` must accept (a new test file of the language, never a hidden one)."""
     files: dict[str, str] = {}
     reqs: dict[str, str] = {}
     problems: list[str] = []
     rows = out.get("tests") if isinstance(out, Mapping) else None
+    prof = _lang()
     for row in rows or []:
         if not isinstance(row, Mapping):
             continue
         rid, code = str(row.get("requirement") or ""), str(row.get("code") or "")
         if rid not in requirement_ids:
             problems.append(f"unknown requirement id {rid!r}")
+            continue
+        if prof is not None:  # another language: the writer places the file; ``check_shadow_path`` judges the place
+            path = str(row.get("path") or "")
+            why = check_shadow_path(path, base_dir=base_dir, hidden=hidden or {}) if base_dir is not None else None
+            if why:
+                problems.append(f"{rid}: {path or '(no path)'}: {why}")
+                continue
+            if path in files or rid in reqs:
+                problems.append(f"{rid}: one file per requirement")
+                continue
+            if not prof.test_defs(code, path):
+                problems.append(f"{rid}: no test function")
+                continue
+            files[path], reqs[rid] = code, path
             continue
         try:
             with warnings.catch_warnings():
@@ -272,16 +400,18 @@ async def write_shadow(client: Any, *, prompt: str, requirements: Sequence[Mappi
         if bad:
             raise ValueError(f"the second verifier's payload leaks: {bad[:3]}")
     ids = [r["id"] for r in payload["requirements"]]
-    msgs = [{"role": "system", "content": f"ROLE: second_verifier\n{SHADOW_BRIEF}\nAnswer with one JSON object only."},
+    hidden = (guard or {}).get("hidden_tests") or {}
+    msgs = [{"role": "system", "content": f"ROLE: second_verifier\n{shadow_brief()}\nAnswer with one JSON object only."},
             {"role": "user", "content": json.dumps(payload)}]
     out = await call_supported(client.complete_json, msgs, max_tokens=max_tokens, temperature=0.0)
-    files, reqs, problems = parse_shadow(out, ids)
-    broken = [p for p in problems if "syntax error" in p or "no test function" in p]
+    files, reqs, problems = parse_shadow(out, ids, base_dir=base_dir, hidden=hidden)
+    broken = [p for p in problems if any(w in p for w in ("syntax error", "no test function", "test file", "existing file", "no directory",
+                                                          "repository-relative", "hidden test file", "one file per"))]
     if repair and broken:
         fix = msgs + [{"role": "assistant", "content": json.dumps(out)[:20000]},
                       {"role": "user", "content": json.dumps({"fix_these_modules": broken, "return": "the same JSON shape, every requirement"})}]
         out2 = await call_supported(client.complete_json, fix, max_tokens=max_tokens, temperature=0.0)
-        f2, r2, p2 = parse_shadow(out2, ids)
+        f2, r2, p2 = parse_shadow(out2, ids, base_dir=base_dir, hidden=hidden)
         for rid, path in r2.items():
             if rid not in reqs:
                 files[path], reqs[rid] = f2[path], path
@@ -337,10 +467,22 @@ class WindowRunner:
             files, _, errors = self.task._files(solution)
             if errors:
                 self.cache[k] = {}
-            else:
+            elif _lang() is None:
                 tests, _ = tolerant_tests(suite.files, self.roots)
                 tr = await run_tests(self.task.sandbox, self.task.base_dir, files, tests, sorted(suite.files))
                 self.cache[k] = tr.results if tr.infra == "ok" else None
+            else:
+                # one run per shadow file: a file that does not compile (a Go package, a Rust crate) must not fail the
+                # other requirements' tests with it. A file with no result at all is ``error`` (it did not build)
+                merged: dict[str, str] | None = {}
+                for path in sorted(suite.files):
+                    tr = await run_tests(self.task.sandbox, self.task.base_dir, files, {path: suite.files[path]}, [path])
+                    if tr.infra != "ok":
+                        merged = None
+                        break
+                    got = {t: s for t, s in tr.results.items() if t.split("::", 1)[0] == path}
+                    merged.update(got or {f"{path}::(build)": "error"})
+                self.cache[k] = merged
         return self.cache[k]
 
     async def strict(self, solution: Any) -> dict[str, Any] | None:
