@@ -1090,6 +1090,16 @@ build tasks that target its failures):
     - Findings group by what they say.
     - A report before `mine` marks failures `unmined`, never `off_intent`.
     - The install verdict names an attempted fetch.
+  - **Round 2 fixes** (`swarm-pipeline/13` §10.3):
+    - K6 must carry an executed repro (S7r verified) for its milestone.
+    - A checkpoint start's pass-to-pass tests are graded at the new start, and those failing there leave the
+      regression check.
+    - Kernel lint `CAUSE` refuses a diagnosis in a symptom report.
+    - Stale prompt runs (another machine, or a new hand-off under the same id) move their run, session state and
+      hand-off branch aside.
+    - K4/K6 writers get 120 turns.
+    - `lh_kernel_debug.py build --subsets` (`kdm.connected_subsets`).
+    - Diagnosed knob overrides in the pilot.
   - **Pilot result:** 1 kept training task, `db-python-black-ae5830b7-c1-516b23`. It is a C1 checkpoint start written
     by the swarm. It cost $129.7 of Tinker over 8 measured variants. Step 2 found 0 new kernel tasks: llama.cpp's
     unused fixes do not revert together, and there is no harness for the other CUDA repositories yet.

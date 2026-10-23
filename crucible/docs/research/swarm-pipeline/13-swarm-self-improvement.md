@@ -263,3 +263,88 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 **Commits:** listed in the pilot report to the operator. Data is in `data/targeting/swarm-pilot/` (`actions.jsonl`,
 `revisions.jsonl`, and `r2`, `r3` and `r3f` per round) and in `data/debug/swarm/train/journal`.
 
+## 10. Pilot round 2 (2026-10-23): diagnose first, then the knob
+
+### 10.1 A: the four debug tasks
+
+**go-toml-a02114e3 (its C1 variant).**
+- `disclosure_check` on the parent: every reverted fix has a milestone.
+- **The failing test is a skill gap, not a spec defect.** Applying a student patch reproduced it:
+  `TestMarshalTextMarshalerStringKindOmitempty` prints `s = 'enc:'` for an empty named string. The student decides
+  emptiness on MarshalText's output, and the report states the opposite rule in one clause.
+- **K6, first attempt:** the swarm's rewrite quoted an "observed" output the program does not print. It claimed
+  `a = "hello"`; the program prints `a = 'hello'`.
+- **K6, second attempt,** with the executed-repro rule below: its repro failed at the oracle (S7r `fails_at_oracle`), so
+  the gate refused it.
+- **Verdict:** too hard. Two rounds are used (C1, K6).
+
+**mvdan-sh-dc951aeb.**
+- **m04 is tied to m03 by a shared test.** m04's own test set holds the whole `TestPrintBinaryNextLine`, which fails
+  whenever m03 does. So m04 cannot pass before m03, and m03 is the blocker: 1 pass in 24 episodes.
+- **K6 on m03:** the writer used its turns verifying the claim in the sandbox and wrote no report (twice; the second
+  time with 120 turns).
+- **Verdict:** too hard.
+
+**mvdan-sh-5e983709.**
+- **m04 fails on one case.** `TestPrintFiles/bash/#127`, the trailing-backslash case, failed in every one of 24
+  episodes, also when m03 passed. The report states the behaviour (idempotent printing of a trailing backslash).
+- **K6 on m04:** the writer wrote no report (twice).
+- **Verdict:** too hard.
+
+**mvdan-sh-04056a74 (its K1 variant).**
+- **C1, pre-applying m02,** cleared every gate, and the student's patches then fixed both remaining faults in 4 of 8
+  episodes.
+- **Every one of those 4 lost the full pass on `c_regress`.** The regression test `TestParseRecoverErrors/#10` fails at
+  the new start: m02's real fix breaks it, and only a later fix repairs it. So it was never pass-to-pass for this
+  variant; it asked for something the report does not state.
+- **After the repair** (it leaves the regression check, recorded), the World gates pass again, and the 8 stored
+  patches regraded offline give **4/8**. The fresh re-measurement is in §10.3.
+
+### 10.2 B: GPU tasks
+
+| source | result |
+|---|---|
+| 1. 5090 rerun (the kernel-grader worker) and the GH200 run (3440735–38) | **not finished**: the 5090 is running the worker's `pipeline3` (ik held-out and the near misses); the GH200 jobs are still queued (estimated start 2026-10-24 13:14 CT) |
+| 2. llama.cpp at HEAD f5027fb21 with the hardware filter, re-grouped (`build --subsets`: every connected pair and triple) | **1 new record**, `kd-bug-llamacpp-12fa0914` (2 faults: FLASH_ATTN_EXT and ARGSORT/FLASH_ATTN_EXT). It passed the CPU gates and the hardware reach (2/2). The report is the swarm's (Kimi), rewritten once after the new cause lint; lint is clean. GPU gates queued on DeltaAI (job 3443829, 1 GPU, 3 h, `bjhg-dtai-gh`, own directory `crucible-pilot2`) |
+| ik_llama.cpp at HEAD 0cd49c59, re-grouped | **0**: its only new group does not revert together |
+| 3. CUDA 12→13 migrations from more repositories | **0**: HeCBench has no commits since 2026-10-13. A GitHub commit search (CUDA 13, after 2026-05-01) found no suite with HeCBench's Makefile-per-program layout. The migration lane's builder reads that layout only, so another repository (for example NVIDIA's CUDA samples, which use CMake) needs a layout adapter first |
+| 4. a swarm-written harness for a second CUDA repository | **not started**. It needs a test-driver role, a GPU reference and a tolerance per op, and the lane must take a harness other than `test-backend-ops`. Estimated at 2-3 days of framework work before the swarm can mine such a repository |
+
+**GPU tasks passing every CPU and GPU gate: still 5, all training.**
+
+| task | source |
+|---|---|
+| `kd-bug-llamacpp-1b8b8fb1`, `-ca21f3a1`, `-efe7d4b1` | earlier rounds |
+| `km-cuda13-hecbench-591f311-4`, `-ba3a30a-3` | earlier rounds |
+
+**Pending GPU:**
+- 1 new training task, `kd-bug-llamacpp-12fa0914`;
+- the worker's rescues: near misses cef66d4a and a45699aa (training), its migration fixes, and 6 held-out ik tasks (000b1a1e, 1ef4f2f7, 35d83401, 44b81230, 5b8c07ff, 89213aa6) in its `pipeline3`;
+- the 30-task GH200 run.
+
+**Student difficulty runs:**
+- No kernel task has been through one.
+- The kernel lane's episode World (`kernel_debug_world`) is a CPU-only Docker container. Its GPU grading
+  (`GpuBackend`) runs on a CUDA host out of band, and `lh_debug_target` drives the debug lane only.
+- Measuring the student needs:
+  - episodes run on the GPU host (World and grader side by side);
+  - the checkpoint sidecar's grades sent to the GPU backend;
+  - a kernel targeting stage.
+- **Estimate:** 1-2 days of framework work. Each episode would then cost about one GPU grade per checkpoint (up to
+  15) on top of the student's Tinker tokens.
+- **The agent cannot run CUDA in its World.** Today it can only compile and run the CPU harness. A GPU in the World
+  would be more realistic, but it needs the sandbox rules for an untrusted agent on a GPU host.
+
+### 10.3 What round 2 fixed (each with a test)
+
+| finding | fix |
+|---|---|
+| K6 quoted an "observed" output the program does not print | K6's sharpened requirement must carry a repro whose S7r verdict for that milestone is `verified` |
+| A pre-applied fix broke a regression test, so every agent lost its full pass | a checkpoint start's pass-to-pass tests are graded at the new start; a failing one leaves the regression check, recorded |
+| The first swarm kernel report diagnosed the faults ("incorrectly includes out-of-bounds values", "integer overflow in ...") and passed lint and review | kernel lint `CAUSE`; the writer brief forbids diagnosing |
+| A `--redo` after a framework change crashed (`MachineError`: the journal belongs to another machine) | a stale run is moved aside and written fresh |
+| A revision under an old id was handed its old `prompt.json` back (the run, its session state and its hand-off branch were resumed) | a new hand-off under the same id is stale as well; all three are moved aside together (sessions live under `sessions/runs/<id>`) |
+| Two K6 writers ran out of turns verifying their claims | K4/K6 sessions get 120 turns and $2.5 |
+| The greedy kernel groups use each change once, so a group with one conflicting fault lost its other faults too | `build --subsets` (`kdm.connected_subsets`) |
+| A knob the diagnosis picks, not the controller's ranking | `revise --override task=KNOB[:milestone]@why`, journaled; C1 takes an explicit prerequisite-closed set |
+
