@@ -25,8 +25,14 @@ Per task (``tasks/<id>``):
 
 Results: ``results/<id>.json`` and ``tasks/<id>/kdspec.calibrated.json``. Shared-machine rules: containers are
 ``crucible-lh-k-gpu-*`` and only those are removed; nothing is pruned; timed steps wait for an idle GPU. Docker needs
-``--runtime=nvidia`` (the lab 5090); Apptainer (Marlowe) runs the same image with ``--nv --fakeroot`` (the grader drops
-privileges for candidate code, so it must be root inside).
+``--runtime=nvidia`` (the lab 5090); Apptainer runs the same image as a SIF (``--build-sif`` builds it from ``Dockerfile``
+on the host, into ``CRUCIBLE_SIF_DIR``, default ``sif/``). ``CRUCIBLE_APPTAINER_ROOT=fakeroot`` (default; a host with subuid
+ranges, as Marlowe) keeps the grader root inside, which it needs to drop privileges for candidate code;
+``CRUCIBLE_APPTAINER_ROOT=user`` (DeltaAI: no subuid range, one uid) runs the grader as the invoking user without
+``--require-root``, so every grade reports ``trusted: false`` (fit for the gates, which grade the lane's own patches).
+``CRUCIBLE_APPTAINER_TMP`` is the host directory each container's /tmp lives in (node-local disk; a build does not fit the
+session tmpfs). ``CRUCIBLE_IDLE_LOAD`` is the host load below which a timed step may start (default 8; a many-core node
+running one stream per GPU sets its own).
 """
 
 from __future__ import annotations
@@ -58,6 +64,10 @@ MARGIN = 0.5  # an owned case B passes above this share of its tolerance on a st
 PROFILE_SAMPLE = 192  # pool cases per milestone whose kernel launches are profiled to choose its sanitizer cases
 CCACHE = HERE / "ccache"  # gate runs only (the grader's own patches): a task grade never mounts a build cache
 USE_CCACHE = True
+SIF_DIR = Path(os.environ.get("CRUCIBLE_SIF_DIR") or HERE / "sif")
+APPTAINER_ROOT = os.environ.get("CRUCIBLE_APPTAINER_ROOT", "fakeroot")
+APPTAINER_TMP = Path(os.environ.get("CRUCIBLE_APPTAINER_TMP") or "/tmp/crucible-apptainer")
+IDLE_LOAD = float(os.environ.get("CRUCIBLE_IDLE_LOAD") or 8.0)
 
 
 def ccache_dir() -> Path:
@@ -76,7 +86,7 @@ def rmtree(p: Path) -> None:
     container of this lane's image."""
     p = Path(p)
     shutil.rmtree(p, ignore_errors=True)
-    if p.exists():
+    if p.exists() and shutil.which("docker"):
         sh(["docker", "run", "--rm", "--name", f"crucible-lh-k-gpu-rm-{uuid.uuid4().hex[:8]}", "-v", f"{p.parent}:/x", IMAGE, "rm", "-rf", f"/x/{p.name}"], timeout=1800)
     if p.exists():
         raise RuntimeError(f"could not remove {p}")
@@ -86,7 +96,8 @@ def gpu_name() -> str:
     return sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=30).stdout.strip().splitlines()[0]
 
 
-def idle(max_util: int = 10, max_load: float = 8.0, wait_s: float = 3600) -> dict:
+def idle(max_util: int = 10, max_load: float | None = None, wait_s: float = 3600) -> dict:
+    max_load = IDLE_LOAD if max_load is None else max_load
     t0 = time.time()
     while True:
         u = sh(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=30).stdout.split()
@@ -99,19 +110,33 @@ def idle(max_util: int = 10, max_load: float = 8.0, wait_s: float = 3600) -> dic
         time.sleep(60)
 
 
-def ensure_image(mode: str) -> None:
+def ensure_image(mode: str, *, build: bool = False) -> None:
     if mode == "docker" and sh(["docker", "image", "inspect", IMAGE], timeout=60).returncode != 0:
         p = sh(["docker", "build", "-t", IMAGE, "-"], input=(HERE / "Dockerfile").read_text())
         if p.returncode != 0:
             raise RuntimeError(f"build {IMAGE}: {p.stderr[-800:]}")
+    if mode == "apptainer":
+        sif = SIF_DIR / kp.sif_name(IMAGE)
+        if not sif.exists() and build:
+            SIF_DIR.mkdir(parents=True, exist_ok=True)
+            (SIF_DIR / f"{sif.stem}.def").write_text(kp.apptainer_def((HERE / "Dockerfile").read_text()))
+            p = sh(["apptainer", "build", "--fakeroot", str(sif) + ".part", str(SIF_DIR / f"{sif.stem}.def")], timeout=7200)
+            if p.returncode != 0:
+                raise RuntimeError(f"build {sif}: {p.stderr[-800:]}")
+            os.replace(str(sif) + ".part", sif)
+        if not sif.exists():
+            raise RuntimeError(f"no {sif}: build it on this host with --build-sif (inside a job, not on a login node)")
 
 
 def container(mode: str, mounts: list[tuple[Path, str, bool]], args: list[str], *, arch: str, tag: str, timeout: float = 14400) -> subprocess.CompletedProcess:
     if mode == "apptainer":
-        cmd = ["apptainer", "exec", "--nv", "--fakeroot", "--containall", "--net", "--network", "none", "--env", f"CRUCIBLE_CUDA_ARCH={arch}"]
-        for src, dst, rw in mounts:
-            cmd += ["-B", f"{src}:{dst}" + ("" if rw else ":ro")]
-        cmd += [f"docker-daemon://{IMAGE}", *args]
+        env = [("CRUCIBLE_CUDA_ARCH", arch)] + ([("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])] if os.environ.get("CUDA_VISIBLE_DEVICES") else [])
+        tmp = APPTAINER_TMP / f"{tag}-{uuid.uuid4().hex[:8]}"
+        tmp.mkdir(parents=True)
+        try:
+            return sh(kp.apptainer_argv(SIF_DIR / kp.sif_name(IMAGE), mounts, args, env=tuple(env), root=APPTAINER_ROOT, tmp=tmp), timeout=timeout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
     else:
         cmd = ["docker", "run", "--rm", "--name", f"crucible-lh-k-gpu-{tag}-{uuid.uuid4().hex[:8]}", "--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all",
                "-e", f"CRUCIBLE_CUDA_ARCH={arch}", "--network", "none", "--init", "--shm-size", "4g"]
@@ -197,7 +222,7 @@ def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str,
     out.mkdir(parents=True)
     args = ["python3", "-I", "/crucible_verify/crucible/verify/runtime/run.py", "--plan", PLAN, "--out", "/out", "--base", "/k/base", "--patch", "/k/patch",
             "--param", "spec=/k/kdspec.json", "--param", f"arch={arch}", "--param", "base_tree=/k/base", "--param", "ref=/k/ref", "--param", "hooks_dir=/k/hooks",
-            "--require-root"] + (["--param", "mode=pool"] if pool else []) + (["--param", f"only={only}"] if only else []) + [x for p in params for x in ("--param", p)]
+            *(() if mode == "apptainer" and APPTAINER_ROOT == "user" else ("--require-root",))] + (["--param", "mode=pool"] if pool else []) + (["--param", f"only={only}"] if only else []) + [x for p in params for x in ("--param", p)]
     mounts = [(HERE / "kit", "/crucible_verify", False), (d / "a", "/k/base", False), (d / "ref", "/k/ref", False), (HERE / "hooks", "/k/hooks", False),
               (spec_path, "/k/kdspec.json", False), (patch, "/k/patch", False), (out, "/out", True)]
     if USE_CCACHE:
@@ -766,7 +791,8 @@ def task(tid: str, a: argparse.Namespace) -> dict:
     d = HERE / "tasks" / tid
     unpack(d)
     spec = load_spec(d)
-    res: dict = {"id": tid, "arch": a.arch, "gpu": gpu_name(), "at": time.strftime("%FT%TZ", time.gmtime())}
+    res: dict = {"id": tid, "arch": a.arch, "gpu": gpu_name(), "at": time.strftime("%FT%TZ", time.gmtime()),
+                 "runtime": {"mode": a.mode, **({"root": APPTAINER_ROOT, "trusted": APPTAINER_ROOT == "fakeroot"} if a.mode == "apptainer" else {"trusted": True})}}
     entry = next(x for x in json.loads((HERE / "index.json").read_text()) if x["id"] == tid)
     if entry.get("cpu_pending_host"):
         res["cpu_host"] = host_cpu_gates(d, spec, a.mode, a.arch)
@@ -830,10 +856,11 @@ def main() -> int:
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--recalibrate", action="store_true")
     ap.add_argument("--no-ccache", action="store_true", help="build every grade from scratch (the gate runs cache by default)")
+    ap.add_argument("--build-sif", action="store_true", help="apptainer: build the SIF from Dockerfile when it is missing")
     a = ap.parse_args()
     global USE_CCACHE
     USE_CCACHE = not a.no_ccache
-    ensure_image(a.mode)
+    ensure_image(a.mode, build=a.build_sif)
     build_launch_lib(a.mode, a.arch)
     (HERE / "results").mkdir(exist_ok=True)
     for t in json.loads((HERE / "index.json").read_text()):

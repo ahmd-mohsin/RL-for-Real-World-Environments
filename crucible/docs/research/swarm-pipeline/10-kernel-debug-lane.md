@@ -304,6 +304,42 @@ perf tasks have no case of the speed-ups' quantization types (iq2_k/iq3_k/iq4_ks
 list); grader cases at those types (512 tokens, 8 experts) hung the reference build on its first chunk (idle, 0% GPU,
 over 30 minutes) and were withdrawn: (c) until that hang is understood.
 
+### 8.3 GPU gates on DeltaAI GH200 (CIS262200, from 2026-10-22)
+
+**Host.** NCSA DeltaAI, account `bjhg-dtai-gh` (CIS262200), partition `ghx4`: GH200 120GB (sm_90, aarch64 Grace), driver
+595, Apptainer 1.4, no Docker, no subuid range. The bundle is the 5090 bundle's inputs (task trees, patches, specs,
+`cpu_host.json` from the x86 host) with this host's own builds, calibration and gates; results go to
+`data/kernel_debug/gpu_results_gh200` and are ingested with `ingest-gpu --hardware-only` (the 5090's calibration stays
+the record's own). Job scripts: `data/kernel_debug/gpu_results_gh200/jobs`. The login environment exports
+`SBATCH_ACCOUNT` for another project, which overrides `#SBATCH --account`; jobs go through `submit.sh` (unsets it and
+passes `--account=bjhg-dtai-gh`), checked in `squeue -o %a`.
+
+**Runtime.** SIFs `crucible-lh-k:base-12.8.1` and `base-13.0.2` built on a compute node from the bundle Dockerfiles
+(`--build-sif`, about 3 minutes each). `CRUCIBLE_APPTAINER_ROOT=user`: the grader runs as the submitting user, so every
+grade here is `trusted: false` (the candidate is not dropped to its own uid). That is acceptable for the gates (the lane's
+own oracle, floors, mutants) and not for grading a policy. Two runtime bugs only an Apptainer host shows were fixed first:
+the grader's rebuilt environment dropped the container's LD_LIBRARY_PATH, the only route to the driver's libraries under
+`--nv`, so every CUDA program saw no device (the first migration oracle was masked with "Unified Memory not supported");
+and a job step without its own `--mem` took the whole allocation, so a second stream waited.
+
+**Parity smoke (job 3439700, 2 GPUs, 2 h 13 min).** `kd-bug-llamacpp-ca21f3a1`: both milestones kept, oracle 1, floors
+0, both revert mutants fail their milestone, S10 0/60 false negatives (CP upper 0.049): passes every GPU gate on the
+GH200 as on the 5090 (1 h 16 min cold). `km-cuda13-hecbench-591f311-4`: oracle 1, floors 0, S10 0/60 (no mutants in this
+window): passes (53 min).
+
+**Full run.** Four one-GPU stream jobs (perf alone on its GPU; three correctness streams, migrations first on one),
+12 h each, queued 2026-10-23 01:00 (the exclusive four-GPU node was estimated a day out). Not run here, because their cause does
+not depend on the GPU: `kd-bug-llamacpp-7ac249cc`, `-4b8c156e` (speed-only, AMD-only), `-b377258d` (within tolerance),
+`kd-bug-ikllamacpp-4da3f014` (pre-Ampere), `-5b1dc162` (the 2024 op test cannot build its cases), `-47f22c74`, `-5b19ab0c`
+(no op-test class, multi-GPU only), and `kd-perf-llamacpp-3ad8a68c` (its start does not build; below).
+
+**3ad8a68c.** m1's fix adds the integer-division helpers to `common.cuh`; a later commit (no fault) uses them in
+`binbcast.cu`, so reverting m1 at B gives a start that does not build. The S3 start build now also compiles
+`start_dependents` (units no fault touches that use a name a fault's header change takes away), so the CPU gate fails
+such a start. It flags `binbcast.cu` here; in the other records, it flags 3 units in `kd-bug-ikllamacpp-5b8c07ff` and 5 in
+`kd-perf-ikllamacpp-09e3d098`, which the GPU sweeps built. The task itself is not corrected: keeping the helpers at A'
+would change m1's fault, because the start would then carry the tool the fix introduces.
+
 ## 9. Open issues
 
 1. **Every GPU gate is pending** (`PENDING.json`): S1 executed (B passes, each single revert fails its milestone),

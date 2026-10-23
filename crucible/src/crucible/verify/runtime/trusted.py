@@ -39,6 +39,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Apptainer ``--nv`` binds the host driver's libraries here and reaches them only through the container's LD_LIBRARY_PATH,
+# which a rebuilt environment drops (found 2026-10-22 on DeltaAI: no libcuda, so every CUDA program saw no device)
+APPTAINER_DRIVER_LIBS = "/.singularity.d/libs"
 PR_SET_NO_NEW_PRIVS = 38
 OUT_CAP = 4 * 1024 * 1024
 
@@ -332,6 +335,8 @@ class Trusted:
         if pythonpath:
             e["PYTHONPATH"] = ":".join(str(p) for p in pythonpath)
         e.update({k: str(v) for k, v in (env or {}).items()})
+        if os.path.isdir(APPTAINER_DRIVER_LIBS):
+            e["LD_LIBRARY_PATH"] = ":".join(x for x in (e.get("LD_LIBRARY_PATH"), APPTAINER_DRIVER_LIBS) if x)
         if candidate and self.is_root:
             self._reachable()
         preexec = self._demote() if candidate and self.is_root else (os.setsid if candidate else None)

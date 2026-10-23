@@ -183,6 +183,58 @@ LAUNCH_BUILD = ["g++", "-O2", "-shared", "-fPIC", f"-I{CUDA}/include", "crucible
                 f"-Wl,-rpath,{CUDA}/lib64", "-o", "libcrucible_launch.so"]
 
 
+# ---- Apptainer hosts (the GPU runners' container mode where there is no Docker: DeltaAI, Marlowe) ---------------------------
+def sif_name(tag: str) -> str:
+    """The SIF file a GPU host keeps for an image tag (``crucible-lh-k:base-12.8.1`` -> ``crucible-lh-k_base-12.8.1.sif``)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", tag) + ".sif"
+
+
+def apptainer_argv(image: str, mounts: list, args: list[str], *, env: tuple = (), root: str = "fakeroot", tmp: str | Path | None = None,
+                   net_none: bool = True, workdir: str | None = None) -> list[str]:
+    """``apptainer exec`` for a gate container. ``mounts``: ``(src, dst, writable)``. ``root``: ``fakeroot`` (a host with
+    subuid ranges: the grader is root inside and drops privileges for candidate code) or ``user`` (no subuid range, as on
+    DeltaAI: one uid only, so the grader runs as the invoking user, the caller leaves ``--require-root`` out and every grade
+    reports ``trusted: false``; fit for gate runs of the lane's own patches, not for grading a policy). ``tmp``: a host
+    directory bound at /tmp (``--containall`` otherwise gives /tmp a small session tmpfs, too small for a CUDA build)."""
+    if root not in ("fakeroot", "user"):
+        raise ValueError(f"root must be fakeroot or user, not {root!r}")
+    cmd = ["apptainer", "exec", "--nv", "--containall", *(["--fakeroot"] if root == "fakeroot" else []), *(["--net", "--network", "none"] if net_none else [])]
+    for k, v in env:
+        cmd += ["--env", f"{k}={v}"]
+    if tmp is not None:
+        cmd += ["-B", f"{tmp}:/tmp"]
+    for src, dst, rw in mounts:
+        cmd += ["-B", f"{src}:{dst}" + ("" if rw else ":ro")]
+    if workdir:
+        cmd += ["--pwd", workdir]
+    return [*cmd, str(image), *args]
+
+
+def apptainer_def(dockerfile: str) -> str:
+    """An Apptainer definition from one of the lane's Dockerfiles (``FROM``, ``ENV`` and ``RUN`` lines only), for a host
+    without Docker. apt runs as root in the build (a root-mapped namespace has no ``_apt`` user to drop to)."""
+    base, env, post = None, [], ["echo 'APT::Sandbox::User \"root\";' > /etc/apt/apt.conf.d/00crucible-sandbox"]
+    for raw in re.sub(r"\\\n", " ", dockerfile).splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        word, _, rest = line.partition(" ")
+        word = word.upper()
+        if word == "FROM":
+            base = rest.strip()
+        elif word == "ENV":
+            k, _, v = rest.strip().partition("=")
+            env.append(f"export {k}={v}")
+            post.append(f"export {k}={v}")
+        elif word == "RUN":
+            post.append(rest.strip())
+        else:
+            raise ValueError(f"unsupported Dockerfile instruction for apptainer_def: {word}")
+    if not base:
+        raise ValueError("Dockerfile has no FROM")
+    return "\n".join([f"Bootstrap: docker\nFrom: {base}\n", "%post", *("    " + p for p in post), "", "%environment", *("    " + e for e in env), ""])
+
+
 # ---- build commands (shared with ``lanes.kernel_world``: one source of truth) ----------------------------------------------
 def nvcc_flags(prog: dict, *, root: Path, arch: str, legacy: bool = False, legacy_arch: str = "60", nvcc: str | None = None) -> list[str]:
     """The grader's compiler and flags. ``legacy``: the original (CUDA 11.8) as ``compute_<legacy_arch>`` PTX only (driver
