@@ -43,7 +43,7 @@ SUPPORTED = frozenset({"C1", "K1", "K2", "K3", "K4", "K6"})  # K5 (order): the d
 # the repro field) and every kept requirement stays word for word as the parent's measured report had it. A free rewrite
 # lost facts the hidden tests need (pilot 2026-10-23: go-toml's C1 variant dropped "date and time values" from m03, and
 # m03 went from 6/8 to 0/8 although its World and tests were unchanged).
-VERBATIM_KNOBS = frozenset({"C1", "K1", "K2", "K4"})
+VERBATIM_KNOBS = frozenset({"C1", "K1", "K2", "K3", "K4"})
 VERBATIM = " Every requirement in `current_report` stays word for word: copy it unchanged."
 KNOB_INSTRUCTIONS: dict[str, str] = {
     "C1": "Some of the problems in the current report are already fixed in this version of the repository (they are no longer in the hand-off). "
@@ -52,8 +52,9 @@ KNOB_INSTRUCTIONS: dict[str, str] = {
           "Write the opening and closing for the problems that are left, as the same user." + VERBATIM,
     "K2": "Announce the structure: the opening must say how many separate problems you have seen ({n}) and that fixing one of them may change "
           "how another one shows up." + VERBATIM,
-    "K3": "Point to the area: each requirement must name the user-visible feature or area of the library it concerns (for example 'the encoder', "
-          "'the here-document parser', 'the CLI flag handling'), never a file, a function, a test or the fix.",
+    "K3": "Point to the area: add an `areas` field mapping each requirement id to the user-visible feature or area of the library it concerns "
+          "(a few words, for example 'the encoder', 'the here-document parser', 'the CLI flag handling'), never a file, a function, a test or the fix. "
+          "Each area is appended to its requirement as 'This is in <area>.'." + VERBATIM,
     "K4": "Add a reproduction per requirement: a `repro` field mapping each requirement id to {{\"command\": \"...\", \"expect\": {{\"exit\": 0, "
           "\"contains\": [\"...\"]}}, \"timeout_s\": 120}}. The command runs from the repository root, offline, and may write scratch files only under "
           "/tmp/ (a heredoc inside the command); it must show the bug in the repository as it is now and pass once the bug is fixed. `expect` "
@@ -85,6 +86,13 @@ def restore_requirements(path: Path, parent_reqs: Mapping[str, str], action: Kno
             reqs[m] = parent_reqs[m]
         d["requirements"] = reqs
         d["restored_verbatim"] = changed
+    areas = d.get("areas") if action.knob == "K3" else None
+    if isinstance(areas, Mapping):  # K3: the area is appended to the verbatim requirement, so no fact can be lost
+        for m, area in areas.items():
+            if m in reqs and str(area).strip():
+                reqs[m] = f"{str(reqs[m]).rstrip()} This is in {' '.join(str(area).split()).rstrip('.')}."
+        d["requirements"] = reqs
+    if changed or isinstance(areas, Mapping):
         path.write_text(json.dumps(d, indent=1))
     return changed
 
@@ -179,6 +187,9 @@ class DebugReviser:
         brief = {"knob": action.knob, "instruction": KNOB_INSTRUCTIONS[action.knob].format(n=n, milestone=action.milestone or ""),
                  "current_report": {"opening": old.get("opening", ""), "requirements": {k: v for k, v in (old.get("requirements") or {}).items() if k in keep},
                                     "closing": old.get("closing", "")}}
+        if action.knob == "K3":
+            brief["format"] = {"opening": "...", "requirements": {m: "<copied unchanged>" for m in sorted(keep)}, "closing": "...",
+                               "areas": {m: "<the user-visible area>" for m in sorted(keep)}}
         if action.knob == "K4":
             brief["format"] = {"opening": "...", "requirements": {m: "..." for m in sorted(keep)}, "closing": "...",
                                "repro": {m: {"command": "...", "expect": {"exit": 0, "contains": ["..."]}, "timeout_s": 120} for m in sorted(keep)}}

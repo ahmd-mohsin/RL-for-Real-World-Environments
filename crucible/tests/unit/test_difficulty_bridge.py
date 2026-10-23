@@ -70,6 +70,8 @@ def test_choose_checkpoint_closest_to_half_and_never_on_unmeasured() -> None:
 
 def test_k1_target_is_the_hardest_free_milestone() -> None:
     assert k1_target(MS, {"m01": 0.6, "m02": 0.0, "m03": 0.75}) == "m02"
+    assert k1_target(MS, {"m01": 1.0, "m02": 0.875, "m03": 0.1}) is None  # every free fault is always fixed: nothing to drop
+    assert k1_target(MS, {}) is None  # unmeasured is never a target
     assert k1_target(MS[:2], {}) is None  # never down to one milestone
     linked = [{"id": "a", "requires": []}, {"id": "b", "requires": ["a"]}, {"id": "c", "requires": ["b"]}]
     assert k1_target(linked, {}) is None  # every fault interacts: K1 would remove an interaction
@@ -260,5 +262,6 @@ def test_a_frame_knob_never_rewrites_a_requirement(tmp_path: Path) -> None:
     f.write_text(json.dumps({"requirements": {"m03": "sharper m03", "m04": "changed m04"}}))
     assert restore_requirements(f, parent, KnobAction("ease", "K6", "r", milestone="m03")) == ["m04"]
     assert json.loads(f.read_text())["requirements"] == {"m03": "sharper m03", "m04": parent["m04"]}
-    f.write_text(json.dumps({"requirements": {"m03": "area: the decoder. x", "m04": "area: the encoder. y"}}))
-    assert restore_requirements(f, parent, KnobAction("ease", "K3", "r")) == []  # K3 adds an area to every requirement
+    f.write_text(json.dumps({"requirements": {"m03": "rewritten", "m04": parent["m04"]}, "areas": {"m03": "the decoder", "m04": "the encoder."}}))
+    assert restore_requirements(f, parent, KnobAction("ease", "K3", "r")) == ["m03"]  # K3 appends an area to the verbatim text
+    assert json.loads(f.read_text())["requirements"] == {"m03": parent["m03"] + " This is in the decoder.", "m04": parent["m04"] + " This is in the encoder."}

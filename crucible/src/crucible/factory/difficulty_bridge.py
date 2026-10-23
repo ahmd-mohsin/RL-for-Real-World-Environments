@@ -49,16 +49,18 @@ def choose_checkpoint(conditional: Mapping[str, Any] | None, milestones: Sequenc
     return best
 
 
-def k1_target(milestones: Sequence[Mapping[str, Any]], per_milestone: Mapping[str, float] | None) -> str | None:
-    """K1's fault: the hardest (lowest measured rate) milestone outside every ``requires`` edge, leaving at least two."""
+def k1_target(milestones: Sequence[Mapping[str, Any]], per_milestone: Mapping[str, float] | None, *, max_rate: float = 0.7) -> str | None:
+    """K1's fault: the hardest (lowest measured rate) milestone outside every ``requires`` edge, leaving at least two.
+    Only a fault that actually costs passes counts (measured rate at most ``max_rate``, the band's top): dropping a fault
+    the student always fixes removes work but no failure (pilot: K1 picked mvdan-sh's m01 at 8/8)."""
     if len(milestones) < 3:
         return None
     linked = {m["id"] for m in milestones if m.get("requires")} | {r for m in milestones for r in m.get("requires") or []}
-    free = [m["id"] for m in milestones if m["id"] not in linked]
+    per = per_milestone or {}
+    free = [m["id"] for m in milestones if m["id"] not in linked and m["id"] in per and per[m["id"]] <= max_rate]
     if not free:
         return None
-    per = per_milestone or {}
-    return min(free, key=lambda m: (per.get(m, 1.0), [x["id"] for x in milestones].index(m)))
+    return min(free, key=lambda m: (per[m], [x["id"] for x in milestones].index(m)))
 
 
 def rate_of(passes: int, n: int, *, masked: int = 0, model: str = "student", harness: str = "debug-300") -> PassRate:
@@ -103,7 +105,10 @@ class ControlController:
             hook = KnobAction(hook.direction, hook.knob, hook.reason, milestone=hook.milestone, evidence=hook.evidence)
         if hook is not None and hook.knob == "K1" and hook.milestone is None:
             target = k1_target(stats.get("milestones") or (), stats.get("per_milestone"))
-            hook = KnobAction(hook.direction, hook.knob, hook.reason, milestone=target, evidence=hook.evidence) if target else None
+            if target:
+                hook = KnobAction(hook.direction, hook.knob, hook.reason, milestone=target, evidence=hook.evidence)
+            else:  # no fault worth dropping: the next knob the reviser supports
+                hook = from_control(a, supported=ok - {"K1"}, params={"checkpoint": cp} if cp else None)
         if hook is not None and hook.knob == "K6" and hook.milestone is None:  # the stuck requirement: the lowest measured rate
             per = stats.get("per_milestone") or {}
             stuck = min(per, key=lambda m: per[m]) if per else None

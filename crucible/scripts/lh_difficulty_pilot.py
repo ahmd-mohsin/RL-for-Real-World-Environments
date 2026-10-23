@@ -55,20 +55,23 @@ def repathed_frontier() -> dict[str, dict[str, bool]]:
 
 def measured(ids: list[str], report: Path | None = None) -> dict[str, dict[str, Any]]:
     """The newest targeting row per task: the pilot's own report (variants) over the 300-call run (parents)."""
-    rows = {t["task"]: t for t in json.loads(T300.read_text())["tasks"]} if T300.exists() else {}
-    rp = report or OUT / "report.json"
-    if rp.exists():
-        for t in json.loads(rp.read_text()).get("tasks") or []:
-            rows[t["task"]] = t
+    def task_rows(d: dict[str, Any]) -> list[dict[str, Any]]:  # runs/s15_*.json list them, a phase's report.json keys them by id
+        t = d.get("tasks") or []
+        return [{"task": k, **v} for k, v in t.items()] if isinstance(t, dict) else list(t)
+
+    rows = {t["task"]: t for t in task_rows(json.loads(T300.read_text()))} if T300.exists() else {}
+    for rp in ([report] if report else [OUT / "report.json", *sorted(OUT.glob("r*/report.json"))]):  # later rounds override earlier
+        if rp.exists():
+            rows.update({t["task"]: t for t in task_rows(json.loads(rp.read_text()))})
     return {i: rows[i] for i in ids if i in rows}
 
 
 def conditional_of(ids: list[str]) -> dict[str, Any]:
 
     out = json.loads(COND.read_text()) if COND.exists() else {}
-    pc = OUT / "conditional.json"
-    if pc.exists():
-        out.update(json.loads(pc.read_text()))
+    for pc in (OUT / "conditional.json", *sorted(OUT.glob("r*/conditional.json"))):
+        if pc.exists():
+            out.update(json.loads(pc.read_text()))
     return {i: out.get(i) for i in ids}
 
 
