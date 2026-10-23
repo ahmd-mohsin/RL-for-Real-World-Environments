@@ -145,6 +145,13 @@ worktree and sandbox**, not single calls (`swarm-pipeline/01` fact 10).
 | Auditor | call / agent | reviewer family | traces + environment evidence + verdicts | — | first wrong step, cause, defects |
 | Tie-break | call | third family | the disputed item | — | decision |
 
+**3.2.1 Families since 2026-10-23 (the Tinker swarm, `08` §1.1, `13`).** "Author family" became three families: the
+oracle builder is DeepSeek, the planner and the first verifier writer are GLM (V2 by family), and the prompt writer,
+World expert and mutant builder are Kimi. "Reviewer family" became the families nothing builds: Nemotron and
+gpt-oss. The rule is checked per artifact: every artifact carries the families that produced it (`factory/provenance.py`),
+and a checker refuses an input its own family produced. Builder sessions run on the M16 RLM harness with the checkpoint
+sidecar, so a builder's Φ, per-turn credit and honesty are journaled like a student's.
+
 **3.3 Communication rules** (`EVALS` L6):
 - Hand-offs lose specification: prose costs about 8.5 points per hand-off, structured about 2.8. Sending the full
   original spec loses least.

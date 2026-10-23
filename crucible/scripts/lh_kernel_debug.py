@@ -5,12 +5,13 @@
     python scripts/lh_kernel_debug.py build                # groups -> A'..B' records (train: ggml-org/llama.cpp, held-out: ik_llama.cpp)
     python scripts/lh_kernel_debug.py gates [--ids ...]    # CPU gates in Docker (compile units, harness on the CPU, World, floors, mutants)
     python scripts/lh_kernel_debug.py author               # the builder's symptom reports (prompts/<id>.json): lint + ledger + intent
+    python scripts/lh_kernel_debug.py write-prompts        # the swarm writes those reports (factory.swarm_prompts; --cap USD)
     python scripts/lh_kernel_debug.py stage-gpu            # the persistent GPU bundle (data/kernel_debug/gpu_bundle)
     python scripts/lh_kernel_debug.py ingest-gpu           # the bundle's calibration and GPU gates back into the records
     python scripts/lh_kernel_debug.py report               # funnel per family, candidates, pending GPU gates
 
 Everything lives under ``data/kernel_debug`` (clones, derived clones with the synthetic refs, the record store, Docker
-build dirs, prompts, the GPU bundle). No model is called; no GPU is used. Containers are ``crucible-lh-k-*`` with at
+build dirs, prompts, the GPU bundle). Only ``write-prompts`` calls models (the swarm preset on Tinker, no Claude); no GPU is used. Containers are ``crucible-lh-k-*`` with at
 most two CPUs; images are ``crucible-lh-k:*``.
 """
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import shutil
 import sys
 import time
@@ -443,6 +445,65 @@ def cmd_author(a: argparse.Namespace) -> None:
         kd.save(store, rec)
         fn.note("kernel_debug", rec["id"], "S7", not res["findings"], "; ".join(res["findings"])[:300], family=rec["family"], split=rec["split"])
         print(rec["id"], "lint", res["findings"] or "clean", flush=True)
+
+
+def kernel_brief(rec: dict[str, Any], *, chars: int = 3000) -> dict[str, Any]:
+    """The prompt writer's hand-off for one kernel record (``factory.swarm_prompts``): per milestone the fix's message, its
+    hunks of the oracle patch (to understand, never to quote), the ops and checks a user would observe; and the strings
+    ``kernel_debug.lint_prompt`` refuses (faulty functions and kernels, changed files, hidden case names)."""
+    import subprocess
+
+    from crucible.factory.lanes import kernel_debug as kd
+
+    clone = ROOT / "clones" / str(rec.get("source_clone") or "")
+    blocks = re.split(r"(?m)^(?=diff --git )", rec.get("oracle_patch") or "")
+    ms = []
+    for m in rec["milestones"]:
+        if m["id"] in set(rec.get("dropped_milestones") or []):
+            continue
+        msg = ""
+        if clone.exists() and m.get("fault"):
+            msg = subprocess.run(["git", "-C", str(clone), "log", "-1", "--format=%s%n%b", str(m["fault"])], capture_output=True, text=True, check=False).stdout[:800]
+        hunks = "".join(b for b in blocks if any(f in b.split("\n", 1)[0] for f in m.get("files") or []))
+        ms.append({"id": m["id"], "class": m.get("class"), "kind": m.get("kind"), "ops": m.get("ops"), "checks": m.get("checks"), "fix_message": msg,
+                   "source_diff": hunks[:chars], "requires": m.get("requires") or []})
+    return {"task": rec["id"], "lane": "kernel_debug", "family": rec["family"], "repository": rec["repo"], "milestone_ids": [m["id"] for m in ms],
+            "milestones": ms, "forbidden_strings": sorted(kd.hidden_strings(rec))[:200],
+            "harness": "graded on a GPU: each requirement is checked by the repository's op test against the CPU reference, compute-sanitizer and timing"}
+
+
+def cmd_write_prompts(a: argparse.Namespace) -> None:
+    """The swarm writes the kernel symptom reports (``factory.swarm_prompts``; no Claude), one machine run per record
+    without a prompt (``--ids``, ``--redo``); ``kernel_debug.author`` (lint, ledger) is the gate, then ``author`` runs as
+    before. Training and held-out records have separate roots and journals (V9)."""
+    import asyncio
+    import copy
+
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    book = ModelBook(preset=a.preset)
+    spent = 0.0
+    for rec in kd.records(ROOT / "store"):
+        out = ROOT / "prompts" / f"{rec['id']}.json"
+        if (a.ids and rec["id"] not in a.ids) or (out.exists() and not a.redo) or rec.get("family") == "kernel-migration":
+            continue
+        if spent >= a.cap:
+            print(f"cap ${a.cap} reached (${spent:.4f}); stopping before {rec['id']}", flush=True)
+            return
+        builder = book.spec("prompt_author").ref
+
+        def lint(draft: dict, rec: dict = rec, builder: str = builder) -> list[str]:
+            return kd.author(copy.deepcopy(rec), {**draft, "builder": builder})["findings"]
+
+        brief = kernel_brief(rec)
+        sroot = ROOT / "swarm" / rec["split"]
+        job = PromptJob(rec["id"], brief["milestone_ids"], brief, ROOT / "store" / rec["tree_a"], lint, lambda t, rec=rec: kd.lint_prompt(t, rec), out)
+        res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=a.budget, max_turns=a.max_turns))
+        spent += res["usd"]
+        print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
 
 
 # ---- stage the GPU gates -------------------------------------------------------------------------------------------------------------------
@@ -940,9 +1001,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--auto", action="store_true", help="retire records with fewer than two milestones gradable on our GPUs")
     s = sub.add_parser("report")
     s.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs" / "kernel_debug_funnel.json"))
+    s = sub.add_parser("write-prompts", help="the swarm writes prompts/<id>.json (factory.swarm_prompts; no Claude)")
+    s.add_argument("--preset", default="swarm")
+    s.add_argument("--ids", nargs="*")
+    s.add_argument("--redo", action="store_true")
+    s.add_argument("--cap", type=float, default=10.0, help="USD over every record of this run")
+    s.add_argument("--budget", type=float, default=1.5, help="USD per record (the machine's budget)")
+    s.add_argument("--max-turns", type=int, default=60)
     a = ap.parse_args(argv)
     {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe,
-     "reach": cmd_reach, "retire": cmd_retire}[a.cmd](a)
+     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts}[a.cmd](a)
     return 0
 
 

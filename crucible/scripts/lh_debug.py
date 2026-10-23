@@ -7,9 +7,11 @@
     python scripts/lh_debug.py repro [--ids ...]          # S7r: each requirement's `repro` run in the World at A' (shows the bug) and B (passes)
     python scripts/lh_debug.py brief <id>                 # what the builder reads: calibration (training tasks only, K1-K6), then per milestone
     python scripts/lh_debug.py report                     # funnel per language, candidates, image disk
+    python scripts/lh_debug.py write-prompts [--ids ...]  # the swarm writes prompts/<id>.json (factory.swarm_prompts, Tinker roles; --cap USD)
 
-Everything lives under ``data/debug`` (clones in ``src/``, generator state in ``gen/``, funnel in ``funnel.jsonl``). No
-model is called: the prompts are written by the builder (``generators.debug.BUILDER``) into ``prompts/``.
+Everything lives under ``data/debug`` (clones in ``src/``, generator state in ``gen/``, funnel in ``funnel.jsonl``). Only
+``write-prompts`` calls models (the ``swarm`` preset: no Claude); the earlier prompts were written by the Claude builder
+(``generators.debug.BUILDER``) into ``prompts/``, and either kind goes through ``author`` unchanged.
 """
 
 from __future__ import annotations
@@ -380,6 +382,73 @@ def cmd_brief(args: argparse.Namespace) -> None:
                 print("--- source diff ---\n" + src[: args.chars] + "\n--- test diff ---\n" + tst[: args.chars])
 
 
+def swarm_brief(w: str, split: str, rec: dict[str, Any], repo: Any, *, chars: int = 3000) -> dict[str, Any]:
+    """The prompt writer's hand-off (``factory.swarm_prompts``): what ``brief`` prints, as data, plus the strings the lint
+    refuses (so the writer knows them before the gate does) and the calibration block (training windows only)."""
+    from crucible.factory.generators.debug import faulty_names, hidden_names, scope
+    from crucible.factory.lanes.windows_git import Unit
+
+    units = {u["sha"]: Unit(**u) for u in rec["units"]}
+    ms = []
+    with scope(rec["lang"]):
+        for m in rec["milestones"]:
+            u = units[m["unit"]]
+            src = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *u.src_files], capture_output=True, text=True, check=False).stdout
+            rest = [p for p in u.files if p not in u.src_files]
+            tst = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *rest], capture_output=True, text=True, check=False).stdout if rest else ""
+            ms.append({"id": m["id"], "requires": m.get("requires") or [], "fix_message": f"{u.subject}\n{u.body[:600]}", "source_diff": src[:chars],
+                       "test_diff": tst[:chars], "hidden_tests": len(m["tests"])})
+    forbidden = sorted(n for n in faulty_names(rec, repo) if not (re.fullmatch(r"[a-z]+", n) and len(n) < 10)) + sorted(n for n in hidden_names(rec) if len(n) >= 6)
+    return {"task": w, "lane": "debug", "language": rec["lang"], "repository": rec["repo"], "milestone_ids": [m["id"] for m in rec["milestones"]],
+            "milestones": ms, "forbidden_strings": forbidden[:200], "calibration": calibration_text(w, split) if split == "train" else ""}
+
+
+def cmd_write_prompts(args: argparse.Namespace) -> None:
+    """The swarm writes the bug reports (``factory.swarm_prompts``; no Claude): every stored window with milestones and no
+    prompt (or ``--ids``, ``--redo``) gets one machine run: the ``prompt_author`` session drafts ``prompts/<id>.json``,
+    the lane's own lint and ledger (``author_debug``) decide, the ``reviewer`` reads it once. Then ``author`` runs as
+    before. The journal (``swarm/<split>/journal``) feeds ``scripts/swarm.py diagnose``. Training and held-out windows
+    have separate roots: no writer of training prompts ever reads a held-out window (V9)."""
+    from crucible.factory.generators.debug import author_debug, faulty_names, hidden_names, lint_debug
+    from crucible.factory.lanes.windows import WindowStore
+    from crucible.factory.lanes.windows_git import RepoGit
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    book = ModelBook(preset=args.preset)
+    only = {x for x in args.ids.split(",") if x}
+    spent = 0.0
+    for split in ("train", "heldout"):
+        sd = ROOT / "gen" / "store" / split
+        if not (sd / "split.json").exists():
+            continue
+        store = WindowStore(sd, split=split)
+        sroot = ROOT / "swarm" / split
+        journal = SwarmJournal(sroot / "journal")
+        for w in store.window_ids():
+            out = ROOT / "prompts" / f"{w}.json"
+            rec = store.window(w)
+            if (only and w not in only) or not rec.get("milestones") or (out.exists() and not args.redo):
+                continue
+            if spent >= args.cap:
+                print(f"cap ${args.cap} reached (${spent:.4f}); stopping before {w}", flush=True)
+                return
+            clone = ROOT / "gen" / "clones" / rec["repo"]
+            repo = RepoGit(clone if clone.exists() else clones()[rec["repo"]][1])
+            faulty, hidden = faulty_names(rec, repo), hidden_names(rec)
+            builder = book.spec("prompt_author").ref
+
+            def lint(draft: dict, rec: dict = rec, repo: Any = repo, sd: Path = sd, w: str = w, builder: str = builder) -> list[str]:
+                return author_debug(rec, {**draft, "builder": builder}, repo, base_dir=sd / "tasks" / w / "base")["findings"]
+
+            job = PromptJob(w, [m["id"] for m in rec["milestones"]], swarm_brief(w, split, rec, repo), sd / "tasks" / w / "base", lint,
+                            lambda t, f=faulty, h=hidden: lint_debug(t, faulty=f, hidden=h), out)
+            res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=journal, budget_usd=args.budget, max_turns=args.max_turns))
+            spent += res["usd"]
+            print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
+
+
 def funnel_table() -> tuple[str, dict[str, Any]]:
     """The yield ledger per language (``00`` §9): fix units mined -> real fixes executed -> interacting groups -> windows
     validated (World, leak probes, fail-to-pass) -> dependent with valid mutants -> every CPU gate -> prompt (S7), with
@@ -472,6 +541,13 @@ def main() -> None:
     br.add_argument("--targeting", nargs="*", help="S15 report.json files (default: data/targeting/debug and debug-300; later override earlier)")
     br.add_argument("--no-calibration", action="store_true")
     sub.add_parser("report")
+    wp = sub.add_parser("write-prompts", help="the swarm writes prompts/<id>.json (factory.swarm_prompts; no Claude)")
+    wp.add_argument("--preset", default="swarm", help="the ModelBook preset (swarm: every role on Tinker)")
+    wp.add_argument("--ids", default="")
+    wp.add_argument("--redo", action="store_true")
+    wp.add_argument("--cap", type=float, default=10.0, help="USD over every window of this run")
+    wp.add_argument("--budget", type=float, default=1.5, help="USD per window (the machine's budget)")
+    wp.add_argument("--max-turns", type=int, default=60)
     args = ap.parse_args()
     if args.cmd == "scout":
         cmd_scout(args)
@@ -487,6 +563,8 @@ def main() -> None:
         cmd_intent(args)
     elif args.cmd == "brief":
         cmd_brief(args)
+    elif args.cmd == "write-prompts":
+        cmd_write_prompts(args)
     else:
         cmd_report(args)
 
