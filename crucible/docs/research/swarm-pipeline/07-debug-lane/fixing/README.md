@@ -61,18 +61,25 @@ Every command below runs from `crucible/` after `set -a && source ../.env && set
    paragraphs to milestones by the bug (the `subject` in `window.json`), not by number: with `--no-link` the milestones
    follow commit history, so the numbering can change.
 4. **Lint:** `.venv/bin/python scripts/lh_debug.py author` → your task must show `findings=0`.
-5. **Gates:** `.venv/bin/python scripts/lh_debug.py gates --ids <new-id>` → `ok=True` for S6 S5 S8 S3 S10 (minutes to an
-   hour). A one-off S8 failure under heavy load can be noise: check with `.venv/bin/python data/debug/dbg_grade.py <id>
-   <train|heldout>` (grades the real fix and prints what failed), then `gates --ids <id> --redo`.
+5. **Cheap gates:** `.venv/bin/python scripts/lh_debug.py gates --ids <new-id> --gates S6,S5,S8` → `ok=True` (~3 min).
+   S6 the link (or `--no-link`), S5 the real fix passes and doing nothing fails, S8 cheating scores 0 and every bug's
+   own revert fails its milestone. The record is partial: measurement refuses it unless asked (`--cheap-gates`).
+   A one-off S8 failure under heavy load can be noise: check with `.venv/bin/python data/debug/dbg_grade.py <id>
+   <train|heldout>` (grades the real fix and prints what failed), then `gates --ids <id> --gates S6,S5,S8 --redo`.
 6. **Checklist** (below).
 7. **Quick pass** (~$5–10): `.venv/bin/python scripts/lh_debug.py intent` then
-   `.venv/bin/python scripts/lh_debug_target.py student frontier --tasks <id> --k 3 --frontier "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144" --frontier-k 1 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-quick --audit-reserve 0 --cap 30`
-   Read `data/targeting/<out>/arms/*/<id>/episodes.jsonl` (`passed`, `milestones`, `turns`, `stop`, `gates`).
-8. **Full measurement** (~$20–35) if the quick pass looks in range:
+   `.venv/bin/python scripts/lh_debug_target.py student frontier --tasks <id> --k 3 --frontier "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144" --frontier-k 1 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-quick --audit-reserve 0 --cap 30 --cheap-gates`
+   Read `data/targeting/<out>/arms/*/<id>/episodes.jsonl` (`passed`, `milestones`, `turns`, `stop`, `gates`). A variant
+   that misses the band is changed again without ever paying for S3/S10.
+8. **All gates** before the full run: `.venv/bin/python scripts/lh_debug.py gates --ids <id>` (no `--gates`: it re-runs
+   the partial record in full, ~30 min; S3 is the World, leak probes and 60 reruns of the existing suite, S10 grades the
+   real fix 60 times, since 0 false fails in 60 is the fewest that bounds the rate under 5%). Run it on a quiet host:
+   one false fail under load (mvdan-sh 02a801cd-e1 beside a full run) fails S10. Then `lh_debug.py intent`.
+9. **Full measurement** (~$20–35) if the quick pass looks in range (needs all five gates; never `--cheap-gates`):
    `.venv/bin/python scripts/lh_debug_target.py student frontier disclose audit mine report --tasks <id> --k 8 --frontier-k 2 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-full --cap 90`
    The verdict is in `data/targeting/<out>/report.json` → `tasks.<id>.keep` (`train`, `bench`, `too_hard`, `too_easy`,
    `unfair`).
-9. **Write a task note** like `notes/go-toml-a02114e3.md`: before, what changed, after.
+10. **Write a task note** like `notes/go-toml-a02114e3.md`: before, what changed, after.
 
 ## Checklist before measuring
 

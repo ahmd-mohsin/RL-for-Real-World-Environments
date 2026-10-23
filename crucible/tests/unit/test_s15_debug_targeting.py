@@ -265,6 +265,20 @@ def test_the_targeting_script_runs_under_the_lane_budget_and_records_it() -> Non
     assert not t.env_budget(t.parse_args(["report", "--tool-limit", "150"]))["is_lane_budget"]
 
 
+def test_a_partial_gate_record_is_measured_only_by_a_quick_pass(tmp_path: Path) -> None:
+    """lh_debug.py gates --gates S6,S5,S8 passes a variant to a quick pass; a full run still needs all five gates."""
+    t = _target_script()
+    rows = [{"id": "full", "gates_ok": True, "gates_run_ok": True}, {"id": "cheap", "gates_ok": False, "gates_run_ok": True},
+            {"id": "failed", "gates_ok": False, "gates_run_ok": False}, {"id": "unlinted", "gates_ok": True, "gates_run_ok": True}]
+    (tmp_path / "candidates.json").write_text(json.dumps(rows))
+    (tmp_path / "authored").mkdir()
+    for r in rows:
+        (tmp_path / "authored" / f"{r['id']}.json").write_text(json.dumps({"findings": ["x"] if r["id"] == "unlinted" else []}))
+    assert [r["id"] for r in t.candidates(tmp_path)] == ["full"]
+    assert [r["id"] for r in t.candidates(tmp_path, cheap_gates=True)] == ["full", "cheap"]
+    assert not t.parse_args(["student"]).cheap_gates and t.parse_args(["student", "--cheap-gates"]).cheap_gates
+
+
 def test_node_world_pnpm_is_offline_without_its_pre_run_install() -> None:
     from crucible.factory import langs
     from crucible.factory.langs.node import PNPM_OFFLINE

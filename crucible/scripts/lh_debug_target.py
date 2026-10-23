@@ -92,12 +92,13 @@ def arm_name(model: str) -> str:
 
 
 # ---- the candidates as tasks -------------------------------------------------------------------------------------------
-def candidates(debug: Path) -> list[dict[str, Any]]:
-    """Every candidate through every CPU gate with a clean S7 prompt (``candidates.json`` + ``authored/<id>.json``)."""
+def candidates(debug: Path, *, cheap_gates: bool = False) -> list[dict[str, Any]]:
+    """Every candidate through every CPU gate with a clean S7 prompt (``candidates.json`` + ``authored/<id>.json``);
+    ``cheap_gates`` (a quick pass) also takes one whose partial gate record passed (``lh_debug.py gates --gates S6,S5,S8``)."""
     out = []
     for r in json.loads((debug / "candidates.json").read_text()):
         a = debug / "authored" / f"{r['id']}.json"
-        if r.get("gates_ok") and a.exists() and not json.loads(a.read_text()).get("findings"):
+        if (r.get("gates_ok") or (cheap_gates and r.get("gates_run_ok"))) and a.exists() and not json.loads(a.read_text()).get("findings"):
             out.append(r)
     return out
 
@@ -105,14 +106,14 @@ def candidates(debug: Path) -> list[dict[str, Any]]:
 class Tasks:
     """The debug lane's tasks (``generators.debug.DebugTask``) under their authored prompts, in this phase's containers."""
 
-    def __init__(self, debug: Path, *, grade_parallel: int = 2, out: Path | None = None):
+    def __init__(self, debug: Path, *, grade_parallel: int = 2, out: Path | None = None, cheap_gates: bool = False):
         import lh_debug
 
         from crucible.factory.generators.debug import debug_sandboxes
 
         lh_debug.ROOT = debug  # the lane's durable data dir (the main checkout's), never the worktree's
         self.debug, self.lh = debug, lh_debug
-        self.rows = {r["id"]: r for r in candidates(debug)}
+        self.rows = {r["id"]: r for r in candidates(debug, cheap_gates=cheap_gates)}
         self.gens: dict[str, Any] = {}
         self.sandboxes = debug_sandboxes(parallel=grade_parallel, prefix=f"{PREFIX}grade-")
         self._tasks: dict[str, Any] = {}
@@ -247,7 +248,7 @@ class Phase:
 
         self.meter = shared_meter()  # the phase's one cap (persisted: a restart starts from the booked total)
         self.meter.cap_usd = float(a.cap)
-        self.tasks = Tasks(Path(a.debug), grade_parallel=a.grade_parallel, out=self.out)
+        self.tasks = Tasks(Path(a.debug), grade_parallel=a.grade_parallel, out=self.out, cheap_gates=a.cheap_gates)
         self.slots = Slots(a.slots)
         self._codecs: dict[str, Any] = {}
         self._backend: Any = None
@@ -1184,6 +1185,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--alt-k", type=int, default=1, help="fairness: alternative sessions per model and task")
     ap.add_argument("--harvest", default="", help="fairness: more phase dirs whose stored episodes are alternative candidates (comma list)")
     ap.add_argument("--fairness-heldout", action="store_true", help="fairness: also held-out tasks (their own benchmark fairness; never training)")
+    ap.add_argument("--cheap-gates", action="store_true",
+                    help="a quick pass: also measure tasks that passed only S6, S5 and S8 (lh_debug.py gates --gates S6,S5,S8); never for the full run")
     ap.add_argument("--redo", action="store_true")
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--obs-rev", type=int, default=0, help="report: a revision W&B run (tables only; traces and audits are already logged)")

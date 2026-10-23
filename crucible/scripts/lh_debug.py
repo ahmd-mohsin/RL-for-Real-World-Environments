@@ -201,11 +201,13 @@ async def gates_once(args: argparse.Namespace) -> None:
         if not ids:
             continue
         gen = generator(repos, split)
-        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns)
+        only = tuple(g for g in args.gates.split(",") if g)
+        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns, **({"gates": only} if only else {}))
         for w in ids:
             out = ROOT / "gates" / f"{w}.json"
             lock = ROOT / "gates" / f"{w}.running"
-            if (out.exists() and not args.redo) or lock.exists():
+            # a record of fewer gates (--gates S6,S5,S8 before a quick pass) is run again in full by a later plain run
+            if (out.exists() and not args.redo and set(cfg.gates) <= set(json.loads(out.read_text()).get("gates") or {})) or lock.exists():
                 continue
             lock.parent.mkdir(parents=True, exist_ok=True)
             lock.write_text(str(time.time()))
@@ -302,6 +304,7 @@ def cmd_intent(args: argparse.Namespace) -> None:
     """Every stored window with milestones gets its intent card (``generators.debug.task_intent``); the family-level
     skill cards go to ``intent_cards.json``; ``candidates.json`` lists every window with its language, skills, level,
     split, cutoff and stage (the matched train / benchmark split is built from it)."""
+    from crucible.factory.generators.base import GateConfig
     from crucible.factory.generators.debug import NAME, faulty_names, intent_cards, task_intent, visible_test_changes
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit
@@ -339,8 +342,10 @@ def cmd_intent(args: argparse.Namespace) -> None:
             rows.append({"id": w, "lang": it["lang"], "repo": rec["repo"], "split": split, "stage": rec.get("stage"), "skills": it["skills"],
                          "level": it["level"], "faults": it["faults"], "modules": len(it["modules"]), "edges": int(rec.get("dependency_edges") or 0), "oracle_lines": size,
                          "milestone_tests": sum(len(m["tests"]) for m in rec.get("milestones") or []),
-                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"), "gates_ok": gate.get("ok"),
-                         "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
+                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"),
+                         # gates_ok: every gate passed; gates_run_ok: every gate run so far passed (a partial record)
+                         "gates_ok": gate.get("ok") and set(GateConfig().gates) <= set(gate.get("passed") or []),
+                         "gates_run_ok": gate.get("ok"), "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
                          "fairness_flags": it.get("fairness_flags") or []})
     fixes_of = {}
     for split in ("train", "heldout"):
@@ -559,6 +564,8 @@ def main() -> None:
     g.add_argument("--flake-reruns", type=int, default=30)
     g.add_argument("--redo", action="store_true")
     g.add_argument("--loop", action="store_true")
+    g.add_argument("--gates", default="",
+                   help="only these gates (comma list): S6,S5,S8 (~3 min) before a quick pass; a full run needs all five, so a later run without it completes the record")
     sub.add_parser("author")
     rp = sub.add_parser("repro")
     rp.add_argument("--ids", default="", help="only these windows (default: every authored prompt with a repro field)")
