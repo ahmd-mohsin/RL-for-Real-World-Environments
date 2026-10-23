@@ -335,6 +335,16 @@ def lang_changed_functions(repo: RepoGit, u: Unit, prof: Any) -> set[str]:
     return {f"{p}::{q}" for p in u.src_files for q in prof.changed_defs(repo.show(u.parent, p), repo.show(u.sha, p), p)}
 
 
+def hide_key(test_id: str, changed: Iterable[str], key_of: Callable[[str], tuple[str, str]] = key_of_test) -> tuple[str, str]:
+    """``(file, key)`` that hides a visible test in A': its definition (``key_of``), or for a data-driven case whose
+    parameter names a case file the fixes changed (black's ``tests/test_format.py::test_simple_format[docstring]`` and
+    ``tests/data/cases/docstring.py``) that case file, removed whole (key ``*``): stripping ``test_simple_format`` would
+    hide every case. The grader writes B's file back."""
+    m = re.search(r"\[([^\]]+)\]$", test_id)
+    hit = sorted(p for p in changed if is_test_path(p) and Path(p).stem == m.group(1)) if m else []
+    return (hit[0], "*") if hit else key_of(test_id)
+
+
 def visible_test_changes(rec: Mapping[str, Any], repo: RepoGit) -> list[str]:
     """Strip mode's residue, re-derived from a stored window: test files the group's fixes changed that the start tree
     does not hide (not among the grader's files, not stripped as visible tests)."""
@@ -641,6 +651,7 @@ class Debug(Rebreak):
         self.store = WindowStore(Path(root) / "store" / split, split=split)
         self.since, self.max_pool = since, max_pool
         self.views: dict[str, dict[str, str]] = {}
+        self.oracle_views: dict[str, dict[str, str]] = {}  # A' tests on B's source (``precheck``)
 
     def images_for(self, lang: str) -> Any:
         if lang not in self.images_by_lang:
@@ -864,8 +875,8 @@ class Debug(Rebreak):
                 pending = fixes[k:]
                 files: dict[str, str | None] = {}
                 for p, ks in extra.items() if pending else ():  # tests that fail visibly in the agent's tree: hidden until B'
-                    if mode == "strip" and p in tests_b:
-                        continue  # stripped together with the fixes' own tests below
+                    if (mode == "strip" and p in tests_b) or "*" in ks:
+                        continue  # stripped together with the fixes' own tests below; a whole case file removed below
                     cur = repo.show(t, p)
                     if cur is not None:
                         files[p] = prof.strip_tests(cur, ks, p)
@@ -873,6 +884,9 @@ class Debug(Rebreak):
                     ks = set().union(*[keys.get(f["sha"], {}).get(p, set()) for f in pending]) if pending else set()
                     if ks:
                         files[p] = prof.strip_tests(txt, ks | (extra.get(p, set()) if pending else set()), p)
+                for p, ks in extra.items() if pending else ():  # a data-driven case (``*``): its case file is not in A'
+                    if "*" in ks and repo.show(t, p) is not None:
+                        files[p] = None
                 for p, txt in prose_b.items():
                     added = [ln for f in pending for ln in prose_added.get(f["sha"], {}).get(p, [])]
                     if added:
@@ -914,7 +928,7 @@ class Debug(Rebreak):
             text = repo.show(b, p)
             defs = set(prof.test_defs(text, p)) if text is not None else set()
             for k in ks:
-                if k in defs:
+                if k in defs or k == "*":  # ``*``: the whole case file (``hide_key``)
                     out_.setdefault(p, set()).add(k)
                     continue
                 if listing is None:
@@ -934,7 +948,11 @@ class Debug(Rebreak):
     async def precheck(self, win: Window, lang: str) -> str:
         """Why the window cannot be graded fairly ("" when it can): the agent's own view of A' must build, and B's test files
         must build against A' (a compiled language's ``build failed`` notes). The view's results are kept
-        (``self.views``): after validation no milestone test may fail in the agent's own tree (``visible_checks``)."""
+        (``self.views``): after validation no milestone test may fail in the agent's own tree (``visible_checks``).
+        The agent's tests also run on B's source (``self.oracle_views``): a milestone test that passes in A' but fails
+        there is an old copy of a hidden test that asserts the fault (revert mode restores black ae5830b7's
+        ``test_lines_with_leading_tabs_expanded`` expecting 8-column tabs and its old ``docstring.py`` case), so a correct
+        fix makes the agent's own tests fail (``stale_checks``)."""
         repo = RepoGit(Path(win.repo_dir))
         with tempfile.TemporaryDirectory(prefix="lhd-pre-") as td:
             a = Path(td) / "a"
@@ -950,6 +968,20 @@ class Debug(Rebreak):
             if "build failed" in view.why:
                 return f"the agent's start tree does not build ({view.why[:200]})"
             changed = repo.changed(win.a, win.b)
+            o = Path(td) / "o"
+            if (await asyncio.to_thread(repo.build, win.a, [], o))[0]:
+                for st, p in changed:
+                    if is_test_path(p):
+                        continue
+                    if st == "D":
+                        (o / p).unlink(missing_ok=True)
+                    elif (txt := repo.show(win.b, p)) is not None:
+                        (o / p).parent.mkdir(parents=True, exist_ok=True)
+                        (o / p).write_text(txt)
+                ov = await sb.run(o, suite_targets(o, {}))
+                # a run that did not build or passed nothing says nothing about single tests
+                usable = ov.infra == "ok" and "build failed" not in ov.why and any(v == "passed" for v in ov.results.values())
+                self.oracle_views[win.id] = dict(ov.results) if usable else {}
             for st, p in changed:
                 if st != "D" and is_test_path(p) and (txt := repo.show(win.b, p)) is not None:
                     (a / p).parent.mkdir(parents=True, exist_ok=True)
@@ -988,17 +1020,21 @@ class Debug(Rebreak):
                 rec = await validate_window(win, self.store, self.images_for(lang), self.sandboxes, reruns=3, min_milestones=2, mutants=True,
                                             import_tolerant=lang == "python", leak_prefix=f"{PREFIX}leak-", log=self.log,
                                             allow_independent=bool(cand.params.get("allow_independent")))
-                view = self.views.pop(win.id, {})
+                view, oracle = self.views.pop(win.id, {}), self.oracle_views.pop(win.id, {})
                 vis = sorted(t for m in rec.get("milestones") or [] for t in m["tests"] if view.get(t) in ("failed", "error"))
-                info["visible_checks"] = vis[:20]
-                if not vis or rec.get("stage") == "windows":
+                stale = sorted(t for m in rec.get("milestones") or [] for t in m["tests"]
+                               if view.get(t) == "passed" and oracle.get(t) in ("failed", "error"))
+                info["visible_checks"], info["stale_checks"] = vis[:20], stale[:20]
+                if not (vis or stale) or rec.get("stage") == "windows":
                     break
                 with scope(lang) as prof:
-                    for t in vis:
-                        f, k = prof.key_of_test(t)
+                    touched = {p for u in win.units for p in u.files}
+                    for t in [*vis, *stale]:
+                        f, k = hide_key(t, touched, prof.key_of_test)
                         extra.setdefault(f, set()).add(k)
                 if _round == 1:
-                    rec["stage"], rec["reason"] = "windows", f"hidden checks visible: {len(vis)} milestone test(s) fail in the agent's own tree"
+                    rec["stage"], rec["reason"] = "windows", (f"hidden checks visible: {len(vis)} milestone test(s) fail in the agent's own tree, "
+                                                              f"{len(stale)} fail there on the fixed source")
             rec["lang"] = lang
             units = {u.sha: u for u in win.units}
             by_unit = {m["unit"]: m["id"] for m in rec.get("milestones") or []}
