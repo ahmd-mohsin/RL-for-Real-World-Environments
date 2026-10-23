@@ -85,25 +85,32 @@ def prompt_machine(*, budget_usd: float = 1.5, max_turns: int = 60, max_writes: 
     return {"run": {"max_transitions": 4 * (max_writes + 1), "budget_usd": budget_usd}, "states": states, "transitions": t}
 
 
-def archive_stale_run(run_dir: Path, machine: Mapping[str, Any]) -> Path | None:
-    """A run directory whose journal belongs to another machine (the brief or the states changed since: a ``--redo``
-    after a framework change) cannot be resumed; it is moved aside (``<dir>.prev-<n>``, never deleted) so the new run
-    starts fresh. Returns where it went, or None when the run is resumable or absent."""
+def archive_stale_run(root: Path, run_id: str, machine: Mapping[str, Any], params: Mapping[str, Any] | None = None) -> list[Path]:
+    """A run whose journal belongs to another machine (the brief or the states changed since) or to other parameters (a
+    revision's new hand-off under the same id) cannot be resumed: resuming replays the old outputs, and the session's
+    hand-off branch hands the writer its old ``prompt.json`` back. Its run directory, its session state and its hand-off
+    branch are moved aside (``<dir>.prev-<n>``, never deleted) so the new run starts fresh. Returns what was moved."""
     from crucible.factory.machine import canonicalize, machine_hash
 
-    j = Path(run_dir) / "journal.jsonl"
+    root = Path(root)
+    j = root / "runs" / run_id / "journal.jsonl"
     if not j.exists():
-        return None
+        return []
     first = next((json.loads(x) for x in j.read_text().splitlines() if x.strip()), {})
-    have = first.get("machine_hash")
-    if not have or have == machine_hash(canonicalize(machine)):
-        return None
+    same_machine = first.get("machine_hash") in (None, machine_hash(canonicalize(machine)))
+    same_params = params is None or "params" not in first or json.dumps(first["params"], sort_keys=True, default=str) == json.dumps(dict(params), sort_keys=True, default=str)
+    if same_machine and same_params:
+        return []
     n = 1
-    while Path(f"{run_dir}.prev-{n}").exists():
+    while Path(f"{root / 'runs' / run_id}.prev-{n}").exists():
         n += 1
-    dest = Path(f"{run_dir}.prev-{n}")
-    Path(run_dir).rename(dest)
-    return dest
+    moved = []
+    for d in (root / "runs" / run_id, root / "sessions" / run_id, root / "family" / "runs" / run_id):
+        if d.exists():
+            dest = Path(f"{d}.prev-{n}")
+            d.rename(dest)
+            moved.append(dest)
+    return moved
 
 
 @dataclass
@@ -165,7 +172,7 @@ async def write_prompt(job: PromptJob, *, book: Any, root: Path | str, journal: 
 
     handlers = journal.guard({"session": pool.handler, "lint": lint, "review": review}, ledger)
     run_dir = root / "runs" / run_id
-    archive_stale_run(run_dir, machine)
+    archive_stale_run(root, run_id, machine, params)
     run = MachineRun(machine, run_dir=run_dir, run_id=run_id, params=params, handlers=handlers, clients=clients, **pool.machine_kwargs())
     try:
         res = await run.run()
