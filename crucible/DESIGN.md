@@ -864,6 +864,17 @@ non-Claude model (difficulty ladder, cross-family roles):
   whose groups are flat (one reward, no Φ spread) on 2 consecutive steps is not sampled for 3 steps, then retried with
   one group; Φ spread without a pass is never quarantined; held-out tasks are refused; every event is logged
   (`quarantine.jsonl`, W&B `records/quarantine`, `quarantine/active`).
+- **Difficulty** (swarm-pipeline/12; 2026-10-23; patterns: Online Difficulty Filtering, arXiv 2504.03380; R-Zero, arXiv
+  2508.05004).
+  - **The tracker** (`forge/difficulty.py`): online p̂ per task and per milestone, decayed per step. It never counts masked draws, and failed budget stops stay out of p̂. Its signal is `max(4p(1-p), 4 Var Φ)`.
+  - **The sampler** (`train/curriculum.py`, backend-neutral): band filter on the Wilson interval, explore picks, learnability weights, and the quarantine left in charge of flat tasks. It runs a reverse curriculum over checkpoint starts and refuses held-out tasks.
+  - **The trainer:** `TrainConfig(sampler="difficulty")` or `tinker_rl.py --sampler difficulty`, resumable.
+  - **The factory side** (`factory/difficulty.py`):
+    - the p≈½ controller emits typed knob actions (K1–K6, C1, H1–H3, fix_task, budget_bound), journaled with R-Zero's generator reward;
+    - a stdlib ridge-logistic predictor, advisory only (LOO MAE 0.10 vs 0.15 baseline on 10 training tasks, with almost no positive examples yet);
+    - full-task vs checkpoint-conditioned difficulty via `factory.checkpoint.credited` / `potential`;
+    - checkpoint starts via `simplify_units(kind="checkpoint")` with a start check and the gates. Pre-applied milestones never earn credit: Φ0 is the baseline.
+  - **Views:** `observe/difficulty.py`. **Script:** `scripts/lh_difficulty.py predict|conditional`.
 - **Benchmark**: lh_metrics plus pass@k, pass^k, task-clustered CIs and USD per passing episode; the protocol (selection
   run, fresh baseline on a new seed, base control beside the trained adapter at identical settings, paired difference
   with its CI and P(trained > control)) checked by `check_protocol`.
