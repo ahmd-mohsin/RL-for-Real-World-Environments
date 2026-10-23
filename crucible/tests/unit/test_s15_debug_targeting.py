@@ -347,3 +347,10 @@ def test_unknown_task_ids_are_refused_before_any_episode() -> None:
     mod = _target_script()
     assert mod.unknown_tasks(["a", "b-c1-x"], {"a": {}}) == ["b-c1-x"]
     assert mod.unknown_tasks(["a"], {"a": {}}) == []
+
+
+def test_report_before_mine_is_unmeasured_not_off_intent() -> None:
+    mod = _target_script()
+    assert mod.unmined([{"final": {"cause": "skill_gap"}}, {"final": {"cause": "skill_gap"}}])
+    assert not mod.unmined([{"final": {"cause": "skill_gap"}, "skill": {"on_intent": False}}])
+    assert not mod.unmined([])

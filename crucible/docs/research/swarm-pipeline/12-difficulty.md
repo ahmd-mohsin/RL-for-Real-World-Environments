@@ -167,3 +167,39 @@ checkpoint starts.
 - **Conditional difficulty,** checkpoint levels, starts, start checks and gates, and the credit test.
 - **The predictor:** monotone in faults, LOO beats the baseline on synthetic data, the advisory plan, held-out and budget rows skipped.
 - **The views.**
+
+## 7. The pilot (2026-10-23): the controller on the swarm, measured
+
+**The wiring** (`factory/difficulty_bridge.py`, `factory/revise_debug.py`, `scripts/lh_difficulty_pilot.py`):
+- `ControlController` makes `control()` a `difficulty_hooks.Controller`. One knob vocabulary serves both sides: K1-K6,
+  C1, H1-H3.
+- C1's level comes from `choose_checkpoint`: the checkpoint level whose remaining milestones' measured
+  `p(m | prerequisites)` multiply closest to 1/2 inside the band. An unmeasured remaining milestone rules a level out.
+- The swarm's `prompt_author` writes the variant's report. The lane's executed gates decide.
+
+**What the pilot changed in the controller** (each with a test in `tests/unit/test_difficulty_bridge.py`):
+- **Budget-bound tasks get a shorter horizon.** `budget_bound` now carries the horizon-shortening knobs C1 and K1.
+  The 300-call budget never moves.
+- **Root milestones carry no checkpoint signal.** A root milestone's rate (no prerequisites) is no longer read as a
+  checkpoint signal. Every task used to get "checkpoint start first".
+- **A conditional rate above the band is not in band.**
+- **K1 drops only a fault that costs passes.** The fault's measured rate must be at most 0.7; otherwise the next knob
+  is used. Before this, K1 picked a fault the student fixed 8/8.
+
+**What the pilot changed in the reviser:**
+- **A knob changes only what it targets.** C1, K1, K2, K3 and K4 keep every kept requirement word for word: K3 appends
+  a user-visible area, K4 adds `repro`. K6 rewrites only its own milestone.
+- **Why:** a free rewrite lost a fact the hidden tests need. go-toml's C1 report dropped "date and time values" from m03,
+  and m03 went to 0/8. With the requirement restored, it was 8/8.
+
+**Full task vs checkpoint start, measured.** The conditional rate from the student's own episodes did not predict the
+real-fix checkpoint start on go-toml:
+- **Prediction:** p(m04 | m03) = 0.67 in the parent.
+- **Measured at the C1 start (m01 and m02 really fixed):** m04 was 0/8. One hidden test,
+  `TestMarshalTextMarshalerStringKindOmitempty`, failed in every episode. It failed in 1 of 8 parent episodes.
+- **What follows:** the agent's own partial fixes are not the real fixes, so a checkpoint start can be harder than its
+  estimate. The estimate is a prior; the executed measurement decides, as everywhere else.
+- **Black, the other way round:** its C1 start removed the budget stops (6/8 to 0/8), and the student passed 1/8.
+
+The per-task results are in `13` §9.
+

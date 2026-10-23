@@ -867,6 +867,22 @@ def stage_mine(ph: Phase, tids: Sequence[str], *, arm: str = "student") -> dict[
 
 
 # ---- the report: keep rule, targeting records, W&B ------------------------------------------------------------------------------
+def unmined(skill_gap_rows: Sequence[Mapping[str, Any]]) -> bool:
+    """Skill-gap failures none of which carries the mine stage's ``skill`` field: the on-intent share is unmeasured."""
+    return bool(skill_gap_rows) and not any("skill" in r for r in skill_gap_rows)
+
+
+def audit_source(ph: Phase) -> str:
+    """The judge and auditor models that labelled the causes (the preset's ``judge`` and ``auditor`` roles)."""
+    try:
+        from crucible.factory.models import ModelBook
+
+        b = ModelBook(preset=ph.a.preset)
+        return f"{b.spec('judge').model} judge, {b.spec('auditor').model} auditor cross-check"
+    except Exception:  # noqa: BLE001 -- a label, never a reason to fail a report
+        return f"preset {getattr(ph.a, 'preset', '?')} judge and auditor"
+
+
 def task_record(ph: Phase, tid: str) -> dict[str, Any]:
     from crucible.factory.targeting import band, cause_mix, keep_verdict, wilson
 
@@ -898,6 +914,9 @@ def task_record(ph: Phase, tid: str) -> dict[str, Any]:
     world = bool(text) and not spec and (not isinstance(issue, dict) or issue.get("status", "open") == "open")
     keep = keep_verdict(split=row["split"], passes=passes, n=len(live), on_intent=on_intent, labelled=cm["n"], frontier=fr,
                         world_issue=text if world else None, spec_issue=text if spec else None)
+    skill_gaps = [r for r in rows.values() if (r.get("final") or {}).get("cause") == "skill_gap" and not r.get("passed")]
+    if unmined(skill_gaps) and keep.get("verdict") == "off_intent":  # the on-intent share is unmeasured, never 0 (the pilot: report before mine)
+        keep.update(keep=False, verdict="unmined", why=f"{len(skill_gaps)} skill-gap failures carry no mined skill: run the mine stage, then report")
     budget = labels.get("budget", 0)
     if budget and budget >= 0.3 * max(1, cm["n"]):
         # owner: the env's limits. A sensitivity number only (never the verdict): the on-intent share without the budget stops
@@ -913,7 +932,7 @@ def task_record(ph: Phase, tid: str) -> dict[str, Any]:
     return {"task": tid, "budget_binding": binding, "model": a.student, "lang": row["lang"], "repo": row["repo"], "split": row["split"], "faults": row["faults"], "level": row["level"],
             "skills": row.get("skills"), "n": len(st), "masked": len(st) - len(live), "passes": passes, "pass_rate": keep.get("pass_rate"),
             "pass_ci": [round(lo, 4), round(hi, 4)], "mean_phi": round(statistics.fmean(phis), 4) if phis else None, "per_milestone": per_ms,
-            "band": band([e["reward"] for e in live]), "cause": {**cm, "on_intent": on_intent, "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"},
+            "band": band([e["reward"] for e in live]), "cause": {**cm, "on_intent": on_intent, "source": audit_source(ph)},
             "fairness": fr, "keep": keep, "verdict": {"ok": keep["keep"], "route": None if keep["keep"] else keep["verdict"], "findings": [keep["why"]],
                                                        "flags": keep["flags"]},
             "honest": dict(honest), "modes": dict(modes.most_common()), "usd": round(sum(e["usd"] for e in st), 4),
