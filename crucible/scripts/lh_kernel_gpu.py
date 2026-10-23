@@ -198,6 +198,8 @@ def grade(wdir: Path, patch: Path, arch: str, mode: str, tag: str) -> dict:
         p = sh(cmd, timeout=7200)
     rj = out / "crucible_reward.json"
     doc = json.loads(rj.read_text()) if rj.exists() else {"infra": {"status": "masked", "failure_kind": "no_reward", "reason": p.stderr[-400:]}}
+    if not rj.exists():  # a grade that left nothing: the container's own error, in the run log
+        print(f"[grade {wdir.name} {tag}] no reward (rc {p.returncode}): {p.stderr[-400:]}", file=sys.stderr, flush=True)
     return {"reward": doc.get("reward"), "gates": gates_of(out, doc), "infra": doc.get("infra")}
 
 

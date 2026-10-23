@@ -360,7 +360,7 @@ static bool crucible_fa_exact(const ggml_tensor * t, std::vector<float> & ref, F
             }
         }
     }
-    printf("CRUCIBLE_FA_EXACT %s\n", crucible_case_name.c_str());
+    fprintf(stderr, "CRUCIBLE_FA_EXACT %s\n", crucible_case_name.c_str());  // stderr: the console verdict line stays whole
     return true;
 }
 """
@@ -394,7 +394,7 @@ DUMP_CALL = ("{ind}{{ std::vector<float> crucible_ref = f2; "
              "crucible_fa_exact(t2, crucible_ref, [](const ggml_tensor * x) {{ return tensor_to_float((ggml_tensor *) x); }}); "
              "crucible_dump(crucible_case_name, index, ggml_op_desc(t1), {max}, f1.data(), crucible_ref.data(), f1.size()); }}\n")
 FA_REF_ENV = "CRUCIBLE_FA_REF_CASES"
-EXACT_LINE = re.compile(r"^CRUCIBLE_FA_EXACT (.+)$", re.MULTILINE)  # a case whose CPU column the exact computation replaced
+EXACT_LINE = re.compile(r"CRUCIBLE_FA_EXACT (\S+)")  # (stderr) a case whose CPU column the exact computation replaced
 
 
 def _find(text: str, key: str) -> tuple[int, re.Match[str]] | None:

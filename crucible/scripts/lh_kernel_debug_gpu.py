@@ -242,6 +242,8 @@ def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str,
     if pool and rep.exists():
         (out / "inputs.sha256").write_text(key)
     doc = json.loads(rj.read_text()) if rj.exists() else {"infra": {"status": "masked", "failure_kind": "no_reward", "reason": p.stderr[-400:]}}
+    if not rj.exists():  # a grade that left nothing: the container's own error, in the run log (a masked calibration says only "{}")
+        print(f"[grade {d.name} {tag}] no reward (rc {p.returncode}): {p.stderr[-400:]}", file=sys.stderr, flush=True)
     report = json.loads(rep.read_text()) if rep.exists() else {}
     return {"reward": doc.get("reward"), "infra": doc.get("infra"), "gates": report.get("gates") or {}, "checks": report.get("checks") or []}
 
