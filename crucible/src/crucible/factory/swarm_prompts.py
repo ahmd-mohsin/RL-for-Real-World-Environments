@@ -85,6 +85,27 @@ def prompt_machine(*, budget_usd: float = 1.5, max_turns: int = 60, max_writes: 
     return {"run": {"max_transitions": 4 * (max_writes + 1), "budget_usd": budget_usd}, "states": states, "transitions": t}
 
 
+def archive_stale_run(run_dir: Path, machine: Mapping[str, Any]) -> Path | None:
+    """A run directory whose journal belongs to another machine (the brief or the states changed since: a ``--redo``
+    after a framework change) cannot be resumed; it is moved aside (``<dir>.prev-<n>``, never deleted) so the new run
+    starts fresh. Returns where it went, or None when the run is resumable or absent."""
+    from crucible.factory.machine import canonicalize, machine_hash
+
+    j = Path(run_dir) / "journal.jsonl"
+    if not j.exists():
+        return None
+    first = next((json.loads(x) for x in j.read_text().splitlines() if x.strip()), {})
+    have = first.get("machine_hash")
+    if not have or have == machine_hash(canonicalize(machine)):
+        return None
+    n = 1
+    while Path(f"{run_dir}.prev-{n}").exists():
+        n += 1
+    dest = Path(f"{run_dir}.prev-{n}")
+    Path(run_dir).rename(dest)
+    return dest
+
+
 @dataclass
 class PromptJob:
     """One window's report. ``brief``: the hand-off (milestone ids, the maintainers' notes per milestone, the lane's rules);
@@ -143,7 +164,9 @@ async def write_prompt(job: PromptJob, *, book: Any, root: Path | str, journal: 
         return Settle({"verdict": {"ok": ok, "findings": found, "owner": "write" if blocking else "", "retry": blocking}}, found if blocking else [])
 
     handlers = journal.guard({"session": pool.handler, "lint": lint, "review": review}, ledger)
-    run = MachineRun(machine, run_dir=root / "runs" / run_id, run_id=run_id, params=params, handlers=handlers, clients=clients, **pool.machine_kwargs())
+    run_dir = root / "runs" / run_id
+    archive_stale_run(run_dir, machine)
+    run = MachineRun(machine, run_dir=run_dir, run_id=run_id, params=params, handlers=handlers, clients=clients, **pool.machine_kwargs())
     try:
         res = await run.run()
     finally:

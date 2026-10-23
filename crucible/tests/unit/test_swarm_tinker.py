@@ -329,3 +329,19 @@ async def test_revise_and_gate_contract(tmp_path: Path) -> None:
     assert tables(tmp_path / "j")["roles"]["reviser"]["blamed"] == 1
     with pytest.raises(HeldOutRefused):
         await revise_and_gate("t", act, reviser=R(), gates=G(True), heldout=True)
+
+
+def test_a_stale_prompt_run_is_archived_never_resumed(tmp_path: Path) -> None:
+    import json as _json
+
+    from crucible.factory.machine import canonicalize, machine_hash
+    from crucible.factory.swarm_prompts import archive_stale_run, prompt_machine
+
+    m = prompt_machine()
+    run = tmp_path / "runs" / "prompt-x"
+    run.mkdir(parents=True)
+    (run / "journal.jsonl").write_text(_json.dumps({"event": "start", "machine_hash": machine_hash(canonicalize(m))}) + "\n")
+    assert archive_stale_run(run, m) is None and run.exists()  # same machine: resumable
+    (run / "journal.jsonl").write_text(_json.dumps({"event": "start", "machine_hash": "0" * 16}) + "\n")
+    dest = archive_stale_run(run, m)
+    assert dest is not None and dest.exists() and not run.exists() and dest.name == "prompt-x.prev-1"
