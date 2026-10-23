@@ -13,7 +13,7 @@ import argparse
 import json
 from pathlib import Path
 
-from crucible.factory.difficulty import conditional, predictor_report
+from crucible.factory.difficulty import backfill_budget_stops, conditional, predictor_report
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "docs" / "research" / "swarm-pipeline" / "runs"
@@ -28,10 +28,14 @@ def _windows(store: Path) -> dict[str, list[dict]]:
 
 
 def cmd_predict(a: argparse.Namespace) -> None:
-    runs = [json.loads((RUNS / f).read_text()) for f in a.runs]
+    arms = list(a.arms) + [None] * (len(a.runs) - len(a.arms))
+    runs = [backfill_budget_stops(json.loads((RUNS / f).read_text()), Path(d) if d else None) for f, d in zip(a.runs, arms, strict=False)]
     cands = {c["id"]: c for c in json.loads(Path(a.candidates).read_text())}
+    before = predictor_report([json.loads((RUNS / f).read_text()) for f in a.runs], cands)
     rep = predictor_report(runs, cands)
-    rep["inputs"] = {"runs": a.runs, "candidates": str(a.candidates), "split": "train only"}
+    rep["before_backfill"] = {k: before.get(k) for k in ("rows", "tasks", "mae", "mae_baseline") if k in before}
+    rep["inputs"] = {"runs": a.runs, "arms": a.arms, "candidates": str(a.candidates), "split": "train only",
+                     "budget_stops": {f: sorted({t.get("budget_stops_source") for t in r.get("tasks") or [] if t.get("budget_stops_source")}) for f, r in zip(a.runs, runs, strict=False)}}
     Path(a.out).write_text(json.dumps(rep, indent=1, default=str))
     print(json.dumps({k: v for k, v in rep.items() if k not in ("predictions", "fit")}, default=str))
     for p in rep["predictions"]:
@@ -59,6 +63,8 @@ def main() -> None:
     p = sub.add_parser("predict")
     p.add_argument("--runs", nargs="+", default=["s15_debug_targeting.json", "s15_debug_targeting_t300.json"])
     p.add_argument("--candidates", default=str(ROOT / "data" / "debug" / "candidates.json"))
+    p.add_argument("--arms", nargs="*", default=[str(ROOT / "data" / "targeting" / "debug" / "arms"), str(ROOT / "data" / "targeting" / "debug-300" / "arms")],
+                   help="each run's arms directory (same order as --runs): budget stops backfilled from its episodes")
     p.add_argument("--out", default=str(RUNS / "difficulty_predictor.json"))
     p.set_defaults(fn=cmd_predict)
     p = sub.add_parser("conditional")

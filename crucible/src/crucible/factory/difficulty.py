@@ -409,6 +409,30 @@ def training_rows(targeting_runs: Sequence[Mapping[str, Any]], candidates: Mappi
     return out
 
 
+LIMIT_STOPS = frozenset({"max_steps", "tool_limit", "budget"})
+
+
+def backfill_budget_stops(run: Mapping[str, Any], arms: Path | None) -> dict[str, Any]:
+    """A targeting run whose rows predate the ``budget_stops`` field (the 150-call S15 run) with it filled in from the
+    traces: per task, the student's failed, unmasked episodes that ended on the step limit (``episodes.jsonl`` under
+    ``<arms>/student/<task>``). Without the episodes, the row's own stop counts (``stops['max_steps']``, at most the
+    failures) stand in. Rows that already carry ``budget_stops`` are unchanged; each filled row says where it came from."""
+    out = json.loads(json.dumps(run, default=str))
+    for t in out.get("tasks") or []:
+        if t.get("budget_stops") is not None:
+            continue
+        ep = Path(arms) / "student" / str(t.get("task")) / "episodes.jsonl" if arms is not None else None
+        if ep is not None and ep.exists():
+            rows = [json.loads(x) for x in ep.read_text().splitlines() if x.strip()]
+            n = sum(1 for r in rows if not r.get("masked") and not r.get("passed") and r.get("stop") in LIMIT_STOPS)
+            t["budget_stops"], t["budget_stops_source"] = {"student": n}, "episodes"
+        else:
+            fails = max(0, int(t.get("n") or 0) - int(t.get("passes") or 0))
+            t["budget_stops"] = {"student": min(fails, int((t.get("stops") or {}).get("max_steps") or 0))}
+            t["budget_stops_source"] = "stop counts"
+    return out
+
+
 def predictor_report(targeting_runs: Sequence[Mapping[str, Any]], candidates: Mapping[str, Mapping[str, Any]], **kw: Any) -> dict[str, Any]:
     rows = training_rows(targeting_runs, candidates)
     rep = loo(rows, **kw)
