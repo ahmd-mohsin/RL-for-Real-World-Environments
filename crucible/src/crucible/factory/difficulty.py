@@ -59,6 +59,7 @@ MODE_KNOBS: dict[str, tuple[str, ...]] = {
     "lost_progress": ("K5", "C1"),
     "regression": ("K5",),
 }
+BUDGET_KNOBS = ("C1", "K1")  # a budget-bound task gets a shorter horizon; the 300-call budget itself never moves
 NOT_DIFFICULTY = {"spec_defect": "fix_task", "world_bug": "fix_task", "world_fault": "fix_task", "unfair": "fix_task", "budget": "budget_bound",
                   "env_flake": "fix_task"}
 
@@ -137,6 +138,9 @@ def control(task: str, rate: PassRate, *, split: str = "train", band: Band | Non
         top, top_n = max(causes.items(), key=lambda kv: kv[1])
         skill = causes.get("skill_gap", 0) / failures
         if top in NOT_DIFFICULTY and top_n / failures >= 0.5:
+            if NOT_DIFFICULTY[top] == "budget_bound":  # the horizon is too long for the fixed budget: shorten it, never raise it (NEVER)
+                return act("budget_bound", tuple(k for k in BUDGET_KNOBS if k not in applied),
+                           f"{top_n}/{failures} failures are budget stops: shorten the horizon (a checkpoint start or one fault fewer), never a bigger budget")
             return act(NOT_DIFFICULTY[top], (), f"{top_n}/{failures} failures are {top}: not a difficulty problem")
         if skill < skill_min and (band.lo is None or rate.p < band.lo):
             return act("fix_task", (), f"only {skill:.0%} of failures are skill gaps (< {skill_min:.0%}): fix the task before easing it")
@@ -147,7 +151,7 @@ def control(task: str, rate: PassRate, *, split: str = "train", band: Band | Non
         return act("harden", knobs, f"p = {rate.p:.2f} above {band.hi}: little signal left (learnability {learnability(rate.p):.2f})"
                    + (f"; take back {applied[-1]} first" if applied else ""))
     if band.lo is not None and rate.p < band.lo:
-        cond_ok = any(v is not None and (band.lo or 0) <= v for v in (conditional_rates or {}).values())
+        cond_ok = any(v is not None and (band.lo or 0) <= v <= (1.0 if band.hi is None else band.hi) for v in (conditional_rates or {}).values())
         knobs = tuple(k for k in _ease_order(modes or {}, cond_ok) if k not in applied)
         return act("ease", knobs, f"p = {rate.p:.2f} below {band.lo}: all-fail groups carry no signal"
                    + ("; later milestones are in band once their prerequisites hold: checkpoint start first" if cond_ok else ""))

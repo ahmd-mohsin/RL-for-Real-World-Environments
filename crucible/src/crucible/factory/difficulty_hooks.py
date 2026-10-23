@@ -18,24 +18,24 @@ Held-out tasks are never revised (``heldout=True`` refuses, V9): a benchmark tas
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-EASE_KNOBS: dict[str, str] = {
-    "K1": "drop a fault (one milestone fewer)",
-    "K2": "announce the structure (how many separate problems there are)",
-    "K3": "point to the area (the subsystem, never the function)",
-    "K4": "a visible reproduction per requirement (gate S7r)",
-    "K5": "order the requirements (the dependency order)",
-    "K6": "sharpen the stuck requirement (more observable detail)",
-}
-HARDEN_KNOBS: dict[str, str] = {
-    "H1": "add a fault (one more real fix reverted)",
-    "H2": "withhold the structure",
-    "H3": "a distractor symptom the tests do not check",
-    "H4": "a longer horizon (a dependent fault behind another)",
-}
+from crucible.factory.calibration import KNOBS as _CAL_KNOBS
+from crucible.factory.difficulty import CHECKPOINT as _C1
+from crucible.factory.difficulty import HARDEN as _HARDEN
+from crucible.factory.difficulty import HeldOutRefused  # one exception for both sides (V9)
+from crucible.factory.difficulty import KnobAction as ControlAction
+
+# One knob vocabulary for both sides (the controller, ``factory.difficulty``, and the swarm's revisers): the easing knobs
+# K1-K6 of ``factory.calibration.KNOBS``, the checkpoint start C1 and the hardening knobs H1-H3 of ``factory.difficulty``.
+# (The first draft of this table had its own H2-H4, one of them a distractor symptom the tests do not check; that one asks
+# the agent for behaviour no check grades, which V5 forbids, so it is gone.)
+EASE_KNOBS: dict[str, str] = {**{k: f"{name.lower()}: {what}" for k, name, what in _CAL_KNOBS}, _C1[0]: f"{_C1[1].lower()}: {_C1[2]}"}
+HARDEN_KNOBS: dict[str, str] = {k: f"{name.lower()}: {what}" for k, name, what in _HARDEN}
+PROMPT_KNOBS = frozenset({"K2", "K3", "K4", "K5", "K6"})  # the report changes; the World, the oracle and the hidden tests do not
+WORLD_KNOBS = frozenset({"K1", "C1", "H1", "H3"})  # the start tree or the milestone set changes: every executed gate runs again
 
 
 @dataclass(frozen=True)
@@ -89,8 +89,23 @@ class Gates(Protocol):
     async def run(self, revision: Revision) -> GateResult: ...
 
 
-class HeldOutRefused(ValueError):
-    """A held-out (benchmark) task is never revised: its difficulty is measured, not tuned (V9)."""
+def from_control(a: ControlAction, *, supported: Collection[str] | None = None, milestone: str | None = None,
+                 params: Mapping[str, Any] | None = None) -> KnobAction | None:
+    """The controller's decision (``factory.difficulty.KnobAction``: an action and its knobs, best first) as the one typed
+    request a reviser takes: the first of its knobs the reviser ``supported``. ``budget_bound`` is an ease restricted to the
+    horizon-shortening knobs (C1, K1); ``keep``, ``sample_more`` and ``fix_task`` are not difficulty moves: None (the caller
+    records why)."""
+    if a.action not in ("ease", "harden", "budget_bound"):
+        return None
+    direction = "harden" if a.action == "harden" else "ease"  # budget_bound: an ease that shortens the horizon (C1, K1)
+    for k in a.knobs:
+        if supported is not None and k not in supported:
+            continue
+        table = EASE_KNOBS if direction == "ease" else HARDEN_KNOBS
+        if k in table:
+            return KnobAction(direction, k, a.reason, milestone=milestone, params=dict(params or {}),  # type: ignore[arg-type]
+                              evidence={"p": a.p, "lo": a.lo, "hi": a.hi, "n": a.n, "knobs": list(a.knobs), "generator_reward": a.generator_reward})
+    return None
 
 
 async def revise_and_gate(task: Any, action: KnobAction, *, reviser: Reviser, gates: Gates, heldout: bool = False, journal: Any = None,

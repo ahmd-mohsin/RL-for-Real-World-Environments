@@ -33,7 +33,8 @@ Write `prompt.json` in the worktree root (when the hand-off gives a `format`, fo
 {"opening": "<one or two sentences: who you are and what you were doing>",
  "requirements": {<one entry per milestone id listed in the hand-off>: "<what goes wrong, observed from the outside: inputs, outputs, error messages, and what must hold instead>"},
  "closing": "<optional one sentence>"}
-The hand-off's `forbidden_strings` must not appear anywhere in the file. Each requirement must be specific enough that a competent engineer can reproduce the symptom, and must only state
+When the hand-off has a `revision`, this is a revised report: follow its `instruction`, and use its `current_report` (what the
+user's previous report said) for everything the instruction does not change. The hand-off's `forbidden_strings` must not appear anywhere in the file. Each requirement must be specific enough that a competent engineer can reproduce the symptom, and must only state
 behaviour the hidden checks test. Use the repository (read the code, run what you can in the sandbox) to get the user's
 view right. Keep `STATUS.json` in the worktree root up to date: {"<milestone id>": <your probability that its requirement
 is right and complete>}. When the file is written, call rlm.finish("<one line>")."""
