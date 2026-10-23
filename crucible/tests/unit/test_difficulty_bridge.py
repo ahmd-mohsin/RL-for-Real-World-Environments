@@ -220,3 +220,29 @@ def test_a_run_cap_raises_the_shared_meter_never_lowers_it(monkeypatch: pytest.M
     assert m.cap_usd == 1.0 and sampler.ensure_cap(10.0) == 10.0 and m.cap_usd == 10.0
     monkeypatch.setenv("CRUCIBLE_TINKER_CAP_USD", "50")
     assert sampler.ensure_cap(10.0) == 50.0  # the operator's larger cap stands
+
+
+def test_requirement_findings_group_by_what_they_say() -> None:
+    from crucible.factory.swarm_journal import finding_kind
+
+    a = finding_kind("m03: requirement leaks the fix by naming internal functions (assignString, tryX) and describing the change")
+    b = finding_kind("m04: requirement leaks the fix by naming internal functions (appendValue) and describing the change")
+    c = finding_kind("m01: requirement does not describe an observable symptom")
+    assert a == b != c and a != "m#"
+
+
+async def test_an_infrastructure_stop_is_not_blamed_on_the_reviser(tmp_path: Path) -> None:
+    from crucible.factory.difficulty_hooks import GateResult, Revision
+    from crucible.factory.swarm_journal import SwarmJournal, tables
+
+    class R:
+        async def revise(self, task: Any, action: KnobAction) -> Revision:
+            return Revision("v", task, action, task={})
+
+    class G:
+        async def run(self, rev: Revision) -> GateResult:
+            return GateResult(False, {"infra": True}, ["S7: no report written (infrastructure: TinkerCapReached)"])
+
+    j = SwarmJournal(tmp_path / "j")
+    res = await revise_and_gate("t", KnobAction("ease", "K2", "r"), reviser=R(), gates=G(), journal=j)
+    assert not res["ok"] and tables(tmp_path / "j")["roles"].get("reviser", {}).get("blamed", 0) == 0

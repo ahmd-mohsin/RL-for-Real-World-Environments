@@ -158,7 +158,7 @@ class DebugReviser:
         res = dict(await self.write_report(vid, rec, brief))
         self.spent += float(res.get("usd") or 0.0)
         row = {"variant": vid, "parent": pid, "knob": action.knob, "pre_applied": sorted(pre), "level": level, "report": res.get("status"),
-               "usd": res.get("usd")}
+               "report_reason": str(res.get("reason") or "")[:500], "usd": res.get("usd")}
         self.log.append(row)
         return Revision(vid, pid, action, task=rec, notes=json.dumps(row, default=str))
 
@@ -184,7 +184,10 @@ class DebugGates:
         found: list[str] = []
         gates: dict[str, Any] = {}
         if not (self.prompts / f"{vid}.json").exists():
-            return GateResult(False, {"S7": {"ok": False, "why": "the swarm wrote no report"}}, ["S7: no report written"])
+            why = str((json.loads(revision.notes) if revision.notes.startswith("{") else {}).get("report_reason") or "")
+            infra = any(k in why for k in ("credits_exhausted", "TinkerCapReached", "budget:", "masked", "infra"))
+            return GateResult(False, {"S7": {"ok": False, "why": f"the swarm wrote no report ({why[:200]})"}, "infra": infra},
+                              [f"S7: no report written{' (infrastructure: ' + why[:120] + ')' if infra else ''}"])
         authored = self.author(vid)
         gates["S7"] = {"ok": not authored.get("findings"), "findings": list(authored.get("findings") or [])[:10]}
         found += [f"S7: {f}" for f in authored.get("findings") or []][:10]

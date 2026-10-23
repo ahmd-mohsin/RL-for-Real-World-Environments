@@ -228,7 +228,11 @@ def finding_kind(text: str) -> str:
     together."""
     t = _NUM.sub("#", str(text))
     t = re.sub(r"\bm#\b", "m#", t)
-    return t.split(":")[0].strip()[:80] if ":" in t[:60] else t.strip()[:80]
+    # a requirement-level finding ("m03: requirement leaks the fix by naming ...") is grouped by what it says, not by the
+    # milestone id: every finding of a report started with "m#" and counted as one kind
+    t = re.sub(r"^\s*(?:m#|R#)\s*:\s*", "", t)
+    t = re.sub(r"\([^)]*\)", "", t)  # quoted names and examples are specifics
+    return t.split(":")[0].strip()[:80] if ":" in t[:60] else " ".join(t.split()[:8]).strip()[:80]
 
 
 def tables(root: Path | str) -> dict[str, Any]:

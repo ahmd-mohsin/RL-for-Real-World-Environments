@@ -117,7 +117,8 @@ async def revise_and_gate(task: Any, action: KnobAction, *, reviser: Reviser, ga
         raise HeldOutRefused(f"task {getattr(task, 'id', task)!r} is held out: no revision")
     rev = await reviser.revise(task, action)
     res = await gates.run(rev)
+    infra = bool((res.gates or {}).get("infra"))  # e.g. the report writer's session hit a meter cap: no verdict on the reviser's work (V8)
     if journal is not None:
-        journal.gate(run=run, state=f"revise:{action.knob}", entry=1, attempt=1, role="reviser", ok=res.ok, findings=res.findings,
-                     owner="" if res.ok else "reviser")
+        journal.gate(run=run, state=f"revise:{action.knob}", entry=1, attempt=1, role="reviser", ok=None if infra else res.ok, findings=res.findings,
+                     owner="" if res.ok or infra else "reviser", kind="infra" if infra else "verdict")
     return {"ok": res.ok, "revision": rev if res.ok else None, "gates": dict(res.gates), "findings": list(res.findings), "action": action.to_json()}
