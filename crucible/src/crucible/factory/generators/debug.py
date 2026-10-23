@@ -717,7 +717,7 @@ class Debug(Rebreak):
         return out_
 
     async def subset(self, name: str, shas: Sequence[str], *, b: str = "HEAD", since: str | None = None, cid: str = "",
-                     parent: str = "", hide: str = "", independent: bool = False) -> Candidate:
+                     parent: str = "", hide: str = "", independent: bool = False, hide_tests: Sequence[str] = ()) -> Candidate:
         """The candidate of exactly the fixes ``shas`` (sha prefixes of fix units on B's first-parent path since ``since``)
         at ``b``: ``candidates_for``'s executed check, edges, prober order and params, without its grouping. A mined task is
         rebuilt from its fixes; an eased one (TASKS_CREDIT_AND_EASING §5.5) is its parent's fixes minus the dropped one, which
@@ -727,6 +727,10 @@ class Debug(Rebreak):
         on a correct fix in the agent's own tree.
         ``independent``: the fixes need not interact (the lead's call, 2026-10-23, for tasks of separate bugs); the build
         then keeps a window whose milestones need no earlier one and S6 passes it without an edge.
+        ``hide_tests`` (test ids, ``file::Test``): visible tests stripped from A' from the first round, as round 2 strips
+        the milestone tests that fail there. Revert mode keeps the table drivers a strip build loses, but a test a fix
+        changed comes back with its old assertions; one that still passes on A' and fails on the fixed source (mvdan-sh's
+        ``TestNodeEndPos`` with its ``// TODO: want 22`` offsets) is named here.
         ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact
         (unless ``independent``)."""
         if hide not in ("", "revert", "strip"):
@@ -761,7 +765,8 @@ class Debug(Rebreak):
             b_date = out(git(repo_dir, "log", "-1", "--format=%cI", b_full))
             return self._candidate(name, lang, g, need, card, b=b_full, b_ref=b_ref, b_date=b_date, since=since, cid=cid,
                                    **({"parent": parent} if parent else {}), **({"hide_modes": [hide]} if hide else {}),
-                                   **({"allow_independent": True} if independent else {}))
+                                   **({"allow_independent": True} if independent else {}),
+                                   **({"hide_tests": sorted(set(hide_tests))} if hide_tests else {}))
 
     async def _executed(self, name: str, lang: str, b: str, b_ref: str, fixes: Sequence[Unit]
                         ) -> tuple[list[Unit], dict[str, set[str]], dict[str, Any]]:
@@ -965,9 +970,12 @@ class Debug(Rebreak):
         self.lease.guard_repo(cand.repo)
         if (self.store.dir(cand.id) / "window.json").exists():
             return self.store.window(cand.id)
-        with scope(lang):
+        with scope(lang) as prof:
             rec: dict[str, Any] = {}
             extra: dict[str, set[str]] = {}
+            for t in cand.params.get("hide_tests") or ():  # subset --hide-tests: visible tests that expect the bug
+                f, k = prof.key_of_test(t)
+                extra.setdefault(f, set()).add(k)
             for _round in range(2):  # round 2: the milestone tests that failed in the agent's own tree are stripped too
                 why = ""
                 for mode in cand.params.get("hide_modes") or ("revert", "strip"):  # a reverted test hunk can take a helper later tests use: then strip only

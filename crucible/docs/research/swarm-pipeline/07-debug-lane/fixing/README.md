@@ -15,8 +15,10 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 | `db-go-urfave-cli-2b0adb14-d1` (benchmark) | applied an undone fix the report never described; added a missing ordering rule to one paragraph |
 | `db-node-h3-a6cd4654` (benchmark) | unchanged task; fixed a changelog hint and two Node environment bugs |
 
-Set aside so far: pulldown-cmark (too hard even after dropping a bug), unstorage (too easy), and the tasks whose "link"
-between bugs turned out fake (mvdan-sh ×4, black ae5830b7 / ec71b918, carbon ×2, excelize ×2). echo is too easy.
+Before the lead's call below, pulldown-cmark, unstorage, echo and the tasks whose "link" between bugs turned out fake
+(mvdan-sh, black ae5830b7, carbon ×2, excelize ×2) were set aside. Now **no task is set aside**: only mvdan-sh 04056a74 and
+black-ec71b918 are dropped (each repeats most of another task's fixes); every other task is changed and measured again
+until it is kept.
 
 ## The rules now
 
@@ -28,6 +30,8 @@ between bugs turned out fake (mvdan-sh ×4, black ae5830b7 / ec71b918, carbon ×
   be dropped** (use `subset --no-link`). Making a too-easy task harder (adding a bug) is allowed for echo and unstorage.
 - **Stay close to Ahmed's task:** keep his fixes and his paragraphs word for word where you can. Prefer the smallest
   change: drop one bug, swap one bug, add one bug, or fix one defect.
+- **No more dropped tasks** (Uzair, 2026-10-23): a quick pass at 0/3 or 3/3 means change the task again (drop, swap or
+  add a bug, fix a defect) and re-measure, never stop. Leaving one of a task's bugs applied is still the same task.
 - **Held-out tasks** are never made easier; fix real defects only. A held-out task's own failure traces must not shape a
   training task.
 - **No reward hacking, no hinting, no mistakes** (Ahmed): run the checklist below before measuring anything.
@@ -76,7 +80,12 @@ Every command below runs from `crucible/` after `set -a && source ../.env && set
       the fixes' new cases and expected outputs are gone. Use the default/`--hide revert` for black.
 - [ ] **No stale assertion:** copy `base/`, overwrite it with `window.json`'s `oracle_files` (the fixed source), run the
       whole visible test suite in the task's World image: everything must pass. A failure means a visible test still
-      expects the bug (go-toml e1 had one).
+      expects the bug (go-toml e1 had one). Revert mode restores the old version of every test a fix changed. Fix:
+      rebuild with `subset --hide-tests <file::Test,...>` naming each stale test function (revert mode then keeps the
+      table drivers visible; mvdan-sh's `TestNodeEndPos` with its `// TODO: want 22` offsets). When the stale lines sit
+      in a table that a whole driver reads (mvdan-sh's printer rows), hiding the driver, or `--hide strip`, leaves the
+      agent blind to its regressions (02a801cd-d1: 0/3, every attempt broke other printer cases): leave that bug applied
+      or swap it instead.
 - [ ] **No hint:** no changelog/NEWS/docs line in `base/` describing an undone fix (the pipeline now strips release
       changelog entries that cite one; check anyway), no `.git`.
 - [ ] **Report matches the tests:** read each paragraph against its hidden tests (`lh_debug.py brief <id>`). A test that
