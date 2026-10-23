@@ -46,3 +46,4 @@ def test_scan_keeps_a_real_install_failing_and_reports_only_flips(tmp_path: Path
     res = scan([tmp_path / "runs"], store)
     assert res["attempts"] == 2 and res["flipped"] == 1 and res["full_pass_gained"] == 1 and res["reward_down"] == 0
     assert res["flips"][0]["arm"] == "frontier"
+    assert res["stale_verdicts"] == 2 and res["rules_version"]  # graded before the rules version stamp: visible as stale

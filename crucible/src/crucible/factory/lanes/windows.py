@@ -89,6 +89,7 @@ from crucible.factory.lanes.windows_timing import timing_tests
 from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
 from crucible.factory.langs.base import active as _lang
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
+from crucible.factory.pathcheck import RULES_VERSION as PATH_RULES_VERSION
 from crucible.factory.pathcheck import PathRules, RequiredAction, ToolCall, check_paths, find_trail
 
 LANE = "window"
@@ -1566,7 +1567,7 @@ class WindowTask(ExecTask):
         self.import_tolerant = bool(self.window.get("import_tolerant")) if import_tolerant is None else bool(import_tolerant)
         self.grader_tests, self.guarded_imports = grader_tests({**self.window, "import_tolerant": self.import_tolerant}, self.base_dir)
         self.path_rules = path_rules or path_rules_of(self.window, self.base_dir)
-        self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True),
+        self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True), PATH_RULES_VERSION,
                                             json.dumps(self.check_tests, sort_keys=True))[:16]
         self._oracle_patch: str | None = None
         # the policy's World only (the grader always runs ``window.world.image``): a seeded tooling fault (P4,

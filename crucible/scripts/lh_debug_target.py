@@ -617,6 +617,65 @@ async def stage_regrade(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
     return out
 
 
+async def stage_fairness(ph: Phase, tids: Sequence[str]) -> dict[str, Any]:
+    """S9b (``factory.alternatives_gate``): per task, the blind second verifier's suite (``verifier2.write_shadow`` on the
+    ``second_verifier`` role, under the language profile, its payload proven blind by ``leaks``), alternative sessions from
+    the bug report alone by ``--alt-models`` (each a family other than the prompt writer's and the suite's, the lane's
+    World and harness), every stored end state with progress under this phase and ``--harvest`` (frontier and student
+    runs), both verifiers and the report's repros on each, and the gate. Writes ``fairness/<task>.json`` (the gate,
+    kappa, the classes, the accepted patches) and ``fairness/<task>.suite.json``: ``alternatives_gate.LiveAlternatives``
+    and ``LiveSecondVerifier`` read them."""
+    from crucible.factory.alternatives_gate import harvest, run_gate
+    from crucible.factory.generators.debug import scope
+    from crucible.factory.generators.debug_repro import parse_repros
+    from crucible.factory.models import ModelBook, family_of
+    from crucible.factory.verifier2 import ShadowSuite, write_shadow
+
+    a = ph.a
+    out_dir = ph.out / "fairness"
+    book = ModelBook.from_config()
+    sv_spec = book.spec("second_verifier")
+    alt_models = [m for m in a.alt_models.split(",") if m]
+    roots = [ph.out, *[Path(r) for r in a.harvest.split(",") if r]]
+    res: dict[str, Any] = {}
+    for tid in tids:
+        task = ph.tasks.task(tid)
+        if task.split != "train" and not a.fairness_heldout:
+            print(f"[fairness] {tid}: held out, skipped (--fairness-heldout)", flush=True)
+            continue
+        authored = jload(ph.tasks.debug / "authored" / f"{tid}.json", {}) or {}
+        builder = str((authored.get("provenance") or {}).get("builder") or "")
+        writer = "anthropic" if builder.startswith("claude") else (family_of(builder.split(":", 1)[-1]) if builder else "")
+        sp = out_dir / f"{tid}.suite.json"
+        if sp.exists() and not a.redo:
+            suite = ShadowSuite.from_json(jload(sp))
+        else:
+            t0 = ph.meter.spent
+            with scope(task.lang):
+                suite = await write_shadow(book.client("second_verifier"), prompt=task.instruction, requirements=task.requirements, base_dir=task.base_dir,
+                                           model=sv_spec.ref, family=sv_spec.family,
+                                           guard={"oracle_files": task.window["oracle_files"], "hidden_tests": task.window.get("tests_b") or {}})
+            suite.usd = round(ph.meter.spent - t0, 6)
+            jsave(sp, suite.to_json())
+        print(f"[fairness] {tid}: suite {sorted(suite.requirements)} by {suite.family} problems {suite.problems[:3]} usd {suite.usd}", flush=True)
+        for m in alt_models:
+            fam = family_of(m)
+            if fam in (writer, suite.family):
+                print(f"[fairness] {tid}: {m} skipped: family {fam} wrote the prompt or the suite", flush=True)
+                continue
+            await ph.job(m, tid, k=a.alt_k, seed=7_000 + a.seed_offset, purpose="fairness", concurrency=a.alt_k, tag=f"alt-{arm_name(m)}")
+        cands = harvest(tid, roots)
+        mids = [m["id"] for m in task.milestones]
+        repros, _ = parse_repros(authored, mids)
+        r = await run_gate(task, cands, suite=suite, writer_family=writer, repros=repros or None)
+        jsave(out_dir / f"{tid}.json", r)
+        res[tid] = {k: r[k] for k in ("status", "why", "counts")} | {"kappa": r["agreement"]["kappa"], "pairs": r["agreement"]["pairs"],
+                                                                     "disagreements": len(r["agreement"]["disagreements"]), "candidates": len(r["classified"])}
+        print(f"[fairness] {tid}: {json.dumps(res[tid])}", flush=True)
+    jsave(out_dir / "summary.json", {"tasks": res, "spent_usd": round(ph.meter.spent, 4), "second_verifier": sv_spec.ref, "alt_models": alt_models})
+    return res
+
+
 # ---- the trace audit ---------------------------------------------------------------------------------------------------------
 REPRO = r"\b(go\s+run|go\s+build|cargo\s+(run|build)|node\s|npx\s+(tsx|ts-node)|python3?\s|mvn\b)"
 NON_SKILL = ("world_bug", "spec_defect", "unstated_format", "verifier_defect", "env_flake")
@@ -1119,6 +1178,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--result-chars", type=int, default=1500, help="per tool result in the audited trace")
     ap.add_argument("--quote-retries", type=int, default=1, help="audit.AuditConfig.quote_retries: a non-verbatim quote is asked again")
     ap.add_argument("--prior-worldfix", default="", help="worldfix: a previous phase's worldfix dir; its accepted World must fail the reproduction")
+    ap.add_argument("--alt-models", default="", help="fairness: models whose sessions write alternatives from the bug report alone (comma list)")
+    ap.add_argument("--alt-k", type=int, default=1, help="fairness: alternative sessions per model and task")
+    ap.add_argument("--harvest", default="", help="fairness: more phase dirs whose stored episodes are alternative candidates (comma list)")
+    ap.add_argument("--fairness-heldout", action="store_true", help="fairness: also held-out tasks (their own benchmark fairness; never training)")
     ap.add_argument("--redo", action="store_true")
     ap.add_argument("--no-observe", action="store_true")
     ap.add_argument("--obs-rev", type=int, default=0, help="report: a revision W&B run (tables only; traces and audits are already logged)")
@@ -1151,6 +1214,8 @@ async def amain(a: argparse.Namespace) -> None:
                 await stage_disclose(ph, tids)
             elif st == "regrade":
                 await stage_regrade(ph, tids)
+            elif st == "fairness":
+                await stage_fairness(ph, tids)
             elif st == "audit":
                 await stage_audit(ph, tids)
             elif st == "mine":

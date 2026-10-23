@@ -297,9 +297,27 @@ async def stage_real(a: argparse.Namespace, spend: Spend, out: Path) -> dict[str
     store = VersionStore(root / "versions.jsonl")
     cfg = LoopConfig(intent=INTENT, batch_size=a.batch_size, accept=AcceptConfig(flake_reruns=a.flake_reruns))
     print(f"bundles {len(bundles)}; labelling {len(ids)}; spent so far {spend.spent():.4f}", flush=True)
+    alts, second = fairness_ports(a)
     rep = await run_loop(bundles, out=root, store=store, contexts=ctxs, auditor=auditor, seeded=controls(Path(a.controls)) if auditor else (),
-                         config=cfg, label_ids=ids, spend=lambda who: spend.scope("auditor", f"real/{who}"), world_limit=a.world_limit)
+                         config=cfg, label_ids=ids, spend=lambda who: spend.scope("auditor", f"real/{who}"), world_limit=a.world_limit,
+                         alts=alts, second=second)
     return rep
+
+
+def fairness_ports(a: argparse.Namespace) -> tuple[Any, Any]:
+    """The acceptance ports from S9b's results (``lh_debug_target.py fairness``): the accepted alternatives and the qualified
+    second verifier (it needs the tasks: ``--fairness-debug`` names the debug lane's data dir). None: the fakes."""
+    if not a.fairness:
+        return None, None
+    from crucible.factory.alternatives_gate import LiveAlternatives, LiveSecondVerifier
+
+    second = None
+    if a.fairness_debug:
+        from lh_debug_target import Tasks
+
+        tasks = Tasks(Path(a.fairness_debug))
+        second = LiveSecondVerifier(Path(a.fairness), tasks.task)
+    return LiveAlternatives(Path(a.fairness)), second
 
 
 def summarize(out: Path, spend: Spend) -> dict[str, Any]:
@@ -369,6 +387,8 @@ def main() -> None:
     ap.add_argument("--image", default="crucible-lh-base:py312", help="the seeded grader's and World's image ('' = local, trusted code only)")
     ap.add_argument("--seeded-auditor", action="store_true")
     ap.add_argument("--keep-versions", action="store_true", help="real: build on the versions an earlier run accepted")
+    ap.add_argument("--fairness", default="", help="real: S9b's results dir (lh_debug_target.py fairness): live alternatives for acceptance")
+    ap.add_argument("--fairness-debug", default="", help="real: the debug lane's data dir, for the live second verifier on those tasks")
     ap.add_argument("stages", nargs="+")
     asyncio.run(amain(ap.parse_args()))
 

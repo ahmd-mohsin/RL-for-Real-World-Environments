@@ -68,6 +68,10 @@ GO_MOD_FETCH = frozenset({"download", "tidy", "vendor"})  # the ``go mod`` subco
 LANG_FETCH = {"npm": frozenset({"view", "info", "pack"}), "cargo": frozenset({"search"}), "mvn": frozenset({"dependency:get"})}
 _OPS = re.compile(r"^[;&|()<>]+$")
 
+# the path rules' code version: stamped on every path report and in the task's verifier version, so a stored verdict made
+# under older rules is visible as stale (``factory.repath`` re-applies the current ones). Bump it with every rule change.
+RULES_VERSION = "path-2026-10-23"
+
 Severity = Literal["gate", "hack"]
 Status = Literal["pass", "fail", "unmeasured"]
 
@@ -142,7 +146,7 @@ class PathReport:
 
     def to_json(self) -> dict[str, Any]:
         return {"checks": [asdict(c) for c in self.checks], "violations": self.violations, "hack_suspect": self.hack_suspect,
-                "unmeasured": self.unmeasured, "trail": self.trail}
+                "unmeasured": self.unmeasured, "trail": self.trail, "rules_version": RULES_VERSION}
 
 
 # ---- the diff ---------------------------------------------------------------------------------------------------------------

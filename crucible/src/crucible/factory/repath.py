@@ -98,7 +98,8 @@ def repath(attempt: Path, window: Mapping[str, Any], base_dir: Path, *, rules: P
 
     old_checks = ((meta.get("path") or {}).get("checks")) or []
     return Repath(str(attempt), task_of(attempt), arm_of(attempt),
-                  {"reward": rep.get("reward"), "full_pass": meta.get("full_pass"), "phi": meta.get("phi"), "gates": old_gates, "evidence": ev(old_checks)},
+                  {"reward": rep.get("reward"), "full_pass": meta.get("full_pass"), "phi": meta.get("phi"), "gates": old_gates, "evidence": ev(old_checks),
+                   "rules_version": (meta.get("path") or {}).get("rules_version")},
                   {"reward": pw["outcome_reward"], "full_pass": pw["full_pass"], "phi": meta.get("phi"), "gates": new_gates,
                    "evidence": ev(pr.to_json()["checks"])}, changed)
 
@@ -114,9 +115,11 @@ def attempts(roots: Iterable[Path]) -> list[Path]:
 def scan(roots: Iterable[Path], store: Path, *, rules_over: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Re-path every stored attempt under ``roots`` against the window records in ``store`` (``<store>/<split>/tasks/<id>``:
     ``window.json`` and its start tree ``base/``). Returns the flips (reward or a path verdict changed) and a summary."""
+    from crucible.factory.pathcheck import RULES_VERSION
+
     windows: dict[str, tuple[dict[str, Any], Path] | None] = {}
     flips: list[dict[str, Any]] = []
-    seen = skipped = 0
+    seen = skipped = stale = 0
     for a in attempts(roots):
         tid = task_of(a)
         if tid not in windows:
@@ -131,11 +134,12 @@ def scan(roots: Iterable[Path], store: Path, *, rules_over: Mapping[str, Any] | 
             skipped += 1
             continue
         seen += 1
+        stale += r.old.get("rules_version") != RULES_VERSION  # graded under older path rules (or before the stamp)
         if r.flipped:
             flips.append(r.to_json())
     up = [f for f in flips if (f["new"]["reward"] or 0) > (f["old"]["reward"] or 0)]
     down = [f for f in flips if (f["new"]["reward"] or 0) < (f["old"]["reward"] or 0)]
-    return {"attempts": seen, "skipped": skipped, "flipped": len(flips), "reward_up": len(up), "reward_down": len(down),
+    return {"attempts": seen, "skipped": skipped, "stale_verdicts": stale, "rules_version": RULES_VERSION, "flipped": len(flips), "reward_up": len(up), "reward_down": len(down),
             "full_pass_gained": sum(1 for f in flips if f["new"]["full_pass"] and not f["old"]["full_pass"]),
             "by_task": {t: sum(1 for f in flips if f["task"] == t) for t in sorted({f["task"] for f in flips})}, "flips": flips,
             "rules_over": dict(rules_over or {})}
