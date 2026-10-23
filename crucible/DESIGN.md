@@ -1121,6 +1121,33 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
   `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
   use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
+- **Grader gaps closed on the existing tasks (2026-10-23, `10` §8.4):**
+  - **A case's inputs no longer depend on the cases run before it.** The harness drew every input from one
+    process-wide counter, so a case's inputs changed with its position in a chunk: the calibration (96-case chunks) and
+    a later grade of the same case saw different inputs at the same seed, and a revert's break seen in the calibration
+    did not repeat at S8 (`cef66d4a` m2, `a45699aa` m3, held-out `35d83401` m1). A selected case now restarts the
+    stream from (seed, case name) (`crucible_case_start`); the 2024 layout's static per-thread engines and the 2025
+    layout's first-tensor thread count are rebuilt per call. Checked on the 5090: the same cases dump identical outputs
+    alone and inside a 35-case chunk, in both dialects.
+  - **Ownership on fixed-seed breaks.** Pool grades report `per_case_fixed` (the spec's fixed seeds only); a revert owns
+    a case, and an executed edge is drawn, only on a break there (one fresh-seed break no longer owns a case S8 then
+    misses).
+  - **An exact attention reference where B's own CPU kernel is wrong.** ik_llama.cpp's IQK CPU flash attention (taken
+    when `max_bias == 0`) disagrees with ggml's semantics on the 2024 op test's inputs, so B failed 237 of its own 455
+    FLASH_ATTN_EXT cases. The reference build can replace the CPU column of a listed case with an exact computation
+    (`crucible_fa_exact`: scale, ALiBi slopes, softcap, additive mask, softmax and GQA in double from the CPU graph's
+    inputs, dequantised by the file's own `tensor_to_float`; `CRUCIBLE_FA_REF_CASES`). The calibration lists a case
+    only on evidence (`KDGrader.fa_probe`, `fa_reference_verdict`, `fa_exact_choice`): B's GPU must match the exact
+    result within half the tolerance, the CPU kernel must not, B's GPU must be bitwise stable across two processes, and
+    the exact computation must agree with both on at least 8 cases where they agree with each other; otherwise nothing
+    switches. Recorded per task as `calibration.fa_reference`.
+  - **The reference's identity includes the harness hooks** (`harness_digest`): a hook change rebuilds every reference.
+  - **Migration S8 read an empty field.** It took per-gate verdicts from the reward document's `gates`, which
+    `kernel_plan` leaves empty, so no fault mutant ever counted as killed. Gates now come from the report (or the
+    `check/<gate>` components) and a mutant is killed when a milestone of the program it targets fails
+    (`gates_of`, `mutant_targets`, `mutant_killed`). A window may list mutants shown equivalent on the program's own
+    inputs (`equivalent_mutants`: the reason citing the code), listed apart as `S8_mutants_excluded`; a window whose
+    every mutant is excluded fails S8.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

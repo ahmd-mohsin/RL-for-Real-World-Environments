@@ -166,7 +166,8 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     """B with the patched harness, built as root into ``ref/`` (0700): what the reference runs in every grade."""
     ref = d / "ref"
     extra = list(spec.get("harness_extra") or [])
-    stamp = "\n".join([kh.cuda_arch_flag([arch]), *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra)])  # flags and added cases  # the reference's identity: the GPU arch and the grader's added cases
+    stamp = "\n".join([kh.cuda_arch_flag([arch]), harness_digest(), *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra),
+                       *(spec.get("cmake_extra") or [])])  # flags and added cases  # the reference's identity: the GPU arch and the grader's added cases
     if (ref / "bin" / kh.TARGET).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == stamp:
         return {"ok": True, "cached": True}
     if ref.exists():
@@ -194,6 +195,14 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
         rmtree(src)
     os.chmod(ref, 0o700)
     return {"ok": ok, "rc": p.returncode, "log": "" if ok else ((ref / "build.log").read_text(errors="replace")[-1500:] if (ref / "build.log").exists() else p.stderr[-800:])}
+
+
+def harness_digest() -> str:
+    """The grader-owned harness hooks (``kernel_harness``): part of the reference's identity, so a hook change (2026-10-23:
+    per-case input streams, the exact attention reference) rebuilds every reference instead of reusing one built before."""
+    import hashlib
+
+    return "harness " + hashlib.sha256(Path(kh.__file__).read_bytes()).hexdigest()[:16]
 
 
 def kit_digest() -> bytes:
@@ -247,6 +256,49 @@ def check_status(g: dict, cid: str) -> str | None:
 
 def per_case(g: dict, mid: str) -> dict[str, bool]:
     return dict(check_detail(g, f"{mid}:golden").get("per_case") or {})
+
+
+def per_case_fixed(g: dict, mid: str) -> dict[str, bool]:
+    """Per case on the spec's fixed seeds only (pool grades since 2026-10-23; an older grade has none: all seeds)."""
+    det = check_detail(g, f"{mid}:golden")
+    return dict(det.get("per_case_fixed") or det.get("per_case") or {})
+
+
+def fa_reference_verdict(ev: dict, *, margin: float = MARGIN, det: float = 1e-3) -> str:
+    """One FLASH_ATTN_EXT case of B from the probe (``KDGrader.fa_probe``):
+    - ``unmodelled``: the exact computation does not model the case (the CPU column stayed);
+    - ``nondeterministic``: B's GPU output differs between two processes on the same inputs (no golden of it is fair);
+    - ``agree``: B's GPU matches the CPU kernel (nothing to change);
+    - ``cpu_wrong``: B's GPU matches the exact computation within ``margin`` of the tolerance and the CPU kernel does
+      not: two independent computations agree against the CPU, so the CPU column is the wrong reference here;
+    - ``gpu_disagrees``: B's GPU matches neither (the case stays as it is; B fails it and it leaves the pool)."""
+    tol = float(ev.get("tol") or 0.0)
+    g_c, g_x, c_x, g_g = (ev.get(k) for k in ("gpu_vs_cpu", "gpu_vs_exact", "cpu_vs_exact", "gpu_vs_gpu"))
+    if not ev.get("applied"):
+        return "unmodelled"
+    if g_g is None or g_g > det * tol:
+        return "nondeterministic"
+    if g_c is not None and g_c <= tol:
+        return "agree"
+    if g_x is not None and g_x <= margin * tol and (c_x is None or c_x > tol):
+        return "cpu_wrong"
+    return "gpu_disagrees"
+
+
+def fa_exact_choice(evidence: dict[str, dict], *, min_agree: int = 8) -> dict:
+    """The cases whose reference becomes the exact computation, and the check that the computation itself is right: on
+    cases where B's GPU and the CPU kernel agree, the exact result must agree with both (at least ``min_agree`` such
+    cases); otherwise nothing is switched (``validated`` false)."""
+    verdicts = {c: fa_reference_verdict(ev) for c, ev in evidence.items()}
+    counts: dict[str, int] = {}
+    for v in verdicts.values():
+        counts[v] = counts.get(v, 0) + 1
+    agree = [c for c, v in verdicts.items() if v == "agree" and (evidence[c].get("cpu_vs_exact") or 0.0) <= float(evidence[c]["tol"])
+             and (evidence[c].get("gpu_vs_exact") or 0.0) <= float(evidence[c]["tol"])]
+    validated = len(agree) >= min_agree
+    exact = sorted(c for c, v in verdicts.items() if v == "cpu_wrong") if validated else []
+    return {"exact": exact, "verdicts": counts, "validated": validated, "exact_agrees_where_cpu_and_gpu_agree": len(agree),
+            "agree_checked": counts.get("agree", 0)}
 
 
 def borderline(g: dict, mid: str, margin: float = MARGIN) -> set[str]:
@@ -596,6 +648,31 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
         cal.update(gradable=False, error="the oracle did not build or was masked on this host: " + json.dumps(check_detail(b, "build:cuda"))[-600:])
         return spec, cal
     b_pass = {m["id"]: per_case(b, m["id"]) for m in spec["milestones"]}
+    # B's own CPU reference wrong (2026-10-23: ik_llama.cpp's IQK CPU flash attention disagrees with ggml's semantics on
+    # the 2024 op test's inputs, so B failed its own cases): the probe compares B's GPU, the CPU kernel and an exact
+    # computation; where the first and last agree against the CPU, those cases switch to the exact reference
+    fa_fail = sorted({c for mid, pc in b_pass.items() for c, ok in pc.items() if not ok and c.startswith("FLASH_ATTN_EXT(")})
+    if fa_fail:
+        fa_ok = sorted({c for pc in b_pass.values() for c, ok in pc.items() if ok and c.startswith("FLASH_ATTN_EXT(")})[:64]
+        probe_spec = json.loads(json.dumps(spec))
+        for m in probe_spec["milestones"]:
+            m["case_pool"], m["cases_added"], m["checks"] = [*fa_fail, *fa_ok], [], ["golden"]
+        probe_spec["milestones"] = probe_spec["milestones"][:1]
+        pp = d / "kdspec.faprobe.json"
+        pp.write_text(json.dumps(probe_spec, indent=1))
+        pr = grade(d, d / "oracle.patch", pp, mode, arch, "cal-fa-probe", pool=True, params=("pool_cap=0", "fa_probe=1"))
+        ev = check_detail(pr, f"{probe_spec['milestones'][0]['id']}:golden").get("fa_evidence") or {}
+        choice = fa_exact_choice(ev)
+        cal["fa_reference"] = {**choice, "probed": len(ev), "b_failed_fa_cases": len(fa_fail),
+                               "examples": {c: ev[c] for c in list(choice["exact"])[:3]}, "infra": pr["infra"]}
+        if choice["exact"]:
+            spec["fa_exact_cases"] = choice["exact"]
+            pooled.write_text(json.dumps(spec, indent=1))
+            b = grade(d, d / "oracle.patch", pooled, mode, arch, "cal-oracle-x", pool=True)
+            if check_status(b, "build:cuda") != "pass" or (b["infra"] or {}).get("status") == "masked":
+                cal.update(gradable=False, error="the oracle was masked on its regrade against the exact reference")
+                return spec, cal
+            b_pass = {m["id"]: per_case(b, m["id"]) for m in spec["milestones"]}
     # S1 executed, first on the start: A' (every fault in) must fail some pool case or a sanitizer check; if it passes
     # everything on this GPU no fault shows here and no single revert is graded (recorded as the drop reason)
     a_grade = grade(d, d / "floor_no_op.patch", pooled, mode, arch, "cal-start", pool=True)
@@ -615,11 +692,13 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
         revert_grades[mid] = r
         broke = set()
         for m in spec["milestones"]:
-            pc = per_case(r, m["id"])
+            pc = per_case_fixed(r, m["id"])
             broke |= {c for c, ok in pc.items() if b_pass[m["id"]].get(c) and not ok}
         breaks[mid] = broke
         added = next((x.get("cases_added") or [] for x in ms if x["id"] == mid), [])
-        owned[mid] = owned_cases(b_pass[mid], per_case(r, mid), added)
+        # owned on a fixed-seed break: it repeats in every later grade (2026-10-23: cases owned on a break seen only on
+        # one fresh seed let the same revert pass its milestone at S8)
+        owned[mid] = owned_cases(b_pass[mid], per_case_fixed(r, mid), added)
     # milestones whose revert does not apply at B: owned by what the fix alone repairs (A' fails, A' + the fix passes, B
     # passes); no revert means no executed edge into that milestone's fault (recorded)
     if entry.get("probers"):
@@ -627,7 +706,7 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
             if mid in owned:
                 continue
             al = grade(d, d / f"prober_{pid}.patch", pooled, mode, arch, f"cal-{pid}", pool=True)
-            a_pc, al_pc = per_case(a_grade, mid), per_case(al, mid)
+            a_pc, al_pc = per_case_fixed(a_grade, mid), per_case(al, mid)
             added = next((x.get("cases_added") or [] for x in ms if x["id"] == mid), [])
             repaired = {c: not (b_pass[mid].get(c) and al_pc.get(c) and not a_pc.get(c, True)) for c in b_pass[mid]}
             owned[mid] = owned_cases(b_pass[mid], repaired, added)

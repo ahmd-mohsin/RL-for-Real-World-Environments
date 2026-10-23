@@ -405,3 +405,54 @@ def test_start_gate_compiles_untouched_units_that_use_what_a_fault_takes_away(tm
     got = kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/common.cuh", "g/cuda/norm.cu"], lay)
     assert got == ["g/cuda/binbcast.cu"]  # a mention in a comment is not a use; the touched unit is compiled anyway
     assert kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/norm.cu"], lay) == []  # no header change: nothing taken away
+
+
+def test_ownership_needs_a_break_on_the_fixed_seeds():
+    """2026-10-23: cases owned on a break seen on one fresh seed of the calibration let the same revert pass its
+    milestone at S8 (kd-bug-llamacpp-a45699aa m3): ownership reads the fixed-seed verdicts."""
+    g = load_gpu_runner()
+    grade = {"checks": [{"id": "m1:golden", "detail": {"per_case": {"A": False, "B": False}, "per_case_fixed": {"A": False, "B": True}}}]}
+    assert g.per_case_fixed(grade, "m1") == {"A": False, "B": True}
+    assert g.owned_cases({"A": True, "B": True}, g.per_case_fixed(grade, "m1"), []) == ["A"]
+    old = {"checks": [{"id": "m1:golden", "detail": {"per_case": {"A": False}}}]}
+    assert g.per_case_fixed(old, "m1") == {"A": False}  # a grade from before the field: every seed
+
+
+def test_exact_attention_reference_only_where_two_computations_agree_against_the_cpu():
+    g = load_gpu_runner()
+    tol = 5e-4
+    ev = {"cpu_wrong": {"tol": tol, "applied": True, "gpu_vs_cpu": 0.25, "gpu_vs_exact": 1e-7, "cpu_vs_exact": 0.2, "gpu_vs_gpu": 0.0},
+          "agree": {"tol": tol, "applied": True, "gpu_vs_cpu": 1e-5, "gpu_vs_exact": 1e-7, "cpu_vs_exact": 1e-5, "gpu_vs_gpu": 0.0},
+          "gpu_bad": {"tol": tol, "applied": True, "gpu_vs_cpu": 0.25, "gpu_vs_exact": 0.3, "cpu_vs_exact": 1e-6, "gpu_vs_gpu": 0.0},
+          "noisy": {"tol": tol, "applied": True, "gpu_vs_cpu": 0.25, "gpu_vs_exact": 1e-7, "cpu_vs_exact": 0.2, "gpu_vs_gpu": 1e-4},
+          "sinks": {"tol": tol, "applied": False, "gpu_vs_cpu": 0.25, "gpu_vs_exact": 0.25, "cpu_vs_exact": 0.0, "gpu_vs_gpu": 0.0}}
+    assert {c: g.fa_reference_verdict(e) for c, e in ev.items()} == {
+        "cpu_wrong": "cpu_wrong", "agree": "agree", "gpu_bad": "gpu_disagrees", "noisy": "nondeterministic", "sinks": "unmodelled"}
+    few = g.fa_exact_choice(ev)
+    assert not few["validated"] and few["exact"] == []  # the exact computation agreed with the CPU on too few cases
+    many = {**ev, **{f"ok{i}": dict(ev["agree"]) for i in range(8)}}
+    choice = g.fa_exact_choice(many)
+    assert choice["validated"] and choice["exact"] == ["cpu_wrong"] and choice["verdicts"]["agree"] == 9
+
+
+def load_migration_runner():
+    p = Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_gpu.py"
+    spec = importlib.util.spec_from_file_location("lh_kernel_gpu", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_migration_s8_reads_the_report_gates_and_the_mutant_s_own_milestones(tmp_path):
+    """2026-10-23: S8 read the reward document's ``gates``, which this plan leaves empty, so no fault mutant ever counted
+    as killed. Gates now come from the report (or the check components), and a mutant is killed when a milestone of the
+    program it is aimed at fails."""
+    m = load_migration_runner()
+    (tmp_path / "report.json").write_text('{"gates": {"c02": "pass", "r02": "fail", "r03": "pass"}}')
+    assert m.gates_of(tmp_path, {"gates": {}}) == {"c02": "pass", "r02": "fail", "r03": "pass"}
+    assert m.gates_of(tmp_path / "none", {"components": {"check/r02": 0.0, "check/c02": 1.0, "time/x": 3.0}}) == {"r02": "fail", "c02": "pass"}
+    spec = {"milestones": [{"id": "c02", "programs": ["p_soft"]}, {"id": "r02", "programs": ["p_soft"]}, {"id": "r03", "programs": ["p_moe"]}]}
+    assert m.mutant_targets("mutant_fault-shfl_down_to_up-p_soft", spec) == ["c02", "r02"]
+    killed = {"gates": {"c02": "pass", "r02": "fail", "r03": "pass"}}
+    elsewhere = {"gates": {"c02": "pass", "r02": "pass", "r03": "fail"}}
+    assert m.mutant_killed("mutant_fault-x-p_soft", killed, spec) and not m.mutant_killed("mutant_fault-x-p_soft", elsewhere, spec)

@@ -200,3 +200,28 @@ def test_prepare_tree_writes_build_info_instead_of_running_git(tmp_path):
     assert (tmp_path / "common" / "build-info.cpp").read_text() == 'int LLAMA_BUILD_NUMBER = 0;\nchar const *LLAMA_COMMIT = "unknown";\n'
     cm = (tmp_path / "common" / "CMakeLists.txt").read_text()
     assert "add_custom_command" not in cm and "add_library(build_info OBJECT build-info.cpp)" in cm
+
+
+@pytest.mark.parametrize("text", [NEW, OLD])
+def test_a_case_s_inputs_do_not_depend_on_the_cases_before_it(text: str):
+    """2026-10-23: inputs came from one process-wide stream, so a case's inputs changed with its position in a chunk (a
+    calibration on 96-case chunks and a grade of the case alone disagreed at the same seed). A selected case now restarts
+    the stream from (seed, case name); static per-thread engines and a first-tensor thread count are rebuilt per call."""
+    out = kh.patch_harness(text)
+    assert out.count("crucible_case_start(name);") == 2  # both selection paths
+    assert "crucible_salt.store(crucible_splitmix(h));" in out and "crucible_counter.store(0);" in out
+    assert "static std::vector<std::default_random_engine> generators" not in out
+    big = text.replace("static void init_tensor_uniform(ggml_tensor * tensor, float min = -1.0f, float max = 1.0f) {",
+                       "static void init_tensor_uniform(ggml_tensor * tensor, float min = -1.0f, float max = 1.0f) {\n"
+                       "        static const size_t n_threads = std::max<size_t>(1, std::min<size_t>(nels/1024, std::min<size_t>(4, N_THREADS/2)));")
+    assert "static const size_t n_threads" not in kh.patch_harness(big)
+
+
+def test_the_exact_attention_reference_is_wired_into_the_dump_only():
+    out = kh.patch_harness(NEW)
+    assert out.count("crucible_fa_exact(t2, crucible_ref,") == 1  # the reference's CPU column, for listed cases only
+    assert "crucible_ref.data(), f1.size()); }" in out
+    assert 'crucible_listed("CRUCIBLE_FA_REF_CASES", crucible_case_name)' in out and kh.FA_REF_ENV == "CRUCIBLE_FA_REF_CASES"
+    assert "double err = ud->tc->err(f1.data(), f2.data(), f1.size());" in out  # the console verdict is untouched
+    stdout = "  FLASH_ATTN_EXT(hs=64): OK\nCRUCIBLE_FA_EXACT FLASH_ATTN_EXT(hs=64,nh=4)\nCRUCIBLE_FA_EXACT FLASH_ATTN_EXT(hs=80,nh=4)\n"
+    assert kh.EXACT_LINE.findall(stdout) == ["FLASH_ATTN_EXT(hs=64,nh=4)", "FLASH_ATTN_EXT(hs=80,nh=4)"]

@@ -194,15 +194,27 @@ class KDGrader:
         os.chmod(f, 0o644)
         return f
 
-    def run_ref(self, tag: str, cases: list[str], seed: int, *, mode: str = "test", reps: int = 0, dump: bool = True, cache: bool = True) -> dict:
-        key = (tag, tuple(cases), seed, mode, reps)
+    def exact_cases(self, cases: list[str]) -> list[str]:
+        """The cases of ``cases`` whose CPU column the reference replaces with the exact attention computation: those the
+        calibration showed the CPU kernel wrong on (``spec.fa_exact_cases``; the evidence is in the calibration record)."""
+        listed = set(self.spec.get("fa_exact_cases") or [])
+        return [c for c in cases if c in listed]
+
+    def run_ref(self, tag: str, cases: list[str], seed: int, *, mode: str = "test", reps: int = 0, dump: bool = True, cache: bool = True,
+                exact: list[str] | None = None) -> dict:
+        exact = self.exact_cases(cases) if exact is None else exact
+        key = (tag, tuple(cases), seed, mode, reps, tuple(exact))
         if cache and key in self.refs:
             return self.refs[key]
-        d = self.t.private(self.work / "ref" / f"{tag}-{seed}-{mode}-{reps}")
+        d = self.t.private(self.work / "ref" / f"{tag}-{seed}-{mode}-{reps}{'-x' if exact else ''}")
         cf = self._cases_file(d, cases)
         dump_f = d / "ref.dump" if dump else None
         # the reference's libraries sit next to it (its build directory, which the RPATH names, is gone)
         env = {**self._env(seed, cf, dump_f, reps=reps), "LD_LIBRARY_PATH": str(self.ref / "bin")}
+        if exact:
+            xf = d / "fa_exact.txt"
+            xf.write_text(kh.cases_file(exact))
+            env[kh.FA_REF_ENV] = str(xf)
         r = self.t.run([self.ref / "bin" / kh.TARGET, mode, "-b", "CUDA0"], cwd=d, env=env, timeout=3600)
         if r.timed_out:
             raise InfraError(f"the reference timed out on {tag}")
@@ -212,7 +224,8 @@ class KDGrader:
         recs = kh.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
         if dump_f:
             dump_f.unlink(missing_ok=True)
-        res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc, "crashed": kh.crashed_case(r.stdout) if r.rc else None}
+        res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc, "crashed": kh.crashed_case(r.stdout) if r.rc else None,
+               "exact": sorted(set(kh.EXACT_LINE.findall(r.stdout)))}
         # pool mode: a chunk whose cases this backend does not support at all leaves no output, and those cases leave the pool
         if dump and cases and not recs and not res["crashed"] and not (self.mode == "pool" and res["status"] and set(res["status"].values()) <= {"not supported"}):
             raise InfraError(f"the reference produced no output for {tag} (rc {r.rc}): {r.log[-300:]}")
@@ -286,7 +299,8 @@ class KDGrader:
 
     def golden(self, m: dict) -> Verdict:
         cases = self.cases_of(m)
-        detail, ok, per_case, ratio = {}, True, {}, {}
+        detail, ok, per_case, ratio, per_fixed = {}, True, {}, {}, {}
+        fixed = set((self.spec.get("seeds") or {}).get("fixed") or [7])
         for seed in self.seeds(m):
             seen = self.pool_seen.setdefault(seed, {}) if self.mode == "pool" else {}
             todo = [c for c in cases if c not in seen]  # pool mode: a case another milestone ran on this seed is not rerun
@@ -306,6 +320,8 @@ class KDGrader:
             fails = {k: v for k, v in cmp.items() if not v["pass"]}
             for k, v in cmp.items():
                 per_case.setdefault(k, []).append(bool(v["pass"]))
+                if seed in fixed and seed != self.fresh:
+                    per_fixed.setdefault(k, []).append(bool(v["pass"]))
                 r = case_ratio(v)
                 ratio[k] = max(ratio.get(k, 0.0), r)
             # pool mode reruns no case another milestone ran: the launch evidence belongs to the grade, not the calibration
@@ -316,8 +332,41 @@ class KDGrader:
             if not launch_ok:
                 detail["launch_error"] = "fewer kernel launches than cases: an op ran off the GPU"
         detail["per_case"] = {k: all(v) for k, v in per_case.items()}  # the calibration's input (pool) and its stability check (grade)
+        # the same on the fixed seeds alone: a revert's break there repeats in every later grade, one seen only on a fresh
+        # seed may not (the calibration owns a case only on a fixed-seed break)
+        detail["per_case_fixed"] = {k: all(v) for k, v in per_fixed.items()}
         detail["per_case_ratio"] = {k: round(v, 4) if v != float("inf") else None for k, v in ratio.items()}  # worst error / tolerance
         return Verdict(ok, {**detail, "seed_revealed_after_run": True})
+
+    def fa_probe(self, m: dict) -> Verdict:
+        """Calibration only (``--param fa_probe=1``): every FLASH_ATTN_EXT case of the milestone's pool, the reference (B)
+        run twice per fixed seed, once against its CPU kernel and once against the exact attention computation; no
+        candidate runs. Per case: B's GPU against the CPU and against the exact result, the CPU against the exact result,
+        and B's GPU against itself across the two processes (determinism). ``fa_reference_verdict`` decides."""
+        cases = [c for c in self.cases_of(m) if c.startswith("FLASH_ATTN_EXT(")]
+        ev: dict[str, dict] = {}
+        for seed in list((self.spec.get("seeds") or {}).get("fixed") or [7]):
+            for i in range(0, len(cases), CHUNK):
+                part = cases[i:i + CHUNK]
+                try:
+                    cpu = self.run_ref(f"fap-{m['id']}-c{i}", part, seed, cache=False, exact=[])
+                    ex = self.run_ref(f"fax-{m['id']}-c{i}", part, seed, cache=False, exact=part)
+                except _DumpTooBig:
+                    continue
+                c_by, x_by, done = kh.by_case(cpu["recs"]), kh.by_case(ex["recs"]), set(ex["exact"])
+                for c in part:
+                    a, b = c_by.get(c) or [], x_by.get(c) or []
+                    if not a or len(a) != len(b):
+                        continue
+                    row = {"tol": float(a[0]["max_err"]), "applied": c in done,
+                           "gpu_vs_cpu": max(kh.nmse(x["out"], x["ref"]) for x in a),
+                           "gpu_vs_exact": max(kh.nmse(y["out"], y["ref"]) for y in b),
+                           "cpu_vs_exact": max(kh.nmse(x["ref"], y["ref"]) for x, y in zip(a, b, strict=True)),
+                           "gpu_vs_gpu": max(kh.nmse(x["out"], y["out"]) for x, y in zip(a, b, strict=True))}
+                    prev = ev.get(c)
+                    ev[c] = row if prev is None else {k: (prev[k] and row[k]) if isinstance(row[k], bool) else max(prev[k], row[k]) for k in row}
+        clean = {c: {k: (None if v == float("inf") else round(v, 9)) if isinstance(v, float) else v for k, v in r.items()} for c, r in ev.items()}
+        return Verdict(True, {"fa_evidence": clean, "cases": len(cases)})
 
     def sanitize(self, m: dict, tool: str) -> Verdict:
         # the calibration's sanitizer cases launch the fault's kernels (profiled with CUPTI); else the milestone's first cases
@@ -387,7 +436,9 @@ def plan(ctx: Context) -> Plan:
     checks = [Check("build:cuda", "build", lambda ctx: g.build()), Check("build:binary", "build", lambda ctx: g.binary() if g.exe else skipped)]
     for m in spec["milestones"]:
         for c in m["checks"]:
-            if c == "golden":
+            if c == "golden" and ctx.params.get("fa_probe") and g.mode == "pool":
+                fn = (lambda ctx, m=m: g.fa_probe(m))
+            elif c == "golden":
                 fn = (lambda ctx, m=m: g.golden(m))
             elif c in ("racecheck", "synccheck", "memcheck"):
                 fn = (lambda ctx, m=m, c=c: g.sanitize(m, c))

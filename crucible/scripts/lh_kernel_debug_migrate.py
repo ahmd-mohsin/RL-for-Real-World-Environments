@@ -240,6 +240,8 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
         d = out / "windows" / w["id"]
         if d.is_dir():
             jdump(d / "images.json", {"base": kdm.CUDA13_TAG if w["generation"] == "cuda13" else base, "legacy": base if w["generation"] == "cuda13" else legacy})
+            if w.get("equivalent_mutants"):  # fault mutants shown equivalent on the program's own inputs (the reason cites the code)
+                jdump(d / "equivalent_mutants.json", w["equivalent_mutants"])
     print(f"migration bundle in {out}")
 
 
@@ -267,8 +269,11 @@ def migration_gpu_verdict(res: dict[str, Any]) -> tuple[str | None, str]:
         return "S5_oracle", f"oracle reward {(res.get('oracle') or {}).get('reward')}, gates {(res.get('oracle') or {}).get('gates')}"
     if not res.get("S8_floors"):
         return "S8_floors", "a floor scores above 0"
-    if not all((res.get("S8_mutants_killed") or {}).values()):
-        return "S8_mutants", "a fault mutant passes every milestone: " + ", ".join(k for k, v in res["S8_mutants_killed"].items() if not v)
+    killed = res.get("S8_mutants_killed") or {}
+    if not all(killed.values()):
+        return "S8_mutants", "a fault mutant passes every milestone it is aimed at: " + ", ".join(k for k, v in killed.items() if not v)
+    if res.get("mutants") and not killed:
+        return "S8_mutants", "every fault mutant was excluded as equivalent: the verifier is untested"
     if (res.get("flake") or {}).get("cp_upper", 1.0) > 0.05:
         return "S10_flake", f"flake {res.get('flake')}"
     return None, ""
@@ -285,7 +290,8 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         failed, why = migration_gpu_verdict(res)
         w.setdefault("gates", {}).setdefault("gpu", {})[res.get("gpu") or "unknown"] = {
             "at": res.get("at"), "arch": res.get("arch"), "originals": res.get("originals"), "S5_oracle": res.get("S5_oracle"), "S8_floors": res.get("S8_floors"),
-            "S8_mutants_killed": res.get("S8_mutants_killed"), "flake": res.get("flake"), "failed_gate": failed, "why": why, "pass": failed is None}
+            "S8_mutants_killed": res.get("S8_mutants_killed"), "S8_mutants_excluded": res.get("S8_mutants_excluded"), "flake": res.get("flake"),
+            "failed_gate": failed, "why": why, "pass": failed is None}
         jdump(MIG / "store" / "windows" / f"{w['id']}.json", w)
         print(w["id"], "gpu", "pass" if failed is None else f"{failed}: {why}", flush=True)
 
