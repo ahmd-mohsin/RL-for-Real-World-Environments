@@ -1057,6 +1057,16 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
   (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
   and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
+- **Hardware reach (2026-10-23, `kernel_debug_reach`):** a mined fault qualifies only when the GH200 (`sm_90`) or the
+  RTX 5090 (`sm_120`) compiles and dispatches the changed code (each changed file resolved as that GPU sees it: its
+  `__CUDA_ARCH__` or the host pass, HIP/MUSA/NCCL undefined, `common.cuh`'s feature macros and `*_available(cc)`
+  predicates, runtime `cc` tests folded three-valued, code after a `return` dropped, identical branches merged; anything
+  undecided counts as reached), the bug family's change is not speed-only, launch-shape-only or a precision-only kernel
+  selection by its message, no hardware we lack is named, and the op test builds one of its ops. Mining drops the rest
+  with the reason; records carry `targets` per fault and `reach` per milestone. `retire` moves a record to
+  `data/kernel_debug/retired/<id>/` with its reason (reversible; the report lists it); `retire --auto` once every target
+  GPU has run and fewer than two milestones are gradable. Retired: llama.cpp 7ac249cc, 4b8c156e, b377258d; held-out
+  ik_llama.cpp 5b19ab0c, 4da3f014 (`10` §3.1).
 - **GPU calibration rules (lab 5090 run):** S1 executed starts with a sweep of A' (every fault in) over every case of every
   pool on the fixed seeds; the cases it fails join the 1,000-case sample the rest of the calibration grades; if A' passes
   every pool case and every sanitizer check, no fault shows on this GPU and the task drops; a milestone owns the pool cases its single revert
