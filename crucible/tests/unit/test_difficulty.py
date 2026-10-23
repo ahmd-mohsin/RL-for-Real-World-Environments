@@ -357,6 +357,27 @@ def test_training_rows_skip_held_out_tasks_and_budget_stops() -> None:
     assert [(t, k, n) for t, _, k, n in rows] == [("a", 2, 5)]
 
 
+def test_budget_stops_are_backfilled_from_the_traces_before_the_fit(tmp_path: Path) -> None:
+    from crucible.factory.difficulty import backfill_budget_stops
+
+    ep = tmp_path / "student" / "a" / "episodes.jsonl"
+    ep.parent.mkdir(parents=True)
+    ep.write_text("\n".join(json.dumps(r) for r in [{"stop": "max_steps", "passed": False}, {"stop": "max_steps", "passed": False},
+                                                    {"stop": "agent_done", "passed": False}, {"stop": "max_steps", "passed": True},
+                                                    {"stop": "max_steps", "passed": False, "masked": True}]))
+    run = {"tasks": [{"task": "a", "split": "train", "n": 4, "passes": 1, "faults": 3, "lang": "go"},
+                     {"task": "b", "split": "train", "n": 8, "passes": 7, "stops": {"max_steps": 3}, "faults": 2, "lang": "go"},
+                     {"task": "c", "split": "train", "n": 8, "passes": 0, "budget_stops": {"student": 1}, "faults": 2, "lang": "go"}]}
+    out = backfill_budget_stops(run, tmp_path)
+    by = {t["task"]: t for t in out["tasks"]}
+    # failed, unmasked limit stops only; a passing limit stop is not a budget failure
+    assert by["a"]["budget_stops"] == {"student": 2} and by["a"]["budget_stops_source"] == "episodes"
+    assert by["b"]["budget_stops"] == {"student": 1} and by["b"]["budget_stops_source"] == "stop counts"  # at most the failures
+    assert by["c"]["budget_stops"] == {"student": 1} and "budget_stops_source" not in by["c"]  # already measured: unchanged
+    assert run["tasks"][0].get("budget_stops") is None  # the input is not mutated
+    assert [(t, k, n) for t, _, k, n in training_rows([out], {})] == [("a", 1, 2), ("b", 7, 7), ("c", 0, 7)]
+
+
 # ---- views ---------------------------------------------------------------------------------------------------------------
 class FakeRun:
     def __init__(self):

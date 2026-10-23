@@ -1,187 +1,168 @@
 {
- "tasks": 10,
- "rows": 17,
- "mae": 0.1016,
- "mae_baseline": 0.1459,
+ "tasks": 9,
+ "rows": 12,
+ "mae": 0.2044,
+ "mae_baseline": 0.2572,
  "predictions": [
   {
    "task": "db-go-echo-61eca05b",
    "p_true": 0.875,
-   "p_pred": 0.0196,
-   "baseline": 0.0095,
+   "p_pred": 0.068,
+   "baseline": 0.0244,
    "n": 8
   },
   {
    "task": "db-go-go-toml-a02114e3",
    "p_true": 0.0,
-   "p_pred": 0.0242,
-   "baseline": 0.0825,
-   "n": 8
+   "p_pred": 0.3198,
+   "baseline": 0.2105,
+   "n": 3
   },
   {
    "task": "db-go-go-toml-a02114e3",
    "p_true": 0.0,
-   "p_pred": 0.0782,
-   "baseline": 0.0825,
+   "p_pred": 0.2192,
+   "baseline": 0.2105,
    "n": 8
   },
   {
    "task": "db-go-mvdan-sh-02a801cd",
    "p_true": 0.0,
-   "p_pred": 0.0041,
-   "baseline": 0.0784,
-   "n": 8
-  },
-  {
-   "task": "db-go-mvdan-sh-02a801cd",
-   "p_true": 0.0,
-   "p_pred": 0.0132,
-   "baseline": 0.0784,
+   "p_pred": 0.013,
+   "baseline": 0.1739,
    "n": 3
   },
   {
    "task": "db-go-mvdan-sh-04056a74",
    "p_true": 0.0,
-   "p_pred": 0.0056,
-   "baseline": 0.0792,
-   "n": 8
-  },
-  {
-   "task": "db-go-mvdan-sh-04056a74",
-   "p_true": 0.0,
-   "p_pred": 0.0181,
-   "baseline": 0.0792,
+   "p_pred": 0.0096,
+   "baseline": 0.1778,
    "n": 4
   },
   {
    "task": "db-go-mvdan-sh-5e983709",
    "p_true": 0.0,
-   "p_pred": 0.0088,
-   "baseline": 0.0808,
-   "n": 8
-  },
-  {
-   "task": "db-go-mvdan-sh-5e983709",
-   "p_true": 0.0,
-   "p_pred": 0.0304,
-   "baseline": 0.0808,
+   "p_pred": 0.0156,
+   "baseline": 0.186,
    "n": 6
   },
   {
    "task": "db-go-mvdan-sh-dc951aeb",
    "p_true": 0.0,
-   "p_pred": 0.0045,
-   "baseline": 0.0825,
-   "n": 8
+   "p_pred": 0.0163,
+   "baseline": 0.2,
+   "n": 1
   },
   {
    "task": "db-go-mvdan-sh-dc951aeb",
    "p_true": 0.0,
-   "p_pred": 0.015,
-   "baseline": 0.0825,
-   "n": 8
-  },
-  {
-   "task": "db-python-black-90117fa0",
-   "p_true": 0.0,
-   "p_pred": 0.0263,
-   "baseline": 0.068,
+   "p_pred": 0.0153,
+   "baseline": 0.2,
    "n": 8
   },
   {
    "task": "db-python-black-90117fa0",
    "p_true": 0.5,
-   "p_pred": 0.0243,
-   "baseline": 0.068,
+   "p_pred": 0.0204,
+   "baseline": 0.1489,
    "n": 2
   },
   {
    "task": "db-python-black-ae5830b7",
    "p_true": 0.0,
-   "p_pred": 0.0031,
-   "baseline": 0.0777,
-   "n": 8
+   "p_pred": 0.0281,
+   "baseline": 0.1778,
+   "n": 2
   },
   {
    "task": "db-python-black-ae5830b7",
    "p_true": 0.0,
-   "p_pred": 0.0096,
-   "baseline": 0.0777,
+   "p_pred": 0.0257,
+   "baseline": 0.1778,
    "n": 2
   },
   {
    "task": "db-python-black-ec71b918",
    "p_true": 0.0,
-   "p_pred": 0.1505,
-   "baseline": 0.0762,
-   "n": 8
-  },
-  {
-   "task": "db-rust-pulldown-cmark-e072a230",
-   "p_true": 0.0,
-   "p_pred": 0.0053,
-   "baseline": 0.0762,
-   "n": 8
+   "p_pred": 0.5035,
+   "baseline": 0.1702,
+   "n": 2
   }
  ],
  "fit": {
   "coef": {
-   "bias": -4.054163066794044,
-   "faults": -1.691718995061727,
-   "edges": -0.176826027903084,
-   "modules": -0.12953924971926284,
-   "oracle_lines_log": 0.1720989305557544,
-   "milestone_tests_log": -0.35952951301730784,
-   "tool_limit_300": 0.5765567374676654,
-   "fairness_flags": 0.14699790154708406,
-   "lang_go": 0.34313671516381883,
-   "lang_python": -0.34978286175973744,
-   "lang_rust": -0.019562363815758984,
+   "bias": -3.254343084470671,
+   "faults": -1.589479998124648,
+   "edges": -0.21992943026302203,
+   "modules": -0.15625409835237727,
+   "oracle_lines_log": 0.19155490604373127,
+   "milestone_tests_log": -0.5078684179205858,
+   "tool_limit_300": -0.02371633259381657,
+   "fairness_flags": -0.07365904619133978,
+   "lang_go": 0.14348168648690618,
+   "lang_python": -0.1434816864869062,
+   "lang_rust": 0.0,
    "lang_node": 0.0,
    "lang_java": 0.0,
    "lang_cuda": 0.0
   },
   "mean": {
    "bias": 0.0,
-   "faults": 3.7058823529411766,
-   "edges": 1.3529411764705883,
-   "modules": 1.1176470588235294,
-   "oracle_lines_log": 4.072523067427568,
-   "milestone_tests_log": 3.0967585053445665,
-   "tool_limit_300": 0.7058823529411765,
-   "fairness_flags": 0.47058823529411764,
-   "lang_go": 0.6470588235294118,
-   "lang_python": 0.29411764705882354,
-   "lang_rust": 0.058823529411764705,
+   "faults": 3.6666666666666665,
+   "edges": 1.3333333333333333,
+   "modules": 1.1666666666666667,
+   "oracle_lines_log": 4.037266333032896,
+   "milestone_tests_log": 3.035221263680782,
+   "tool_limit_300": 0.7916666666666666,
+   "fairness_flags": 0.5,
+   "lang_go": 0.6666666666666666,
+   "lang_python": 0.3333333333333333,
+   "lang_rust": 0.0,
    "lang_node": 0.0,
    "lang_java": 0.0,
    "lang_cuda": 0.0
   },
   "scale": {
    "bias": 1.0,
-   "faults": 0.5703152773430975,
-   "edges": 0.47788461203740945,
-   "modules": 0.32218973970892123,
-   "oracle_lines_log": 0.5618923882702018,
-   "milestone_tests_log": 1.0449637200284199,
-   "tool_limit_300": 0.24607647839237515,
-   "fairness_flags": 0.49913419848462176,
-   "lang_go": 0.47788461203740945,
-   "lang_python": 0.45564509955381377,
-   "lang_rust": 0.23529411764705882,
+   "faults": 0.6236095644623235,
+   "edges": 0.4714045207910317,
+   "modules": 0.37267799624996495,
+   "oracle_lines_log": 0.5815374693832628,
+   "milestone_tests_log": 1.042131167263323,
+   "tool_limit_300": 0.24650332429581734,
+   "fairness_flags": 0.5,
+   "lang_go": 0.4714045207910317,
+   "lang_python": 0.4714045207910317,
+   "lang_rust": 1.0,
    "lang_node": 1.0,
    "lang_java": 1.0,
    "lang_cuda": 1.0
   },
-  "n_tasks": 17,
+  "n_tasks": 12,
   "prior_strength": 4.0
+ },
+ "before_backfill": {
+  "rows": 17,
+  "tasks": 10,
+  "mae": 0.1016,
+  "mae_baseline": 0.1459
  },
  "inputs": {
   "runs": [
    "s15_debug_targeting.json",
    "s15_debug_targeting_t300.json"
   ],
+  "arms": [
+   "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms",
+   "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms"
+  ],
   "candidates": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/candidates.json",
-  "split": "train only"
+  "split": "train only",
+  "budget_stops": {
+   "s15_debug_targeting.json": [
+    "episodes"
+   ],
+   "s15_debug_targeting_t300.json": []
+  }
  }
 }
