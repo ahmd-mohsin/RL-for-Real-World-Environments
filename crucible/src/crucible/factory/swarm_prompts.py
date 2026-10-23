@@ -105,7 +105,7 @@ def archive_stale_run(root: Path, run_id: str, machine: Mapping[str, Any], param
     while Path(f"{root / 'runs' / run_id}.prev-{n}").exists():
         n += 1
     moved = []
-    for d in (root / "runs" / run_id, root / "sessions" / run_id, root / "family" / "runs" / run_id):
+    for d in (root / "runs" / run_id, root / "sessions" / "runs" / run_id, root / "family" / "runs" / run_id):  # SessionPool keeps sessions/runs/<id>
         if d.exists():
             dest = Path(f"{d}.prev-{n}")
             d.rename(dest)

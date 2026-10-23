@@ -338,13 +338,13 @@ def test_a_stale_prompt_run_is_archived_never_resumed(tmp_path: Path) -> None:
     from crucible.factory.swarm_prompts import archive_stale_run, prompt_machine
 
     m = prompt_machine()
-    for d in ("runs", "sessions", "family/runs"):
+    for d in ("runs", "sessions/runs", "family/runs"):
         (tmp_path / d / "prompt-x").mkdir(parents=True)
     j = tmp_path / "runs" / "prompt-x" / "journal.jsonl"
     j.write_text(_json.dumps({"event": "start", "machine_hash": machine_hash(canonicalize(m)), "params": {"spec": {"a": 1}}}) + "\n")
     assert archive_stale_run(tmp_path, "prompt-x", m, {"spec": {"a": 1}}) == []  # same machine, same hand-off: resumable
     moved = archive_stale_run(tmp_path, "prompt-x", m, {"spec": {"a": 2}})  # a new hand-off under the same id
-    assert sorted(p.name for p in moved) == ["prompt-x.prev-1"] * 3 and not (tmp_path / "sessions" / "prompt-x").exists()
+    assert sorted(p.name for p in moved) == ["prompt-x.prev-1"] * 3 and not (tmp_path / "sessions" / "runs" / "prompt-x").exists()
     (tmp_path / "runs" / "prompt-x").mkdir()
     (tmp_path / "runs" / "prompt-x" / "journal.jsonl").write_text(_json.dumps({"event": "start", "machine_hash": "0" * 16}) + "\n")
     assert [p.name for p in archive_stale_run(tmp_path, "prompt-x", m)] == ["prompt-x.prev-2"]  # another machine

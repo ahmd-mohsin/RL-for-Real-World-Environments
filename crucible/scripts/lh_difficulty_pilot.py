@@ -136,7 +136,10 @@ class Lane:
         job = PromptJob(vid, [m["id"] for m in rec["milestones"]], brief, base, lint, lambda t: lint_debug(t, faulty=faulty, hidden=hidden),
                         self.root / "prompts" / f"{vid}.json")
         sroot = self.root / "swarm" / "train"
-        return await write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=1.5, max_turns=60)
+        # an executed claim (K4's repros, K6's observed output) means running the program in the sandbox: more turns
+        long = revision.get("knob") in ("K4", "K6")
+        return await write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=2.5 if long else 1.5,
+                                  max_turns=120 if long else 60)
 
     def author(self, vid: str) -> dict[str, Any]:
         from crucible.factory.generators.debug import author_debug
