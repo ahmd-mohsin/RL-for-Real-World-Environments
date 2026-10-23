@@ -508,8 +508,17 @@ def hidden_strings(rec: Mapping[str, Any]) -> set[str]:
     return out
 
 
+# a symptom report says what goes wrong, observed from outside; a diagnosis (why it goes wrong inside the kernel) is the
+# agent's work. The swarm's first kernel report said "the CUDA kernel incorrectly includes out-of-bounds values in the
+# softmax maximum reduction" and "integer overflow in temporary buffer size calculations"; lint and reviewer passed it.
+CAUSE = re.compile(r"\b(?:due to|caused by|because of|because the|the root cause|root-cause|incorrectly (?:includes|uses|computes|reads|writes|skips)"
+                   r"|(?:integer|int32|32-bit) overflow in|out-of-bounds (?:values|reads|writes) in|race (?:condition )?(?:in|between)|missing (?:__syncthreads|barrier|synchroni[sz]ation))\b",
+                   re.IGNORECASE)
+
+
 def lint_prompt(text: str, rec: Mapping[str, Any]) -> list[str]:
     out = [f"lint leak: {m.group(0)!r} (hash, link, PR number, trailer or a word that names the construction)" for m in LEAKY.finditer(text)]
+    out += [f"lint cause: {m.group(0)!r} (a diagnosis of why it fails, not the observed symptom)" for m in CAUSE.finditer(text)]
     out += [f"lint version: {m.group(0)!r}" for m in VERSION.finditer(text)]
     low = text.lower()
     for s in sorted(hidden_strings(rec)):

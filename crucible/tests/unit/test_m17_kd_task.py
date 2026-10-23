@@ -405,3 +405,14 @@ def test_start_gate_compiles_untouched_units_that_use_what_a_fault_takes_away(tm
     got = kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/common.cuh", "g/cuda/norm.cu"], lay)
     assert got == ["g/cuda/binbcast.cu"]  # a mention in a comment is not a use; the touched unit is compiled anyway
     assert kd.start_dependents(tmp_path / "a", tmp_path / "b", ["g/cuda/norm.cu"], lay) == []  # no header change: nothing taken away
+
+
+
+def test_the_kernel_lint_refuses_a_diagnosis_in_a_symptom_report():
+    from crucible.factory.lanes.kernel_debug import CAUSE
+
+    bad = ("FLASH_ATTN_EXT fails because the kernel incorrectly includes out-of-bounds values in the softmax maximum reduction",
+           "ARGSORT fails for large inputs due to integer overflow in temporary buffer size calculations")
+    good = ("FLASH_ATTN_EXT reports NMSE above the 5e-4 threshold when the KV length is not a multiple of 256",
+            "ARGSORT returns wrong indices for 70000 x 40000 inputs and is correct for smaller ones")
+    assert all(CAUSE.search(x) for x in bad) and not any(CAUSE.search(x) for x in good)

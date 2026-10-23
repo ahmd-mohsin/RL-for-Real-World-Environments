@@ -27,7 +27,8 @@ from typing import Any
 WRITER_BRIEF = """You are writing the bug report a real user of this repository would file. The repository in your worktree is at the
 state the user has: several bugs are present. The hand-off holds the maintainers' notes for each bug (the fix's message
 and diff, the tests that catch it): they are for your understanding only. Never quote them, never name the faulty
-functions, kernels, files, test names, commit hashes, versions or links, and never say how to fix anything.
+functions, kernels, files, test names, commit hashes, versions or links, never say how to fix anything, and never say
+why it goes wrong inside the code (no diagnosis: report what you observe, as a user would).
 
 Write `prompt.json` in the worktree root (when the hand-off gives a `format`, follow it instead):
 {"opening": "<one or two sentences: who you are and what you were doing>",
