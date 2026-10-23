@@ -298,7 +298,10 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
   the new start: m02's real fix breaks it, and only a later fix repairs it. So it was never pass-to-pass for this
   variant; it asked for something the report does not state.
 - **After the repair** (it leaves the regression check, recorded), the World gates pass again, and the 8 stored
-  patches regraded offline give **4/8**. The fresh re-measurement is in §10.3.
+  patches regraded offline give **4/8**.
+- **Fresh re-measurement** (r5, k = 8): student **3/8**, DeepSeek 2/2.
+- **Verdict: not kept, off_intent.** 4 of the 5 failures are budget stops at 300 calls, so the on-intent share is 0.20.
+  Even with two faults, this mvdan-sh variant takes the student about 300 calls. Two rounds are used (K1, C1).
 
 ### 10.2 B: GPU tasks
 
@@ -309,6 +312,14 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 | ik_llama.cpp at HEAD 0cd49c59, re-grouped | **0**: its only new group does not revert together |
 | 3. CUDA 12→13 migrations from more repositories | **0**: HeCBench has no commits since 2026-10-13. A GitHub commit search (CUDA 13, after 2026-05-01) found no suite with HeCBench's Makefile-per-program layout. The migration lane's builder reads that layout only, so another repository (for example NVIDIA's CUDA samples, which use CMake) needs a layout adapter first |
 | 4. a swarm-written harness for a second CUDA repository | **not started**. It needs a test-driver role, a GPU reference and a tolerance per op, and the lane must take a harness other than `test-backend-ops`. Estimated at 2-3 days of framework work before the swarm can mine such a repository |
+
+**`kd-bug-llamacpp-12fa0914` on the 5090** (run after the kernel-grader worker's rerun ended, own directory
+`~/crucible-lh-k-p2`, about 1 GPU-hour): **not gradable on sm_120.**
+- **m1:** the full sweep found 75 of 7,284 cases failing at the start, but none entered the pool. At the start, every
+  pool case and every sanitizer check passes.
+- **m2** (the large-size overflow) failed no case.
+- **Next:** the same task is queued on the GH200 (96 GB, job 3443829), where m2's sizes may fit. Results are in
+  `data/kernel_debug/gpu_results_5090_p2`.
 
 **GPU tasks passing every CPU and GPU gate: still 5, all training.**
 
