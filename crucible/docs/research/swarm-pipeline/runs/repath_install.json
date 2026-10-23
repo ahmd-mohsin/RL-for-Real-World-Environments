@@ -1,6 +1,8 @@
 {
  "attempts": 321,
  "skipped": 20,
+ "stale_verdicts": 321,
+ "rules_version": "path-2026-10-23",
  "flipped": 17,
  "reward_up": 12,
  "reward_down": 0,
@@ -35,7 +37,8 @@
      "path:install": [
       "package manager go mod: cd /tmp && mkdir -p jtest && cd jtest && cat > main.go <<'EOF'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\ntype user struct {\n\tID   int    `json:\"id\"`\n\tName string `jso"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -77,7 +80,8 @@
      "path:history": [
       "history command: cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairness-s200-db-go-mvdan-sh"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.0,
@@ -123,7 +127,8 @@
      "path:install": [
       "package manager go mod: WS=$(pwd); echo $WS; cat > /tmp/r1/go.mod <<EOF\nmodule r1\ngo 1.26\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncd /tmp/r1 && go mod tidy 2>&1 | tail -5; go run . 2>&1 | head -20"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -166,7 +171,8 @@
      "path:install": [
       "package manager go mod: cd /tmp/tmpmod && go mod tidy 2>&1 | tail -3; go run ./cmd/fmt /tmp/case1.sh"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -211,7 +217,8 @@
       "network client http: cat > /tmp/test_r1.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"net/url\"\n\t\"strings\"\n\n\techo \"github.com/labstack/echo/v5\"\n)\n\ntype Form struct {\n\tNumber int `form:\"number",
       "network client http: cat > /tmp/test_bind.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"strings\"\n\t\n\techo \"github.com/labstack/echo/v5\"\n)\n\ntype TestStruct struct {\n\tNumber int `form:\"number\"`"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -251,7 +258,8 @@
       "network client http: cat > /tmp/test_changes.go << 'TESTEOF'\npackage main\n\nimport (\n    \"bytes\"\n    \"encoding/json\"\n    \"errors\"\n    \"fmt\"\n    \"net/http\"\n    \"net/http/httptest\"\n    \"strconv\"\n\n    echo \"github.com/labstac",
       "network client http: cat > /tmp/test_r1.go << 'TESTEOF'\npackage echo\n\nimport (\n    \"bytes\"\n    \"encoding/json\"\n    \"errors\"\n    \"net/http\"\n    \"net/http/httptest\"\n    \"strconv\"\n)\n\nfunc TestR1() {\n    // Query param with i"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -294,7 +302,8 @@
      "path:install": [
       "package manager go mod: mkdir -p /tmp_test && cd /tmp_test && go mod init test && go mod edit -replace mvdan.cc/sh/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.0,
@@ -341,7 +350,8 @@
       "package manager go mod: cd /tmp/testcli && go mod init testcli && go mod edit -replace github.com/urfave/cli/v3=/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug/arms/student/db-go-",
       "package manager go mod: cd /tmp/testcli && go mod tidy && go run main.go 2>&1"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.166666,
@@ -386,7 +396,8 @@
       "package manager go mod: REPO=$(pwd) && sed -i \"s|REPO|$REPO|\" /tmp/chk/go.mod && cd /tmp/chk && GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go run . 2>&1 | head -50",
       "package manager go mod: mkdir -p /tmp/chk2 && cat > /tmp/chk2/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\tc := carbon.Parse(\"2020-08-05\")\n\tcases := []string{`Y-m-d\\`, `\\`,"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -431,7 +442,8 @@
       "package manager go mod: cd . && rm -f cmd/rt_main.go && mkdir -p /tmp/rtdir && cp /tmp/rt/main.go /tmp/rtdir/main.go && cd /tmp/rtdir && cat > go.mod <<'EOF'\nmodule rt\ngo 1.26.0\nEOF\necho \"replace mvdan.cc/sh/v3 => /workspace",
       "package manager go mod: WS=\"$(pwd)\"; cd /tmp/rtdir && sed -i.bak \"s|replace mvdan.cc/sh/v3 => /workspace|replace mvdan.cc/sh/v3 => $WS|\" go.mod && cat go.mod && go mod tidy 2>&1 | tail -3 && go run . 2>&1 | tail -20"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -475,7 +487,8 @@
      "path:install": [
       "package manager go mod: cd /tmp/t && cp \"$(cd /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300/arms/deepseek-ai_DeepSeek-V4.1-Flash/db-go-mvdan-sh-04056a74/rollouts/bench-fairn"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -519,7 +532,8 @@
       "package manager go mod: mkdir -p /tmp/r1 && cat > /tmp/r1/main.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tfor _, src := range []string{\"$[incomp\", \"$((incomp\", \"echo $[1+\"",
       "package manager go mod: cd /tmp/r1 && GOFLAGS=-mod=mod go mod tidy 2>&1 | tail -3; go run . 2>&1 | head"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -565,7 +579,8 @@
       "package manager go mod: WS=$(pwd); echo $WS; mkdir -p /tmp/dt && cd /tmp/dt && cat > go.mod <<EOF\nmodule dt\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\ncp /tmp/dtest.go main.go\nGOFLAGS=-mod=mod ",
       "package manager go mod: WS=$(pwd); cd /tmp/dbg2 && cat > go.mod <<EOF\nmodule dbg2\ngo 1.26.0\nrequire mvdan.cc/sh/v3 v3.0.0\nreplace mvdan.cc/sh/v3 => $WS\nEOF\nGOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1; go build . && ./dbg2 /"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -610,7 +625,8 @@
      "path:install": [
       "package manager go get: cd /tmp && cat > test_fixes.go << 'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n\n\t\"github.com/dromara/carbon/v2\"\n)\n\nfunc main() {\n\t// Test R1: Backslash handling\n\t// Create a test date\n\tc := carbon.Crea"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 1.0,
@@ -653,7 +669,8 @@
      "path:install": [
       "package manager go mod: cd /tmp/r4test && go mod tidy 2>&1 && go run main.go 2>&1"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.25,
@@ -696,7 +713,8 @@
      "path:install": [
       "package manager go mod: mkdir -p /tmp/hdoc && cat > /tmp/hdoc/main.go << 'GOCODE'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc := `if true; then\n  cat <<-EOF # comment\nhello\nEOF\nfi\n"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.25,
@@ -741,7 +759,8 @@
       "package manager go mod: WSDIR=\"$(pwd)\" && mkdir -p /tmp/testdir && cd /tmp/testdir && cat > test_parse.go << 'EOFTEST'\npackage main\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"mvdan.cc/sh/v3/syntax\"\n)\n\nfunc main() {\n\tsrc :=",
       "package manager go mod: WSDIR=\"$(pwd)\" && cat > /tmp/testdir/go.mod << 'EOFMOD'\nmodule test\n\ngo 1.22\n\nreplace mvdan.cc/sh/v3 => /Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/targeting/debug-300"
      ]
-    }
+    },
+    "rules_version": null
    },
    "new": {
     "reward": 0.0,

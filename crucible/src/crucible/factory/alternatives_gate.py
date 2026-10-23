@@ -222,7 +222,6 @@ async def run_gate(task: Any, cands: Sequence[Candidate], *, suite: Any = None, 
         runner = WindowRunner(task)
         cands = dedup(task, cands)
         qual = None
-        v2_of: dict[str, dict[str, bool | None]] = {}
         known: list[dict[str, Any]] = []
         if suite is not None and suite.files:
             oracle = await runner.shadow(suite, task.oracle_patch())
