@@ -23,6 +23,12 @@ One **step**:
    ``quarantine_r`` steps (default 3), then retried once; tasks are otherwise sampled round-robin. Every event is a row
    in ``quarantine.jsonl`` and a ``record("quarantine", ...)``; ``quarantine/active`` is on every step's dashboard row.
    ``quarantine_q=0`` turns it off.
+   **Difficulty sampling** (``sampler="difficulty"``, ``train.curriculum``, swarm-pipeline/12): instead of round-robin, the
+   next task is drawn by online difficulty: p̂ per task from this run's own groups (decayed per step by
+   ``difficulty_decay``), tasks whose interval is outside [``band_lo``, ``band_hi``] skipped unless their Φ spreads or an
+   ``explore`` pick re-measures them, the rest weighted by ``max(4p(1-p), 4 Var(Φ))``; the quarantine above still applies,
+   and checkpoint-start variants (``task.curriculum = (parent, level)``) follow the reverse curriculum. The tracker,
+   curriculum levels and RNG are saved in ``state.json``; events are rows in ``difficulty.jsonl``.
 3. **Datums** (``datums.build_datums``): outcome advantage over each group's live rollouts, the honesty term composed in,
    M6's per-turn credit, one datum per TITO sequence; ``loss_scale``.
 4. **Update.** ``forward_backward(loss_fn)`` (``importance_sampling`` | ``ppo`` | ``cispo``, ``loss_fn_config`` e.g.
@@ -80,13 +86,14 @@ from crucible.train.bridges.tinker.datums import build_datums, scale
 from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
+from crucible.train.curriculum import DifficultySampler, SamplerConfig, draws_of, requires_of
 from crucible.train.quarantine import QuarantineConfig, TaskQuarantine
 from crucible.train.sinks import Sink, Tracking
 
 LOSSES = ("importance_sampling", "ppo", "cispo")
 # the quarantine only changes which task is sampled when, never the objective: a resume may change it (and a run made
 # before it existed resumes with it on)
-RESUMABLE_CHANGES = ("steps", "cap_usd", "quarantine_q", "quarantine_r")
+RESUMABLE_CHANGES = ("steps", "cap_usd", "quarantine_q", "quarantine_r", "sampler", "band_lo", "band_hi", "explore", "difficulty_decay")
 
 
 class TrainerEnv(Protocol):
@@ -122,6 +129,11 @@ class TrainConfig:
     drop_zero_spread: bool = True
     quarantine_q: int = 2  # flat groups on this many consecutive steps quarantine a task (train.quarantine); 0: off
     quarantine_r: int = 3  # steps a quarantined task is not sampled, then retried once
+    sampler: str = "round_robin"  # "round_robin" (the quarantine's order) | "difficulty" (train.curriculum, swarm-pipeline/12)
+    band_lo: float | None = 0.1  # the difficulty sampler's band on p̂ (forge.learnability's train band)
+    band_hi: float | None = 0.7
+    explore: float = 0.1  # share of difficulty picks that ignore the band (re-measure out-of-band tasks)
+    difficulty_decay: float = 0.9  # per-step decay of old p̂ evidence
     max_groups_per_step: int | None = None  # default 3 x groups_per_step
     save_every: int = 1
     ttl_s: int | None = 14 * 86400  # save_state checkpoints and the final sampler weights
@@ -136,6 +148,8 @@ class TrainConfig:
     def __post_init__(self) -> None:
         if self.loss_fn not in LOSSES:
             raise ValueError(f"loss_fn is one of {LOSSES}, got {self.loss_fn!r}")
+        if self.sampler not in ("round_robin", "difficulty"):
+            raise ValueError("sampler is round_robin or difficulty")
         if self.loss_scale not in ("sum", "token_mean"):
             raise ValueError("loss_scale is sum or token_mean")
         if self.group_size < 2:
@@ -310,6 +324,15 @@ class TinkerTrainer:
         self.quarantine = TaskQuarantine([str(e.task.task_id) for e in self.envs], QuarantineConfig(config.quarantine_q, config.quarantine_r),
                                          splits={str(e.task.task_id): str(getattr(e.task, "split", "train") or "train") for e in self.envs})
         self._q_logged = 0
+        self.difficulty: DifficultySampler | None = None
+        if config.sampler == "difficulty":
+            self.difficulty = DifficultySampler(
+                [str(e.task.task_id) for e in self.envs],
+                SamplerConfig(band_lo=config.band_lo, band_hi=config.band_hi, decay=config.difficulty_decay, explore=config.explore),
+                quarantine=self.quarantine, splits={str(e.task.task_id): str(getattr(e.task, "split", "train") or "train") for e in self.envs},
+                levels={str(e.task.task_id): tuple(c) for e in self.envs if (c := getattr(e.task, "curriculum", None))},
+                requires={str(e.task.task_id): requires_of(getattr(e.task, "milestones", None) or ()) for e in self.envs}, seed=config.seed)
+        self._d_logged = 0
 
     def _q_flush(self) -> None:
         """Quarantine events not logged yet: ``quarantine.jsonl`` and the sinks' ``quarantine`` records."""
@@ -317,6 +340,11 @@ class TinkerTrainer:
             _append(self.dir / "quarantine.jsonl", e)
             self.tracking.record("quarantine", e, int(e.get("step") or 0))
         self._q_logged = len(self.quarantine.events)
+        if self.difficulty is not None:
+            for e in self.difficulty.events[self._d_logged:]:
+                _append(self.dir / "difficulty.jsonl", e)
+                self.tracking.record("difficulty", e, int(e.get("step") or 0))
+            self._d_logged = len(self.difficulty.events)
 
     def _env(self, task_id: str) -> Any:
         return next(e for e in self.envs if str(e.task.task_id) == task_id)
@@ -339,10 +367,14 @@ class TinkerTrainer:
         self.state = json.loads(sp.read_text()) if sp.exists() else {"step": 0, "version": 0, "state_path": None, "sampler_path": None,
                                                                        "objective_id": self.objective_id, "next_group": 0}
         self.quarantine.load(self.state.get("quarantine"))
+        if self.difficulty is not None:
+            self.difficulty.load(self.state.get("difficulty"))
         self.versions =json.loads((self.dir / "versions.json").read_text()) if (self.dir / "versions.json").exists() else {"0": None}
 
     def _save_state(self) -> None:
         self.state["quarantine"] = self.quarantine.to_json()
+        if self.difficulty is not None:
+            self.state["difficulty"] = self.difficulty.to_json()
         _atomic(self.dir / "state.json", self.state)
         _atomic(self.dir / "versions.json", self.versions)
 
@@ -444,6 +476,8 @@ class TinkerTrainer:
                          train_s=train_s, step_s=(now - self._last_step_t) if self._last_step_t is not None else None)
         m["quarantine/active"] = float(len(self.quarantine.active(step)))
         m["quarantine/events"] = float(len(self.quarantine.events))
+        if self.difficulty is not None:
+            m.update(self.difficulty.metrics())
         self.tracking.log(m, step)
         self._last_tokens, self._last_usd, self._last_step_t = tok, self.meter.spent, now
 
@@ -481,7 +515,7 @@ class TinkerTrainer:
                 need = cfg.groups_per_step - len(batch)
                 extra = cfg.async_groups if self.state["step"] + 1 < cfg.steps else 0
                 while len(pending) < need + extra and launched < cfg.max_launches + extra and not self.meter.exhausted:
-                    i = self.quarantine.pick(cursor, int(self.state["step"]))
+                    i = (self.difficulty or self.quarantine).pick(cursor, int(self.state["step"]))
                     self._q_flush()
                     env = self.envs[i]
                     cursor = i + 1
@@ -501,9 +535,12 @@ class TinkerTrainer:
                     if g.masked:
                         self.quarantine.lost(g.task_id)  # infrastructure: never an observation of the task
                     elif why != "objective_changed":
-                        self.quarantine.observe(g.task_id, g.rewards(), [float(r.progress["phi_final"]) if isinstance((r.progress or {}).get("phi_final"), int | float)
-                                                                          else None for r in g.records if not r.mask_sample and r.reward is not None],
-                                                int(self.state["step"]))
+                        phis = [float(r.progress["phi_final"]) if isinstance((r.progress or {}).get("phi_final"), int | float)
+                                else None for r in g.records if not r.mask_sample and r.reward is not None]
+                        if self.difficulty is not None:  # the sampler forwards the group to the quarantine and keeps p̂
+                            self.difficulty.observe(g.task_id, draws_of(g.records), int(self.state["step"]), rewards=g.rewards(), phis=phis)
+                        else:
+                            self.quarantine.observe(g.task_id, g.rewards(), phis, int(self.state["step"]))
                     self._q_flush()
                     if why is None:
                         batch.append(g)
@@ -555,7 +592,9 @@ class TinkerTrainer:
                "quarantine": {"events": len(self.quarantine.events), "quarantined": sorted({e["task"] for e in self.quarantine.events
                                                                                             if e["event"] in ("quarantined", "requarantined")}),
                               "active": self.quarantine.active(int(self.state["step"])),
-                              "q": self.cfg.quarantine_q, "r": self.cfg.quarantine_r}}
+                              "q": self.cfg.quarantine_q, "r": self.cfg.quarantine_r},
+               "difficulty": None if self.difficulty is None else {"sampler": "difficulty", "events": len(self.difficulty.events),
+                                                                 "levels": dict(self.difficulty.current), "rates": self.difficulty.tracker.rows()}}
         _atomic(self.dir / "summary.json", out)
         self.tracking.summary({k: v for k, v in out.items() if k not in ("steps_log", "versions")})
         return out
