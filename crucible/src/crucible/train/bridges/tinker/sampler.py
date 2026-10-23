@@ -311,6 +311,21 @@ def shared_meter() -> SpendMeter:
     return _SHARED["meter"]
 
 
+def ensure_cap(usd: float) -> float:
+    """Make the process's shared meter cap at least ``usd`` (a run's own ``--cap``): sets ``CRUCIBLE_TINKER_CAP_USD`` when
+    the operator did not, and raises an existing meter's cap to it. Never lowers a cap the operator set. Without this a
+    lane command's ``--cap 10`` stopped every session at the 1-USD default (a ``TinkerCapReached`` read as a budget stop)."""
+    import os
+
+    cur = os.environ.get("CRUCIBLE_TINKER_CAP_USD")
+    if not cur or float(cur) < float(usd):
+        os.environ["CRUCIBLE_TINKER_CAP_USD"] = str(float(usd))
+    m = _SHARED.get("meter")
+    if m is not None and m.cap_usd < float(usd):
+        m.cap_usd = float(usd)
+    return float(os.environ["CRUCIBLE_TINKER_CAP_USD"])
+
+
 def make(model: str, *, role: str | None = None, thinking: bool | None = None, meter: SpendMeter | None = None, backend: Any = None,
          codec: Any = None, **_: Any) -> TinkerChatClient:
     """``factory.models`` sampler backend: a ``TinkerChatClient`` for ``model`` (any Tinker id with a price row) serving

@@ -341,3 +341,9 @@ def test_a_re_measurement_never_reuses_an_earlier_phases_run_ids() -> None:
     a = t.parse_args(["report", "--seed-offset", "300"])
     seeds = {t.SEEDS["student"] + a.seed_offset, *(t.SEEDS[m] + a.seed_offset for m in t.FRONTIER)}
     assert seeds.isdisjoint({t.SEEDS["student"], *(t.SEEDS[m] for m in t.FRONTIER)}) and len(seeds) == 3
+
+
+def test_unknown_task_ids_are_refused_before_any_episode() -> None:
+    mod = _target_script()
+    assert mod.unknown_tasks(["a", "b-c1-x"], {"a": {}}) == ["b-c1-x"]
+    assert mod.unknown_tasks(["a"], {"a": {}}) == []

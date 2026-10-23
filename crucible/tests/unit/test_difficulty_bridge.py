@@ -206,3 +206,17 @@ async def test_a_world_knob_must_pass_the_start_check(tmp_path: Path) -> None:
     assert not r.ok and any("pre-applied but not credited" in f for f in r.findings) and not calls
     g.start_status = good_start
     assert (await g.run(rev)).ok and calls == [vid]
+
+
+def test_a_run_cap_raises_the_shared_meter_never_lowers_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    from crucible.train.bridges.tinker import sampler
+
+    monkeypatch.delenv("CRUCIBLE_TINKER_CAP_USD", raising=False)
+    monkeypatch.setattr(sampler, "_SHARED", {})
+    assert sampler.ensure_cap(8.0) == 8.0 and sampler.shared_meter().cap_usd == 8.0
+    monkeypatch.setattr(sampler, "_SHARED", {})
+    monkeypatch.setenv("CRUCIBLE_TINKER_CAP_USD", "1.0")
+    m = sampler.shared_meter()
+    assert m.cap_usd == 1.0 and sampler.ensure_cap(10.0) == 10.0 and m.cap_usd == 10.0
+    monkeypatch.setenv("CRUCIBLE_TINKER_CAP_USD", "50")
+    assert sampler.ensure_cap(10.0) == 50.0  # the operator's larger cap stands

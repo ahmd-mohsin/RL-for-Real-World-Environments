@@ -1201,11 +1201,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return a
 
 
+def unknown_tasks(tids: Sequence[str], rows: Mapping[str, Any]) -> list[str]:
+    """The asked-for task ids that are not candidates (``candidates``): refused before any episode is admitted."""
+    return [t for t in tids if t not in rows]
+
+
 async def amain(a: argparse.Namespace) -> None:
     if any(s in a.stages for s in ("pilot", "student", "frontier")) and not os.environ.get("TINKER_API_KEY"):
         raise SystemExit("TINKER_API_KEY is not in the environment (set -a; . ../.env; set +a)")
     ph = Phase(a)
     tids = [t for t in a.tasks.split(",") if t] or sorted(ph.tasks.rows)
+    unknown = unknown_tasks(tids, ph.tasks.rows)
+    if unknown:  # before any job starts: a missing candidate used to raise a KeyError inside the gather and kill the episodes in flight
+        raise SystemExit(f"not candidates (data/debug/candidates.json, gates_ok, a clean authored prompt): {unknown}")
     try:
         for st in a.stages:
             if st == "pilot":

@@ -409,6 +409,9 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
     the lane's own lint and ledger (``author_debug``) decide, the ``reviewer`` reads it once. Then ``author`` runs as
     before. The journal (``swarm/<split>/journal``) feeds ``scripts/swarm.py diagnose``. Training and held-out windows
     have separate roots: no writer of training prompts ever reads a held-out window (V9)."""
+    from crucible.train.bridges.tinker.sampler import ensure_cap
+
+    ensure_cap(args.cap)  # the shared Tinker meter follows this run's cap (its default is 1 USD)
     from crucible.factory.generators.debug import author_debug, faulty_names, hidden_names, lint_debug
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit

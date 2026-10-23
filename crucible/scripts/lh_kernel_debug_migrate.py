@@ -234,6 +234,9 @@ def migration_lint(w: dict[str, Any], opening: str) -> list[str]:
 def cmd_write_prompts(a: argparse.Namespace) -> None:
     """The swarm writes the maintainer's request of each migration window (``factory.swarm_prompts``; no Claude): one
     machine run per window without a prompt; ``migration_lint`` is the gate, then ``author`` runs as before."""
+    from crucible.train.bridges.tinker.sampler import ensure_cap
+
+    ensure_cap(a.cap)  # the shared Tinker meter follows this run's cap (its default is 1 USD)
     import asyncio
 
     from crucible.factory.lanes import kernel_debug as kd

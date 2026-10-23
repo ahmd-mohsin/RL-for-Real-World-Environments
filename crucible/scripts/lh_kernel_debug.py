@@ -476,6 +476,9 @@ def cmd_write_prompts(a: argparse.Namespace) -> None:
     """The swarm writes the kernel symptom reports (``factory.swarm_prompts``; no Claude), one machine run per record
     without a prompt (``--ids``, ``--redo``); ``kernel_debug.author`` (lint, ledger) is the gate, then ``author`` runs as
     before. Training and held-out records have separate roots and journals (V9)."""
+    from crucible.train.bridges.tinker.sampler import ensure_cap
+
+    ensure_cap(a.cap)  # the shared Tinker meter follows this run's cap (its default is 1 USD)
     import asyncio
     import copy
 

@@ -1065,8 +1065,23 @@ build tasks that target its failures):
     (`factory/swarm_prompts.py`). Per window, a `prompt_author` session drafts the report, the lane's own lint and
     ledger decide, and the reviewer reads it once. `lh_swarm.py --preset swarm` fills `SwarmRunner`'s slots (now also
     journaled, with builder Φ). `lh_debug_target.py --preset swarm` uses the swarm's judges and frontier.
-  - **Difficulty interface:** `factory/difficulty_hooks.py` (`KnobAction` K1-K6 / H1-H4, `Controller`, `Reviser`,
-    `Gates`, `revise_and_gate`; a held-out task is never revised).
+  - **Difficulty interface:** `factory/difficulty_hooks.py` (`KnobAction`, `Controller`, `Reviser`, `Gates`,
+    `revise_and_gate`; a held-out task is never revised). One knob vocabulary with the controller (2026-10-23, the
+    pilot): K1-K6, C1 (checkpoint start), H1-H3 of `factory.difficulty`; the first draft's distractor knob is gone (it
+    asked for behaviour no check grades, V5).
+  - **The difficulty loop on the swarm** (2026-10-23, `swarm-pipeline/12` §7, 13 §9): `factory/difficulty_bridge.py`
+    (`ControlController`: `difficulty.control` as a hook `Controller`; `choose_checkpoint`, the level whose remaining
+    milestones' measured conditional rates multiply closest to 1/2 in band; `k1_target`; `stats_from_targeting` with
+    re-pathed frontier verdicts) and `factory/revise_debug.py` (`DebugReviser`, `DebugGates`: a variant is an ordinary
+    stored window `<parent>-<knob>-<key>` with `revision = {parent, knob, applied, pre_applied, level}`; its report is
+    written by the swarm's `prompt_author` under a knob instruction; World knobs re-run the start check and every executed
+    gate, report knobs inherit the parent's gate verdicts only when the start tree and the hidden tests are byte-identical
+    by sha256). Driver: `scripts/lh_difficulty_pilot.py propose|revise|measure`.
+  - **Controller fixes from the pilot:** a budget-bound task gets the horizon-shortening knobs (C1, K1; the 300-call
+    budget never moves); a root milestone's rate is no checkpoint signal; a conditional rate above the band is not in band.
+  - **Pilot fixes:** `sampler.ensure_cap` (every `write-prompts` stopped at the shared meter's 1-USD default whatever its
+    `--cap`); `lh_debug_target` refuses unknown task ids before any episode (a missing candidate raised inside the gather
+    and killed the episodes in flight).
   - **Smoke fixes:** the Kimi native tool section is read by the text protocol, the sidecar probe was added for
     compaction points, the capped client's spend was lost, and a window floor was set.
 - **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated

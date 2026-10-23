@@ -210,7 +210,9 @@ async def cmd_revise(a: argparse.Namespace) -> None:
     from crucible.factory.difficulty_hooks import revise_and_gate
     from crucible.factory.revise_debug import DebugGates, DebugReviser
     from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.train.bridges.tinker.sampler import ensure_cap
 
+    ensure_cap(a.cap)
     lane = Lane()
     acts = cmd_propose(a, lane=lane)
     reviser = DebugReviser(lane.store, lane.root / "prompts", lane.task_of, lane.mined_of, lane.write_report, scratch=OUT / "scratch")
@@ -233,8 +235,7 @@ async def cmd_revise(a: argparse.Namespace) -> None:
         print(json.dumps(row, default=str)[:1500], flush=True)
         if res.get("ok"):
             ok_ids.append(res["revision"].task_id)
-    if ok_ids:
-        lh_debug.cmd_intent(argparse.Namespace())  # candidates.json: the gated variants become candidates
+            lh_debug.cmd_intent(argparse.Namespace())  # candidates.json at once: a gated variant can be measured while the next one gates
     print(json.dumps({"gated_variants": ok_ids, "prompt_usd": round(reviser.spent, 4)}), flush=True)
 
 
