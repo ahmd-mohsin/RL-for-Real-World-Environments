@@ -1498,6 +1498,27 @@ class MilestoneMutant(Mutant):
 VERIFIER_RECIPE = "window-grader/p0"  # bump when the grading rule changes (path gates, import tolerance)
 
 
+def path_rules_of(window: Mapping[str, Any], base_dir: Path) -> PathRules:
+    """A window's path rules (``WindowTask.path_rules``): B's hidden test files protected, its required actions and step
+    budget, and the project's own names (installing one from an index fetches the oracle). ``factory.repath`` re-derives
+    them for a stored episode the same way."""
+    hidden = set(window.get("tests_b") or {}) | set(window.get("tests_deleted") or [])
+    own = {window["repo"], str((window.get("world") or {}).get("project") or ""), *(window.get("import_roots") or []),
+           *project_roots(base_dir, list(window.get("oracle_files") or {}))} - {"", "tests", "test", "testing", "docs", "doc"}
+    return PathRules(grader_paths=tuple(sorted(hidden)), required=tuple(RequiredAction(**r) for r in window.get("required_actions") or []),
+                     step_budget=window.get("step_budget"), project_names=tuple(sorted(own)))
+
+
+def path_reward(meta: Mapping[str, Any], pr: Any, phi_weight: float) -> dict[str, Any]:
+    """The episode reward once the path report ``pr`` is known (``WindowTask._apply_path``): 0 on a hack or an unapplied
+    patch, else ``phi_weight * Phi + (1 - phi_weight) * [end-state full pass and no path violation]``."""
+    end_full = bool(meta.get("end_state_full_pass", meta.get("full_pass")))
+    full = end_full and pr.ok
+    hack = pr.hack_suspect
+    reward = 0.0 if (hack or meta.get("apply_errors")) else round(phi_weight * float(meta.get("phi") or 0.0) + (1.0 - phi_weight) * float(full), 6)
+    return {"end_state_full_pass": end_full, "full_pass": full, "hack_suspect": hack, "outcome_reward": reward}
+
+
 class WindowTask(ExecTask):
     """One window under one prompt: ``ExecTask`` with the window's grader, milestones, Phi, mutants and World. It is a
     ``factory.longtask.LongTask`` (``check_longtask`` finds nothing missing): ``world``, ``prompt``, ``path_rules``,
@@ -1537,12 +1558,7 @@ class WindowTask(ExecTask):
         # tolerantly would let the start state pass tests that were fail-to-pass only through the import)
         self.import_tolerant = bool(self.window.get("import_tolerant")) if import_tolerant is None else bool(import_tolerant)
         self.grader_tests, self.guarded_imports = grader_tests({**self.window, "import_tolerant": self.import_tolerant}, self.base_dir)
-        hidden = set(self.window.get("tests_b") or {}) | set(self.window.get("tests_deleted") or [])
-        own = {self.window["repo"], str((self.window.get("world") or {}).get("project") or ""), *(self.window.get("import_roots") or []),
-               *project_roots(self.base_dir, list(self.window.get("oracle_files") or {}))} - {"", "tests", "test", "testing", "docs", "doc"}
-        self.path_rules = path_rules or PathRules(grader_paths=tuple(sorted(hidden)),
-                                                  required=tuple(RequiredAction(**r) for r in self.window.get("required_actions") or []),
-                                                  step_budget=self.window.get("step_budget"), project_names=tuple(sorted(own)))
+        self.path_rules = path_rules or path_rules_of(self.window, self.base_dir)
         self.verifier_version = sha256_text(VERIFIER_RECIPE, str(self.import_tolerant), json.dumps(self.path_rules.to_json(), sort_keys=True),
                                             json.dumps(self.check_tests, sort_keys=True))[:16]
         self._oracle_patch: str | None = None
@@ -1663,10 +1679,8 @@ class WindowTask(ExecTask):
         pr = check_paths(self.path_rules, patch=patch if isinstance(patch, str) else "", entries=entries, trail=calls, trail_source=source,
                          network_events=network_events)
         m = rep.meta
-        end_full = bool(m["full_pass"])
-        full = end_full and pr.ok
-        hack = pr.hack_suspect
-        reward = 0.0 if (hack or m.get("apply_errors")) else round(self.phi_weight * m["phi"] + (1.0 - self.phi_weight) * float(full), 6)
+        pw = path_reward({"full_pass": m["full_pass"], "phi": m["phi"], "apply_errors": m.get("apply_errors")}, pr, self.phi_weight)
+        end_full, full, hack, reward = pw["end_state_full_pass"], pw["full_pass"], pw["hack_suspect"], pw["outcome_reward"]
         for gid, st in pr.gates().items():
             rep.gates[gid] = st
             m["kinds"][gid] = "gate"
