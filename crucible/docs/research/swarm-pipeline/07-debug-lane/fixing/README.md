@@ -16,6 +16,7 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 | `db-node-h3-a6cd4654` (benchmark) | unchanged task; fixed a changelog hint and two Node environment bugs |
 | `db-go-excelize-824ac2ce-d1` (benchmark) | applied the two undone fixes the report never described; student 2/8, DeepSeek 2/2 |
 | `db-go-excelize-65be17e3-d1` (benchmark) | applied the undescribed VALUE fix; added the missing "OR returns a logical" rule; student 0/8, DeepSeek 1/2 |
+| `db-go-carbon-a783fb3a-h5` (training) | carbon moved to training; 4 bugs added step by step (lunar, minute DST, SQL NULL, same decade); student 1/8, DeepSeek 2/2 |
 
 Before the lead's call below, pulldown-cmark, unstorage, echo and the tasks whose "link" between bugs turned out fake
 (mvdan-sh, black ae5830b7, carbon ×2, excelize ×2) were set aside. Now **no task is set aside**: only mvdan-sh 04056a74 and
