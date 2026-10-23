@@ -20,9 +20,9 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 
 Set aside so far: pulldown-cmark (too hard even after dropping a bug), unstorage (too easy), and the tasks whose "link"
 between bugs turned out fake (black ae5830b7 / ec71b918, excelize ×2; mvdan-sh 04056a74 / 02a801cd, redundant with the
-two above). In progress (Haseeb): `db-go-mvdan-sh-5e983709-e2`, the backquote bug swapped for a same-line control-flow
-bug after two full runs came out in band but budget-bound (student 3/8 both times, 3 of 5 failures at the 300-call
-limit on the backquote bug); gates pending. Three pipeline items from this round are in the notes: `go mod tidy` counted
+two above). Set aside with its numbers (Haseeb, `notes/mvdan-sh-5e983709.md`): mvdan-sh 5e983709, whose `-e1` is in band
+twice (student 3/8, both strong models pass) but budget-bound on the backquote bug (off-intent 0.4), and whose `-e2`
+(that bug swapped for a same-line control-flow fix) is too easy by one pass (5/8). Three pipeline items from this round are in the notes: `go mod tidy` counted
 as an install (`pathcheck.py`), changelog entries of fixes whose message has no issue number not stripped
 (`langs/base.py`), and strip mode leaving Go test-table entries readable (and the `visible_test_data` flag missing them
 in stripped files).

@@ -53,7 +53,7 @@ from before our grading fixes, so treat them as a guide and re-measure.
 | carbon-93371b6f | moved to training, rebuilt `--no-link`, report unchanged; `notes/carbon-93371b6f.md` | **train** (3/8, DeepSeek 1/2, on-intent 0.8) |
 | mvdan-sh dc951aeb-e1 | m03 dropped, `--no-link`; `notes/mvdan-sh-dc951aeb-e1.md` | **train** (1/8, DeepSeek 2/2, on-intent 0.86) |
 | echo-61eca05b-e2 | two bugs added (df5edd9, 6a390cb) at B 3d084be9; `notes/echo-61eca05b-e2.md` | **train** (4/8, DeepSeek 2/2, 397B 2/2, on-intent 1.0) |
-| mvdan-sh 5e983709 | `-e1` (m04 dropped): two full runs 3/8 but budget-bound on the backquote bug (off_intent 0.4); `-e2` swaps it for 5beb6ded (same-line control flow): built, lint 0, checklist clean; gates pending | in progress |
+| mvdan-sh 5e983709 | `-e1` (m04 dropped): two full runs 3/8 but budget-bound on the backquote bug (off_intent 0.4); `-e2` (5beb6ded swapped in): gates ok, full run 5/8, DeepSeek 1/2, 397B 2/2, on-intent 1.0; `notes/mvdan-sh-5e983709.md` | set aside: `-e1` off_intent (budget), `-e2` too_easy by one pass |
 
 Build commands (store `crucible/data/debug-haseeb-fixing`, clones in `src/`):
 - `subset --repo carbon --fixes 515cf63,5c6dffc,93491ca --no-link`
