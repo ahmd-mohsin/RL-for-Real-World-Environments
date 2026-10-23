@@ -176,3 +176,90 @@ On the smoke's failing journal it ranked the Kimi budget stop first, with the tu
   The first pilot batch should be small.
 - **DeltaAI grading of builder code:** the Apptainer grader there runs as the user (`trusted: false`). That is fine for
   gates on our own patches, but not for grading model-written code at scale. See `10` §8.3.
+
+## 9. The first pilot (2026-10-23, $300 approved): no Claude wrote any task content
+
+**What ran:** `scripts/lh_difficulty_pilot.py`, in three steps:
+- the controller (`difficulty_bridge.ControlController`) picks one knob per measured training task;
+- the swarm's `prompt_author` writes the variant's report (Kimi-K2.6, reviewed by Nemotron-3-Ultra), and executed gates
+  decide (`revise_debug.DebugGates`);
+- the 35B student re-measures it at 300 calls, k = 8 (`lh_debug_target.py --preset swarm`). A fair task also gets
+  DeepSeek-V4.1-Flash k = 2, and the swarm's auditor (Nemotron-3-Ultra) and judge (gpt-oss-120b) label the failures.
+
+Held-out tasks were never touched. Each task got at most two revisions.
+
+**Step 1: the difficulty controller on measured debug training tasks**
+
+| task (parent: student 300-call rate) | round 1 (knob: result) | round 2 (knob: result) | verdict |
+|---|---|---|---|
+| python-black-ae5830b7 (0/8; 6/8 budget stops) | C1, m01+m02 pre-applied: **1/8**, 0 budget stops, m03 7/8, m04 2/8; DeepSeek 1/2 | — | **kept (train)**: rate 0.125, on-intent 0.86, a frontier solver passes |
+| go-mvdan-sh-04056a74 (0/8; 4/8 budget stops) | K1 (drop m01): **1/8**, 4/8 budget stops; DeepSeek 1/4 | — | not kept: fair, but on-intent share 0.43 < 0.7 (4 of 7 failures are budget stops) |
+| go-go-toml-a02114e3 (0/8; m04 given m03 = 0.67) | C1, m01+m02 pre-applied: 0/8 (free rewrite lost a fact, m03 0/8); restored: 0/8, m03 8/8, m04 0/8 | — | too hard: one test fails in every episode (12 §7) |
+| go-mvdan-sh-dc951aeb (0/8) | K2: 0/8, m03 1/8 | K3: 0/8, m03 0/8 | too hard (m03 and m04 never move) |
+| go-mvdan-sh-5e983709 (0/8) | K2: 0/8, 7/8 budget stops | K1 (drop m02): 0/8, 1/8 budget stops, m04 0/8 | too hard (m04 0/24 over all three measurements) |
+
+- **Accepted training tasks: 1.** It is the first task the framework kept, and the first written end to end by the
+  swarm: the controller's knob, the swarm's report, the executed gates.
+- **Spend:** Step 1 cost **$129.7** of Tinker, about $130 per accepted task:
+
+  | item | cost |
+  |---|---|
+  | student episodes (64 at 300 calls) | $101.6 |
+  | DeepSeek fairness (8 episodes) | $15.4 |
+  | auditor Nemotron-3-Ultra | $7.6 |
+  | judge gpt-oss-120b | $1.5 |
+  | report writing (Kimi sessions and Nemotron reviews) | $3.5 |
+
+**What the pilot taught the controller** (12 §7):
+- **Budget-bound tasks get a shorter horizon.** C1 and K1 removed every budget stop on black (6/8 to 0/8) and 6 of 7
+  on 5e983709.
+- **The checkpoint estimate is a prior, not a prediction.** It predicted go-toml at 0.5 and black at 0.5; it measured
+  0 and 0.125.
+- **The frame knobs moved nothing on mvdan-sh's interacting faults.** K2 (announce the structure) and K3 (point to the
+  area) left the never-solved milestones at 0 to 1 in 8. The next knobs there would be K6 on the stuck milestone or a
+  C1 that keeps it.
+
+### 9.1 mvdan-sh-04056a74's K1 variant
+
+The student passed it 1/8. DeepSeek passed neither of its first 2 attempts; it did pass the parent after the
+install-rule regrade. Two fresh attempts were run separately (`data/targeting/swarm-pilot/r3f`; the phase's identity
+guard refuses changing k on an existing run), with the result 1/2. So a frontier solver passes it (1/4 in all), and it is fair. Its failures are 4 budget stops and 3 skill
+gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
+
+**Step 2: kernel tasks by the swarm, for our GPUs** (no Tinker spent, no GPU used)
+- **Mining** with the hardware-reachability filter: llama.cpp kept 60 changes (42 bug, 18 speed-up) and dropped 442.
+  Of the 60, 20 are used by no stored record; 11 of those are after the cut.
+- **Building:** the 4 groups they form all fail synthesis ("fewer than two faults revert together"): each group's
+  reverts conflict at its B.
+- **The other sources have nothing new.** HeCBench has no new commits since 2026-10-13, so the CUDA migration family
+  has no new supply. ik_llama.cpp has no second held-out owner (10 §3.1).
+- **New tasks: 0.** No GPU gates or student runs were needed.
+- **What it needs:** the kernel lane's harness (`test-backend-ops`) is llama.cpp's own. The other cloned CUDA
+  repositories (flash-attention, flashinfer, cutlass, cccl, cuCollections, TransformerEngine, CTranslate2, faiss,
+  xformers, vllm) need a harness per repository before the swarm can mine them. That is a framework task; it is
+  recorded here as the main blocker for more GPU tasks.
+
+### 9.2 What `diagnose` and the runs found, and the fixes (each with a test)
+
+| finding | fix |
+|---|---|
+| Every `write-prompts` session stopped at the shared Tinker meter's 1-USD default, whatever `--cap` said | `sampler.ensure_cap`, called by every lane's `write-prompts` and the pilot |
+| A free rewrite of the report lost a fact the hidden tests need (go-toml m03: 6/8 to 0/8) | knob scope: frame knobs keep every requirement verbatim; K3 appends an area; K6 rewrites one milestone |
+| K1 picked a fault the student fixed 8/8 | K1 only drops a fault at rate <= 0.7 |
+| Every task was told "checkpoint start first" | a root milestone's rate is no conditional signal; above-band rates are not in band |
+| Budget-bound tasks were "not a difficulty problem", with no action | `budget_bound` carries C1/K1 (the horizon shrinks, the budget never moves) |
+| A revision refused because its writer hit the meter was blamed on the reviser | an infra row, no blame (V8) |
+| Every report finding was one kind, `m#` | findings group by what they say |
+| A missing candidate raised inside the phase's gather and killed the episodes in flight | unknown ids are refused before any episode |
+| Report before mine read the kept black variant as off_intent 0.00 | `unmined`, never off_intent; the source names the preset's real judge and auditor |
+| A refused `git clone` made the install verdict say "the World was not offline" | the verdict names the attempted fetch |
+
+**Yield:**
+- Report writing accepted 7 of 10 machine runs, about 2 per dollar. The 3 that wrote nothing all hit the meter cap
+  (fixed).
+- The reviewer blocked two leaky rewrites (named internal functions). With the scope rule, the requirement texts are
+  the parent's measured ones.
+
+**Commits:** listed in the pilot report to the operator. Data is in `data/targeting/swarm-pilot/` (`actions.jsonl`,
+`revisions.jsonl`, and `r2`, `r3` and `r3f` per round) and in `data/debug/swarm/train/journal`.
+

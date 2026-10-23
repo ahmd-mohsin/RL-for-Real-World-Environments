@@ -1082,6 +1082,17 @@ build tasks that target its failures):
   - **Pilot fixes:** `sampler.ensure_cap` (every `write-prompts` stopped at the shared meter's 1-USD default whatever its
     `--cap`); `lh_debug_target` refuses unknown task ids before any episode (a missing candidate raised inside the gather
     and killed the episodes in flight).
+  - **Reviser and report fixes from the pilot** (`swarm-pipeline/13` §9.2):
+    - A knob changes only what it targets: C1, K1, K2 and K4 keep every kept requirement word for word; K3 appends an
+      area; K6 rewrites one milestone. A free rewrite dropped a fact the hidden tests check.
+    - K1 drops only a fault at a measured rate of 0.7 or less.
+    - A revision refused for an infrastructure reason is an infra row, with no blame on the reviser.
+    - Findings group by what they say.
+    - A report before `mine` marks failures `unmined`, never `off_intent`.
+    - The install verdict names an attempted fetch.
+  - **Pilot result:** 1 kept training task, `db-python-black-ae5830b7-c1-516b23`. It is a C1 checkpoint start written
+    by the swarm. It cost $129.7 of Tinker over 8 measured variants. Step 2 found 0 new kernel tasks: llama.cpp's
+    unused fixes do not revert together, and there is no harness for the other CUDA repositories yet.
   - **Smoke fixes:** the Kimi native tool section is read by the text protocol, the sidecar probe was added for
     compaction points, the capped client's spend was lost, and a window floor was set.
 - **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated
