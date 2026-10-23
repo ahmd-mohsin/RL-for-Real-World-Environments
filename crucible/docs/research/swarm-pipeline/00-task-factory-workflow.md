@@ -268,6 +268,14 @@ A task is pool-eligible only if:
 6. **paraphrase stability:** two paraphrases of the prompt (same requirements, same ledger) give a pass rate inside the
    original's CI (`EVALS` L2: 46% of meaning-preserving paraphrases changed generated code).
 
+**Difficulty control** (swarm-pipeline/12; exists, 2026-10-23). Measured difficulty drives the generator:
+- `factory.difficulty.control` turns a measured rate, the cause labels and the failure modes into one typed knob action: ease (K1–K6, or C1 a checkpoint start), harden (H1–H3), keep, sample_more, fix_task or budget_bound. Each action carries R-Zero's generator reward `1 − 2|p − ½|` and is journaled. Held-out tasks are refused.
+- A cheap advisory predictor orders the expensive k=8 measurements. It never keeps or rejects a task.
+- `conditional` separates full-task difficulty from p(m | prerequisites).
+- Checkpoint starts (`simplify_units`, kind `checkpoint`) re-run every gate.
+
+At training time, `train.curriculum.DifficultySampler` filters by online p̂ and runs the reverse curriculum.
+
 ---
 
 7. **Difficulty is real, never contrived** (`HUD`):
