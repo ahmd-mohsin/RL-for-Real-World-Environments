@@ -228,6 +228,29 @@ def test_counterfactual_with_scripted_policies_on_the_toy_window(built, tmp_path
     assert seeded.milestones == simple.milestones and seeded.prompt == simple.prompt
 
 
+def test_a_simplified_start_guards_the_pre_applied_fixes_in_the_regression_check(built, tmp_path: Path) -> None:
+    from crucible.factory.lanes.executable import REGRESSION_REQ
+    from crucible.factory.lanes.windows import window_checkset
+
+    task, rec, _ = built
+    reqs = [*task.requirements, {"id": REGRESSION_REQ, "milestone": None, "text": "Everything that works today keeps working.", "kind": "regression"}]
+    parent = task.lane.materialize({"world": {"task": rec["id"]}, "prompt": task.instruction, "spec": {"requirements": reqs}, "spans": {},
+                                    "checkset": window_checkset(rec, reqs)})
+    simple = simplify(parent, "prerequisites", targets=["m03"], root=tmp_path)
+    sf = simple.window["simplified_from"]
+    pre_tests = sorted({t for m in parent.milestones if m["id"] in sf["pre_applied"] for t in m["tests"]})
+    assert sf["guards"] == pre_tests and pre_tests and set(pre_tests) <= set(simple.check_tests["c_regress"])
+    gamma_src = "from pkg.beta import beta\n\n\ndef gamma():\n    return beta() + 1\n"
+    ok = asyncio.run(simple.grade(simple.patch_of({"pkg/gamma.py": gamma_src})))[0]
+    assert ok.gates["c_regress"] == "pass" and ok.gates["c_m03"] == "pass"
+    # undoing the pre-applied fix (beta back to the start) fails the guard: no full pass for breaking an earlier fix
+    a_beta = (parent.base_dir / "pkg" / "beta.py")
+    undo = simple.patch_of({"pkg/gamma.py": gamma_src, "pkg/beta.py": a_beta.read_text() if a_beta.exists() else None})
+    bad = asyncio.run(simple.grade(undo))[0]
+    assert bad.gates["c_regress"] == "fail" and not bad.meta["full_pass"]
+    assert set(sf["guards"]) & set(bad.meta["failing_tests"])  # the guard is what failed
+
+
 def test_locate_names_the_target_unit_and_keeps_the_checks(built) -> None:
     task, _, _ = built
     loc = simplify(task, "locate", targets=["m03"])

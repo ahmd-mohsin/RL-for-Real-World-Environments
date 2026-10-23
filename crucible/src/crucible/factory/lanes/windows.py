@@ -1498,6 +1498,13 @@ class MilestoneMutant(Mutant):
 VERIFIER_RECIPE = "window-grader/p0"  # bump when the grading rule changes (path gates, import tolerance)
 
 
+def guard_tests(milestones: Sequence[Mapping[str, Any]], pre_applied: Sequence[str]) -> list[str]:
+    """A simplified start's guards: the pre-applied milestones' own tests. They pass at the new start, so they join the
+    pass-to-pass set (the regression check, ``c_regress``): undoing an earlier fix keeps Phi but loses the full pass."""
+    pre = set(pre_applied)
+    return sorted({t for m in milestones if m["id"] in pre for t in m["tests"]})
+
+
 def path_rules_of(window: Mapping[str, Any], base_dir: Path) -> PathRules:
     """A window's path rules (``WindowTask.path_rules``): B's hidden test files protected, its required actions and step
     budget, and the project's own names (installing one from an index fetches the oracle). ``factory.repath`` re-derives
@@ -1842,11 +1849,12 @@ class WindowTask(ExecTask):
             return f.read_text(errors="replace") if f.is_file() else None
 
         rec = json.loads(json.dumps(self.window, default=str))
+        guards = guard_tests(self.milestones, pre_ms)
         rec.update(id=new_id, milestones=keep, oracle_files={p: t for p, t in self.window["oracle_files"].items() if now(p) != t},
                    mutants=[x for x in self.window.get("mutants") or [] if x.get("milestone") in keep_ids],
-                   dependency_edges=sum(len(m["requires"]) for m in keep),
+                   dependency_edges=sum(len(m["requires"]) for m in keep), p2p=sorted({*(rec.get("p2p") or []), *guards}),
                    simplified_from={"task": self.task_id, "window": self.mined.id, "kind": kind, "targets": targets, "pre_applied": pre_ms,
-                                    "units": sorted(pre_units), "mode": mode})
+                                    "units": sorted(pre_units), "mode": mode, "guards": guards})
         reqs = [dict(r) for r in self.requirements if r.get("milestone") is None or r.get("milestone") in keep_ids]
         dropped = [r["id"] for r in self.requirements if r.get("milestone") and r.get("milestone") not in keep_ids]
         prompt = "".join(ln for ln in self.instruction.splitlines(keepends=True) if not any(ln.startswith(f"- [{d}] ") for d in dropped))
