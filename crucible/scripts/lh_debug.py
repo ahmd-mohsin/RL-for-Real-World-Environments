@@ -187,6 +187,17 @@ async def gates(args: argparse.Namespace) -> None:
         await asyncio.sleep(120)
 
 
+def merge_gates(prev: dict[str, Any], res: dict[str, Any], order: tuple[str, ...]) -> dict[str, Any]:
+    """A ``--gates`` run added to an earlier record: the gates it ran replace theirs (the replaced results stay under
+    ``earlier``, so a rerun never hides a failure), the others keep their result, and ``ok`` / ``passed`` cover every
+    gate in the record. A run that crashed is never ok."""
+    gates = {**(prev.get("gates") or {}), **(res.get("gates") or {})}
+    gates = {g: gates[g] for g in [*[g for g in order if g in gates], *[g for g in gates if g not in order]]}
+    earlier = [*(prev.get("earlier") or []), *({"gate": g, **prev["gates"][g]} for g in res.get("gates") or {} if g in (prev.get("gates") or {}))]
+    return {**res, "gates": gates, "ok": "error" not in res and all(v.get("ok") for v in gates.values()),
+            "passed": [g for g in gates if gates[g].get("ok")], **({"earlier": earlier} if earlier else {})}
+
+
 async def gates_once(args: argparse.Namespace) -> None:
     from crucible.factory.generators.base import GateConfig
     from crucible.factory.lanes.windows import WindowStore
@@ -206,8 +217,9 @@ async def gates_once(args: argparse.Namespace) -> None:
         for w in ids:
             out = ROOT / "gates" / f"{w}.json"
             lock = ROOT / "gates" / f"{w}.running"
+            prev = json.loads(out.read_text()) if out.exists() else {}
             # a record of fewer gates (--gates S6,S5,S8 before a quick pass) is run again in full by a later plain run
-            if (out.exists() and not args.redo and set(cfg.gates) <= set(json.loads(out.read_text()).get("gates") or {})) or lock.exists():
+            if (prev and not args.redo and set(cfg.gates) <= set(prev.get("gates") or {})) or lock.exists():
                 continue
             lock.parent.mkdir(parents=True, exist_ok=True)
             lock.write_text(str(time.time()))
@@ -217,6 +229,8 @@ async def gates_once(args: argparse.Namespace) -> None:
             except Exception as e:  # noqa: BLE001
                 res = {"task": w, "ok": False, "error": f"{type(e).__name__}: {e}"[:500], "gates": {}}
             res["seconds"] = round(time.monotonic() - t0, 1)
+            if only and prev.get("gates"):
+                res = merge_gates(prev, res, GateConfig().gates)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(res, indent=1, default=str))
             lock.unlink(missing_ok=True)
@@ -565,7 +579,8 @@ def main() -> None:
     g.add_argument("--redo", action="store_true")
     g.add_argument("--loop", action="store_true")
     g.add_argument("--gates", default="",
-                   help="only these gates (comma list): S6,S5,S8 (~3 min) before a quick pass; a full run needs all five, so a later run without it completes the record")
+                   help="only these gates (comma list), added to the task's record: S6,S5,S8 (~3 min) before a quick pass, then S3,S10 "
+                        "before the full run (which needs all five); a rerun gate's earlier result is kept under 'earlier'")
     sub.add_parser("author")
     rp = sub.add_parser("repro")
     rp.add_argument("--ids", default="", help="only these windows (default: every authored prompt with a repro field)")

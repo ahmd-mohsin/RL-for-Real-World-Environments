@@ -71,10 +71,11 @@ Every command below runs from `crucible/` after `set -a && source ../.env && set
    `.venv/bin/python scripts/lh_debug_target.py student frontier --tasks <id> --k 3 --frontier "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144" --frontier-k 1 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-quick --audit-reserve 0 --cap 30 --cheap-gates`
    Read `data/targeting/<out>/arms/*/<id>/episodes.jsonl` (`passed`, `milestones`, `turns`, `stop`, `gates`). A variant
    that misses the band is changed again without ever paying for S3/S10.
-8. **All gates** before the full run: `.venv/bin/python scripts/lh_debug.py gates --ids <id>` (no `--gates`: it re-runs
-   the partial record in full, ~30 min; S3 is the World, leak probes and 60 reruns of the existing suite, S10 grades the
+8. **All gates** before the full run: `.venv/bin/python scripts/lh_debug.py gates --ids <id> --gates S3,S10` (~27 min;
+   added to the cheap gates' record; S3 is the World, leak probes and 60 reruns of the existing suite, S10 grades the
    real fix 60 times, since 0 false fails in 60 is the fewest that bounds the rate under 5%). Run it on a quiet host:
-   one false fail under load (mvdan-sh 02a801cd-e1 beside a full run) fails S10. Then `lh_debug.py intent`.
+   one false fail under load (mvdan-sh 02a801cd-e1 beside a full run) fails S10. To rerun one gate after such a noise
+   failure: `--gates S10 --redo` (the failed result stays in the record under `earlier`). Then `lh_debug.py intent`.
 9. **Full measurement** (~$20–35) if the quick pass looks in range (needs all five gates; never `--cheap-gates`):
    `.venv/bin/python scripts/lh_debug_target.py student frontier disclose audit mine report --tasks <id> --k 8 --frontier-k 2 --debug "$CRUCIBLE_DEBUG_ROOT" --out data/targeting/<you>-<task>-full --cap 90`
    The verdict is in `data/targeting/<out>/report.json` → `tasks.<id>.keep` (`train`, `bench`, `too_hard`, `too_easy`,

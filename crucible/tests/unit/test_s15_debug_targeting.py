@@ -265,6 +265,25 @@ def test_the_targeting_script_runs_under_the_lane_budget_and_records_it() -> Non
     assert not t.env_budget(t.parse_args(["report", "--tool-limit", "150"]))["is_lane_budget"]
 
 
+def test_a_gates_run_of_some_gates_adds_to_the_record_and_keeps_what_it_replaced() -> None:
+    """gates --gates S3,S10 after the cheap ones completes the record; a rerun S10 keeps the failure it replaced."""
+    p = Path(__file__).resolve().parents[2] / "scripts" / "lh_debug.py"
+    spec = importlib.util.spec_from_file_location("lh_debug_t", p)
+    lh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lh)
+    order = ("S6", "S5", "S8", "S3", "S10")
+    cheap = {"ok": True, "passed": ["S6", "S5", "S8"], "gates": {g: {"ok": True} for g in ("S6", "S5", "S8")}}
+    slow = {"ok": True, "passed": ["S3", "S10"], "gates": {"S10": {"ok": True}, "S3": {"ok": True}}, "seconds": 9}
+    full = lh.merge_gates(cheap, slow, order)
+    assert full["ok"] and full["passed"] == list(order) and list(full["gates"]) == list(order) and "earlier" not in full
+    failed = {**full, "ok": False, "passed": list(order[:4]), "gates": {**full["gates"], "S10": {"ok": False, "findings": ["1 in 60"]}}}
+    rerun = lh.merge_gates(failed, {"ok": True, "passed": ["S10"], "gates": {"S10": {"ok": True}}}, order)
+    assert rerun["ok"] and rerun["earlier"] == [{"gate": "S10", "ok": False, "findings": ["1 in 60"]}]
+    crashed = lh.merge_gates(cheap, {"ok": False, "error": "boom", "gates": {}}, order)
+    assert not crashed["ok"] and crashed["passed"] == ["S6", "S5", "S8"]
+    assert not lh.merge_gates(cheap, {"ok": True, "gates": {"S3": {"ok": None}}}, order)["ok"]  # a gate not run is no pass
+
+
 def test_a_partial_gate_record_is_measured_only_by_a_quick_pass(tmp_path: Path) -> None:
     """lh_debug.py gates --gates S6,S5,S8 passes a variant to a quick pass; a full run still needs all five gates."""
     t = _target_script()
