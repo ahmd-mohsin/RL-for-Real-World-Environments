@@ -1,0 +1,184 @@
+{
+ "task": "db-go-mvdan-sh-dc951aeb-k2-980fe7",
+ "generator": "debug",
+ "gates": {
+  "S6": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "executed_edges": 2,
+    "milestones": 4
+   },
+   "seconds": 0.3
+  },
+  "S5": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "clean_world_ok": true,
+    "null_ok": true,
+    "refused_checks": [],
+    "spec_defects": 0
+   },
+   "seconds": 66.0
+  },
+  "S8": {
+   "ok": true,
+   "findings": [],
+   "alternatives_pending": [
+    "0 valid alternative(s), need 2 (one from another family)"
+   ],
+   "evidence": {
+    "failed": [],
+    "false_fail_checks": [],
+    "alternatives": [],
+    "rows": {
+     "oracle_patch": {
+      "kind": "oracle",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "no_op": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "claims_only": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "test_edit": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "oracle_steps": {
+      "kind": "alternative",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "revert_m01": {
+      "kind": "mutant",
+      "reward": 0.375,
+      "phi": 0.75,
+      "ok": true
+     },
+     "revert_m02": {
+      "kind": "mutant",
+      "reward": 0.25,
+      "phi": 0.5,
+      "ok": true
+     },
+     "revert_m03": {
+      "kind": "mutant",
+      "reward": 0.25,
+      "phi": 0.5,
+      "ok": true
+     },
+     "revert_m04": {
+      "kind": "mutant",
+      "reward": 0.375,
+      "phi": 0.75,
+      "ok": true
+     }
+    }
+   },
+   "seconds": 107.5
+  },
+  "S3": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "checks": {
+     "builds": true,
+     "existing_tests_run": true,
+     "leak_probes_hold": true,
+     "reruns_clean": true,
+     "grading_unchanged": true
+    },
+    "reruns": {
+     "n": 60,
+     "clean": 60,
+     "unclean": [],
+     "cp_upper": 0.0487,
+     "concurrency": [
+      1,
+      4
+     ]
+    },
+    "existing": {
+     "targets": 34,
+     "counts": {
+      "passed": 17302,
+      "skipped": 546
+     }
+    },
+    "leak": {
+     "no_new_test_names_in_image": "pass",
+     "git_log_only_base": "pass",
+     "fetch_project_fails": "pass",
+     "no_installed_project_source": "pass"
+    },
+    "grading": {
+     "oracle_milestones": {
+      "m01": true,
+      "m02": true,
+      "m03": true,
+      "m04": true
+     },
+     "start_any_milestone_test": {
+      "m01": false,
+      "m02": false,
+      "m03": false,
+      "m04": false
+     },
+     "infra": [
+      "ok",
+      "ok"
+     ]
+    }
+   },
+   "seconds": 845.8
+  },
+  "S10": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "levels": {
+     "1": {
+      "n": 30,
+      "fails": 0,
+      "masked": 0
+     },
+     "4": {
+      "n": 30,
+      "fails": 0,
+      "masked": 0
+     }
+    },
+    "n": 60,
+    "false_negatives": 0,
+    "masked": 0,
+    "upper": 0.0487
+   },
+   "seconds": 816.6
+  }
+ },
+ "ok": true,
+ "passed": [
+  "S6",
+  "S5",
+  "S8",
+  "S3",
+  "S10"
+ ],
+ "seconds": 1836.7,
+ "inherited_from": "db-go-mvdan-sh-dc951aeb",
+ "inherited_because": "a report-only knob: the start tree and every hidden test are byte-identical (sha256)"
+}

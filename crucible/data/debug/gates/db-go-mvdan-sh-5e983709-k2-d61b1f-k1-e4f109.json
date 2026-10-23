@@ -1,0 +1,175 @@
+{
+ "task": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+ "generator": "debug",
+ "gates": {
+  "S6": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "executed_edges": 1,
+    "milestones": 3
+   },
+   "seconds": 0.2
+  },
+  "S5": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "clean_world_ok": true,
+    "null_ok": true,
+    "refused_checks": [],
+    "spec_defects": 0
+   },
+   "seconds": 38.6
+  },
+  "S8": {
+   "ok": true,
+   "findings": [],
+   "alternatives_pending": [
+    "0 valid alternative(s), need 2 (one from another family)"
+   ],
+   "evidence": {
+    "failed": [],
+    "false_fail_checks": [],
+    "alternatives": [],
+    "rows": {
+     "oracle_patch": {
+      "kind": "oracle",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "no_op": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "claims_only": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "test_edit": {
+      "kind": "floor",
+      "reward": 0.0,
+      "phi": 0,
+      "ok": true
+     },
+     "oracle_steps": {
+      "kind": "alternative",
+      "reward": 1.0,
+      "phi": 1.0,
+      "ok": true
+     },
+     "revert_m01": {
+      "kind": "mutant",
+      "reward": 0.333334,
+      "phi": 0.666667,
+      "ok": true
+     },
+     "revert_m03": {
+      "kind": "mutant",
+      "reward": 0.166666,
+      "phi": 0.333333,
+      "ok": true
+     },
+     "revert_m04": {
+      "kind": "mutant",
+      "reward": 0.333334,
+      "phi": 0.666667,
+      "ok": true
+     }
+    }
+   },
+   "seconds": 71.2
+  },
+  "S3": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "checks": {
+     "builds": true,
+     "existing_tests_run": true,
+     "leak_probes_hold": true,
+     "reruns_clean": true,
+     "grading_unchanged": true
+    },
+    "reruns": {
+     "n": 60,
+     "clean": 60,
+     "unclean": [],
+     "cp_upper": 0.0487,
+     "concurrency": [
+      1,
+      4
+     ]
+    },
+    "existing": {
+     "targets": 34,
+     "counts": {
+      "passed": 12158,
+      "skipped": 546
+     }
+    },
+    "leak": {
+     "no_new_test_names_in_image": "pass",
+     "git_log_only_base": "pass",
+     "fetch_project_fails": "pass",
+     "no_installed_project_source": "pass"
+    },
+    "grading": {
+     "oracle_milestones": {
+      "m01": true,
+      "m03": true,
+      "m04": true
+     },
+     "start_any_milestone_test": {
+      "m01": false,
+      "m03": false,
+      "m04": false
+     },
+     "infra": [
+      "ok",
+      "ok"
+     ]
+    }
+   },
+   "seconds": 375.1
+  },
+  "S10": {
+   "ok": true,
+   "findings": [],
+   "evidence": {
+    "levels": {
+     "1": {
+      "n": 30,
+      "fails": 0,
+      "masked": 0
+     },
+     "4": {
+      "n": 30,
+      "fails": 0,
+      "masked": 0
+     }
+    },
+    "n": 60,
+    "false_negatives": 0,
+    "masked": 0,
+    "upper": 0.0487
+   },
+   "seconds": 425.0
+  }
+ },
+ "ok": true,
+ "passed": [
+  "S6",
+  "S5",
+  "S8",
+  "S3",
+  "S10"
+ ],
+ "tree_sha256": "d5bf9b5f962afea40c4ce0a91fa93c5411b6dc015e7cf6f392996e3e4a2d942a",
+ "hidden_sha256": "f3f190ea70832f5a2222afb04a0b65e93b174bb40b559eb743024c849efe3d3f"
+}

@@ -1,0 +1,33 @@
+{
+ "opening": "We run Black (current main branch, stable style) over our code base in CI and it mishandles a few inputs. Unless noted, Black runs with its defaults.",
+ "requirements": {
+  "m03": "Leading tabs inside docstrings are expanded as eight columns, so tab-indented docstring lines end up much deeper than the surrounding code, which Black indents by four spaces. Each leading tab in a docstring line should count as four columns, so a docstring indented with tabs keeps its relative indentation at Black's four-space width; tabs that are not at the start of a line are left as they are.",
+  "m04": "A module docstring that spans several lines, whose closing quotes are on their own line and whose last text line is close to the line-length limit, gets an extra blank line inserted before the closing quotes. The closing quotes on their own line are not part of that long line, so the docstring should keep its text and end with the closing quotes on the next line, with no blank line added."
+ },
+ "closing": "",
+ "builder": "tinker:moonshotai/Kimi-K2.6:peft:131072",
+ "swarm": {
+  "run": "prompt-db-python-black-ae5830b7-c1-516b23",
+  "provenance": {
+   "families": [
+    "kimi"
+   ],
+   "producers": [
+    {
+     "role": "prompt_author",
+     "family": "kimi",
+     "model": "moonshotai/Kimi-K2.6:peft:131072",
+     "state": "write"
+    }
+   ]
+  },
+  "review": [
+   {
+    "entry": 1,
+    "ok": true,
+    "findings": []
+   }
+  ],
+  "usd": 0.301643
+ }
+}

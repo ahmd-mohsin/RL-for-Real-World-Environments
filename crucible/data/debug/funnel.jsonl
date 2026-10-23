@@ -8061,3 +8061,23 @@
 {"t": 1792545435.7, "generator": "debug", "candidate": "python/urllib3:ed0ed075c6", "stage": "S1_executed", "ok": false, "reason": "the suite does not run at B (no JUnit report (the run ended early))", "evidence": {"lang": "python", "b_ref": "HEAD"}}
 {"t": 1792545435.7, "generator": "debug", "candidate": "python/urllib3:a164d79c8c", "stage": "S1_executed", "ok": false, "reason": "the suite does not run at B (no JUnit report (the run ended early))", "evidence": {"lang": "python", "b_ref": "HEAD"}}
 {"t": 1792545485.7, "generator": "debug", "candidate": "python/urllib3", "stage": "S1_groups", "ok": false, "reason": "no interacting group", "evidence": {"lang": "python", "fixes": 8, "groups": 0, "points": ["HEAD", "HEAD-20d", "HEAD-45d", "HEAD-75d", "HEAD-110d", "HEAD-150d"], "kept": 0, "interacting_fixes": 0}}
+{"t": 1792751509.6, "generator": "debug", "candidate": "db-go-go-toml-a02114e3-c1-ca64e3", "stage": "S6", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792751509.6, "generator": "debug", "candidate": "db-go-go-toml-a02114e3-c1-ca64e3", "stage": "S5", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792751509.6, "generator": "debug", "candidate": "db-go-go-toml-a02114e3-c1-ca64e3", "stage": "S8", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792751509.6, "generator": "debug", "candidate": "db-go-go-toml-a02114e3-c1-ca64e3", "stage": "S3", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792751509.6, "generator": "debug", "candidate": "db-go-go-toml-a02114e3-c1-ca64e3", "stage": "S10", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792754337.2, "generator": "debug", "candidate": "db-python-black-ae5830b7-c1-516b23", "stage": "S6", "ok": true, "reason": "", "evidence": {"lang": "python"}}
+{"t": 1792754337.2, "generator": "debug", "candidate": "db-python-black-ae5830b7-c1-516b23", "stage": "S5", "ok": true, "reason": "", "evidence": {"lang": "python"}}
+{"t": 1792754337.2, "generator": "debug", "candidate": "db-python-black-ae5830b7-c1-516b23", "stage": "S8", "ok": true, "reason": "", "evidence": {"lang": "python"}}
+{"t": 1792754337.2, "generator": "debug", "candidate": "db-python-black-ae5830b7-c1-516b23", "stage": "S3", "ok": true, "reason": "", "evidence": {"lang": "python"}}
+{"t": 1792754337.2, "generator": "debug", "candidate": "db-python-black-ae5830b7-c1-516b23", "stage": "S10", "ok": true, "reason": "", "evidence": {"lang": "python"}}
+{"t": 1792755467.3, "generator": "debug", "candidate": "db-go-mvdan-sh-04056a74-k1-1c2768", "stage": "S6", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755467.3, "generator": "debug", "candidate": "db-go-mvdan-sh-04056a74-k1-1c2768", "stage": "S5", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755467.3, "generator": "debug", "candidate": "db-go-mvdan-sh-04056a74-k1-1c2768", "stage": "S8", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755467.3, "generator": "debug", "candidate": "db-go-mvdan-sh-04056a74-k1-1c2768", "stage": "S3", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755467.3, "generator": "debug", "candidate": "db-go-mvdan-sh-04056a74-k1-1c2768", "stage": "S10", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755795.1, "generator": "debug", "candidate": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109", "stage": "S6", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755795.1, "generator": "debug", "candidate": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109", "stage": "S5", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755795.1, "generator": "debug", "candidate": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109", "stage": "S8", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755795.1, "generator": "debug", "candidate": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109", "stage": "S3", "ok": true, "reason": "", "evidence": {"lang": "go"}}
+{"t": 1792755795.1, "generator": "debug", "candidate": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109", "stage": "S10", "ok": true, "reason": "", "evidence": {"lang": "go"}}

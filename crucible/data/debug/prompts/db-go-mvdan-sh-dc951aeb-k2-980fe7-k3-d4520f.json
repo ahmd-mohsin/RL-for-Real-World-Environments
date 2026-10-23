@@ -1,0 +1,41 @@
+{
+ "opening": "We format our shell scripts with this formatter and run some of them through its interpreter in CI, and we have run into four separate problems where scripts come out wrong. The formatter runs with default options unless noted. Fixing one of these problems may change how another one shows up.",
+ "areas": {
+  "m01": "the interpreter",
+  "m02": "the formatter's heredoc indentation",
+  "m03": "the formatter's multi-line operator layout",
+  "m04": "the formatter's control-flow line breaking"
+ },
+ "requirements": {
+  "m01": "Referencing $- in an interpreted script does not work: under set -u it fails as an unbound variable, and otherwise it expands to nothing, so idioms like case $- in *e*) never match. It should expand to the one-letter flags of the currently enabled shell options, in sorted order: after set -aefu, echo $- prints aefu, and case $- in *e*) matches only once set -e is on. Options without a one-letter flag, such as pipefail, add nothing. This is in the interpreter.",
+  "m02": "Formatting a <<- heredoc that sits three or more blocks deep (for example inside an if inside a loop inside a function) indents body lines that have less indentation than the first body line to the first line's original indentation, not to the level where the first line is actually printed. The result is mis-indented and formatting the output again changes it. Such lines should be indented like the first body line as printed. This is in the formatter's heredoc indentation.",
+  "m03": "With the printer option that moves binary operators to the start of the next line turned on, multi-line && and || inside [[ ]] tests and multi-line binary arithmetic expressions still keep the operator at the end of the line. They should put the operator at the start of the continuation line as pipes already do: a [[ ]] test needs no escaped newline, while an arithmetic expression uses a backslash-escaped newline, since contexts such as C-style for loops need it. This is in the formatter's multi-line operator layout.",
+  "m04": "When the condition of an if, while or until clause, or the word list of a for loop, spans several lines and the script already puts then or do on its own line, the formatter collapses it into \"; then\" or \"; do\". In that case then and do should stay on their own line (except when minifying or printing everything on one line). Single-line conditions should still collapse as before. This is in the formatter's control-flow line breaking."
+ },
+ "closing": "",
+ "builder": "tinker:moonshotai/Kimi-K2.6:peft:131072",
+ "swarm": {
+  "run": "prompt-db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f",
+  "provenance": {
+   "families": [
+    "kimi"
+   ],
+   "producers": [
+    {
+     "role": "prompt_author",
+     "family": "kimi",
+     "model": "moonshotai/Kimi-K2.6:peft:131072",
+     "state": "write"
+    }
+   ]
+  },
+  "review": [
+   {
+    "entry": 1,
+    "ok": true,
+    "findings": []
+   }
+  ],
+  "usd": 0.145732
+ }
+}

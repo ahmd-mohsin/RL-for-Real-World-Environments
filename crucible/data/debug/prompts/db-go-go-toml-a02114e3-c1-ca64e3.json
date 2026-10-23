@@ -1,0 +1,45 @@
+{
+ "opening": "Our service reads and writes its configuration with go-toml (the v2 module, current main branch), and a few things in encoding and decoding misbehave. The reproductions below use toml.Marshal, toml.Unmarshal or a toml.Encoder with default options unless I say otherwise.",
+ "requirements": {
+  "m03": "Decoding into a named type that implements encoding.TextUnmarshaler ignores UnmarshalText when the type's underlying kind is a string, a signed or unsigned integer, a float or a bool: the raw value is assigned directly. The same happens behind pointers, in map values, and for date and time values. UnmarshalText should take precedence over direct assignment for all of these, and for integers it should be tried before the number is parsed, so a value too large for int64 still reaches it.",
+  "m04": "Encoding has two problems. First, a named string type with a value-receiver MarshalText is written as its raw string instead of MarshalText's output, unlike every other text-marshaler shape; it should go through MarshalText as a struct field, a map value, a slice element and an inline-table member, so it round-trips with UnmarshalText. With omitempty, emptiness is decided on the raw value (an empty named string is omitted even if MarshalText would return text). Second, strings containing invalid UTF-8 (a stray byte, lone surrogate bytes) are written as Latin-1 escapes such as \\u00FF, which corrupts the value on the way back; each invalid byte should become the escape \\uFFFD, in basic and multiline strings and in MarshalText output, while control characters keep their usual escapes."
+ },
+ "closing": "",
+ "builder": "tinker:moonshotai/Kimi-K2.6:peft:131072",
+ "swarm": {
+  "run": "prompt-db-go-go-toml-a02114e3-c1-ca64e3",
+  "provenance": {
+   "families": [
+    "kimi"
+   ],
+   "producers": [
+    {
+     "role": "prompt_author",
+     "family": "kimi",
+     "model": "moonshotai/Kimi-K2.6:peft:131072",
+     "state": "write"
+    }
+   ]
+  },
+  "review": [
+   {
+    "entry": 2,
+    "ok": false,
+    "findings": [
+     "m03: Requirement leaks the fix by describing internal behavior (\"UnmarshalText should be tried before the number is parsed\") and names internal concepts (\"direct assignment\", \"overflow error\") that describe how to fix rather than observable symptoms.",
+     "m04: Requirement leaks the fix by specifying exact escape sequences (\"\\u00FF\" vs \"\\uFFFD\") and internal encoding paths (\"basic strings, multiline strings, and MarshalText output\") that describe implementation details rather than observable symptoms.",
+     "m04: Requirement describes behavior not fully verified by notes - mentions \"inline-table member\" and \"omitempty\" behavior for named string types, but test diff only shows struct field, map value, slice element cases."
+    ]
+   }
+  ],
+  "usd": 0.902293
+ },
+ "swarm_requirements": {
+  "m03": "Decoding into a named type that implements encoding.TextUnmarshaler ignores UnmarshalText when the type's underlying kind is a string, a signed or unsigned integer, a float or a bool: the raw TOML value is assigned directly. The same happens behind pointers, in map values, and slice elements. For integer kinds, unmarshaling a value that exceeds int64 range fails with an overflow error and UnmarshalText is never called.",
+  "m04": "Encoding has two problems. First, a named string type with a value-receiver MarshalText is written as its raw string instead of MarshalText's output, unlike other named types that implement encoding.TextMarshaler; it should go through MarshalText when used as a struct field, map value, slice element, or inline-table member. With omitempty, emptiness is decided on the raw value rather than MarshalText's output. Second, strings containing invalid UTF-8 bytes are written as Latin-1 escapes such as \\u00FF instead of the replacement character escape \\uFFFD, which corrupts the value on round-trip. This happens in basic strings, multiline strings, and MarshalText output, while control characters keep their usual escapes."
+ },
+ "restored_verbatim": [
+  "m03",
+  "m04"
+ ]
+}
