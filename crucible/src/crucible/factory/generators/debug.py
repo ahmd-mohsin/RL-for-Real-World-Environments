@@ -717,7 +717,7 @@ class Debug(Rebreak):
         return out_
 
     async def subset(self, name: str, shas: Sequence[str], *, b: str = "HEAD", since: str | None = None, cid: str = "",
-                     parent: str = "", hide: str = "") -> Candidate:
+                     parent: str = "", hide: str = "", independent: bool = False) -> Candidate:
         """The candidate of exactly the fixes ``shas`` (sha prefixes of fix units on B's first-parent path since ``since``)
         at ``b``: ``candidates_for``'s executed check, edges, prober order and params, without its grouping. A mined task is
         rebuilt from its fixes; an eased one (TASKS_CREDIT_AND_EASING §5.5) is its parent's fixes minus the dropped one, which
@@ -725,7 +725,10 @@ class Debug(Rebreak):
         ``hide`` = ``strip`` builds A' in strip mode only: revert mode restores the old version of a test a fix changed, and
         an old assertion of the faulty behaviour (go-toml-e1's ``TestMarshalStringEscapes`` expecting ``\\u00FF``) then fails
         on a correct fix in the agent's own tree.
-        ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact."""
+        ``independent``: the fixes need not interact (the lead's call, 2026-10-23, for tasks of separate bugs); the build
+        then keeps a window whose milestones need no earlier one and S6 passes it without an edge.
+        ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact
+        (unless ``independent``)."""
         if hide not in ("", "revert", "strip"):
             raise ValueError(f"hide {hide!r} is not revert or strip")
         lang = self.langs_of[name]
@@ -753,11 +756,12 @@ class Debug(Rebreak):
             if lost := [u.sha[:10] for u in picked if u not in kept]:
                 raise ValueError(f"not a real fix at B (no test of its own fails when it alone is reverted): {lost}")
             g = order_fixes(sorted(picked, key=pool.index), need)
-            if not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
+            if not independent and not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
                 raise ValueError("no executed interaction at B (no test caught by two reverts)")
             b_date = out(git(repo_dir, "log", "-1", "--format=%cI", b_full))
             return self._candidate(name, lang, g, need, card, b=b_full, b_ref=b_ref, b_date=b_date, since=since, cid=cid,
-                                   **({"parent": parent} if parent else {}), **({"hide_modes": [hide]} if hide else {}))
+                                   **({"parent": parent} if parent else {}), **({"hide_modes": [hide]} if hide else {}),
+                                   **({"allow_independent": True} if independent else {}))
 
     async def _executed(self, name: str, lang: str, b: str, b_ref: str, fixes: Sequence[Unit]
                         ) -> tuple[list[Unit], dict[str, set[str]], dict[str, Any]]:
@@ -982,7 +986,8 @@ class Debug(Rebreak):
                     return rec
                 shutil.rmtree(self.store.dir(cand.id), ignore_errors=True)  # a second round validates a new start tree
                 rec = await validate_window(win, self.store, self.images_for(lang), self.sandboxes, reruns=3, min_milestones=2, mutants=True,
-                                            import_tolerant=lang == "python", leak_prefix=f"{PREFIX}leak-", log=self.log)
+                                            import_tolerant=lang == "python", leak_prefix=f"{PREFIX}leak-", log=self.log,
+                                            allow_independent=bool(cand.params.get("allow_independent")))
                 view = self.views.pop(win.id, {})
                 vis = sorted(t for m in rec.get("milestones") or [] for t in m["tests"] if view.get(t) in ("failed", "error"))
                 info["visible_checks"] = vis[:20]

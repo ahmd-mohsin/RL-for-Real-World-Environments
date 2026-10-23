@@ -2,7 +2,7 @@
 
     python scripts/lh_debug.py scout                      # licence, language, fix units since 2025-09-01 per clone (no Docker)
     python scripts/lh_debug.py mine  --repos a,b          # executed fix check at HEAD, interacting groups, A'..B', validate_window
-    python scripts/lh_debug.py subset --repo a --fixes s1,s2,s3 [--b B] [--id ID --parent P]   # one task of exactly these fixes
+    python scripts/lh_debug.py subset --repo a --fixes s1,s2,s3 [--b B] [--id ID --parent P] [--hide revert|strip] [--no-link]   # one task of exactly these fixes
     python scripts/lh_debug.py gates [--ids ...]          # S6, S5, S8, S3, S10 on every built window that reached mutants_valid
     python scripts/lh_debug.py author                     # the builder's bug reports (prompts/<id>.json) through lint + ledger
     python scripts/lh_debug.py repro [--ids ...]          # S7r: each requirement's `repro` run in the World at A' (shows the bug) and B (passes)
@@ -166,7 +166,7 @@ async def subset(args: argparse.Namespace) -> None:
     gen = generator([args.repo], split_of(args.repo))
     try:
         cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent,
-                                hide=args.hide)
+                                hide=args.hide, independent=args.no_link)
     except ValueError as e:
         sys.exit(f"[{args.repo}] {e}")
     needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
@@ -481,6 +481,7 @@ def main() -> None:
     su.add_argument("--parent", default="", help="the task this one rebuilds or eases, recorded in its window")
     su.add_argument("--hide", default="", choices=["", "revert", "strip"],
                     help="how A' hides the fixes' tests (default revert, else strip); strip removes a test a fix changed instead of restoring its old assertions")
+    su.add_argument("--no-link", action="store_true", help="build it although no two fixes interact (separate bugs; S6 then needs no edge)")
     g = sub.add_parser("gates")
     g.add_argument("--ids", default="")
     g.add_argument("--s3-reruns", type=int, default=60)

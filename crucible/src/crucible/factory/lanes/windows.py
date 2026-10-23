@@ -801,10 +801,13 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
 
 async def validate_window(win: Window, store: WindowStore, images: ImageBook, sandboxes: Callable[[str], DockerSandbox], *, reruns: int = 3,
                           min_milestones: int = 2, mutants: bool = True, log: Callable[[dict], None] | None = None,
-                          import_tolerant: bool = True, leak_prefix: str | None = None, exclude: Mapping[str, str] | None = None) -> dict[str, Any]:
+                          import_tolerant: bool = True, leak_prefix: str | None = None, exclude: Mapping[str, str] | None = None,
+                          allow_independent: bool = False) -> dict[str, Any]:
     """Every stage for one window; the record (saved whatever stage it reached) says how far it got and why it stopped.
     ``import_tolerant`` (report 11 F8, the default for new windows): the window is classified, probed and graded with
-    import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict."""
+    import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict.
+    ``allow_independent``: a window whose milestones need no earlier one goes on to the mutants (recorded as
+    ``allow_independent``) instead of stopping at ``f2p_valid``: the lead's call for tasks of separate bugs."""
     store.guard(win.repo)
     t0 = time.monotonic()
     repo = RepoGit(Path(win.repo_dir))
@@ -854,8 +857,10 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     rec["dependency_edges"] = rec["prober"]["milestone_edges"]
     rec["independent"] = rec["dependency_edges"] == 0
     store.save(mined_of(rec, base))
-    if rec["independent"]:
+    if rec["independent"] and not allow_independent:
         return stop("independent: no milestone needs an earlier one (long, not long-horizon)")
+    if rec["independent"]:
+        rec["allow_independent"] = True
     rec["stage"] = "dependent"
     if not mutants:
         return stop("mutants not run")

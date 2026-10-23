@@ -404,8 +404,10 @@ async def deterministic_gates(task: Any, *, cfg: GateConfig | None = None, s3_sa
 
     async def s6() -> dict[str, Any]:
         n = executed_edges(task)
-        problems = check_longtask(task, long_horizon=True, need_prompt=False)
-        return {"ok": n >= 1 and not problems, "findings": problems, "evidence": {"executed_edges": n, "milestones": len(task.milestones)}}
+        free = bool(rec.get("allow_independent"))  # a window built for separate bugs (validate_window allow_independent)
+        problems = check_longtask(task, long_horizon=not free, need_prompt=False)
+        return {"ok": (n >= 1 or free) and not problems, "findings": problems,
+                "evidence": {"executed_edges": n, "milestones": len(task.milestones), "allow_independent": free}}
 
     async def s5() -> dict[str, Any]:
         v = (await s5_solvability(ctx)).outputs["verdict"]
