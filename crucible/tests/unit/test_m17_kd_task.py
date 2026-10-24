@@ -418,6 +418,13 @@ def test_ownership_needs_a_break_on_the_fixed_seeds():
     assert g.per_case_fixed(old, "m1") == {"A": False}  # a grade from before the field: every seed
 
 
+def test_a_sanitizer_dirty_on_b_keeps_no_milestone():
+    g = load_gpu_runner()
+    assert g.sanitizer_discriminates({"clean_on_b": True, "dirty_on_revert": True})
+    assert not g.sanitizer_discriminates({"clean_on_b": False, "dirty_on_revert": True})  # held-out 44b81230 m1 (2026-10-23)
+    assert not g.sanitizer_discriminates({})
+
+
 def test_exact_attention_reference_only_where_two_computations_agree_against_the_cpu():
     g = load_gpu_runner()
     tol = 5e-4
@@ -456,3 +463,11 @@ def test_migration_s8_reads_the_report_gates_and_the_mutant_s_own_milestones(tmp
     killed = {"gates": {"c02": "pass", "r02": "fail", "r03": "pass"}}
     elsewhere = {"gates": {"c02": "pass", "r02": "pass", "r03": "fail"}}
     assert m.mutant_killed("mutant_fault-x-p_soft", killed, spec) and not m.mutant_killed("mutant_fault-x-p_soft", elsewhere, spec)
+
+
+def test_migration_s10_leaves_masked_grades_out():
+    m = load_migration_runner()
+    ok, masked = {"reward": 1.0, "infra": {"status": "ok"}}, {"reward": None, "infra": {"status": "masked"}}
+    v = m.flake_verdict([ok] * 59 + [masked])
+    assert v["false_negatives"] == 0 and v["masked"] == 1 and v["measured"] == 59 and v["cp_upper"] < 0.05
+    assert m.flake_verdict([ok] * 59 + [{"reward": 0.0, "infra": {"status": "ok"}}])["cp_upper"] > 0.05

@@ -432,9 +432,36 @@ plus fix 1, B with fault 2 reverted and B, with the VMM pool and with the legacy
 cases up to 1,024 experts: the over-read stays inside the pool's slack. Showing it would need an exact-size allocator
 patched into the backend under test, which is not grading the repository's code.
 
-**Rerun.** Recalibration and every GPU gate with the fixes on the 5090 (`dbg/pipeline2.sh`, three bug-task streams and
-the two migration windows): the five ik flash-attention tasks and `89213aa6`, `cef66d4a`, `a45699aa`, and the three
-tasks that passed before (`1b8b8fb1`, `ca21f3a1`, `efe7d4b1`), whose inputs changed under them.
+**Rerun (5090, 2026-10-23 03:30-13:25 PDT, `dbg/pipeline3.sh` and `pipeline2.sh`).** Recalibration and every GPU gate
+with the fixes. A first start with three bug-task streams left empty grades (concurrent nvcc builds, likely memory) and
+was restarted with two; the exact-reference marker first went to stdout, where it split the console verdict line and the
+probe never saw it (moved to stderr; restarted).
+
+| task | split | calibration | gates | verdict |
+|---|---|---|---|---|
+| kd-bug-llamacpp-1b8b8fb1 | train | m1-m3 kept (32, 32 owned cases; m1 by racecheck) | S5 1, floors 0, 3/3 reverts fail, S10 0/60 | **pass** |
+| kd-bug-llamacpp-ca21f3a1 | train | m1 (racecheck), m2 (4 cases) | S5, S8, S10 0/60 | **pass** |
+| kd-bug-llamacpp-efe7d4b1 | train | m1 (1 case), m2 (synccheck) | S5, S8, S10 0/60 | **pass** |
+| kd-bug-llamacpp-cef66d4a | train | m1, m3 (2 owned cases each); m2 dropped: no fixed-seed break, racecheck not dirty on the revert | S5 1, floors 0, revert-m1 and revert-m3 fail their milestones, partial-m1 fails m1 (partial-m3 equivalent), S10 0/60 | **pass** (was S8) |
+| kd-bug-llamacpp-a45699aa | train | m1 only: m3's breaks were all on a fresh seed (none on the fixed seeds), m2 and m4 never break a case | - | not gradable: one milestone (c) |
+| kd-bug-ikllamacpp-000b1a1e | held out | exact reference on 205 cases (agree 48, unmodelled 51); B then passes them, and no revert breaks any case on the fixed seeds | - | not gradable: the faults do not change a result on sm_120 (c) |
+| kd-bug-ikllamacpp-1ef4f2f7 | held out | exact reference on 15 cases; no revert breaks a case | - | not gradable (c) |
+| kd-bug-ikllamacpp-5b8c07ff | held out | exact reference on 205 cases; no owned case; m2 by racecheck, m3 kept on a memcheck dirty on B too | S5 0 | not gradable: under the corrected sanitizer rule m3 drops, one milestone left (c) |
+| kd-bug-ikllamacpp-44b81230 | held out | exact reference on 19 cases; m1 kept on a racecheck dirty on B too | - | not gradable: none left under the corrected rule (c) |
+| kd-bug-ikllamacpp-35d83401 | held out | no case switched: the CPU agrees with the exact result and B's GPU is 2,300-2,700x off on ALiBi + softcap cases (gpu_disagrees 14); m2 only | - | not gradable: one milestone (c) |
+| kd-bug-ikllamacpp-89213aa6 | held out | m2 only (grid-limit grader cases); m1 never breaks a case | - | not gradable (c) |
+| km-cuda12-cudahandbook-b62f9ad-4 | train | - | S5 1, floors 0, both filter-mode mutants fail r03 (clamp-to-border equivalent), S10 0/60 | **pass** (was S8) |
+| km-cuda13-hecbench-8fcc759-4 | train | - | S5 1, floors 0, shfl_down_to_up fails r02 (two equivalent), S10 0 false negatives over 59 measured grades (one masked: the original program's launch timed out), CP upper 0.0495 | **pass** (was S8), at the S10 limit |
+
+Two more grader rules came out of the rerun: a sanitizer tool keeps a milestone only when it is clean on B and dirty on
+the revert (`sanitizer_discriminates`; before, dirty on both kept `44b81230` m1 and `5b8c07ff` m3), and the migration S10
+leaves masked grades out of the denominator (as the bug lane has since 10-22; the run's own count was 1/60, CP 0.0766).
+`8fcc759-4`'s S10 is recomputed from its sixty grades with that rule, not rerun.
+
+**Totals passing every GPU gate on the 5090:** 8 tasks, all training: 4 kernel-bug (`1b8b8fb1`, `ca21f3a1`, `cef66d4a`,
+`efe7d4b1`) and 4 migration (`591f311-4`, `ba3a30a-3`, `b62f9ad-4`, `8fcc759-4`); held out: 0. With the CPU reference
+corrected, the ik flash-attention faults show no result change on sm_120: the held-out kernel set needs other sources or
+another GPU.
 
 ## 9. Open issues
 

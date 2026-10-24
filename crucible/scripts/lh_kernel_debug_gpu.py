@@ -266,6 +266,11 @@ def per_case_fixed(g: dict, mid: str) -> dict[str, bool]:
     return dict(det.get("per_case_fixed") or det.get("per_case") or {})
 
 
+def sanitizer_discriminates(row: dict) -> bool:
+    """A sanitizer calibration row (``calibration.sanitizer[<m>:<tool>]``) that can grade its milestone."""
+    return bool(row.get("clean_on_b") and row.get("dirty_on_revert"))
+
+
 def fa_reference_verdict(ev: dict, *, margin: float = MARGIN, det: float = 1e-3) -> str:
     """One FLASH_ATTN_EXT case of B from the probe (``KDGrader.fa_probe``):
     - ``unmodelled``: the exact computation does not model the case (the CPU column stayed);
@@ -752,7 +757,9 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
             san[f"{m['id']}:{t}"] = {"clean_on_b": clean, "dirty_on_revert": dirty}
             if not (clean and dirty):
                 m["checks"] = [c for c in m["checks"] if c != t]
-        if not owned.get(m["id"]) and not any(san.get(f"{m['id']}:{t}", {}).get("dirty_on_revert") for t in tools) and m["kind"] != "perf":
+        # a sanitizer tool keeps a milestone only when it discriminates (clean on B and dirty on the revert): before
+        # 2026-10-23 a tool dirty on both kept it (held-out 44b81230 m1, 5b8c07ff m3), with nothing left to grade it
+        if not owned.get(m["id"]) and not any(sanitizer_discriminates(san.get(f"{m['id']}:{t}") or {}) for t in tools) and m["kind"] != "perf":
             m["dropped"] = "not real on this GPU: its revert breaks no case and no sanitizer tool catches it"
         elif not m["cases"] and m["kind"] != "perf":
             m["dropped"] = "no stable case: B itself fails every owned case on some fresh seed"

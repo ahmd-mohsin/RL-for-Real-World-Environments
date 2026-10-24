@@ -1147,7 +1147,11 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
     `check/<gate>` components) and a mutant is killed when a milestone of the program it targets fails
     (`gates_of`, `mutant_targets`, `mutant_killed`). A window may list mutants shown equivalent on the program's own
     inputs (`equivalent_mutants`: the reason citing the code), listed apart as `S8_mutants_excluded`; a window whose
-    every mutant is excluded fails S8.
+    every mutant is excluded fails S8. The migration S10 leaves masked grades out of the denominator (`flake_verdict`,
+    as the bug lane does).
+  - **A sanitizer tool keeps a milestone only when it discriminates** (clean on B and dirty on the revert,
+    `sanitizer_discriminates`); a tool dirty on both had kept milestones with nothing left to grade them.
+  - A grade that leaves no reward logs the container's error in the run log.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):
