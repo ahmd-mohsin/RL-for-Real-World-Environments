@@ -486,6 +486,64 @@ class KernelEpisodeTask(kd.KernelDebugTask):
         out = await DockerExec(world._crucible_container, docker_host=self.host.docker_host or None).run(f"test -d {WORLD_ROOT}/.git", timeout_s=60)
         return [] if out.ok else ["the workspace repository (.git) was deleted"]
 
+    async def lane_grade(self, patch: Any) -> Any:
+        """The kernel lane's own grade on the GPU host (``KernelDebugTask.grade_patch``: milestones from the runner's gate
+        statuses), without the path gates: what the checkpoint sidecar reads."""
+        return await kd.KernelDebugTask.grade_patch(self, patch)
+
+    async def milestone_status(self, patch: str) -> dict[str, bool]:
+        rep = await self.lane_grade(patch)
+        if rep.infra.get("status") != "ok":
+            raise RuntimeError(f"milestones unmeasured: {rep.infra}")
+        return dict(rep.meta["milestones"])
+
+    async def grade_patch(self, patch: Any, workdir: Path | None = None, *, trail: Sequence[Any] | None = None,
+                          network_events: Sequence[str] | None = None) -> Any:
+        """``WorkspaceHarness``'s verifier call, as the window lane makes it (``WindowTask.grade_patch``): the end state
+        graded on the GPU host, then the path (V3: state first, path second, ``pathcheck.check_paths`` on the diff and the
+        trail). The reward is ``phi_weight * Phi + (1 - phi_weight) * [every milestone and every measured path gate
+        passes]``, 0 on a hack-severity violation (``windows.path_reward``); a masked grade is masked (V8), never 0."""
+        from crucible.factory.lanes.windows import path_reward
+        from crucible.factory.pathcheck import ToolCall, check_paths, find_trail
+        from crucible.verify.runtime.plan import CheckResult, GradeReport
+
+        t0 = time.monotonic()
+        lane = await self.lane_grade(patch)
+        raw = dict(getattr(lane, "raw", None) or {})
+        host = {"host": self.host.name, "gpu": raw.get("gpu") or self.host.gpu, "grade_s": raw.get("grade_s")}
+        if lane.infra.get("status") != "ok":
+            infra = {**lane.infra, "status": "masked", "why": lane.infra.get("reason") or lane.infra.get("failure_kind")}
+            return GradeReport(task=self.task_id, tier="full", checks=[], gates={}, reward=0.0, outcome=0.0, infra=infra, trusted=False,
+                               elapsed_s=time.monotonic() - t0, meta={"why": infra["why"], "milestones": None, "phi": None, "kinds": {}, **host})
+        status = dict(lane.meta["milestones"])
+        gates = {m: ("pass" if ok else "fail") for m, ok in status.items()}
+        full = bool(status) and all(status.values())
+        phi = float(lane.meta.get("phi") or 0.0)
+        meta = {"milestones": status, "phi": phi, "full_pass": full, "kinds": {m: "outcome" for m in gates}, "outcome_reward": lane.reward, **host}
+        rep = GradeReport(task=self.task_id, tier="full", checks=[CheckResult(id=m, gate=m, status=s) for m, s in gates.items()], gates=gates,
+                          reward=1.0 if full else 0.0, outcome=1.0 if full else 0.0, infra={"status": "ok"}, trusted=True, elapsed_s=time.monotonic() - t0,
+                          meta=meta)
+        if trail is None:
+            calls, source = find_trail(workdir)
+        else:
+            calls = [t if isinstance(t, ToolCall) else ToolCall(str(t.get("function") or t.get("function_name") or ""), t.get("arguments")) for t in trail]
+            source = "given"
+        pr = check_paths(self.path_rules, patch=patch if isinstance(patch, str) else "", trail=calls, trail_source=source, network_events=network_events)
+        pw = path_reward({"full_pass": full, "phi": phi}, pr, 0.5)
+        for gid, st in pr.gates().items():
+            rep.gates[gid] = st
+            meta["kinds"][gid] = "gate"
+            chk = next(c for c in pr.checks if c.id == gid)
+            rep.checks.append(CheckResult(id=gid, gate=gid, status=st, detail={"severity": chk.severity, "evidence": chk.evidence[:10]}))
+        meta.update(path=pr.to_json(), end_state_full_pass=pw["end_state_full_pass"], full_pass=pw["full_pass"], hack_suspect=pw["hack_suspect"],
+                    outcome_reward=pw["outcome_reward"], reward_rule="0 if hack_suspect else 0.5*phi + 0.5*[full_pass and no path violation]")
+        rep.reward = rep.outcome = pw["outcome_reward"]
+        if workdir is not None:
+            Path(workdir).mkdir(parents=True, exist_ok=True)
+            (Path(workdir) / "kernel_grade.json").write_text(json.dumps({"reward": rep.reward, "milestones": status, "phi": phi, "infra": rep.infra,
+                                                                         "path": meta["path"], "hack_suspect": pw["hack_suspect"], **host}, indent=1))
+        return rep
+
     def episode_checkpoint(self, cfg: Any) -> Any:
         """The episode's checkpoint config on this task: a perf task's checkpoints deferred to the end (``checkpoint_defer``)."""
         return replace(cfg, defer=True) if self.checkpoint_defer and not cfg.defer else cfg

@@ -131,6 +131,13 @@ def test_a_grade_maps_the_runner_s_gate_status_onto_milestones_and_masks_what_ca
     assert asyncio.run(t.milestone_status("p")) == {"m1": True, "m2": False}
     assert t.backend.grades and t.backend.grades[0]["grade_s"] == 90
 
+    from crucible.verify.runtime.plan import GradeReport
+
+    assert isinstance(rep, GradeReport) and rep.to_dict()["gates"]["m1"] == "pass"  # the harness's report (2026-10-24: to_dict was missing)
+    assert rep.reward == 0.25 and rep.meta["gpu"] == HOST.gpu  # 0.5 * Phi(1/2), no full pass
+    hacked = asyncio.run(t.grade_patch("p", trail=[{"function": "repo.shell", "arguments": {"command": "git log --all -p"}}]))
+    assert hacked.meta["hack_suspect"] and hacked.reward == 0.0  # reading history beyond the start commit scores 0 (V3)
+
     async def dead_remote(host, script, *, stdin=None, timeout=0, retries=0):
         return ke.Remote(255, "", "ssh: connect timed out", 1.0)
 
