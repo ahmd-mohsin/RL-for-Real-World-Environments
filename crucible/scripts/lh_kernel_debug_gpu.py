@@ -216,7 +216,8 @@ def kit_digest() -> bytes:
     return h.hexdigest().encode()
 
 
-def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str, *, pool: bool = False, only: str = "", params: tuple[str, ...] = ()) -> dict:
+def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str, *, pool: bool = False, only: str = "", params: tuple[str, ...] = (),
+          ro_cache: bool = False) -> dict:
     out = d / "grades" / tag
     import hashlib
 
@@ -237,6 +238,9 @@ def grade(d: Path, patch: Path, spec_path: Path, mode: str, arch: str, tag: str,
     if USE_CCACHE:
         args += ["--param", "ccache=/k/ccache"]
         mounts.append((ccache_dir(), "/k/ccache", True))
+    elif ro_cache and CCACHE.exists():  # an episode grade: the gate cache read-only (the plan opens it read-only too)
+        args += ["--param", "ccache_ro=/k/ccache_ro"]
+        mounts.append((CCACHE, "/k/ccache_ro", False))
     p = container(mode, mounts, args, arch=arch, tag=tag[:24])
     rj, rep = out / "crucible_reward.json", out / "report.json"
     if pool and rep.exists():
@@ -936,6 +940,45 @@ def task(tid: str, a: argparse.Namespace) -> dict:
     return res
 
 
+def episode_result(g: dict, *, gpu: str, seconds: float) -> dict:
+    """One episode grade as the lane's ``KernelDebugTask.grade_patch`` reads it: the reward document's infra, the report's
+    per-milestone gate statuses (``gate_status``) and the GPU it ran on."""
+    return {"reward": g.get("reward"), "infra": g.get("infra") or {"status": "masked", "failure_kind": "no_reward"}, "gate_status": dict(g.get("gates") or {}),
+            "components": {}, "gpu": gpu, "grade_s": round(seconds, 1)}
+
+
+def grade_one(a: argparse.Namespace) -> int:
+    """``--grade-one ID``: the patch on stdin graded against the task's calibrated spec, in a fresh grading container from
+    the pristine start tree (an episode's checkpoint or final grade, swarm-pipeline/10 §9). One JSON line on stdout. The
+    grade's own directory and patch are removed after it (a shared, nearly full disk)."""
+    d = HERE / "tasks" / a.grade_one
+    t0 = time.time()
+
+    def masked(kind: str, reason: str) -> int:
+        print(json.dumps({"reward": None, "infra": {"status": "masked", "failure_kind": kind, "reason": reason[:400]}, "gate_status": {}, "components": {}}))
+        return 0
+
+    if not (d / "kdspec.calibrated.json").exists():
+        return masked("no_spec", f"{a.grade_one}: no calibrated spec on this host")
+    unpack(d)
+    ref = build_reference(d, a.mode, a.arch, load_spec(d))
+    if not ref["ok"]:
+        return masked("no_reference", str(ref.get("log") or "")[-300:])
+    tag = f"ep-{uuid.uuid4().hex[:12]}"
+    pdir = d / "episodes"
+    pdir.mkdir(exist_ok=True)
+    patch = pdir / f"{tag}.patch"
+    patch.write_text(sys.stdin.read())
+    try:
+        g = grade(d, patch, d / "kdspec.calibrated.json", a.mode, a.arch, tag, ro_cache=True)
+    finally:
+        patch.unlink(missing_ok=True)
+        if (d / "grades" / tag).exists():
+            rmtree(d / "grades" / tag)
+    print(json.dumps(episode_result(g, gpu=gpu_name(), seconds=time.time() - t0)))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arch", required=True)
@@ -945,11 +988,14 @@ def main() -> int:
     ap.add_argument("--recalibrate", action="store_true")
     ap.add_argument("--no-ccache", action="store_true", help="build every grade from scratch (the gate runs cache by default)")
     ap.add_argument("--build-sif", action="store_true", help="apptainer: build the SIF from Dockerfile when it is missing")
+    ap.add_argument("--grade-one", default="", metavar="ID", help="grade the patch on stdin against task ID (an episode grade): one JSON line")
     a = ap.parse_args()
     global USE_CCACHE
-    USE_CCACHE = not a.no_ccache
+    USE_CCACHE = not a.no_ccache and not a.grade_one  # an episode grade never writes the gate cache (it reads it, read-only)
     ensure_image(a.mode, build=a.build_sif)
     build_launch_lib(a.mode, a.arch)
+    if a.grade_one:
+        return grade_one(a)
     (HERE / "results").mkdir(exist_ok=True)
     for t in json.loads((HERE / "index.json").read_text()):
         if a.only and t["id"] not in a.only:

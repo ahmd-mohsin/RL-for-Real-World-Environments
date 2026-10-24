@@ -290,6 +290,34 @@ def window(wid: str, a: argparse.Namespace) -> dict:
     return res
 
 
+def grade_one(a: argparse.Namespace) -> int:
+    """``--grade-one WID``: the patch on stdin graded on the window's pristine base in a fresh grading container (an
+    episode's checkpoint or final grade, swarm-pipeline/10 §9). One JSON line on stdout: ``reward``, ``infra``, the
+    per-milestone ``gate_status`` (``gates_of``) and the GPU. The grade's directory and patch are removed after it."""
+    wdir = HERE / "windows" / a.grade_one
+    t0 = time.time()
+    if not (wdir / "kspec.json").exists():
+        print(json.dumps({"reward": None, "infra": {"status": "masked", "failure_kind": "no_window", "reason": f"{a.grade_one} not on this host"}, "gate_status": {}}))
+        return 0
+    if not (wdir / "base").exists():
+        with tarfile.open(wdir / "base.tar.gz") as t:
+            t.extractall(wdir, filter="data")
+    build_originals(wdir, json.loads((wdir / "kspec.json").read_text()), json.loads((wdir / "legacy.json").read_text()))
+    tag = f"ep-{uuid.uuid4().hex[:12]}"
+    (wdir / "episodes").mkdir(exist_ok=True)
+    patch = wdir / "episodes" / f"{tag}.patch"
+    patch.write_text(sys.stdin.read())
+    try:
+        g = grade(wdir, patch, a.arch, a.mode, tag)
+    finally:
+        patch.unlink(missing_ok=True)
+        shutil.rmtree(wdir / "grades" / tag, ignore_errors=True)
+    gpu = sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).stdout.strip().splitlines()
+    print(json.dumps({"reward": g.get("reward"), "infra": g.get("infra") or {"status": "masked", "failure_kind": "no_reward"}, "gate_status": dict(g.get("gates") or {}),
+                      "components": {}, "gpu": gpu[0] if gpu else "", "grade_s": round(time.time() - t0, 1)}))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arch", required=True)
@@ -297,10 +325,13 @@ def main() -> int:
     ap.add_argument("--flake", type=int, default=60)
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--build-sif", action="store_true", help="apptainer: build missing SIFs from the bundle's Dockerfiles")
+    ap.add_argument("--grade-one", default="", metavar="WID", help="grade the patch on stdin against window WID (an episode grade): one JSON line")
     a = ap.parse_args()
     global MODE
     MODE = a.mode
     os.environ["CRUCIBLE_CUDA_ARCH"] = a.arch
+    if a.grade_one:
+        return grade_one(a)
     chosen = [w for w in json.loads((HERE / "index.json").read_text()) if not a.only or w["id"] in a.only]
     if a.mode == "apptainer":
         ensure_sifs({t for w in chosen for t in images_of(HERE / "windows" / w["id"])}, build=a.build_sif)

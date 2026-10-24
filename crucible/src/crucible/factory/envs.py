@@ -182,7 +182,9 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
     cache: dict[str, Any] = {}
 
     def sidecar(attempt: Any) -> Any:
-        inner = CheckpointSidecar(attempt.task, attempt.dir, cfg, baseline=cache) if isinstance(attempt.task, MilestoneTask) else None
+        # a task may adjust its own checkpoints (``episode_checkpoint``: a kernel perf task defers them to the end, 10 §9)
+        tcfg = attempt.task.episode_checkpoint(cfg) if callable(getattr(attempt.task, "episode_checkpoint", None)) else cfg
+        inner = CheckpointSidecar(attempt.task, attempt.dir, tcfg, baseline=cache) if isinstance(attempt.task, MilestoneTask) else None
         return InfraWatch(inner) if infra_watch else inner
 
     steps = max_steps if tool_limit is None else tool_limit + 2  # the policy stops itself; +1 final STATUS write, +1 its Done
