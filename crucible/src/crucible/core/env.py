@@ -123,6 +123,8 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_LIST", "bool", False, "kernel debug harness: list the case pool and run none", kind="internal"),
     Knob("CRUCIBLE_DUMP", "path", None, "kernel debug harness: file each case's outputs are dumped to", kind="internal"),
     Knob("CRUCIBLE_REPS", "int", 1, "kernel debug harness: exact repetitions per case (perf bars)", kind="internal"),
+    Knob("CRUCIBLE_BASE", "str", None, "verifiers box quiesce: space-separated pids of the box's own base processes, never killed", kind="internal"),
+    Knob("CRUCIBLE_KILL", "str", None, "verifiers box quiesce: the kill command, always passed by the caller", kind="internal"),
     Knob("CRUCIBLE_FA_REF_CASES", "path", None, "kernel debug harness (reference build): file of FLASH_ATTN_EXT cases whose CPU column is "
          "replaced by the exact attention computation (cases the calibration showed the CPU kernel wrong on)", kind="internal"),
     Knob("CRUCIBLE_VLLM_GPU", "str", "L4", "scripts/modal_vllm.py: Modal GPU type", kind="test"),
