@@ -52,6 +52,7 @@ import ast
 import asyncio
 import contextvars
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -2035,9 +2036,12 @@ class WindowTask(ExecTask):
         from crucible.world.exec import DockerExec
 
         ws = str(self.workspace(world))
-        cmd = ("set -e; I=$(mktemp); cp .git/index \"$I\" 2>/dev/null || true; GIT_INDEX_FILE=\"$I\" git add -A >/dev/null 2>&1; "
-               "GIT_INDEX_FILE=\"$I\" git -c core.quotepath=off diff --cached --binary base; rm -f \"$I\"")
-        out = await DockerExec(world._crucible_container).run(cmd, cwd=ws, timeout_s=300)
+        cmd = ("set -e; I=$(mktemp); cp .git/index \"$I\" 2>/dev/null || true; GIT_INDEX_FILE=\"$I\" git -c safe.directory='*' add -A >/dev/null 2>&1; "
+               "GIT_INDEX_FILE=\"$I\" git -c safe.directory='*' -c core.quotepath=off diff --cached --binary base; rm -f \"$I\"")
+        # as the host user: on a Linux or WSL bind mount, root's ``git add`` leaves root-owned object directories in the
+        # agent's repository, and the host-side final collect then cannot index those files and drops them
+        user = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else None
+        out = await DockerExec(world._crucible_container).run(cmd, cwd=ws, timeout_s=300, user=user)
         if not out.ok:
             raise RuntimeError(f"workspace snapshot failed: {out.stderr[-300:]}")
         return out.stdout

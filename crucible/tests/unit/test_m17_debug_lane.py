@@ -109,6 +109,25 @@ def test_synthesize_revert_and_strip_modes(tmp_path: Path) -> None:
     assert info2["hidden"]["visible_stripped"] == {"calc_test.go": ["TestParse"]} and tree_of(d, win2.b) == tree_of(repo, b)
 
 
+def test_a_stale_case_is_hidden_by_removing_its_case_file(tmp_path: Path) -> None:
+    from crucible.factory.generators.debug import hide_key
+
+    changed = ["src/black/strings.py", "tests/data/cases/docstring.py", "tests/test_black.py"]
+    assert hide_key("tests/test_format.py::test_simple_format[docstring]", changed) == ("tests/data/cases/docstring.py", "*")
+    assert hide_key("tests/test_format.py::test_simple_format[fmtonoff]", changed) == ("tests/test_format.py", "test_simple_format")
+    assert hide_key("tests/test_black.py::BlackTestCase::test_tabs", changed) == ("tests/test_black.py", "BlackTestCase::test_tabs")
+    repo, shas = make_repo(tmp_path)
+    gen = _gen(tmp_path, repo)
+    b = out(git(repo, "rev-parse", "HEAD"))
+    cand = Candidate("db-go-calc-z", "debug", "calc", params={"lang": "go", "b": b, "b_date": "2026-05-13T00:00:00+00:00",
+                                                             "fixes": [shas["fix_neg"], shas["fix_fmt"]]})
+    win, info = gen.synthesize(cand, extra_hide={"calc_test.go": {"*"}})
+    d = gen.clones["calc"]
+    assert info["hide_mode"] == "revert" and git(d, "show", f"{win.a}:calc_test.go", check=False).returncode != 0  # gone from A'
+    assert "func TestFmt(" in out(git(d, "show", f"{win.b}:calc_test.go")) and tree_of(d, win.b) == tree_of(repo, b)
+    assert info["hidden"]["visible_stripped"] == {"calc_test.go": ["*"]}
+
+
 def test_task_intent_and_cards() -> None:
     from crucible.factory.generators.debug import SKILLS, intent_cards, task_intent
 
