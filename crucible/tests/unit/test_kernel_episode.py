@@ -133,7 +133,7 @@ def test_a_grade_maps_the_runner_s_gate_status_onto_milestones_and_masks_what_ca
 def test_the_workspace_pull_streams_tracked_and_untracked_files_and_git_but_not_ignored_builds(tmp_path, monkeypatch):
     repo = tmp_path / "ws"
     repo.mkdir()
-    sh = lambda *c: subprocess.run(list(c), cwd=repo, check=True, capture_output=True)  # noqa: E731
+    sh = lambda *c: subprocess.run(list(c), cwd=repo, check=True, capture_output=True)
     sh("git", "init", "-q", "-b", "main")
     (repo / ".gitignore").write_text("/build*\n")
     (repo / "src.cu").write_text("a\n")

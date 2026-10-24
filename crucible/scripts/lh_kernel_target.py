@@ -29,7 +29,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import lh_debug_target as T  # noqa: E402
+import lh_debug_target as T
 
 PREFIX = "crucible-lh-k-ep-"
 PILOT_TASK = "kd-bug-llamacpp-ca21f3a1"
@@ -152,7 +152,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     extra.add_argument("--host", default="rtx5090")
     extra.add_argument("--kernel", default="", help="the kernel lanes' data dir (default <data>/kernel_debug)")
     extra.add_argument("--funnel", default=str(FUNNEL))
+    extra.add_argument("--env-file", default="", help="KEY=VALUE file loaded into the environment first (values never printed; swarm.load_env_file)")
     k, rest = extra.parse_known_args(argv)
+    if k.env_file:
+        from swarm import load_env_file
+
+        load_env_file(k.env_file)
     if "--pilot-task" not in rest:
         rest += ["--pilot-task", PILOT_TASK]
     if "--out" not in rest:
