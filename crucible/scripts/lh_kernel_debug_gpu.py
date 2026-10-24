@@ -49,11 +49,13 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from shlex import quote as shlex_quote
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "kit"))
 from crucible.factory.lanes import kernel_harness as kh
 from crucible.factory.lanes import kernel_plan as kp
+from crucible.factory.lanes import kernel_profiles as kprof
 
 IMAGE = "crucible-lh-k:base-12.8.1"
 PLAN = "crucible.factory.lanes.kernel_debug_plan"
@@ -165,10 +167,11 @@ def unpack(d: Path) -> None:
 def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     """B with the patched harness, built as root into ``ref/`` (0700): what the reference runs in every grade."""
     ref = d / "ref"
+    H = kprof.of_spec(spec)
     extra = list(spec.get("harness_extra") or [])
-    stamp = "\n".join([kh.cuda_arch_flag([arch]), harness_digest(), *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra),
+    stamp = "\n".join([kh.cuda_arch_flag([arch]), harness_digest(H), *(f"{x.get('mode') or 'test'} {x['code']}" for x in extra),
                        *(spec.get("cmake_extra") or [])])  # flags and added cases  # the reference's identity: the GPU arch and the grader's added cases
-    if (ref / "bin" / kh.TARGET).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == stamp:
+    if (ref / H.exe).exists() and (ref / "arch").exists() and (ref / "arch").read_text() == stamp:
         return {"ok": True, "cached": True}
     if ref.exists():
         rmtree(ref)
@@ -176,19 +179,22 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     if src.exists():
         rmtree(src)
     shutil.copytree(d / "b", src, symlinks=True)
-    text = (src / kh.HARNESS).read_text(errors="replace")
-    patched = kh.add_cases(kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]), header=kh.ggml_header(src)), extra)
-    kh.prepare_tree(src, patched)
+    if H is kprof.GGML:
+        text = (src / kh.HARNESS).read_text(errors="replace")
+        patched = kh.add_cases(kh.patch_harness(text, need_perf=any("perf" in m["checks"] for m in spec["milestones"]), header=kh.ggml_header(src)), extra)
+    else:  # a status profile: the grader owns B's test sources it runs (a JSON map, the grader's ref/harness.cpp)
+        patched = json.dumps({t: (src / t).read_text(errors="replace") for t in H.targets}, sort_keys=True)
+    H.prepare(src, patched)
     ref.mkdir()
     (ref / "harness.cpp").write_text(patched)
     jobs = str(max(2, min(32, os.cpu_count() or 4)))
-    flags = [*kh.cmake_cuda([arch]), "-DBUILD_SHARED_LIBS=OFF", *(spec.get("cmake_extra") or []), *(kh.cmake_ccache() if USE_CCACHE else ())]  # static, as the grader builds
+    flags = [*H.cmake_cuda([arch]), "-DBUILD_SHARED_LIBS=OFF", *(spec.get("cmake_extra") or []), *(kh.cmake_ccache() if USE_CCACHE else ())]  # static, as the grader builds
     script = ("export CCACHE_DIR=/ccache CCACHE_BASEDIR=/ CCACHE_NOHASHDIR=1 CCACHE_UMASK=000 CCACHE_MAXSIZE=12G; "
               f"cmake -S /src -B /ref/build -G Ninja {' '.join(flags)} > /ref/configure.log 2>&1 && "
-              f"cmake --build /ref/build --target {kh.TARGET} -j {jobs} > /ref/build.log 2>&1; rc=$?; "
+              f"cmake --build /ref/build --target {H.target} -j {jobs} > /ref/build.log 2>&1; rc=$?; "
               "mkdir -p /ref/bin && cp -a /ref/build/bin/. /ref/bin/ ; exit $rc")
     p = container(mode, [(src, "/src", False), (ref, "/ref", True), (ccache_dir(), "/ccache", True)], ["bash", "-c", script], arch=arch, tag="ref")
-    ok = p.returncode == 0 and (ref / "bin" / kh.TARGET).exists()
+    ok = p.returncode == 0 and (ref / H.exe).exists()
     if ok:
         (ref / "arch").write_text(stamp)
         rmtree(ref / "build")
@@ -197,12 +203,15 @@ def build_reference(d: Path, mode: str, arch: str, spec: dict) -> dict:
     return {"ok": ok, "rc": p.returncode, "log": "" if ok else ((ref / "build.log").read_text(errors="replace")[-1500:] if (ref / "build.log").exists() else p.stderr[-800:])}
 
 
-def harness_digest() -> str:
+def harness_digest(H: kprof.KernelHarness | None = None) -> str:
     """The grader-owned harness hooks (``kernel_harness``): part of the reference's identity, so a hook change (2026-10-23:
     per-case input streams, the exact attention reference) rebuilds every reference instead of reusing one built before."""
     import hashlib
 
-    return "harness " + hashlib.sha256(Path(kh.__file__).read_bytes()).hexdigest()[:16]
+    h = hashlib.sha256(Path(kh.__file__).read_bytes())
+    if H is not None and H is not kprof.GGML:  # a ggml reference keeps its identity; another profile's code is part of its own
+        h.update(Path(kprof.__file__).read_bytes() + json.dumps(H.describe(), sort_keys=True).encode())
+    return "harness " + h.hexdigest()[:16]
 
 
 def kit_digest() -> bytes:
@@ -496,14 +505,18 @@ def fill_pools(d: Path, spec: dict, mode: str, arch: str) -> dict:
     need = [m for m in spec["milestones"] if not m.get("case_pool") or ("perf" in m["checks"] and not m.get("perf_cases"))]
     if not need:
         return {"filled": 0}
+    H = kprof.of_spec(spec)
     listed = {}
-    for mmode in ("test", "perf"):
-        p = container(mode, [(d / "ref", "/k/ref", False)], ["bash", "-c", f"CRUCIBLE_LIST=1 /k/ref/bin/{kh.TARGET} {mmode} -b CUDA0"], arch=arch, tag=f"list-{mmode}")
-        listed[mmode] = kh.listed_cases(p.stdout)
+    for mmode in ("test", "perf") if H.perf else ("test",):
+        argv, env = H.list_argv(f"/k/ref/{H.exe}", mmode, "CUDA0")
+        p = container(mode, [(d / "ref", "/k/ref", False)], ["bash", "-c", " ".join([*(f"{k}={v}" for k, v in env.items()), *map(shlex_quote, map(str, argv))])],
+                      arch=arch, tag=f"list-{mmode}")
+        listed[mmode] = H.listed(p.stdout)
+    listed.setdefault("perf", [])
     for m in need:
-        ops = set(m["ops"])
-        if not m.get("case_pool"):
-            m["case_pool"] = [c for c in listed["test"] if c.split("(", 1)[0] in ops]
+        ops = set(m.get("ops") or ())
+        if not m.get("case_pool"):  # ggml: the cases of the milestone's ops; a status profile: every case its test executable lists
+            m["case_pool"] = [c for c in listed["test"] if c.split("(", 1)[0] in ops] if H is kprof.GGML else list(listed["test"])
         if "perf" in m["checks"] and not m.get("perf_cases"):
             m["perf_cases"] = [c for c in listed["perf"] if c.split("(", 1)[0] in ops][:8]
     return {"filled": len(need), "test_cases": len(listed["test"]), "perf_cases": len(listed["perf"])}

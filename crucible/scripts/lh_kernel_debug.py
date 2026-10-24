@@ -586,6 +586,7 @@ def cmd_stage_gpu(a: argparse.Namespace) -> None:
     out.mkdir(parents=True, exist_ok=True)
     src = Path(kd.__file__).parent
     bundle(out / "kit", {"crucible.factory.lanes.kernel_debug_plan": src / "kernel_debug_plan.py", "crucible.factory.lanes.kernel_harness": src / "kernel_harness.py",
+                         "crucible.factory.lanes.kernel_profiles": src / "kernel_profiles.py",
                          "crucible.factory.lanes.kernel_plan": src / "kernel_plan.py"})
     kw.write_hooks(out / "hooks")
     index = []
