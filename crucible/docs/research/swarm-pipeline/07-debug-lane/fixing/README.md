@@ -19,11 +19,23 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 | `db-go-excelize-65be17e3-d1` (benchmark) | applied the undescribed VALUE fix; added the missing "OR returns a logical" rule; student 0/8, DeepSeek 1/2 |
 | `db-go-mvdan-sh-02a801cd-e10` (training) | stale tests that expected the bugs hidden (`--hide-tests`); kept Ahmed's `;|` and end-position bugs, added two real ones (-nt/-ot, type prefix); student 3/8, DeepSeek 2/2 |
 | `db-go-carbon-a783fb3a-h5` (training) | carbon moved to training; 4 bugs added step by step (lunar, minute DST, SQL NULL, same decade); student 1/8, DeepSeek 2/2 |
+| `db-go-carbon-93371b6f` (training, was benchmark) | carbon moved to training (lead's call), rebuilt `--no-link`, Ahmed's report unchanged; student 3/8, DeepSeek 1/2 (Haseeb, `notes/carbon-93371b6f.md`) |
+| `db-go-mvdan-sh-dc951aeb-e1` (training) | dropped the bug the student never fixed, `--no-link`; student 1/8 (every attempt fixed all three bugs; six broke hidden table cases), DeepSeek 2/2 (Haseeb, `notes/mvdan-sh-dc951aeb-e1.md`) |
+| `db-go-echo-61eca05b-e2` (training) | added two echo bugs (shared problem-details error, proxy X-Forwarded-For for WebSockets) at B 2026-09-21; student 4/8, DeepSeek 2/2, 397B 2/2 (Haseeb, `notes/echo-61eca05b-e2.md`) |
 
 Before the lead's call below, pulldown-cmark, unstorage, echo and the tasks whose "link" between bugs turned out fake
 (mvdan-sh, black ae5830b7, carbon ×2, excelize ×2) were set aside. Now **no task is set aside**: only mvdan-sh 04056a74 and
 black-ec71b918 are dropped (each repeats most of another task's fixes); every other task is changed and measured again
 until it is kept.
+
+Still being changed (Haseeb, `notes/mvdan-sh-5e983709.md`): mvdan-sh 5e983709, whose `-e1` is in band twice (student
+3/8, both strong models pass) but budget-bound on the backquote bug (on-intent 0.4), and whose `-e2` (that bug swapped
+for a same-line control-flow fix) is too easy by one pass (5/8); next change: swap the trivial `$[` recovery for a
+moderate printer bug, keeping three bugs. Pipeline items from Haseeb's round, in the notes: changelog entries of fixes
+whose message carries no issue number are not stripped (`langs/base.py`, how `48128ab` leaked); strip mode leaves Go
+test-table entries readable, and the `visible_test_data` flag misses them when they sit in a stripped file. The
+`go mod tidy` false positive those notes describe is already fixed on this branch by the scratch rule in `pathcheck.py`
+(the echo measurements predate it).
 
 ## The rules now
 
