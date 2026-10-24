@@ -160,9 +160,10 @@ class GpuLock:
 
     def wrap(self, cmd: str, *, exclusive: bool = False, build: bool = True) -> str:
         w = self.host.work
-        gpu = f"flock {'-x' if exclusive else '-s'} {shlex.quote(w + '/gpu.lock')}"
-        inner = f"flock {shlex.quote(w + '/build.lock')} {cmd}" if build else cmd
-        return f"mkdir -p {shlex.quote(w)} && {gpu} {inner}"
+        inner = f"bash -c {shlex.quote(cmd)}"  # flock runs a program, not a shell line
+        if build:
+            inner = f"flock {shlex.quote(w + '/build.lock')} {inner}"
+        return f"mkdir -p {shlex.quote(w)} && flock {'-x' if exclusive else '-s'} {shlex.quote(w + '/gpu.lock')} {inner}"
 
     def hold_exclusive(self) -> subprocess.Popen:
         """An exclusive hold for as long as the returned process lives (a perf task's open World): ``flock -x`` around a
@@ -420,8 +421,11 @@ class KernelEpisodeTask(kd.KernelDebugTask):
                 hold.terminate()
 
         try:
-            cp = await asyncio.to_thread(subprocess.run, ["docker", "exec", name, "bash", "-c", f"mkdir -p {WORLD_ROOT} && cp -a {TEMPLATE_MOUNT}/. {WORLD_ROOT}/"],
-                                         capture_output=True, text=True, env=env, timeout=1800, check=False)
+            # the template is the host user's; the World's tools run as the container's root: the copy keeps timestamps (the
+            # pre-built build stays incremental) and hands ownership to root (git refuses a repository another uid owns)
+            seed = f"mkdir -p {WORLD_ROOT} && cp -a {TEMPLATE_MOUNT}/. {WORLD_ROOT}/ && chown -R 0:0 {WORLD_ROOT}"
+            cp = await asyncio.to_thread(subprocess.run, ["docker", "exec", name, "bash", "-c", seed], capture_output=True, text=True, env=env, timeout=1800,
+                                         check=False)
             if cp.returncode != 0:
                 raise RuntimeError(f"GPU World seed copy failed: {cp.stderr[-400:]}")
             w = World(world_spec(), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", backend="container_exec",

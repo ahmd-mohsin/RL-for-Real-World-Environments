@@ -58,6 +58,17 @@ def test_the_gpu_lock_is_shared_for_correctness_and_exclusive_for_perf_and_build
     assert "build.lock" not in lock.wrap("run", build=False)
 
 
+def test_the_locked_command_runs_as_a_shell_line(tmp_path):
+    """flock runs a program: a shell line (``cd x && python3 ...``) must go through ``bash -c`` (found live, 2026-10-24:
+    every grade was masked with 'flock: failed to execute cd')."""
+    host = ke.GpuHost(**{**vars(HOST), "work": str(tmp_path)})
+    script = ke.GpuLock(host).wrap(f"cd {tmp_path} && echo ok > out.txt && echo done")
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    if "flock" in r.stderr and "not found" in r.stderr:
+        pytest.skip("no flock on this host")
+    assert r.returncode == 0 and r.stdout.strip() == "done" and (tmp_path / "out.txt").read_text().strip() == "ok"
+
+
 def test_last_json_reads_the_runner_s_result_line_after_its_notes():
     out = 'building image\n{"not": "this"}\nmore notes\n{"reward": 1.0, "gate_status": {"m1": "pass"}}\n'
     assert ke.last_json(out) == {"reward": 1.0, "gate_status": {"m1": "pass"}}
