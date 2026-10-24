@@ -73,15 +73,19 @@ class Timeouts:
 
 
 # ---- liveness and the infra watch -------------------------------------------------------------------------------------------
-async def container_running(name: str) -> bool:
+async def container_running(name: str, env: Mapping[str, str] | None = None) -> bool:
+    """``env``: the Docker CLI's environment for the daemon the container runs on (a remote GPU host's ``DOCKER_HOST``);
+    None = this process's."""
     p = await asyncio.create_subprocess_exec("docker", "inspect", "-f", "{{.State.Running}}", name, stdout=asyncio.subprocess.PIPE,
-                                             stderr=asyncio.subprocess.PIPE)
+                                             stderr=asyncio.subprocess.PIPE, env=dict(env) if env is not None else None)
     out, _ = await p.communicate()
     return p.returncode == 0 and out.decode().strip() == "true"
 
 
 async def world_alive(world: Any) -> bool:
-    """A World is alive when its container runs (Docker World) and no host probe says otherwise (``_crucible_alive``)."""
+    """A World is alive when its container runs (Docker World) and no host probe says otherwise (``_crucible_alive``). The
+    container is asked of the daemon it runs on (``_crucible_env``: a GPU World on a remote host, kernel_episode); asking
+    the local daemon about a remote container read every GPU episode as a dead World after its first step."""
     probe = getattr(world, "_crucible_alive", None)
     if callable(probe):
         r = probe()
@@ -90,7 +94,7 @@ async def world_alive(world: Any) -> bool:
         if not r:
             return False
     name = getattr(world, "_crucible_container", None)
-    return await container_running(name) if name else True
+    return await container_running(name, getattr(world, "_crucible_env", None)) if name else True
 
 
 class InfraWatch:
@@ -182,7 +186,9 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
     cache: dict[str, Any] = {}
 
     def sidecar(attempt: Any) -> Any:
-        inner = CheckpointSidecar(attempt.task, attempt.dir, cfg, baseline=cache) if isinstance(attempt.task, MilestoneTask) else None
+        # a task may adjust its own checkpoints (``episode_checkpoint``: a kernel perf task defers them to the end, 10 §9)
+        tcfg = attempt.task.episode_checkpoint(cfg) if callable(getattr(attempt.task, "episode_checkpoint", None)) else cfg
+        inner = CheckpointSidecar(attempt.task, attempt.dir, tcfg, baseline=cache) if isinstance(attempt.task, MilestoneTask) else None
         return InfraWatch(inner) if infra_watch else inner
 
     steps = max_steps if tool_limit is None else tool_limit + 2  # the policy stops itself; +1 final STATUS write, +1 its Done

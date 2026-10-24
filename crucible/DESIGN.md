@@ -1224,6 +1224,39 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   - **A sanitizer tool keeps a milestone only when it discriminates** (clean on B and dirty on the revert,
     `sanitizer_discriminates`); a tool dirty on both had kept milestones with nothing left to grade them.
   - A grade that leaves no reward logs the container's error in the run log.
+- **GPU episodes (2026-10-24, `10` §9, `factory/lanes/kernel_episode.py`, `scripts/lh_kernel_target.py`):** a student,
+  frontier or swarm episode on a kernel task now runs on a GPU host, not in a CPU-only World.
+  - **The World** is one container on the host (the lab 5090's daemon through the shared SSH tunnel), with
+    `--runtime=nvidia`, `--network none` and CPU, memory and PID limits. A new World backend, `container_exec` (registry
+    `world_backend`, `world/backends/container.py`), routes every App's file tools, shell, git and `fs` state snapshots
+    into that running container, so nothing of the World lives on this machine.
+  - **The start tree** is the gated A' with history cut (one `base` commit) and a CUDA build of A' already configured and
+    built in `/ws/build` (gitignored). The template is made once per task, arch and flags on the host, under its build
+    lock. The agent builds with nvcc, runs the op tests on the GPU and uses compute-sanitizer.
+  - **Collection:** the harness collects from a local mirror pulled out of the container (tracked and untracked, not
+    ignored, files and `.git`; `workspace`); the checkpoint sidecar snapshots inside the container.
+  - **Grading stays out of the agent's reach:** every checkpoint and final grade is `run_gpu.py --grade-one` (kernel
+    bugs) or `stage_gpu.py --grade-one` (migrations), run on the host from an episode bundle. That bundle is this
+    checkout's runner and kit, with the gate bundle's tasks, hooks and cache linked in. Each grade is a fresh grading
+    container on the pristine start tree plus the patch, with the calibrated hidden cases, on the GPU model the task was
+    calibrated on. The episode grade is the verifier's `GradeReport` with the window lane's path gates and path reward
+    (`check_paths`, `path_reward`: a hack-severity violation scores 0). The World liveness probe asks the World's own
+    daemon (`envs.world_alive` reads `_crucible_env`).
+  - **Smoke (`10` §9.2):** on `ca21f3a1` the oracle grades 1, the empty patch 0 and `revert-m1` 0.25, at 15–20 s each. A
+    student and a DeepSeek episode at 40 calls built, ran the op tests and compute-sanitizer on the GPU, edited code, and
+    were graded at their checkpoints and at the end. The four smoke runs cost $1.64 of Tinker.
+  - **The gate cache, read-only:** kernel-bug episode grades read the gate runs' build cache read-only (`ccache_ro`:
+    mounted read-only, `CCACHE_READONLY=1`), so unchanged units are reused and a candidate can neither write nor poison it.
+  - **Locks:** the host's GPU lock (`flock`) is shared for correctness grades and exclusive for a perf task's grades and
+    its open World, and a perf task's checkpoints are deferred to the end (`episode_checkpoint`, read by
+    `envs.make_env`). Grades and template builds take the build lock one at a time, because parallel nvcc builds ran
+    the shared 5090 out of memory.
+  - **Masking:** an unreachable host or a missing spec masks the grade (V8).
+  - **Targeting:** `lh_kernel_target.py` runs the debug lane's targeting stages (pilot, student, frontier, audit, mine,
+    report; the same meter, keep rule, trace audit and presets) over these tasks, and records per-GPU grade minutes. The
+    `fairness` (S9b), `disclose`, `worldfix` and `regrade` stages are refused for kernel tasks: there is no CUDA
+    alternative writer or second verifier yet.
+  - **DeltaAI is declared, not built:** the runner has to run on the compute node itself.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):

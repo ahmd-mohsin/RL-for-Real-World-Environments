@@ -154,6 +154,12 @@ class KDGrader:
             flags += kh.cmake_ccache()
             env = {"CCACHE_DIR": str(self.ctx.params["ccache"]), "CCACHE_BASEDIR": str(self.work), "CCACHE_NOHASHDIR": "1", "CCACHE_UMASK": "000",
                    "CCACHE_MAXSIZE": "12G"}  # one shared gate cache on a shared, nearly full disk
+        elif self.ctx.params.get("ccache_ro"):  # an episode grade (swarm-pipeline/10 §9): the gate runs' cache, mounted read-only
+            # and opened read-only, so a candidate's build reuses the objects of unchanged units and can neither write nor
+            # poison the cache; every unit the candidate changed is compiled from its own source
+            flags += kh.cmake_ccache()
+            env = {"CCACHE_DIR": str(self.ctx.params["ccache_ro"]), "CCACHE_BASEDIR": str(self.work), "CCACHE_NOHASHDIR": "1", "CCACHE_READONLY": "1",
+                   "CCACHE_TEMPDIR": "/tmp/crucible-ccache-tmp"}
         cfg = self.t.run(["cmake", "-S", src, "-B", bld, "-G", "Ninja", *flags], cwd=bld, timeout=1800, candidate=True, env=env)
         if cfg.rc != 0:
             self.t.seal(bld)

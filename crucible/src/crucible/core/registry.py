@@ -324,6 +324,7 @@ def _register_builtins(r: Registry) -> None:
     r.register("world_backend", "local", "crucible.world.backends.local:LocalBackend")
     r.register("world_backend", "ssh_exec", "crucible.world.backends.ssh:SSHExecBackend")
     r.register("world_backend", "apptainer", "crucible.world.backends.apptainer:ApptainerBackend")  # HPC hosts without Docker (Marlowe)
+    r.register("world_backend", "container_exec", "crucible.world.backends.container:ContainerExecBackend")  # a running container, maybe remote (GPU hosts)
     r.register("world_backend", "harbor", "crucible.interop.harbor.world_backend:HarborBackend")
     r.register("world_backend", "agentenv", "crucible.interop.agentenv.world_backend:AgentEnvBackend")
     # Actors
