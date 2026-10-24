@@ -198,11 +198,39 @@ def grade(wdir: Path, patch: Path, arch: str, mode: str, tag: str) -> dict:
         p = sh(cmd, timeout=7200)
     rj = out / "crucible_reward.json"
     doc = json.loads(rj.read_text()) if rj.exists() else {"infra": {"status": "masked", "failure_kind": "no_reward", "reason": p.stderr[-400:]}}
-    return {"reward": doc.get("reward"), "gates": doc.get("gates"), "infra": doc.get("infra")}
+    if not rj.exists():  # a grade that left nothing: the container's own error, in the run log
+        print(f"[grade {wdir.name} {tag}] no reward (rc {p.returncode}): {p.stderr[-400:]}", file=sys.stderr, flush=True)
+    return {"reward": doc.get("reward"), "gates": gates_of(out, doc), "infra": doc.get("infra")}
+
+
+def gates_of(out: Path, doc: dict) -> dict[str, str]:
+    """Per-gate verdicts of one grade: the report's ``gates`` (``pass``/``fail``/``skip``), else the reward document's
+    ``check/<gate>`` components (1.0 -> pass). The reward document's own ``gates`` field is empty for this plan: before
+    2026-10-23 S8 read it, so no fault mutant ever counted as killed (every window failed S8, whatever its verifier did)."""
+    rep = out / "report.json"
+    if rep.exists():
+        g = json.loads(rep.read_text()).get("gates") or {}
+        if g:
+            return {k: str(v) for k, v in g.items()}
+    comps = doc.get("components") or {}
+    return {k.removeprefix("check/"): ("pass" if float(v) == 1.0 else "fail") for k, v in comps.items() if k.startswith("check/")}
 
 
 def milestones_of(doc: dict) -> dict:
-    return {g: int(v) for g, v in (doc.get("gates") or {}).items()}
+    return {g: int(v == "pass") for g, v in (doc.get("gates") or {}).items()}
+
+
+def mutant_targets(name: str, spec: dict) -> list[str]:
+    """The milestones a fault mutant is aimed at: those of the program its name ends with (``mutant_fault-<class>-<program>``)."""
+    prog = name.rsplit("-", 1)[-1]
+    return [m["id"] for m in spec["milestones"] if prog in (m.get("programs") or [m.get("program")])]
+
+
+def mutant_killed(name: str, grade_res: dict, spec: dict) -> bool:
+    """Killed: a milestone the mutant is aimed at fails (any milestone, when its program is not named)."""
+    ms = milestones_of(grade_res)
+    targets = [g for g in mutant_targets(name, spec) if g in ms] or list(ms)
+    return any(ms[g] == 0 for g in targets)
 
 
 def cp_upper(k: int, n: int, alpha: float = 0.05) -> float:
@@ -217,6 +245,16 @@ def cp_upper(k: int, n: int, alpha: float = 0.05) -> float:
         tail = sum(math.comb(n, i) * mid ** i * (1 - mid) ** (n - i) for i in range(k + 1))
         lo, hi = (mid, hi) if tail > alpha else (lo, mid)
     return hi
+
+
+def flake_verdict(runs: list[dict]) -> dict:
+    """S10 over the oracle's repeated grades. A masked grade (infra: on 2026-10-23 the *original* program's launch timed
+    out on a loaded GPU) is no evidence either way and leaves the denominator, as in the kernel debug lane; before
+    2026-10-23 it counted as a false negative here."""
+    masked = sum(1 for r in runs if (r["infra"] or {}).get("status") == "masked")
+    bad = sum(1 for r in runs if r["reward"] != 1.0 and (r["infra"] or {}).get("status") != "masked")
+    n = len(runs) - masked
+    return {"n": len(runs), "measured": n, "false_negatives": bad, "masked": masked, "cp_upper": round(cp_upper(bad, n), 4)}
 
 
 def window(wid: str, a: argparse.Namespace) -> dict:
@@ -239,12 +277,14 @@ def window(wid: str, a: argparse.Namespace) -> dict:
         runs = [grade(wdir, wdir / "oracle.patch", a.arch, a.mode, f"flake1-{i}") for i in range(half)]
         with ThreadPoolExecutor(max_workers=4) as ex:
             runs += list(ex.map(lambda i: grade(wdir, wdir / "oracle.patch", a.arch, a.mode, f"flake4-{i}"), range(a.flake - half)))
-        bad = sum(1 for r in runs if r["reward"] != 1.0)
-        res["flake"] = {"n": len(runs), "false_negatives": bad, "masked": sum(1 for r in runs if (r["infra"] or {}).get("status") == "masked"),
-                        "cp_upper": round(cp_upper(bad, len(runs)), 4)}
+        res["flake"] = flake_verdict(runs)
     res["S5_oracle"] = res["oracle"]["reward"] == 1.0
     res["S8_floors"] = all(f["reward"] == 0.0 for f in res["floors"].values())
-    res["S8_mutants_killed"] = {k: any(v == 0 for v in milestones_of(m).values()) for k, m in res["mutants"].items()}
+    # mutants shown equivalent on this program's own inputs (``equivalent_mutants.json``: the reason, citing the code) are
+    # listed apart, never counted as caught; at least one counted mutant must remain
+    eq = json.loads((wdir / "equivalent_mutants.json").read_text()) if (wdir / "equivalent_mutants.json").exists() else {}
+    res["S8_mutants_excluded"] = {k: eq[k] for k in res["mutants"] if k in eq and milestones_of(res["mutants"][k]) and not mutant_killed(k, res["mutants"][k], spec)}
+    res["S8_mutants_killed"] = {k: mutant_killed(k, m, spec) for k, m in res["mutants"].items() if k not in res["S8_mutants_excluded"]}
     (HERE / "results").mkdir(exist_ok=True)
     (HERE / "results" / f"{wid}.json").write_text(json.dumps(res, indent=1, sort_keys=True, default=str))
     return res

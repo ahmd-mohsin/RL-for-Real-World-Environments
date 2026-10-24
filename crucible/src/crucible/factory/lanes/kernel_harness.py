@@ -10,7 +10,10 @@ a tolerance per case (normalized mean squared error, ``max_err``). The grader al
   counter-based stream seeded at grading time, so the reference build and the candidate see the same inputs, and a fresh
   seed gives inputs neither has seen. ``std::random_device`` is replaced by ``crucible_random_device`` (a deterministic
   generator), and the per-thread engines of ``init_tensor_uniform`` are seeded from (seed, call index, slice start), so
-  the parallel initialisation is deterministic too;
+  the parallel initialisation is deterministic too; a selected case restarts the stream from (seed, case name), so its
+  inputs are the same alone or anywhere in a chunk;
+- ``CRUCIBLE_FA_REF_CASES`` (reference build only): a file of FLASH_ATTN_EXT case names whose dumped CPU column is the
+  exact attention computation instead (``crucible_fa_exact``), for cases the calibration showed the CPU kernel wrong on;
 - ``CRUCIBLE_CASES``: a file of exact case names (``OP(vars)``, one per line); only those cases run (a selection file
   with no line selects nothing);
 - ``CRUCIBLE_LIST``: every case of the mode's list is printed (``CRUCIBLE_CASE <name>``) and none runs: the case pool
@@ -110,12 +113,14 @@ class HarnessPatchError(RuntimeError):
 PRELUDE = r"""
 // crucible harness hooks (grader-owned; swarm-pipeline/10 §4): seeded inputs, case selection, output dumps, repetitions
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 static uint64_t crucible_splitmix(uint64_t x) {
     x += 0x9E3779B97F4A7C15ull;
@@ -131,7 +136,21 @@ static uint64_t crucible_seed_base() {
     return s;
 }
 static std::atomic<uint64_t> crucible_counter{0};
-static uint64_t crucible_next() { return crucible_splitmix(crucible_seed_base() ^ crucible_splitmix(crucible_counter.fetch_add(1))); }
+static std::atomic<uint64_t> crucible_salt{0};
+static uint64_t crucible_next() {
+    return crucible_splitmix(crucible_seed_base() ^ crucible_splitmix(crucible_counter.fetch_add(1) ^ crucible_salt.load()));
+}
+// a selected case restarts the stream from (seed, case name): its inputs do not depend on which cases ran before it in
+// the same process (before 2026-10-23 a case's inputs depended on its position in the chunk, so a calibration on
+// 96-case chunks and a grade of the same case alone saw different inputs at the same seed)
+static void crucible_case_start(const std::string & name) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (unsigned char c : name) {
+        h = (h ^ c) * 0x100000001b3ull;
+    }
+    crucible_salt.store(crucible_splitmix(h));
+    crucible_counter.store(0);
+}
 struct crucible_random_device {
     using result_type = unsigned int;
     static constexpr result_type min() { return 0u; }
@@ -197,14 +216,152 @@ static bool crucible_case_selected(const std::string & name) {
         return v;
     }();
     if (sel.empty()) {
+        crucible_case_start(name);
         return true;
     }
     for (const auto & s : sel) {
         if (!s.empty() && s == name) {
+            crucible_case_start(name);
             return true;
         }
     }
     return false;
+}
+static bool crucible_listed(const char * env, const std::string & name) {
+    static std::mutex mu;
+    static std::vector<std::pair<std::string, std::vector<std::string>>> cache;
+    const char * p = getenv(env);
+    if (!p || !*p) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(mu);
+    for (const auto & e : cache) {
+        if (e.first == env) {
+            for (const auto & s : e.second) {
+                if (s == name) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    std::vector<std::string> v;
+    if (FILE * f = fopen(p, "r")) {
+        std::string cur;
+        int c;
+        while ((c = fgetc(f)) != EOF) {
+            if (c == '\n') {
+                if (!cur.empty()) { v.push_back(cur); }
+                cur.clear();
+            } else {
+                cur.push_back((char) c);
+            }
+        }
+        if (!cur.empty()) { v.push_back(cur); }
+        fclose(f);
+    }
+    cache.emplace_back(env, v);
+    for (const auto & s : v) {
+        if (s == name) {
+            return true;
+        }
+    }
+    return false;
+}
+// The grader's exact attention reference (reference build only, cases listed in CRUCIBLE_FA_REF_CASES): ggml's
+// FLASH_ATTN_EXT semantics (scale, ALiBi slopes, logit softcap, additive mask, softmax, GQA broadcast) computed in double
+// from the CPU graph's own inputs (``to_f`` is the file's tensor_to_float: dequantised through ggml's type traits). It
+// replaces the CPU column of the dump for exactly the cases the calibration showed the CPU kernel wrong on, with B's GPU
+// output and this computation agreeing. Returns false (column unchanged) for any shape it does not model (sinks, a dst
+// layout it does not recognise).
+template <class F>
+static bool crucible_fa_exact(const ggml_tensor * t, std::vector<float> & ref, F to_f) {
+    if (t->op != GGML_OP_FLASH_ATTN_EXT || !crucible_listed("CRUCIBLE_FA_REF_CASES", crucible_case_name)) {
+        return false;
+    }
+    const ggml_tensor * q = t->src[0];
+    const ggml_tensor * k = t->src[1];
+    const ggml_tensor * v = t->src[2];
+    const ggml_tensor * m = t->src[3];
+    if (!q || !k || !v || t->src[4] != nullptr) {
+        return false;
+    }
+    const int64_t D = q->ne[0], nq = q->ne[1], nh = q->ne[2], n3 = q->ne[3], nkv = k->ne[1], Dv = v->ne[0];
+    if (k->ne[0] != D || v->ne[1] != nkv || t->ne[0] != Dv || t->ne[1] != nh || t->ne[2] != nq || t->ne[3] != n3 ||
+        k->ne[2] <= 0 || v->ne[2] <= 0 || nh % k->ne[2] != 0 || nh % v->ne[2] != 0 || n3 % k->ne[3] != 0 || n3 % v->ne[3] != 0 ||
+        (int64_t) ref.size() != Dv*nh*nq*n3 || (m && (m->ne[0] < nkv || m->ne[1] < nq))) {
+        return false;
+    }
+    float scale = 1.0f, max_bias = 0.0f, softcap = 0.0f;
+    memcpy(&scale, (const float *) t->op_params + 0, sizeof(float));
+    memcpy(&max_bias, (const float *) t->op_params + 1, sizeof(float));
+    memcpy(&softcap, (const float *) t->op_params + 2, sizeof(float));
+    if (softcap != 0.0f) {
+        scale /= softcap;
+    }
+    const std::vector<float> qf = to_f(q), kf = to_f(k), vf = to_f(v);
+    const std::vector<float> mf = m ? to_f(m) : std::vector<float>();
+    const uint32_t n_head_log2 = 1u << (uint32_t) floor(log2((double) nh));
+    const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
+    const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
+    std::vector<double> s(nkv), acc(Dv);
+    for (int64_t i3 = 0; i3 < n3; ++i3) {
+        for (int64_t h = 0; h < nh; ++h) {
+            const float slope = max_bias > 0.0f ? (h < (int64_t) n_head_log2 ? powf(m0, h + 1) : powf(m1, 2*(h - n_head_log2) + 1)) : 1.0f;
+            const int64_t k2 = h / (nh / k->ne[2]), k3 = i3 / (n3 / k->ne[3]);
+            const int64_t v2 = h / (nh / v->ne[2]), v3 = i3 / (n3 / v->ne[3]);
+            for (int64_t i1 = 0; i1 < nq; ++i1) {
+                const float * qr = &qf[((i3*nh + h)*nq + i1)*D];
+                double mx = -INFINITY;
+                for (int64_t ic = 0; ic < nkv; ++ic) {
+                    double mv = 0.0;
+                    if (m) {
+                        const int64_t m2 = h % m->ne[2], m3 = i3 % m->ne[3];
+                        const float x = mf[((m3*m->ne[2] + m2)*m->ne[1] + i1)*m->ne[0] + ic];
+                        mv = std::isinf(x) && x < 0 ? -INFINITY : (double) slope * x;
+                    }
+                    if (mv == -INFINITY) {
+                        s[ic] = -INFINITY;
+                        continue;
+                    }
+                    const float * kr = &kf[((k3*k->ne[2] + k2)*nkv + ic)*D];
+                    double dot = 0.0;
+                    for (int64_t d = 0; d < D; ++d) {
+                        dot += (double) qr[d] * (double) kr[d];
+                    }
+                    double x = dot * scale;
+                    if (softcap != 0.0f) {
+                        x = softcap * tanh(x);
+                    }
+                    s[ic] = x + mv;
+                    mx = s[ic] > mx ? s[ic] : mx;
+                }
+                double sum = 0.0;
+                for (int64_t d = 0; d < Dv; ++d) {
+                    acc[d] = 0.0;
+                }
+                if (mx != -INFINITY) {
+                    for (int64_t ic = 0; ic < nkv; ++ic) {
+                        if (s[ic] == -INFINITY) {
+                            continue;
+                        }
+                        const double w = exp(s[ic] - mx);
+                        sum += w;
+                        const float * vr = &vf[((v3*v->ne[2] + v2)*nkv + ic)*Dv];
+                        for (int64_t d = 0; d < Dv; ++d) {
+                            acc[d] += w * (double) vr[d];
+                        }
+                    }
+                }
+                float * o = &ref[((i3*nq + i1)*nh + h)*Dv];
+                for (int64_t d = 0; d < Dv; ++d) {
+                    o[d] = sum > 0.0 ? (float) (acc[d] / sum) : 0.0f;
+                }
+            }
+        }
+    }
+    fprintf(stderr, "CRUCIBLE_FA_EXACT %s\n", crucible_case_name.c_str());  // stderr: the console verdict line stays whole
+    return true;
 }
 """
 
@@ -230,6 +387,14 @@ PERF_NEW = ("} while (crucible_reps() > 0 ? total_runs / std::max(1, n_runs) < c
 SELECT = 'crucible_case_selected(op_desc(out) + "(" + vars() + ")")'
 FILTER_NEW = (f"if (!{SELECT} || !matches_filter(out, op_names_filter)", f"if (!{SELECT} || (op_name != nullptr && op_desc(out) != op_name))")
 STATIC_ENGINES = ANCHORS["engine_static"][0]
+N_THREADS_STATIC = re.compile(r"static const size_t n_threads = std::max<size_t>\(1, std::min<size_t>\(nels/1024")
+# the dump of each compared node; the CPU column becomes the exact attention reference for the cases the calibration
+# listed (``crucible_fa_exact``; the console verdict still compares against the CPU column, which the grader never reads)
+DUMP_CALL = ("{ind}{{ std::vector<float> crucible_ref = f2; "
+             "crucible_fa_exact(t2, crucible_ref, [](const ggml_tensor * x) {{ return tensor_to_float((ggml_tensor *) x); }}); "
+             "crucible_dump(crucible_case_name, index, ggml_op_desc(t1), {max}, f1.data(), crucible_ref.data(), f1.size()); }}\n")
+FA_REF_ENV = "CRUCIBLE_FA_REF_CASES"
+EXACT_LINE = re.compile(r"CRUCIBLE_FA_EXACT (\S+)")  # (stderr) a case whose CPU column the exact computation replaced
 
 
 def _find(text: str, key: str) -> tuple[int, re.Match[str]] | None:
@@ -333,6 +498,13 @@ def patch_harness(text: str, *, need_perf: bool = False, header: str | None = No
         raise HarnessPatchError(f"harness anchors missing ({name}): {', '.join(missing)}")
     end = inc[0].end()
     out = text[:end] + PRELUDE + text[end:]
+    if not engine:
+        # static per-thread engines (the 2024 layout) would carry their state from one case to the next: rebuilt per call
+        # from the case's own stream (``crucible_case_start``), so a case's inputs do not depend on the cases before it
+        out = STATIC_ENGINES.sub(lambda m: m.group(0).replace("static ", "", 1), out, count=1)
+    # a thread count fixed by the first tensor ever initialised decides every later tensor's slices (and so its engines):
+    # computed per tensor instead
+    out = N_THREADS_STATIC.sub("const size_t n_threads = std::max<size_t>(1, std::min<size_t>(nels/1024", out, count=1)
     if engine:
         # one call index per init_tensor_uniform call (main thread, deterministic order); each slice's engine from (seed, call, start)
         out = ANCHORS["init_fn"][0].sub(lambda m: m.group(0) + "\n    const uint64_t crucible_call = crucible_next();", out, count=1)
@@ -340,9 +512,7 @@ def patch_harness(text: str, *, need_perf: bool = False, header: str | None = No
             "std::default_random_engine gen((unsigned) crucible_splitmix(crucible_call ^ ((uint64_t) start * 0x100000001B3ull)));", out, count=1)
     out = re.sub(r"\bstd::random_device\b", "crucible_random_device", out)
     err = ANCHORS["err"][0]
-    out = err.sub(lambda m: m.group(0).replace(
-        "\n", f"\n{m.group('ind')}crucible_dump(crucible_case_name, index, ggml_op_desc(t1), {m.group('max')}, f1.data(), f2.data(), f1.size());\n", 1),
-        out, count=1)
+    out = err.sub(lambda m: m.group(0).replace("\n", "\n" + DUMP_CALL.format(ind=m.group("ind"), max=m.group("max")), 1), out, count=1)
     case_name = 'current_op_name + "(" + vars() + ")"' if re.search(r"current_op_name\s*=\s*op_desc\(out\)", text) else 'op_desc(out) + "(" + vars() + ")"'
 
     def compare(m: re.Match[str]) -> str:
