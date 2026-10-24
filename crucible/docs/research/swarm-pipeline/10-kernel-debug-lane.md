@@ -463,7 +463,82 @@ leaves masked grades out of the denominator (as the bug lane has since 10-22; th
 corrected, the ik flash-attention faults show no result change on sm_120: the held-out kernel set needs other sources or
 another GPU.
 
-## 9. Open issues
+## 9. GPU episodes: measuring the student on kernel tasks (2026-10-24)
+
+Eight kernel tasks pass every GPU gate on the 5090 (`kd-bug-llamacpp-1b8b8fb1`, `-ca21f3a1`, `-efe7d4b1`, `-cef66d4a`,
+`km-cuda13-hecbench-591f311-4`, `-ba3a30a-3`, `km-cuda12-cudahandbook-b62f9ad-4`, `km-cuda13-hecbench-8fcc759-4`). None
+had been run on the 35B, because the agent's World was a CPU-only container. `factory/lanes/kernel_episode.py` and
+`scripts/lh_kernel_target.py` run student, frontier and swarm episodes with a real GPU.
+
+### 9.1 Design
+
+| Piece | What it does |
+|---|---|
+| **GPU World** (`KernelEpisodeTask.open`) | One container on the GPU host. On the lab 5090 it reaches the host's daemon through the shared SSH tunnel (`world.docker_tunnel`), with `--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all`, `--network none`, 8 CPUs, 16 GB, 4,096 PIDs. The World runs on the new `container_exec` backend (`world/backends/container.py`), so file tools, shell, git and state snapshots all run inside the container (`/ws`); nothing of the World lives on this machine. |
+| **Start tree** (`ensure_template`) | The gated A' from the bundle, history cut (a fresh repository with one `base` commit), with a CUDA build of A' already configured with the grader's flags and built in `/ws/build` (gitignored, never collected). Made once per task, arch and flags on the host, as the host user, under the host's build lock. The agent builds with nvcc, runs `test-backend-ops -b CUDA0` and uses compute-sanitizer. The prompt's harness note says where the build is and how to run the op tests (tooling only, nothing about the task). |
+| **Collection** (`workspace`, `snapshot_patch`) | The harness collects from a local mirror pulled out of the container (tracked and untracked, not ignored, files and `.git`, streamed with tar), so `collect`, `repo_broken` and the base commit work unchanged. The checkpoint sidecar snapshots inside the container through a private index. |
+| **Grading** (`HostGrader`, `--grade-one`) | Out of the agent's reach (V4). Every checkpoint and final grade is `run_gpu.py --grade-one` (kernel bugs) or `stage_gpu.py --grade-one` (migrations) on the host, from an episode bundle (`ensure_episode_bundle`): this checkout's runner and kit, with the gate bundle's tasks, windows, hooks and cache linked in, so the gate bundle itself is untouched. Each grade is a fresh grading container on the pristine start tree plus the patch, with the calibrated hidden cases, on the GPU model the task was calibrated on. Then the window lane's path gates and path reward (`check_paths`, `path_reward`): a hack-severity violation scores 0. |
+| **Build cache** (`ccache_ro`) | Kernel-bug episode grades read the gate runs' cache read-only (mounted `:ro` and `CCACHE_READONLY=1`). Unchanged units are reused, and a candidate can neither write nor poison the cache. A grade takes 15–27 s instead of a cold build. |
+| **GPU contention** (`GpuLock`) | `flock` on the host. A correctness grade takes the GPU lock shared; a perf task's grades, and a perf task's open World, take it exclusive. A perf task's checkpoints are deferred to the end (`episode_checkpoint`, read by `envs.make_env`), so no timed step overlaps the agent's own GPU work. The World is closed before the final grade. Grades and template builds take the build lock one at a time (parallel nvcc ran the shared 5090 out of memory on 2026-10-23). At most 2 Worlds are open at once on the 5090 (`max_worlds`). |
+| **Masking** (V8) | An unreachable host (SSH retried with a backoff), a missing calibrated spec or a grade with no reward document masks the grade, never a 0. The World liveness probe asks the World's own daemon (`envs.world_alive` reads `_crucible_env`). |
+| **Targeting** (`lh_kernel_target.py`) | The debug lane's stages over kernel tasks: pilot, student, frontier, audit, mine and report, with the same meter, keep rule, trace audit and presets (`--preset swarm` works). Each job records the host, the GPU and its grade minutes. The honest-trace checks protect the grader's op test. A failure's skill is the kernel intent's, on intent when the judges label it a skill gap (coarser than the debug lane's mode-to-skill map). |
+
+### 9.2 Smoke (2026-10-24, RTX 5090, `kd-bug-llamacpp-ca21f3a1`)
+
+**Plumbing, no model calls** (`data/targeting/kernel-rtx5090-plumbing`):
+
+| Step | Result |
+|---|---|
+| Template (A' plus a CUDA build for sm_120a) | 174 s once, then reused (0.2 s); 213 MB on the host |
+| World open (container, seed copy, git `base`) | 7.5 s |
+| Inside the World | `nvidia-smi`: RTX 5090; nvcc 12.8; compute-sanitizer on PATH; one commit `base` |
+| Incremental rebuild after touching `norm.cu` | 2.7 s |
+| `test-backend-ops -b CUDA0 -o NORM`; `compute-sanitizer --tool racecheck ... -o SOFT_MAX` | both run on the GPU |
+| Snapshot in the container; mirror pull | both changed files in the patch; pull 2.7 s, 8,007 files, `.git` in, `build/` out |
+| Episode grades on the GPU | oracle 1.0 (m1, m2 pass), 19.4 s; empty patch 0.0, 14.7 s; `revert-m1` 0.25 (m1 fails, m2 passes), 19.4 s |
+
+**Episodes** (`data/targeting/kernel-rtx5090-smoke3`, tool limit 40):
+
+| Arm | Wall | Tinker | Grades | Checkpoints (trigger, patch bytes) | End |
+|---|---|---|---|---|---|
+| Qwen3.6-35B-A3B | 182 s | $0.315 | 4 grades, 1.0 GPU-min; 3.0 World-min | periodic 0, compaction 1,130, compaction+periodic 1,791, end 1,791 | `max_steps`, reward 0, m1 and m2 fail, path gates all pass |
+| DeepSeek-V4.1-Flash | 287 s | $0.269 | 4 grades, 1.8 GPU-min; 4.8 World-min | periodic 0, periodic 3,363, end 5,692 | `max_steps`, reward 0, m1 and m2 fail |
+
+At 40 calls both agents read the CUDA backend, ran the op tests and compute-sanitizer on the GPU, compiled their own nvcc
+probes and edited the code before the limit stopped them. A 40-call limit is a plumbing test, not a measurement.
+
+**Bugs found by the smoke, all fixed with tests:**
+1. Git refused the World's repository: the template is the host user's and the tools run as the container's root. The seed copy now hands ownership to root and keeps timestamps, so builds stay incremental.
+2. Every grade was masked: `flock` ran `cd` as a program. The locked command now runs through `bash -c`.
+3. The runner needs `task.id`, a world id and an identity (`identity_config`), so a re-measurement on another GPU is another run.
+4. Every episode was masked as a dead World after its first step: the liveness probe asked this machine's daemon about the 5090's container.
+5. The harness raised on the lane's grade report (no `to_dict`). The episode grade is now the verifier's `GradeReport`, with the path gates.
+
+The Tinker cost of the four smoke runs, including those the bugs masked, was $1.64 of the $5 cap.
+
+### 9.3 Not built yet
+
+- **S9b for CUDA:** the alternative writer and the second verifier are debug-lane languages only, so `fairness` is refused for kernel tasks. `disclose`, `worldfix` and `regrade` are also refused.
+- **Migration episodes:** the record shape, the World image (CUDA 13 for `cuda13` windows) and the grader path are wired and unit-tested, but not smoked on the GPU.
+- **A finer kernel skill map:** failures are on intent by the judges' cause label only.
+
+### 9.4 DeltaAI
+
+`HOSTS["gh200"]` is declared and `open` refuses it. DeltaAI has no Docker daemon to reach from here, so the runner itself
+has to run on the compute node inside the Slurm job, with an Apptainer World (`world.backends.apptainer`, `--nv`) and the
+user-mode grader (`trusted: false`). That also means the Tinker key would be on the node, which needs the user's go-ahead.
+The 8 tasks would also need their GH200 gates first (queued, jobs 3440735-38).
+
+### 9.5 Full-measurement estimate (8 tasks × 8 student + 2 frontier episodes, 300 calls)
+
+| | Estimate | Basis |
+|---|---|---|
+| Tinker | about $160 (range $140–190) | 64 student episodes at the debug lane's measured $1.72 at 300 calls ($110); 16 frontier episodes at $2.05 (DeepSeek) to $3.01 (397B) ($35–50); audit and judges about $15. The smoke's per-call cost at 40 calls (student $0.008, DeepSeek $0.007) matches the debug lane's |
+| GPU on the 5090 | about 9 GPU-hours of grading, about 47 World-hours | up to 16 grades per episode (15 checkpoints and the end) at about 25 s each; episodes about 35 minutes (the debug lane's 27.6 minutes plus builds) |
+| Wall time, 5090 alone | about 24 h | 2 Worlds at a time; grades serialised under the build lock, overlapping the episodes |
+| Wall time with DeltaAI | about 10–12 h once built (four GH200 per node, about 50–60 charged GPU-hours), plus the queue (about 26 h at last check) | needs §9.4 and the GH200 gates first |
+
+## 10. Open issues
 
 1. **Every GPU gate is pending** (`PENDING.json`): S1 executed (B passes, each single revert fails its milestone),
    case calibration, S6 executed edges, the oracle's reward 1, floors 0 and mutants failing on the GPU, sanitizer

@@ -1238,7 +1238,12 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
     bugs) or `stage_gpu.py --grade-one` (migrations), run on the host from an episode bundle. That bundle is this
     checkout's runner and kit, with the gate bundle's tasks, hooks and cache linked in. Each grade is a fresh grading
     container on the pristine start tree plus the patch, with the calibrated hidden cases, on the GPU model the task was
-    calibrated on.
+    calibrated on. The episode grade is the verifier's `GradeReport` with the window lane's path gates and path reward
+    (`check_paths`, `path_reward`: a hack-severity violation scores 0). The World liveness probe asks the World's own
+    daemon (`envs.world_alive` reads `_crucible_env`).
+  - **Smoke (`10` §9.2):** on `ca21f3a1` the oracle grades 1, the empty patch 0 and `revert-m1` 0.25, at 15–20 s each. A
+    student and a DeepSeek episode at 40 calls built, ran the op tests and compute-sanitizer on the GPU, edited code, and
+    were graded at their checkpoints and at the end. The four smoke runs cost $1.64 of Tinker.
   - **The gate cache, read-only:** kernel-bug episode grades read the gate runs' build cache read-only (`ccache_ro`:
     mounted read-only, `CCACHE_READONLY=1`), so unchanged units are reused and a candidate can neither write nor poison it.
   - **Locks:** the host's GPU lock (`flock`) is shared for correctness grades and exclusive for a perf task's grades and
