@@ -1,5 +1,5 @@
 {
- "ref": "origin/main",
+ "ref": "HEAD",
  "note": "exposures public before the guard (paths and rules only; the audit has the evidence)",
  "findings": [
   {
@@ -188,6 +188,10 @@
   },
   {
    "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_contamination.json"
+  },
+  {
+   "rule": "heldout_id",
    "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_power.json"
   },
   {
@@ -209,6 +213,14 @@
   {
    "rule": "heldout_id",
    "path": "crucible/docs/research/swarm-pipeline/runs/s15_debug_targeting_t300.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/seal_baseline.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/scripts/bench_audit.py"
   },
   {
    "rule": "heldout_repo",
