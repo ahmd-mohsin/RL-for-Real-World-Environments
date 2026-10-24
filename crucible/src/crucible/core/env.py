@@ -64,6 +64,9 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_WANDB_PROJECT_PREFIX", "str", None, "renames the crucible-factory / -train / -bench projects to <prefix>-factory / ..."),
     Knob("CRUCIBLE_BENCH_KEY", "str", None, "dynamic-bench HMAC key, hex (prefer CRUCIBLE_BENCH_KEY_FILE)", secret=True),
     Knob("CRUCIBLE_BENCH_KEY_FILE", "path", None, "file holding the dynamic-bench HMAC key"),
+    Knob("CRUCIBLE_SEALED_DIR", "path", None, "held-out home kept off git: the local held-out draw, supply list and seal manifest "
+         "(default crucible/data/sealed)"),
+    Knob("CRUCIBLE_SEAL_OVERRIDE", "str", None, "seal guard pre-commit hook: the reason to let held-out content through (journaled)"),
     Knob("CRUCIBLE_CPU_ONLY", "bool", False, "train on CPU (gloo) even when CUDA is available"),
     Knob("CRUCIBLE_PG_TIMEOUT_S", "float", 1800.0, "torch.distributed process-group timeout, in seconds"),
     Knob("CRUCIBLE_SPMD_PERIOD_S", "float", 2.0, "SPMD heartbeat period, in seconds"),
