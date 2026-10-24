@@ -114,6 +114,22 @@ def test_search_results_keep_the_lanes_languages_and_drop_forks() -> None:
     assert [(x.slug, x.lang, x.licence) for x in got] == [("a/b", "go", "mit")]
 
 
+def test_seen_many_finds_owners_in_files_and_commit_messages(tmp_path: Path) -> None:
+    import subprocess
+
+    r = tmp_path / "r"
+    r.mkdir()
+    for a in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(r), *a], check=True)
+    (r / "notes.md").write_text("we looked at Acme/ZZlib and the owner widgetco\n")
+    (r / "data" / "llm_cache").mkdir(parents=True)
+    (r / "data" / "llm_cache" / "x.json").write_text('{"text": "see cachedowner/lib"}')
+    subprocess.run(["git", "-C", str(r), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "mention msgowner here"], check=True)
+    got = hs.seen_many(r, ["acme/zzlib", "widgetco", "msgowner", "cachedowner/lib", "nobody", "widget"])
+    assert got == {"acme/zzlib", "widgetco", "msgowner", "cachedowner/lib"}  # whole words: 'widget' is not 'widgetco'
+
+
 def test_draw_only_grows_and_feeds_the_local_draw(tmp_path: Path) -> None:
     from crucible.factory.lanes import windows
 

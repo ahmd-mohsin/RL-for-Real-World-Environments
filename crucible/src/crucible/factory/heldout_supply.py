@@ -7,8 +7,9 @@ named anywhere in our git history is spent for the benchmark.
 ``rank`` turns search results into ranked candidates, executed where it is cheap:
 
 1. **Disjoint owners.** An owner of any registered source (``windows.REPO_URLS``, held out or training) is refused, and
-   so is an owner or ``owner/repo`` that ``seen`` finds in our history (``git grep`` over the tracked tree of every ref
-   and ``git log`` messages).
+   so is an owner or ``owner/repo`` that ``seen_many`` finds in our history: a whole-word ``git grep`` of every distinct
+   tree among HEAD, ``origin/main`` and ``origin/dev`` (the cached model responses, ``data/llm_cache``, for ``owner/repo``
+   only), and every commit message of every ref.
 2. **Licence and language.** Permissive licences only (``LICENCES``), the lanes' languages (``LANGS``), not archived, not a
    fork.
 3. **Supply, measured.** A blobless, shallow clone (``--filter=blob:none --shallow-since``) gives every commit and tree
@@ -92,16 +93,30 @@ def seen(repo: Path, needle: str, refs: Sequence[str] = ("--all",)) -> bool:
     return False
 
 
+CACHE_DIR = "data/llm_cache"  # 51k cached model responses: searched for owner/repo only (a word scan of it takes hours)
+
+
 def seen_many(repo: Path, needles: Iterable[str], refs: Sequence[str] = ("HEAD", "origin/main", "origin/dev")) -> set[str]:
-    """``seen`` for many needles at once: one ``git grep -o`` per ref and one pass over every commit message."""
+    """``seen`` for many needles at once: per distinct tree, one whole-word ``git grep -o`` outside the model-response
+    cache and one ``owner/repo`` grep inside it, and one pass over every commit message."""
     want = sorted({n.lower() for n in needles if n})
     if not want:
         return set()
     got: set[str] = set()
-    pats = [x for n in want for x in ("-e", n)]
+    trees = {}
     for ref in refs:
-        g = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-o", "-i", "-w", "-F", *pats, ref, "--"], capture_output=True, text=True, check=False)
+        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "-q", f"{ref}^{{tree}}"], capture_output=True, text=True, check=False)
+        if r.returncode == 0:
+            trees.setdefault(r.stdout.strip(), ref)
+    words = [x for n in want for x in ("-e", n)]
+    slugs = [x for n in want if "/" in n for x in ("-e", n)]
+    for ref in trees.values():
+        g = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-o", "-i", "-w", "-F", *words, ref, "--", ".", f":(exclude){CACHE_DIR}"],
+                           capture_output=True, text=True, check=False)
         got.update(x.strip().lower() for x in g.stdout.splitlines())
+        if slugs:
+            g = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-o", "-i", "-F", *slugs, ref, "--", CACHE_DIR], capture_output=True, text=True, check=False)
+            got.update(x.strip().lower() for x in g.stdout.splitlines())
     msgs = subprocess.run(["git", "-C", str(repo), "log", "--all", "--format=%B"], capture_output=True, text=True, check=False).stdout.lower()
     got.update(n for n in want if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", msgs))
     return got & set(want)
