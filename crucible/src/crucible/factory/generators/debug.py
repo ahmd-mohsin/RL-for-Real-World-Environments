@@ -18,7 +18,8 @@ test files that the profile's definition diff proposes (added or changed by the 
 a file (titles built at run time), every test of that file the revert catches is owned: the executed fail-to-pass set is
 the truth, the text only proposes. A compiled language counts only ``failed`` tests: a revert that stops a test file
 from building (a removed API) is not a behavioural fault. Interactions, grouping and the prober's executed edges are
-rebreak's (``interaction_edges``, ``group_fixes``).
+rebreak's (``interaction_edges``, ``group_fixes``). ``Debug.subset`` takes a named list of fixes instead of a group: a
+mined task rebuilt, or eased by leaving one of its fixes applied in A'.
 
 **The start tree** (``synthesize``). A' = B with every fix of the group reverted: source **and test data** (fixtures,
 snapshots, golden files: the expected output is the fix), newest first, 3-way; the tests each fix added or changed are
@@ -63,6 +64,8 @@ from crucible.factory.generators.base import (
     compose_prompt,
     deterministic_gates,
     full_patch,
+    git,
+    out,
     tree_of,
     with_files,
     write_chain,
@@ -76,6 +79,7 @@ from crucible.factory.generators.rebreak import (
     fix_units,
     group_fixes,
     interaction_edges,
+    order_fixes,
 )
 from crucible.factory.lanes.executable import is_test_path
 from crucible.factory.lanes.windows import (
@@ -92,7 +96,7 @@ from crucible.factory.lanes.windows import (
 )
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _bodies, first_parent_units, key_of_test, version_tags
 from crucible.factory.lanes.windows_world import ImageBook
-from crucible.factory.langs.base import strip_added_lines, use
+from crucible.factory.langs.base import CHANGELOG_FILE, fix_refs, strip_added_lines, strip_ref_entries, use
 from crucible.factory.langs.runtime import IMAGE_REPO, PREFIX, lang_sandbox_factory, world_setup
 from crucible.factory.sources.lease import EvalLease
 from crucible.factory.sources.records import SourceRecord
@@ -167,19 +171,25 @@ def epilogue_for(lang: str) -> str:
 
 
 # ---- the real-fix check ----------------------------------------------------------------------------------------------------
-def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str]) -> list[str]:
+def owned_tests(repo: RepoGit, u: Unit, caught: Sequence[str], *, written: bool = False) -> list[str]:
     """The caught tests the fix owns (module doc): in its test files, proposed by the definition diff, or any test of a
-    file for which the diff proposes none; or a test whose id names a case or golden file the fix added or changed."""
+    file for which the diff proposes none; or a test whose id names a case or golden file the fix added or changed.
+    ``written``: only the tests the fix wrote (a changed definition or case file), not every test of a file it touched,
+    which is all a test file whose definitions the profile cannot read gives (h3's test/app.test.ts)."""
     keys = fix_test_names(repo, u)
     files = set(u.test_files)
-    proposed = {k.split("::", 1)[0] for k in keys}
+    # a file proposes tests only through a changed definition that is a caught test: the functions of a case file are its
+    # input (black ae5830b7's 650983f edited docstring.py's docstring_with_inline_tabs_* and so never owned
+    # test_simple_format[docstring])
+    ran = {"::".join(key_of_test(t)) for t in caught}
+    proposed = {k.split("::", 1)[0] for k in keys if k in ran}
     # data-driven suites: a case or golden file the fix added or changed (black's ``tests/data/cases/<case>.py``) owns the
     # caught test whose id names it (``test_simple_format[<case>]``)
     data = {Path(p).stem for p in u.files if is_test_path(p) and p not in proposed and len(Path(p).stem) >= 4}
     out = []
     for t in caught:
         f, q = key_of_test(t)
-        by_def = f in files and (f"{f}::{q}" in keys or f not in proposed)
+        by_def = f in files and (f"{f}::{q}" in keys or (f not in proposed and not written))
         by_case = bool(data) and any(re.search(rf"(?<![A-Za-z0-9]){re.escape(d)}(?![A-Za-z0-9])", t.split("::", 1)[-1]) for d in data)
         if by_def or by_case:
             out.append(t)
@@ -224,16 +234,35 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
         res = normalize_ids(tr.results, union)
         caught = sorted(t for t in res if b_res.get(t) == "passed" and res[t] in ("failed", "error"))
         own = owned_tests(repo, u, [t for t in caught if res[t] in bad_states])
+        written = owned_tests(repo, u, caught, written=True)
         why = ""
         if not own:
             why = ("its revert only stops tests from building" if any(res[t] == "error" for t in caught) and lang in COMPILED
                    else "no own test fails after the revert")
-        return u.sha, {"ok": bool(own), "caught": caught, "caught_own": own[:30], "build_notes": tr.why[:200], "why": why}
+        # a compiled test package that no longer builds reports every test of it as ``error``: those tests are caught by any
+        # revert that breaks the build, which links nothing (mvdan-sh: four zsh fixes "shared" the syntax package's 63 tests)
+        unbuilt = [t for t in caught if res[t] == "error"] if lang in COMPILED else []
+        return u.sha, {"ok": bool(own), "caught": caught, "caught_unbuilt": unbuilt, "caught_own": own[:30], "caught_written": written,
+                       "build_notes": tr.why[:200], "why": why}
 
     return dict(await asyncio.gather(*[one(u) for u in units])), card
 
 
 # ---- the task ------------------------------------------------------------------------------------------------------------
+def setup_after_reset(world: Any, setup: Callable[[], Any]) -> None:
+    """Run the World setup again after every ``world.reset``: the episode resets the World once more before the agent's
+    first step (``actors.policy.run_episode``), and a reset re-seeds the workspace without what the setup added (h3: the
+    node_modules link gone, so the agent could run no test and tried pnpm install, which the install gate fails)."""
+    inner = world.reset
+
+    async def reset(*a: Any, **kw: Any) -> Any:
+        obs = await inner(*a, **kw)
+        await setup()
+        return obs
+
+    world.reset = reset
+
+
 class DebugTask(RebreakTask):
     """A rebreak task of any language: every bound method runs inside its profile's scope (``langs.base.use``)."""
 
@@ -275,6 +304,7 @@ class DebugTask(RebreakTask):
         except BaseException:
             await world.close()
             raise
+        setup_after_reset(world, lambda: world_setup(world._crucible_container, world._crucible_ws, profile_of(self.lang)))
         return world
 
     def card(self, **kw: Any) -> Any:
@@ -590,6 +620,11 @@ def intent_cards() -> list[Any]:
 
 
 # ---- the generator ------------------------------------------------------------------------------------------------------------
+def group_id(lang: str, name: str, group: Sequence[Unit]) -> str:
+    """A mined candidate's id: the hash of its fix shas in prober order, so the same fixes at any B give the same id."""
+    return f"db-{lang}-{name}-{hashlib.sha256('|'.join(u.sha for u in group).encode()).hexdigest()[:8]}"
+
+
 class Debug(Rebreak):
     """The debugging lane over local clones (``Generator``): ``clones`` name -> path, ``langs`` name -> profile name."""
 
@@ -667,10 +702,80 @@ class Debug(Rebreak):
 
     async def _groups_at(self, name: str, lang: str, b: str, b_ref: str, b_date: str, fixes: list[Unit], since: str,
                          stats: dict[str, int]) -> list[Candidate]:
+        kept, need, card = await self._executed(name, lang, b, b_ref, fixes)
+        repo = RepoGit(self.clones[name])
+        funcs = {u.sha: lang_changed_functions(repo, u, profile_of(lang)) for u in kept}
+        stats["kept"] += len(kept)
+        stats["interacting_fixes"] += len(need)
+        out_: list[Candidate] = []
+        for g in group_fixes(kept, funcs, need=need, max_size=self.max_size):
+            if not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
+                self.note(group_id(lang, name, g), "S1_executed", False, "no executed interaction at B (no test caught by two reverts)", lang=lang,
+                          fixes=[u.sha[:10] for u in g])
+                continue
+            out_.append(self._candidate(name, lang, g, need, card, b=b, b_ref=b_ref, b_date=b_date, since=since))
+        return out_
+
+    async def subset(self, name: str, shas: Sequence[str], *, b: str = "HEAD", since: str | None = None, cid: str = "",
+                     parent: str = "", hide: str = "", independent: bool = False, hide_tests: Sequence[str] = ()) -> Candidate:
+        """The candidate of exactly the fixes ``shas`` (sha prefixes of fix units on B's first-parent path since ``since``)
+        at ``b``: ``candidates_for``'s executed check, edges, prober order and params, without its grouping. A mined task is
+        rebuilt from its fixes; an eased one (TASKS_CREDIT_AND_EASING §5.5) is its parent's fixes minus the dropped one, which
+        stays applied in A'. ``cid`` names it (default the group hash, as mined); ``parent`` is recorded in the window.
+        ``hide`` = ``strip`` builds A' in strip mode only: revert mode restores the old version of a test a fix changed, and
+        an old assertion of the faulty behaviour (go-toml-e1's ``TestMarshalStringEscapes`` expecting ``\\u00FF``) then fails
+        on a correct fix in the agent's own tree.
+        ``independent``: the fixes need not interact (the lead's call, 2026-10-23, for tasks of separate bugs); the build
+        then keeps a window whose milestones need no earlier one and S6 passes it without an edge.
+        ``hide_tests`` (test ids, ``file::Test``): visible tests stripped from A' from the first round, as round 2 strips
+        the milestone tests that fail there. Revert mode keeps the table drivers a strip build loses, but a test a fix
+        changed comes back with its old assertions; one that still passes on A' and fails on the fixed source (mvdan-sh's
+        ``TestNodeEndPos`` with its ``// TODO: want 22`` offsets) is named here.
+        ``ValueError`` when a sha is not such a fix, a fix's own tests are not caught at B, or no two of the fixes interact
+        (unless ``independent``)."""
+        if hide not in ("", "revert", "strip"):
+            raise ValueError(f"hide {hide!r} is not revert or strip")
+        lang = self.langs_of[name]
+        with scope(lang):
+            from crucible.factory.generators.base import git, out
+
+            repo_dir = self.clones[name]
+            since = since or self.since
+            r = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{b}^{{commit}}", check=False)
+            if r.returncode != 0:
+                raise ValueError(f"B {b!r} is not a commit of {name}")
+            b_full, head = out(r), out(git(repo_dir, "rev-parse", "HEAD"))
+            pool = await asyncio.to_thread(fix_units, repo_dir, b_full, since=since)
+            picked: list[Unit] = []
+            for s in shas:
+                hits = [u for u in pool if u.sha.startswith(s)]
+                if len(hits) != 1:
+                    raise ValueError(f"{s}: {'no' if not hits else 'more than one'} fix unit on B's first-parent path since {since}")
+                if hits[0] not in picked:
+                    picked.append(hits[0])
+            if len(picked) < 2:
+                raise ValueError("a task needs at least two fixes")
+            b_ref = "HEAD" if b_full == head else "pinned"
+            kept, need, card = await self._executed(name, lang, b_full, b_ref, picked)
+            if lost := [u.sha[:10] for u in picked if u not in kept]:
+                raise ValueError(f"not a real fix at B (no test of its own fails when it alone is reverted): {lost}")
+            g = order_fixes(sorted(picked, key=pool.index), need)
+            if not independent and not any(need.get(u.sha, set()) & {x.sha for x in g} for u in g):
+                raise ValueError("no executed interaction at B (no test caught by two reverts)")
+            b_date = out(git(repo_dir, "log", "-1", "--format=%cI", b_full))
+            return self._candidate(name, lang, g, need, card, b=b_full, b_ref=b_ref, b_date=b_date, since=since, cid=cid,
+                                   **({"parent": parent} if parent else {}), **({"hide_modes": [hide]} if hide else {}),
+                                   **({"allow_independent": True} if independent else {}),
+                                   **({"hide_tests": sorted(set(hide_tests))} if hide_tests else {}))
+
+    async def _executed(self, name: str, lang: str, b: str, b_ref: str, fixes: Sequence[Unit]
+                        ) -> tuple[list[Unit], dict[str, set[str]], dict[str, Any]]:
+        """``fix_check`` of ``fixes`` at B (cached per pool): the real fixes the lease allows, their executed interaction
+        edges and B's World card. Every fix's source record joins ``records``."""
         repo = RepoGit(self.clones[name])
         work = self.root / "work" / name / b[:10]
         work.mkdir(parents=True, exist_ok=True)
-        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "")
+        key = "|".join(u.sha for u in fixes) + ("|full" if self.full_suite else "") + "|unbuilt|written"  # evidence before caught_unbuilt / caught_written is run again
         cache = work / f"evidence-{hashlib.sha256(key.encode()).hexdigest()[:10]}.json"
         if cache.exists():
             evid, card = json.loads(cache.read_text())
@@ -691,26 +796,17 @@ class Debug(Rebreak):
                 self.note(f"{lang}/{name}:{u.sha[:10]}", "S1_executed", ok, ev.get("why") or rec.lease.get("reason", ""), lang=lang, b_ref=b_ref)
             if ok:
                 kept.append(u)
-        funcs = {u.sha: lang_changed_functions(repo, u, profile_of(lang)) for u in kept}
-        need = interaction_edges({u.sha: evid[u.sha] for u in kept})
-        stats["kept"] += len(kept)
-        stats["interacting_fixes"] += len(need)
+        return kept, interaction_edges({u.sha: evid[u.sha] for u in kept}), card
+
+    def _candidate(self, name: str, lang: str, g: Sequence[Unit], need: Mapping[str, set[str]], card: Mapping[str, Any], *, b: str, b_ref: str,
+                   b_date: str, since: str, cid: str = "", **params: Any) -> Candidate:
         recs = {r.sha: r for r in self.records if r.repo == name and r.evidence.get("b") == b}
-        out_: list[Candidate] = []
-        tags = version_tags(self.clones[name])
-        for g in group_fixes(kept, funcs, need=need, max_size=self.max_size):
-            cid = f"db-{lang}-{name}-{hashlib.sha256('|'.join(u.sha for u in g).encode()).hexdigest()[:8]}"
-            inter = any(need.get(u.sha, set()) & {x.sha for x in g} for u in g)
-            if not inter:
-                self.note(cid, "S1_executed", False, "no executed interaction at B (no test caught by two reverts)", lang=lang, fixes=[u.sha[:10] for u in g])
-                continue
-            out_.append(Candidate(cid, NAME, name, sources=[recs[u.sha].to_json() for u in g],
-                                  params={"lang": lang, "b": b, "b_ref": b_ref, "b_date": b_date, "b_version": None, "fixes": [u.sha for u in g],
-                                          "image_b": card.get("image"), "tags": len(tags), "cutoff": since,
-                                          "fix_dates": {u.sha: u.date for u in g},
-                                          "contamination": "post-release" if min(u.date[:10] for u in g) >= SINCE else "fallback",
-                                          "needs": {u.sha: sorted(need.get(u.sha, set()) & {x.sha for x in g}) for u in g}}))
-        return out_
+        return Candidate(cid or group_id(lang, name, g), NAME, name, sources=[recs[u.sha].to_json() for u in g],
+                         params={"lang": lang, "b": b, "b_ref": b_ref, "b_date": b_date, "b_version": None, "fixes": [u.sha for u in g],
+                                 "image_b": card.get("image"), "tags": len(version_tags(self.clones[name])), "cutoff": since,
+                                 "fix_dates": {u.sha: u.date for u in g},
+                                 "contamination": "post-release" if min(u.date[:10] for u in g) >= SINCE else "fallback",
+                                 "needs": {u.sha: sorted(need.get(u.sha, set()) & {x.sha for x in g}) for u in g}, **params})
 
     def synthesize(self, cand: Candidate, *, mode: str = "revert", extra_hide: Mapping[str, set[str]] | None = None
                    ) -> tuple[Window | None, dict[str, Any]]:
@@ -763,6 +859,10 @@ class Debug(Rebreak):
                         diff = full_patch(repo_dir, f["parent"], f["sha"], [p]).decode("utf-8", "replace")
                         prose_added.setdefault(f["sha"], {})[p] = [ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
             prose_b = {p: t for p in {q for d in prose_added.values() for q in d} if (t := repo.show(b, p)) is not None}
+            # a changelog written at release time cites the fixes although their diffs never added the line (mvdan-sh, h3, unstorage)
+            logs_b = {p: t for p in out(git(repo_dir, "ls-tree", "-r", "--name-only", b)).splitlines() if CHANGELOG_FILE.search(p) and (t := repo.show(b, p)) is not None}
+            refs = {f["sha"]: fix_refs(f["subject"], f["body"], f["sha"]) for f in fixes}
+            cited: dict[str, int] = {}
             extra = self._locate_defs(repo, b, prof, extra_hide or {})
             forward = []
             for k, t in enumerate(src_forward):
@@ -782,6 +882,11 @@ class Debug(Rebreak):
                     added = [ln for f in pending for ln in prose_added.get(f["sha"], {}).get(p, [])]
                     if added:
                         files[p] = strip_added_lines(txt, added)
+                for p, txt in logs_b.items() if pending else ():
+                    cut, n = strip_ref_entries(files.get(p, txt), set().union(*[refs[f["sha"]] for f in pending]))
+                    if n:
+                        files[p] = cut
+                        cited.setdefault(p, n)  # A' first: every fix still pending
                 forward.append(with_files(repo_dir, t, files))
             msgs = [f"debug start: {len(fixes)} fixes reverted"] + [f"{f['subject']}\n\n{f['body']}" for f in fixes]
             dates = [cand.params["b_date"]] + [f["date"] for f in fixes]
@@ -795,7 +900,7 @@ class Debug(Rebreak):
             info["fixes"] = [{"sha": f["sha"], "subject": f["subject"], "unit": u.sha} for f, u in zip(fixes, units, strict=True)]
             # strip mode leaves the fixes' other test-file changes in A' (a table row a driver test reads): recorded as a risk
             vis_data = sorted({p for f in fixes for p in f["files"] if prof.is_test_file(p) and p not in tests_b and p not in extra}) if mode == "strip" else []
-            info["hidden"] = {"mode": mode, "prose": sorted(prose_b), "visible_stripped": {p: sorted(ks) for p, ks in extra.items()},
+            info["hidden"] = {"mode": mode, "prose": sorted(prose_b), "changelog_cited": cited, "visible_stripped": {p: sorted(ks) for p, ks in extra.items()},
                               "visible_test_changes": vis_data,
                               **({"stripped": {p: sorted(set().union(*[keys.get(f["sha"], {}).get(p, set()) for f in fixes])) for p in tests_b}}
                                  if mode == "strip" else {"reverted": sorted({p for f in fixes for p in f["files"] if is_test_path(p)})})}
@@ -865,12 +970,15 @@ class Debug(Rebreak):
         self.lease.guard_repo(cand.repo)
         if (self.store.dir(cand.id) / "window.json").exists():
             return self.store.window(cand.id)
-        with scope(lang):
+        with scope(lang) as prof:
             rec: dict[str, Any] = {}
             extra: dict[str, set[str]] = {}
+            for t in cand.params.get("hide_tests") or ():  # subset --hide-tests: visible tests that expect the bug
+                f, k = prof.key_of_test(t)
+                extra.setdefault(f, set()).add(k)
             for _round in range(2):  # round 2: the milestone tests that failed in the agent's own tree are stripped too
                 why = ""
-                for mode in ("revert", "strip"):  # a reverted test hunk can take a helper later tests use: then strip only
+                for mode in cand.params.get("hide_modes") or ("revert", "strip"):  # a reverted test hunk can take a helper later tests use: then strip only
                     win, info = await asyncio.to_thread(self.synthesize, cand, mode=mode, extra_hide=extra)
                     if win is None:
                         self.note(cand.id, "S3_world", False, "fewer than two fixes revert together", lang=lang, **info)
@@ -886,7 +994,8 @@ class Debug(Rebreak):
                     return rec
                 shutil.rmtree(self.store.dir(cand.id), ignore_errors=True)  # a second round validates a new start tree
                 rec = await validate_window(win, self.store, self.images_for(lang), self.sandboxes, reruns=3, min_milestones=2, mutants=True,
-                                            import_tolerant=lang == "python", leak_prefix=f"{PREFIX}leak-", log=self.log)
+                                            import_tolerant=lang == "python", leak_prefix=f"{PREFIX}leak-", log=self.log,
+                                            allow_independent=bool(cand.params.get("allow_independent")))
                 view = self.views.pop(win.id, {})
                 vis = sorted(t for m in rec.get("milestones") or [] for t in m["tests"] if view.get(t) in ("failed", "error"))
                 info["visible_checks"] = vis[:20]
@@ -905,6 +1014,7 @@ class Debug(Rebreak):
                      for m in rec.get("milestones") or [] if m.get("requires")]
             rec[NAME] = {**info, "b": cand.params["b"], "source_repo": cand.repo, "interacting": edges,
                          **{k: cand.params.get(k) for k in ("cutoff", "contamination", "fix_dates")},
+                         **({"parent": cand.params["parent"]} if cand.params.get("parent") else {}),
                          "fix_milestones": {f["sha"]: by_unit.get(f["unit"]) for f in info["fixes"]}, "sources": [s["id"] for s in cand.sources]}
             if rec.get("milestones"):
                 rec[NAME]["intent"] = task_intent(rec, faulty_names(rec, RepoGit(Path(win.repo_dir))))

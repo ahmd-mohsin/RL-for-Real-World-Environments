@@ -1,0 +1,275 @@
+{
+ "cap": 90.0,
+ "load": {
+  "containers_mine": {
+   "max": 6.0,
+   "mean": 3.09,
+   "p50": 4.0
+  },
+  "containers_other": {
+   "max": 0.0,
+   "mean": 0.0,
+   "p50": 0.0
+  },
+  "cpu_pct_mine": {
+   "max": 300.5,
+   "mean": 43.32,
+   "p50": 3.2
+  },
+  "load1": {
+   "max": 5.28,
+   "mean": 3.55,
+   "p50": 3.56
+  },
+  "mem_gib_mine": {
+   "max": 2.19,
+   "mean": 0.14,
+   "p50": 0.06
+  },
+  "samples": 47
+ },
+ "settings": {
+  "agent_s": 5400.0,
+  "checkpoint_cap": 15,
+  "checkpoint_every": 20,
+  "containers": "crucible-lh-d-s15-*",
+  "enable_thinking": false,
+  "env_budget": {
+   "agent_s": 5400.0,
+   "checkpoint_cap": 15,
+   "checkpoint_every": 20,
+   "is_lane_budget": true,
+   "lane": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "decided": "2026-10-20",
+    "rollout_s": 9000.0,
+    "tool_limit": 300
+   },
+   "rollout_s": 9000.0,
+   "tool_limit": 300
+  },
+  "frontier": [
+   "Qwen/Qwen3.5-397B-A17B:peft:262144",
+   "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"
+  ],
+  "frontier_k": 2,
+  "grade_parallel": 2,
+  "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+  "k": 8,
+  "max_tokens": 4096,
+  "rollout_s": 9000.0,
+  "seed_offset": 0,
+  "slots": 6,
+  "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+  "temperature": 1.0,
+  "tool_limit": 300,
+  "world": "task World image, --network none, 2 CPU / 2 GB"
+ },
+ "spend_by_model": {
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": 7.7083,
+  "Qwen/Qwen3.6-35B-A3B:peft:262144": 11.9768,
+  "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144": 1.7495,
+  "zai-org/GLM-5.3-Flash:peft:262144": 0.1652,
+  "zai-org/GLM-5.3:peft:262144": 0.5254
+ },
+ "spend_total": 22.1252,
+ "tasks": {
+  "db-go-mvdan-sh-5e983709-e1": {
+   "band": {
+    "in_band": true,
+    "n": 8,
+    "pass_rate": 0.375,
+    "reward_range": [
+     0.0,
+     1.0
+    ],
+    "rewards": [
+     0.333334,
+     1.0,
+     1.0,
+     0.333334,
+     0.0,
+     0.333334,
+     0.166666,
+     1.0
+    ]
+   },
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "deepseek-ai_DeepSeek-V4.1-Flash": {},
+    "student": {
+     "binding": 1,
+     "stuck": 2
+    }
+   },
+   "cause": {
+    "labels": {
+     "budget": 3,
+     "skill_gap": 2
+    },
+    "n": 5,
+    "ok": false,
+    "on_intent": 2,
+    "skill_gap_share": 0.4,
+    "skill_min": 0.7,
+    "source": "GLM-5.3-Flash judge, GLM-5.3 auditor cross-check"
+   },
+   "fairness": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     false,
+     false
+    ],
+    "deepseek-ai/DeepSeek-V4.1-Flash": [
+     true,
+     true
+    ]
+   },
+   "faults": 3,
+   "honest": {
+    "status_overclaim": 4
+   },
+   "keep": {
+    "ci": [
+     0.1368,
+     0.6943
+    ],
+    "fair": true,
+    "flags": [
+     "budget-bound: 3 of 5 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 2/2)"
+    ],
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      false,
+      false
+     ],
+     "deepseek-ai/DeepSeek-V4.1-Flash": [
+      true,
+      true
+     ]
+    },
+    "intent_ok": false,
+    "intent_share": 0.4,
+    "keep": false,
+    "labelled": 5,
+    "n": 8,
+    "on_intent": 2,
+    "pass_rate": 0.375,
+    "passes": 3,
+    "power": {
+     "ci": [
+      0.1368,
+      0.6943
+     ],
+     "crosses": [
+      0.6
+     ],
+     "decided": false,
+     "n": 8,
+     "n_needed": 17
+    },
+    "rule": {
+     "bench_hi": 0.3,
+     "min_labels": 3,
+     "skill_min": 0.7,
+     "train_hi": 0.6,
+     "train_lo": 0.1
+    },
+    "split": "train",
+    "verdict": "off_intent",
+    "why": "on-intent skill-gap share 0.40 < 0.7"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.6667,
+   "model": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "modes": {
+    "budget": 1,
+    "never_progressed/multi_fault_localization": 1,
+    "stalled/multi_fault_localization": 1,
+    "world_fault": 2
+   },
+   "n": 8,
+   "pass_ci": [
+    0.1368,
+    0.6943
+   ],
+   "pass_rate": 0.375,
+   "passes": 3,
+   "per_milestone": {
+    "m01": 0.625,
+    "m02": 0.875,
+    "m03": 0.5
+   },
+   "repo": "mvdan-sh",
+   "settings": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "containers": "crucible-lh-d-s15-*",
+    "enable_thinking": false,
+    "env_budget": {
+     "agent_s": 5400.0,
+     "checkpoint_cap": 15,
+     "checkpoint_every": 20,
+     "is_lane_budget": true,
+     "lane": {
+      "agent_s": 5400.0,
+      "checkpoint_cap": 15,
+      "checkpoint_every": 20,
+      "decided": "2026-10-20",
+      "rollout_s": 9000.0,
+      "tool_limit": 300
+     },
+     "rollout_s": 9000.0,
+     "tool_limit": 300
+    },
+    "frontier": [
+     "Qwen/Qwen3.5-397B-A17B:peft:262144",
+     "deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"
+    ],
+    "frontier_k": 2,
+    "grade_parallel": 2,
+    "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+    "k": 8,
+    "max_tokens": 4096,
+    "rollout_s": 9000.0,
+    "seed_offset": 0,
+    "slots": 6,
+    "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+    "temperature": 1.0,
+    "tool_limit": 300,
+    "world": "task World image, --network none, 2 CPU / 2 GB"
+   },
+   "skills": [
+    "multi_fault_localization",
+    "reproduce_from_report",
+    "regression_safety"
+   ],
+   "split": "train",
+   "stops": {
+    "agent_done": 5,
+    "max_steps": 3
+   },
+   "task": "db-go-mvdan-sh-5e983709-e1",
+   "turns_mean": 221.0,
+   "usd": 11.9768,
+   "usd_per_episode": 1.4971,
+   "verdict": {
+    "findings": [
+     "on-intent skill-gap share 0.40 < 0.7"
+    ],
+    "flags": [
+     "budget-bound: 3 of 5 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 2/2)"
+    ],
+    "ok": false,
+    "route": "off_intent"
+   }
+  }
+ },
+ "verdicts": {
+  "off_intent": 1
+ }
+}

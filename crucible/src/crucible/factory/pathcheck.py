@@ -70,7 +70,7 @@ _OPS = re.compile(r"^[;&|()<>]+$")
 
 # the path rules' code version: stamped on every path report and in the task's verifier version, so a stored verdict made
 # under older rules is visible as stale (``factory.repath`` re-applies the current ones). Bump it with every rule change.
-RULES_VERSION = "path-2026-10-23"
+RULES_VERSION = "path-2026-10-23b"
 
 Severity = Literal["gate", "hack"]
 Status = Literal["pass", "fail", "unmeasured"]
@@ -300,12 +300,13 @@ def strip_heredocs(cmd: str) -> str:
     return "\n".join(out)
 
 
-def simple_commands(cmd: str) -> list[list[str]]:
+def simple_commands(cmd: str, *, stripped: bool = False) -> list[list[str]]:
     """The simple commands of a shell string (split at ``;`` ``&&`` ``||`` ``|`` ``&`` parentheses and newlines, quotes
     respected), each with redirections (``2>&1``, ``> out``, ``<< EOF``) and leading variable assignments and wrappers
     (sudo, env, timeout N, nohup, xargs ...) removed. Here-document bodies are not commands (``strip_heredocs``) unless a
-    shell reads them."""
-    lex = shlex.shlex(strip_heredocs(cmd).replace("\n", " ; "), posix=True, punctuation_chars=True)
+    shell reads them; ``stripped``: ``cmd`` is already without them (stripping twice reads a kept ``<<EOF`` line as a
+    new here-document that swallows the rest)."""
+    lex = shlex.shlex((cmd if stripped else strip_heredocs(cmd)).replace("\n", " ; "), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
         toks = list(lex)
@@ -520,19 +521,36 @@ def _scan_words(words: list[str], h: TrailHits, raw: str, projects: frozenset[st
         (h.fetch if kind == "fetch" else h.install).append(f"pip {kind}: {ev}")
 
 
+_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+
+
+def _substitutions(cmd: str) -> tuple[str, list[str]]:
+    """``cmd`` with each command substitution (``$(...)``, backquotes; nested ones innermost first) replaced by a word
+    that no ``cd`` reads as a path, and the commands they held. Those run in a subshell: a ``cd`` among them never moves
+    the shell, and their own installs are read from the repo (carbon S15: ``WS=$(cd "$(pwd)" && pwd); cd /tmp/repro &&
+    go mod tidy`` kept a nested substitution's parentheses, read as a subshell, so the literal scratch ``cd`` was ignored)."""
+    inner: list[str] = []
+    while m := _SUBST.search(cmd):
+        inner.append(m.group(1) if m.group(1) is not None else m.group(2))
+        cmd = f"{cmd[: m.start()]}$SUBST{cmd[m.end():]}"
+    return cmd, inner
+
+
 def trail_hits(trail: Sequence[ToolCall], *, projects: Iterable[str] = ()) -> TrailHits:
     """The path evidence in a trail, each item with its command or path. ``projects``: the project's own distribution and
     import names (installing one of them from an index fetches the release: the oracle)."""
     proj = frozenset(_norm(p) for p in projects)
     h = TrailHits()
     for tool, s in commands_of(trail):
-        cwd: str | None = None  # each command starts in the repo (the World's shell tool runs it from the workspace)
-        subshell = bool(re.search(r"[()]", re.sub(r"'[^']*'|\"[^\"]*\"|\$\([^()]*\)", "", strip_heredocs(s))))  # a cd inside ( ) may not last
-        for words in simple_commands(s):
-            if words[0] in ("cd", "pushd", "popd"):
-                cwd = None if subshell or words[0] == "popd" else _cd_target(words, cwd)
-                continue
-            _scan_words(words, h, s, proj, cwd=cwd)
+        body, inner = _substitutions(strip_heredocs(s))
+        subshell = bool(re.search(r"[()]", re.sub(r"'[^']*'|\"[^\"]*\"", "", body)))  # a cd inside ( ) may not last
+        for part, outer in ((body, True), *((x, False) for x in inner)):
+            cwd: str | None = None  # each command starts in the repo (the World's shell tool runs it from the workspace)
+            for words in simple_commands(part, stripped=True):
+                if words[0] in ("cd", "pushd", "popd"):
+                    cwd = None if not outer or subshell or words[0] == "popd" else _cd_target(words, cwd)
+                    continue
+                _scan_words(words, h, s, proj, cwd=cwd)
         code = "python" in tool.lower() or bool(re.search(r"(^|[\s;&|])python[\d.]*\s+-?\s*<<", s))  # code tools, heredocs
         if code and NET_CALL.search(s):
             h.fetch.append(f"network call in python: {s.strip()[:200]}")

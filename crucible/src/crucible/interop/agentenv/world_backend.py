@@ -15,7 +15,25 @@ with tool, permission and nl actions), and the gateway trajectory log. Crucible 
 
 Params: ``gateway_mode`` (``consistent`` default: serialized tool calls, deterministic),
 ``delegate_events`` (default: true when the world clock is ``wall``), ``default_actor`` (actor id used
-for MCP clients that do not identify themselves; default: first policy actor).
+for MCP clients that do not identify themselves; default: first policy actor), ``gateway_bind`` (the host each
+actor's ``AgentProxy`` listens on, e.g. ``172.17.0.1`` for agent containers on a Linux daemon; default loopback).
+
+M11 lab audit R-2 (grader isolation, P21/P23):
+
+- **The gateway listens on loopback only.** Its control routes (``/tools/*``, ``/clock/*``, ``/triggers/*``,
+  ``/trajectory``, ``/state``) have no authentication and take the role from a header (agentenv ``gateway.py:189-341``).
+  ``gateway_bind`` used to bind the gateway itself, so an agent container on docker0 could re-enable a revoked tool or
+  move the clock through the port; now only the proxies (``/mcp`` and ``call_tool``/``list_tools``, role pinned) listen
+  there (SkyCap's two-listener shape). A host process with a shell still reaches loopback: that needs the World
+  sandboxed (``isolation.policy_user``). ``gateway_isolation`` names which holds (``sandboxed`` or ``bound_loopback``),
+  recorded with every grade.
+- **Signed actors cannot be replayed.** The ``__actor`` a call carries to an App server is an HMAC over the actor, a
+  nonce and the tool. The World's own calls (``GatewayRouter``) carry a single-use nonce and the MAC covers their
+  arguments; a trigger's tool action and state checks carry a reusable one (the gateway runs them again with templated
+  arguments; their arguments are not logged, ``triggers.py:1243``), still bound to their one tool. A token that fails, one
+  spent already, or one for an actor the pre-grade cut has cut is refused (it used to be accepted as long as it matched: a static HMAC, logged in the
+  gateway's trajectory, let a reader call ``App.call`` directly on the unauthenticated App-server port, skipping ACL,
+  quotas, the log and the clock).
 """
 
 from __future__ import annotations
@@ -80,7 +98,7 @@ class GatewayRouter(ToolRouter):
         t0 = time.monotonic()
         try:
             r = await self.b.http.post("/step", headers={ROLE_HEADER: actor},
-                                       json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: self.b.sign_actor(actor)}})
+                                       json={"action": "call_tool", "tool_name": name, "arguments": {**args, ACTOR_ARG: self.b.sign_actor(actor, name, args=args)}})
         except httpx.HTTPError as e:
             return ToolResult(tool_call_id=call_id, function_name=f"{app}.{tool}", ok=False, content=f"gateway unreachable: {e}", error="transport")
         dt = time.monotonic() - t0
@@ -122,18 +140,63 @@ class AgentEnvBackend(Backend):
         self._keepalive: asyncio.Task | None = None
         self._keepalive_stop = asyncio.Event()
         self._secret = secrets.token_bytes(32)  # signs the actor identity carried to App servers (spoof-proof __actor)
+        self._spent: set[str] = set()  # single-use nonces already presented (M11 lab audit R-2: a replay is refused)
         self.sandbox_spec = SandboxSpec.model_validate(params["sandbox"]) if params.get("sandbox") else None
         self.sandbox = None
         self.proxies: dict[str, AgentProxy] = {}
 
-    def sign_actor(self, actor: str) -> str:
-        return f"{actor}:{hmac.new(self._secret, actor.encode(), hashlib.sha256).hexdigest()[:32]}"
+    @staticmethod
+    def _args_digest(args: dict[str, Any] | None) -> str:
+        """The call's arguments (``__actor`` aside) as canonical JSON: the gateway forwards them unchanged
+        (``gateway.py:928-953``; the App server does not validate, ``app_server.py``), so both sides see the same."""
+        body = {k: v for k, v in (args or {}).items() if k != ACTOR_ARG}
+        return hashlib.sha256(json.dumps(json.loads(json.dumps(body, default=str)), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
-    def verify_actor(self, value: Any) -> str | None:
-        if not isinstance(value, str) or ":" not in value:
+    def _mac(self, actor: str, nonce: str, tool: str, digest: str) -> str:
+        return hmac.new(self._secret, f"{actor}\0{nonce}\0{tool}\0{digest}".encode(), hashlib.sha256).hexdigest()[:32]
+
+    def sign_actor(self, actor: str, tool: str, *, once: bool = True, args: dict[str, Any] | None = None) -> str:
+        """``actor`` signed for a call of the gateway tool ``tool`` (``<app>__<tool>``): ``actor:nonce:mac`` (module doc,
+        M11 lab audit R-2). ``once``: the nonce is spent by its first use and the MAC covers ``args`` too (the World's own
+        calls: the gateway logs the token before it forwards the call, so a reader racing it can only repeat that exact
+        call, once); a trigger's action or check, which the gateway runs again with templated arguments, gets a reusable
+        nonce, still valid for that one tool only."""
+        nonce = ("1" if once else "0") + secrets.token_hex(8)
+        return f"{actor}:{nonce}:{self._mac(actor, nonce, tool, self._args_digest(args) if once else '')}"
+
+    def verify_actor(self, value: Any, tool: str, args: dict[str, Any] | None = None) -> str | None:
+        """The actor of a token signed for ``tool`` (and, single-use, for exactly ``args``), or None (unsigned, forged,
+        signed for another tool or other arguments, or a spent single-use nonce: a replay)."""
+        if not isinstance(value, str):
             return None
-        actor, _, sig = value.rpartition(":")
-        return actor if hmac.compare_digest(self.sign_actor(actor), value) and sig else None
+        rest, _, mac = value.rpartition(":")
+        actor, _, nonce = rest.rpartition(":")
+        if not (actor and nonce and mac):
+            return None
+        digest = self._args_digest(args) if nonce.startswith("1") else ""
+        if not hmac.compare_digest(self._mac(actor, nonce, tool, digest), mac):
+            return None
+        if nonce.startswith("1"):
+            if nonce in self._spent:
+                return None
+            self._spent.add(nonce)
+        return actor
+
+    @property
+    def gateway_isolation(self) -> str:
+        """What keeps policy processes off the gateway port (M11 lab audit R-2):
+
+        - ``sandboxed``: the World's sandbox ran the egress probe for the policy's uid against the gateway port and it was
+          unreachable (``isolate.py``: no-network or allowlist worlds with ``egress_probe``);
+        - ``bound_loopback``: the gateway listens on 127.0.0.1 only, on a Linux host: unreachable from containers on the
+          docker0 bridge and from other machines, reachable by a host process with a shell;
+        - ``exposed``: not Linux. Docker Desktop (macOS, Windows) routes ``host.docker.internal`` to the host's loopback, so
+          an agent container reaches the gateway's control routes and the App servers. (Docker Desktop on Linux and WSL2
+          mirrored networking do the same and are not detected.)"""
+        egress = getattr(getattr(self, "isolation", None), "egress", None) or {}
+        if egress.get("isolated") and any(str(self.gateway_port) in str(t) for t in egress.get("tested") or []):
+            return "sandboxed"
+        return "bound_loopback" if sys.platform.startswith("linux") else "exposed"
 
     # ---------------------------------------------------------------- Backend API
     @property
@@ -207,8 +270,9 @@ class AgentEnvBackend(Backend):
 
     @property
     def gateway_url(self) -> str:
-        host = self.params.get("gateway_bind", "127.0.0.1")
-        return f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{self.gateway_port}"
+        """The gateway, on loopback whatever ``gateway_bind`` says (M11 lab audit R-2): for Crucible and the orchestration
+        steps on this host only."""
+        return f"http://127.0.0.1:{self.gateway_port}"
 
     @property
     def mcp_url(self) -> str:
@@ -243,7 +307,21 @@ class AgentEnvBackend(Backend):
         default_actor = self.params.get("default_actor") or world.spec.policy_actors[0].id
         for app_id, app in world.apps.items():
             async def caller(name: str, args: dict[str, Any], _app=app, _app_id=app_id) -> ToolResult:
-                signed = self.verify_actor(args.pop(ACTOR_ARG, None))
+                token = args.pop(ACTOR_ARG, None)
+                signed = self.verify_actor(token, gw_name(_app_id, name), args)
+                if token is not None and signed is None:
+                    # M11 lab audit R-2: a forged, replayed or misdirected token is refused; only Crucible signs, and every
+                    # path it signs for presents a fresh or a tool-bound token, so this is never the World's own call
+                    world._log("state", None, "actor_token_refused", data={"tool": f"{_app_id}.{name}"})
+                    if world.cut:  # after the pre-grade cut it is a late call too (agentenv.cut)
+                        world.late_call(default_actor, f"{_app_id}.{name} (invalid {ACTOR_ARG})")
+                    return ToolResult(tool_call_id="gw", function_name=f"{_app_id}.{name}", ok=False, error="refused", fault="policy",
+                                      content=f"refused: {ACTOR_ARG} is not a valid token for {_app_id}.{name}")
+                if signed is not None and signed in world.cut:
+                    # the World never signs for a cut actor (its step refuses first): a token taken before the cut, used after it
+                    world.late_call(signed, f"{_app_id}.{name}")
+                    return ToolResult(tool_call_id="gw", function_name=f"{_app_id}.{name}", ok=False, error="refused", fault="policy",
+                                      content=f"refused: {signed!r} was cut before grading")
                 if signed is not None:
                     # the World's own router: the World already ran its choke point for this call. A crash is labelled
                     # infra so the label crosses the MCP hop (H2 V2)
@@ -290,9 +368,10 @@ class AgentEnvBackend(Backend):
         env = {
             **safe_environ(),
             "INTERNAL_MCP_SERVERS": ",".join(f"{n}={s.url}" for n, s in self.servers.items()),
-            # loopback by default: the gateway serves every tool to any role header. Agent containers on a Linux daemon reach
-            # the host through the docker0 bridge, so set gateway_bind (e.g. 172.17.0.1) there (m13 audit 02, C2)
-            "MCP_HOST": self.params.get("gateway_bind", "127.0.0.1"),
+            # loopback only: the gateway serves every tool to any role header and its control routes are unauthenticated.
+            # Agent containers reach the World through their AgentProxy, which binds gateway_bind (m13 audit 02, C2; M11
+            # lab audit R-2: gateway_bind used to bind the gateway itself, exposing its control plane on docker0)
+            "MCP_HOST": "127.0.0.1",
             "MCP_PORT": str(self.gateway_port),
             "MCP_SERVER_NAME": f"crucible-{self.spec.world.replace('/', '-')}"[:60],
             "GATEWAY_MODE": self.params.get("gateway_mode", "consistent"),
@@ -392,8 +471,10 @@ class AgentEnvBackend(Backend):
         return gw_name(app, tool)
 
     def _gw_check(self, check: dict, actor: str | None = None) -> dict:
-        signed = {ACTOR_ARG: self.sign_actor(actor or SYSTEM_ROLE)}  # the gateway's own reads: environment dynamics, not an agent's step
-        return {"steps": [{**st, "tool": self._gw_tool(st["tool"]), "args": {**(st.get("args") or {}), **signed}} for st in check["steps"]]}
+        # the gateway's own reads: environment dynamics, not an agent's step. Reusable (the gateway checks again), one tool each
+        return {"steps": [{**st, "tool": self._gw_tool(st["tool"]),
+                           "args": {**(st.get("args") or {}), ACTOR_ARG: self.sign_actor(actor or SYSTEM_ROLE, self._gw_tool(st["tool"]), once=False)}}
+                          for st in check["steps"]]}
 
     def _trigger(self, world: World, ev: EventSpec) -> dict[str, Any] | None:
         """An EventSpec as an agentenv trigger (the whole urn:agentenv:triggers/v1 language, m13 C8). None keeps the event
@@ -435,7 +516,8 @@ class AgentEnvBackend(Backend):
         if a.type == "tool":
             # signed as the event's actor: the gateway executes it, and an unsigned call is an outside agent's World step
             # (M11 audit), which would wait on the step that provoked this trigger
-            actions = [{"type": "tool", "tool": self._gw_tool(a.tool or ""), "args": {**(a.args or {}), ACTOR_ARG: self.sign_actor(ev.actor or SYSTEM_ROLE)}, **extra}]
+            tool = self._gw_tool(a.tool or "")
+            actions = [{"type": "tool", "tool": tool, "args": {**(a.args or {}), ACTOR_ARG: self.sign_actor(ev.actor or SYSTEM_ROLE, tool, once=False)}, **extra}]
         elif a.type == "permission":
             target = a.to or ev.actor
             actions = []

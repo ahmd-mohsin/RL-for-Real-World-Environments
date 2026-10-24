@@ -2,6 +2,7 @@
 
     python scripts/lh_debug.py scout                      # licence, language, fix units since 2025-09-01 per clone (no Docker)
     python scripts/lh_debug.py mine  --repos a,b          # executed fix check at HEAD, interacting groups, A'..B', validate_window
+    python scripts/lh_debug.py subset --repo a --fixes s1,s2,s3 [--b B] [--id ID --parent P] [--hide revert|strip] [--no-link]   # one task of exactly these fixes
     python scripts/lh_debug.py gates [--ids ...]          # S6, S5, S8, S3, S10 on every built window that reached mutants_valid
     python scripts/lh_debug.py author                     # the builder's bug reports (prompts/<id>.json) through lint + ledger
     python scripts/lh_debug.py repro [--ids ...]          # S7r: each requirement's `repro` run in the World at A' (shows the bug) and B (passes)
@@ -161,6 +162,21 @@ async def mine(args: argparse.Namespace) -> None:
             await asyncio.gather(*[mine_one(gen, n, args.since or None, sem) for n in mine_repos])
 
 
+async def subset(args: argparse.Namespace) -> None:
+    """The task of exactly ``--fixes`` at ``--b`` (``Debug.subset``), built as ``mine`` builds a group: a mined task
+    rebuilt from its fixes, or eased by leaving one of them applied. The repository's images are kept for the next build."""
+    gen = generator([args.repo], split_of(args.repo))
+    try:
+        cand = await gen.subset(args.repo, [s for s in args.fixes.split(",") if s], b=args.b, since=args.since or None, cid=args.id, parent=args.parent,
+                                hide=args.hide, independent=args.no_link, hide_tests=[t for t in args.hide_tests.split(",") if t])
+    except ValueError as e:
+        sys.exit(f"[{args.repo}] {e}")
+    needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
+    print(f"[{args.repo}] {cand.id}: fixes {[s[:10] for s in cand.params['fixes']]}, executed edges {needs}", flush=True)
+    rec = await gen.build(cand)
+    print(f"[{args.repo}] {cand.id}: {rec.get('stage')} {rec.get('reason', '')[:160]}", flush=True)
+
+
 async def gates(args: argparse.Namespace) -> None:
     """Gate every window at ``mutants_valid`` not gated yet; with ``--loop`` keep scanning (every 2 min) until the file
     ``STOP_GATES`` exists."""
@@ -169,6 +185,17 @@ async def gates(args: argparse.Namespace) -> None:
         if not args.loop or (ROOT / "STOP_GATES").exists():
             return
         await asyncio.sleep(120)
+
+
+def merge_gates(prev: dict[str, Any], res: dict[str, Any], order: tuple[str, ...]) -> dict[str, Any]:
+    """A ``--gates`` run added to an earlier record: the gates it ran replace theirs (the replaced results stay under
+    ``earlier``, so a rerun never hides a failure), the others keep their result, and ``ok`` / ``passed`` cover every
+    gate in the record. A run that crashed is never ok."""
+    gates = {**(prev.get("gates") or {}), **(res.get("gates") or {})}
+    gates = {g: gates[g] for g in [*[g for g in order if g in gates], *[g for g in gates if g not in order]]}
+    earlier = [*(prev.get("earlier") or []), *({"gate": g, **prev["gates"][g]} for g in res.get("gates") or {} if g in (prev.get("gates") or {}))]
+    return {**res, "gates": gates, "ok": "error" not in res and all(v.get("ok") for v in gates.values()),
+            "passed": [g for g in gates if gates[g].get("ok")], **({"earlier": earlier} if earlier else {})}
 
 
 async def gates_once(args: argparse.Namespace) -> None:
@@ -185,11 +212,14 @@ async def gates_once(args: argparse.Namespace) -> None:
         if not ids:
             continue
         gen = generator(repos, split)
-        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns)
+        only = tuple(g for g in args.gates.split(",") if g)
+        cfg = GateConfig(s3_reruns=args.s3_reruns, flake_reruns=args.flake_reruns, **({"gates": only} if only else {}))
         for w in ids:
             out = ROOT / "gates" / f"{w}.json"
             lock = ROOT / "gates" / f"{w}.running"
-            if (out.exists() and not args.redo) or lock.exists():
+            prev = json.loads(out.read_text()) if out.exists() else {}
+            # a record of fewer gates (--gates S6,S5,S8 before a quick pass) is run again in full by a later plain run
+            if (prev and not args.redo and set(cfg.gates) <= set(prev.get("gates") or {})) or lock.exists():
                 continue
             lock.parent.mkdir(parents=True, exist_ok=True)
             lock.write_text(str(time.time()))
@@ -199,6 +229,8 @@ async def gates_once(args: argparse.Namespace) -> None:
             except Exception as e:  # noqa: BLE001
                 res = {"task": w, "ok": False, "error": f"{type(e).__name__}: {e}"[:500], "gates": {}}
             res["seconds"] = round(time.monotonic() - t0, 1)
+            if only and prev.get("gates"):
+                res = merge_gates(prev, res, GateConfig().gates)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(res, indent=1, default=str))
             lock.unlink(missing_ok=True)
@@ -286,6 +318,7 @@ def cmd_intent(args: argparse.Namespace) -> None:
     """Every stored window with milestones gets its intent card (``generators.debug.task_intent``); the family-level
     skill cards go to ``intent_cards.json``; ``candidates.json`` lists every window with its language, skills, level,
     split, cutoff and stage (the matched train / benchmark split is built from it)."""
+    from crucible.factory.generators.base import GateConfig
     from crucible.factory.generators.debug import NAME, faulty_names, intent_cards, task_intent, visible_test_changes
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit
@@ -323,8 +356,10 @@ def cmd_intent(args: argparse.Namespace) -> None:
             rows.append({"id": w, "lang": it["lang"], "repo": rec["repo"], "split": split, "stage": rec.get("stage"), "skills": it["skills"],
                          "level": it["level"], "faults": it["faults"], "modules": len(it["modules"]), "edges": int(rec.get("dependency_edges") or 0), "oracle_lines": size,
                          "milestone_tests": sum(len(m["tests"]) for m in rec.get("milestones") or []),
-                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"), "gates_ok": gate.get("ok"),
-                         "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
+                         "cutoff": rec[NAME].get("cutoff"), "contamination": rec[NAME].get("contamination"),
+                         # gates_ok: every gate passed; gates_run_ok: every gate run so far passed (a partial record)
+                         "gates_ok": gate.get("ok") and set(GateConfig().gates) <= set(gate.get("passed") or []),
+                         "gates_run_ok": gate.get("ok"), "gates_passed": gate.get("passed"), "prompt": (ROOT / "authored" / f"{w}.json").exists(),
                          "fairness_flags": it.get("fairness_flags") or []})
     fixes_of = {}
     for split in ("train", "heldout"):
@@ -528,12 +563,27 @@ def main() -> None:
     m.add_argument("--parallel", type=int, default=2)
     m.add_argument("--max-pool", type=int, default=40)
     m.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE; FALLBACK_SINCE is the marked fallback)")
+    su = sub.add_parser("subset")
+    su.add_argument("--repo", required=True)
+    su.add_argument("--fixes", required=True, help="the fix shas (prefixes) reverted together, comma-separated")
+    su.add_argument("--b", default="HEAD", help="B, the oracle commit (default the clone's HEAD)")
+    su.add_argument("--since", default="", help="the fix cutoff (default generators.debug.SINCE)")
+    su.add_argument("--id", default="", help="the task id (default db-<lang>-<repo>-<hash of the fixes>, as mine names it)")
+    su.add_argument("--parent", default="", help="the task this one rebuilds or eases, recorded in its window")
+    su.add_argument("--hide", default="", choices=["", "revert", "strip"],
+                    help="how A' hides the fixes' tests (default revert, else strip); strip removes a test a fix changed instead of restoring its old assertions")
+    su.add_argument("--no-link", action="store_true", help="build it although no two fixes interact (separate bugs; S6 then needs no edge)")
+    su.add_argument("--hide-tests", default="",
+                    help="visible tests (file::Test, comma-separated) kept out of A': in revert mode, a test a fix changed whose old assertions expect the bug")
     g = sub.add_parser("gates")
     g.add_argument("--ids", default="")
     g.add_argument("--s3-reruns", type=int, default=60)
     g.add_argument("--flake-reruns", type=int, default=30)
     g.add_argument("--redo", action="store_true")
     g.add_argument("--loop", action="store_true")
+    g.add_argument("--gates", default="",
+                   help="only these gates (comma list), added to the task's record: S6,S5,S8 (~3 min) before a quick pass, then S3,S10 "
+                        "before the full run (which needs all five); a rerun gate's earlier result is kept under 'earlier'")
     sub.add_parser("author")
     rp = sub.add_parser("repro")
     rp.add_argument("--ids", default="", help="only these windows (default: every authored prompt with a repro field)")
@@ -556,6 +606,8 @@ def main() -> None:
         cmd_scout(args)
     elif args.cmd == "mine":
         asyncio.run(mine(args))
+    elif args.cmd == "subset":
+        asyncio.run(subset(args))
     elif args.cmd == "gates":
         asyncio.run(gates(args))
     elif args.cmd == "author":

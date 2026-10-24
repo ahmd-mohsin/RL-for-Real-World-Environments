@@ -1,0 +1,10 @@
+{
+  "builder": "claude-code:opus-5.5",
+  "opening": "We format our shell scripts with this formatter and run some of them through its interpreter in CI, and a few scripts come out wrong. The formatter runs with default options unless noted.",
+  "requirements": {
+    "m01": "Referencing $- in an interpreted script does not work: under set -u it fails as an unbound variable, and otherwise it expands to nothing, so idioms like case $- in *e*) never match. It should expand to the one-letter flags of the currently enabled shell options, in sorted order: after set -aefu, echo $- prints aefu, and case $- in *e*) matches only once set -e is on. Options without a one-letter flag, such as pipefail, add nothing.",
+    "m02": "Formatting a <<- heredoc that sits three or more blocks deep (for example inside an if inside a loop inside a function) indents body lines that have less indentation than the first body line to the first line's original indentation, not to the level where the first line is actually printed. The result is mis-indented and formatting the output again changes it. Such lines should be indented like the first body line as printed.",
+    "m03": "When the condition of an if, while or until clause, or the word list of a for loop, spans several lines and the script already puts then or do on its own line, the formatter collapses it into \"; then\" or \"; do\". In that case then and do should stay on their own line (except when minifying or printing everything on one line). Single-line conditions should still collapse as before."
+  },
+  "closing": ""
+}

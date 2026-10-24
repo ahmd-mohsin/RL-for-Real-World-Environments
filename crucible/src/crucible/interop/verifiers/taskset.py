@@ -2,8 +2,9 @@
 ``HarborTaskset`` / ``HarborTask`` (``verifiers.v1.tasksets.harbor``) and lives in verifiers' own environment
 (``crucible/.envs/verifiers``: verifiers pins mcp 2, agentenv mcp<2), so the import is lazy.
 
-The loadable plugin is ``crucible.interop.verifiers.vf_taskset`` (``__all__`` exports ``HarborEnv`` and
-``CrucibleTaskset``; a local ``path``; task timeouts kept). Crucible task directories are Harbor task directories (DESIGN §4.3), so verifiers' own Harbor machinery runs them. What
+The loadable plugin is ``crucible.interop.verifiers.vf_taskset`` (``__all__`` exports ``CrucibleTaskset``; a local
+``path``; task timeouts kept; separate-verifier tasks graded only in verifiers' fresh box, shared ones after a quiesce:
+M11 lab audit R-3). Crucible task directories are Harbor task directories (DESIGN §4.3), so verifiers' own Harbor machinery runs them. What
 ``CrucibleTask`` changes in ``run_verifier``:
 
 - a masked grade (Crucible writes ``mask.json`` and no ``reward.json``) raises ``TaskError("crucible:masked:<kind>")``

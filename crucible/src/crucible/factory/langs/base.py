@@ -24,7 +24,7 @@ import contextlib
 import contextvars
 import hashlib
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -297,6 +297,38 @@ def remove_spans(text: str, spans: Sequence[tuple[int, int]]) -> str:
 
 def changed_keys(before: Mapping[str, str], after: Mapping[str, str]) -> list[str]:
     return [k for k in after if before.get(k) != after[k]]
+
+
+CHANGELOG_FILE = re.compile(r"(^|/)(CHANGES|CHANGELOG|HISTORY|NEWS|RELEASE[-_ ]?NOTES)[^/]*$", re.IGNORECASE)
+
+
+def fix_refs(subject: str, body: str, sha: str) -> set[str]:
+    """What a release changelog cites a fix by: its PR or issue numbers (``#1571``) and its short sha (``884502a``)."""
+    return {f"#{n}" for n in re.findall(r"#(\d+)", f"{subject}\n{body}")} | {sha[:7]}
+
+
+def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
+    """``text`` without the changelog entries that cite one of ``refs`` (``fix_refs``): a list item with its wrapped lines,
+    else the line. A changelog written at release time names the fixes after the fact, so the fixes' own diffs never
+    added these lines (``strip_added_lines`` cannot see them): mvdan-sh's "as well as ``$-`` - #1398", h3's "Call
+    ``onError`` for stream errors in Node.js handlers (#1571)". Returns the text and the number of lines removed."""
+    pats = [re.compile(rf"(?<![\w/])#{re.escape(r[1:])}(?!\d)|/(?:pull|issues)/{re.escape(r[1:])}(?!\d)") if r.startswith("#")
+            else re.compile(rf"(?<![0-9a-fA-F]){re.escape(r)}(?![0-9a-fA-F])") for r in refs]
+    lines = text.splitlines(keepends=True)
+    item = re.compile(r"^(\s*)([-*+]|\d+[.)])\s")
+    out, k, removed = [], 0, 0
+    while k < len(lines):
+        end = k + 1
+        if m := item.match(lines[k]):  # the item's wrapped lines: indented deeper, not another item
+            while end < len(lines) and lines[end].strip() and not item.match(lines[end]) and len(lines[end]) - len(lines[end].lstrip()) > len(m.group(1)):
+                end += 1
+        chunk = lines[k:end]
+        if any(p.search(ln) for ln in chunk for p in pats):
+            removed += len(chunk)
+        else:
+            out += chunk
+        k = end
+    return "".join(out), removed
 
 
 def strip_added_lines(text: str, added: Sequence[str]) -> str:

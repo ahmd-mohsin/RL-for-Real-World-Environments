@@ -370,7 +370,9 @@ def normalize(doc: Any) -> dict[str, Any]:
             for k, v in node.items():
                 p = _child(path, k)
                 key = scrub_secrets(k, _keyed) if isinstance(k, str) else k
-                if isinstance(k, str) and v not in (None, "") and _CRED_KEY.search(k) and not any(m in p for m in _DIGEST_MAPS):
+                # an id under ``tasks``, ``policies`` or ``harnesses`` names an object, never a credential: ``llm:reset_password`` keeps its configuration
+                if (isinstance(k, str) and path not in _ID_MAPS and v not in (None, "") and _CRED_KEY.search(k)
+                        and not any(m in p for m in _DIGEST_MAPS)):
                     out[key] = _REDACTED
                 else:
                     out[key] = walk(v, p)
@@ -449,12 +451,57 @@ def fingerprint(doc: Any) -> str:
 # ------------------------------------------------------------------------------------------------- code versions
 
 
+def _git(cwd: Path, *args: str) -> str | None:
+    try:
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=5, check=False, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def dist_source(name: str) -> dict[str, Any]:
+    """An installed distribution's ``version`` and the ``commit`` it was installed from (M11 lab audit R-3): PEP 610's
+    ``direct_url.json`` names it for a VCS install (``vcs_info.commit_id``); for an install from a local directory (editable
+    or not) that is the root of its own git checkout, it is that checkout's ``HEAD``, and ``dirty`` says whether tracked
+    files differ from it. A shallow editable clone of a hatch-vcs project reports version 0.0.0 (verifiers
+    ``pyproject.toml:169``), so the commit is what identifies it. None for what cannot be told; nothing is imported."""
+    out: dict[str, Any] = {"version": None, "commit": None, "editable": None, "dirty": None}
+    try:
+        d = importlib.metadata.distribution(name)
+    except Exception:  # noqa: BLE001 -- not installed (or unreadable metadata): not told
+        return out
+    out["version"] = d.version
+    try:
+        info = json.loads(d.read_text("direct_url.json") or "null") or {}
+    except (OSError, ValueError):
+        info = {}
+    if not isinstance(info, dict):
+        return out
+    out["commit"] = (info.get("vcs_info") or {}).get("commit_id")
+    if isinstance(info.get("dir_info"), dict):
+        out["editable"] = bool(info["dir_info"].get("editable", False))
+    url = str(info.get("url") or "")
+    if out["commit"] is None and url.startswith("file://"):
+        from urllib.parse import urlparse
+        from urllib.request import url2pathname
+
+        local = Path(url2pathname(urlparse(url).path))  # url2pathname unquotes (once)
+        top = _git(local, "rev-parse", "--show-toplevel") if local.is_dir() else None
+        # the checkout's own repository only: a directory inside another one (crucible/.envs/src) would report that one's HEAD
+        if top is not None and Path(top).resolve() == local.resolve():
+            out["commit"] = _git(local, "rev-parse", "HEAD")
+            status = _git(local, "status", "--porcelain", "--untracked-files=no")
+            out["dirty"] = None if status is None else bool(status)
+    return out
+
+
 @functools.cache
 def code_versions() -> dict[str, Any]:
     """What code the process runs, recorded in ``run.json`` and compared only to open an identity epoch (never to refuse):
     the crucible version, the git sha and dirty flag of the checkout it was loaded from, the installed Harbor and verifiers
-    versions (distribution metadata: no framework is imported). Cached for the life of the process, which is what the loaded
-    modules are; a value that cannot be told is None. Callers take it through the module attribute, so a test can patch it."""
+    versions (distribution metadata: no framework is imported), and the verifiers commit (``dist_source``: an editable clone
+    reports 0.0.0; M11 lab audit R-3). Cached for the life of the process, which is what the loaded modules are; a value that
+    cannot be told is None. Callers take it through the module attribute, so a test can patch it."""
 
     def dist(name: str) -> str | None:
         try:
@@ -462,15 +509,8 @@ def code_versions() -> dict[str, Any]:
         except Exception:  # noqa: BLE001 -- not installed (or unreadable metadata): not told
             return None
 
-    def git(*args: str) -> str | None:
-        try:
-            r = subprocess.run(["git", *args], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=5, check=False,
-                               env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return r.stdout.strip() if r.returncode == 0 else None
-
-    sha = git("rev-parse", "HEAD")
-    status = git("status", "--porcelain", "--untracked-files=no") if sha else None
+    here = Path(__file__).resolve().parent
+    sha = _git(here, "rev-parse", "HEAD")
+    status = _git(here, "status", "--porcelain", "--untracked-files=no") if sha else None
     return {"crucible": dist("crucible"), "git_sha": sha or None, "git_dirty": None if status is None else bool(status),
-            "harbor": dist("harbor"), "verifiers": dist("verifiers")}
+            "harbor": dist("harbor"), "verifiers": dist("verifiers"), "verifiers_commit": dist_source("verifiers")["commit"]}

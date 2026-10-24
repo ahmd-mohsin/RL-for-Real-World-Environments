@@ -1,0 +1,10 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "We run Black (current main branch) with the preview string processing enabled, and it trips up in a few ways.",
+ "requirements": {
+  "m01": "Black crashes with an AssertionError about invalid string prefix characters when an f-string (including a triple-quoted one) follows a \"# fmt: off\" comment inside brackets, for example a parenthesized or bracketed block whose content is \"# fmt: off\", then the f-string, then \"# fmt: on\", whether or not that content is indented. Such code should be left exactly as written inside the fmt: off region and formatting should succeed.",
+  "m02": "When a parenthesized group of implicitly concatenated strings is followed by a pragma comment such as # type: ignore after its closing parenthesis, string processing merges the strings into one line far over the line-length limit that can never be split again. Strings must not be merged when a pragma comment follows the closing bracket of the group; such code should stay as written.",
+  "m03": "A long string wrapped in parentheses as a dictionary value, with # type: ignore after the closing parenthesis, makes Black fail with an error that the comment would be lost. Formatting should split the string inside the parentheses and keep the # type: ignore comment after the closing parenthesis."
+ },
+ "closing": ""
+}

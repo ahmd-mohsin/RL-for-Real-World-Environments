@@ -57,7 +57,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -167,7 +167,9 @@ DEBUG_REPO_URLS.update({
     # added to the draw after the first held-out repositories' mining and before any executed mining of these three
     "caddy": "caddyserver/caddy", "go-git": "go-git/go-git", "resty": "go-resty/resty"})
 REPO_URLS.update(DEBUG_REPO_URLS)
-HELD_OUT_REPOS.update({n: "D" for n in ("kong", "chroma", "participle", "excelize", "carbon", "templ", "gleam", "rhai", "comrak", "liquidjs",
+# carbon left the draw on 2026-10-23 (the lead's call): both its held-out tasks passed above the benchmark bar (3/7, 7/8),
+# so dromara's tasks are training tasks; they were never in a measured benchmark
+HELD_OUT_REPOS.update({n: "D" for n in ("kong", "chroma", "participle", "excelize", "templ", "gleam", "rhai", "comrak", "liquidjs",
                                          "stylelint", "i18next", "cron-parser", "aiohttp", "yarl", "urllib3", "caddy", "go-git", "resty")})
 # training sources of the same draw: dense parser, formatter and protocol repositories whose orgs hold nothing held out
 DEBUG_REPO_URLS.update({
@@ -495,13 +497,21 @@ async def prefix_owners(rec: Mapping[str, Any], repo: RepoGit, base: Path, sandb
             "monotone_violations": res["monotone_violations"]}
 
 
+def subtests_of(test: str, ids: Iterable[str]) -> list[str]:
+    """The ids nested under ``test`` (Go's ``TestX/case``): a parent test passes only once every subtest does."""
+    return [t for t in ids if t.startswith(test + "/")]
+
+
 def milestones_from_owners(rec: Mapping[str, Any], owners: Mapping[str, str | None]) -> list[dict[str, Any]]:
-    """One milestone per owner unit, in history order (ids ``m<unit index+1>``)."""
+    """One milestone per owner unit, in history order (ids ``m<unit index+1>``). A parent test with a subtest another unit
+    owns is in no milestone: it passes only with that unit's subtest, so its milestone would wait for the other one
+    without any interaction (mvdan-sh dc951aeb: m04 "needed" m02 and m03 through TestPrintTable and TestPrintBinaryNextLine
+    alone; m04's own cases pass without them). The subtests carry the checks."""
     units = [Unit(**u) for u in rec["units"]]
     order = {u.sha: i for i, u in enumerate(units)}
     groups: dict[str, list[str]] = {}
     for t, o in owners.items():
-        if o is not None:
+        if o is not None and all(owners[s] == o for s in subtests_of(t, owners)):
             groups.setdefault(o, []).append(t)
     return [{"id": f"m{order[s] + 1:02d}", "unit": s, "index": order[s], "subject": units[order[s]].subject, "tests": sorted(ts)}
             for s, ts in sorted(groups.items(), key=lambda kv: order[kv[0]])]
@@ -782,8 +792,10 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
     owners = {t: o for t, o in owners.items() if t not in volatile}
     rec["ownership"] = po
     rec["milestones"] = milestones_from_owners(rec, owners)
+    placed = {t for m in rec["milestones"] for t in m["tests"]}
     rec.update(targets=targets, p2p=[t for t in cls["p2p"] if t not in volatile], collateral=sorted(t for t, o in owners.items() if o is None),
-               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile, "timing": sorted(timing)},
+               excluded={"flaky": cls["flaky"], "p2f": cls["p2f"], "post_fail": cls["post_fail"], "volatile": volatile, "timing": sorted(timing),
+                         "mixed_parents": sorted(t for t, o in owners.items() if o is not None and t not in placed)},
                timing_rule=dict(sorted(timing.items())))
     if len(rec["milestones"]) < min_milestones:
         return f"{len(rec['milestones'])} milestone(s) with fail-to-pass tests (need {min_milestones})"
@@ -792,10 +804,13 @@ async def f2p_stage(rec: dict[str, Any], repo: RepoGit, base: Path, sandbox: Doc
 
 async def validate_window(win: Window, store: WindowStore, images: ImageBook, sandboxes: Callable[[str], DockerSandbox], *, reruns: int = 3,
                           min_milestones: int = 2, mutants: bool = True, log: Callable[[dict], None] | None = None,
-                          import_tolerant: bool = True, leak_prefix: str | None = None, exclude: Mapping[str, str] | None = None) -> dict[str, Any]:
+                          import_tolerant: bool = True, leak_prefix: str | None = None, exclude: Mapping[str, str] | None = None,
+                          allow_independent: bool = False) -> dict[str, Any]:
     """Every stage for one window; the record (saved whatever stage it reached) says how far it got and why it stopped.
     ``import_tolerant`` (report 11 F8, the default for new windows): the window is classified, probed and graded with
-    import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict."""
+    import-tolerant test files (``grader_tests``); a window mined before P0 has no flag and stays strict.
+    ``allow_independent``: a window whose milestones need no earlier one goes on to the mutants (recorded as
+    ``allow_independent``) instead of stopping at ``f2p_valid``: the lead's call for tasks of separate bugs."""
     store.guard(win.repo)
     t0 = time.monotonic()
     repo = RepoGit(Path(win.repo_dir))
@@ -845,8 +860,10 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     rec["dependency_edges"] = rec["prober"]["milestone_edges"]
     rec["independent"] = rec["dependency_edges"] == 0
     store.save(mined_of(rec, base))
-    if rec["independent"]:
+    if rec["independent"] and not allow_independent:
         return stop("independent: no milestone needs an earlier one (long, not long-horizon)")
+    if rec["independent"]:
+        rec["allow_independent"] = True
     rec["stage"] = "dependent"
     if not mutants:
         return stop("mutants not run")

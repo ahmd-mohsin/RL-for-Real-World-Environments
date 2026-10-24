@@ -168,11 +168,14 @@ def test_V28_verl_kl_in_reward_refused_and_invalid_reward_value_masked(verl):
     assert adv.tolist() == [[0.5, 0.5], [-0.5, -0.5], [0.0, 0.0]]  # MiMo-verl's sentinel neither trains nor moves the mean
 
 
-def _agent_loop(verl, server, rollout, **kw):
+def _agent_loop(verl, server, rollout, *, algorithm=None, trainer=None, **kw):
     from crucible.train.bridges.verl_agent_loop import CrucibleAgentLoop
 
     rc = AttrDict(prompt_length=4096, response_length=4096, n=3, top_p=1.0, top_k=-1)
-    cfg = AttrDict(actor_rollout_ref=AttrDict(rollout=rc))
+    # crucible_delta by default: the route that keeps a masked session as a placeholder row (M11 lab audit R-1)
+    cfg = AttrDict(actor_rollout_ref=AttrDict(rollout=rc), algorithm=AttrDict(adv_estimator="crucible_delta") if algorithm is None else algorithm)
+    if trainer is not None:
+        cfg["trainer"] = trainer
     A = verl.agent_loop
     return CrucibleAgentLoop(trainer_config=A.DictConfigWrap(cfg), server_manager=server, tokenizer=SimpleNamespace(pad_token_id=0),
                              processor=None, dataset_cls=None, data_config=A.DictConfigWrap(AttrDict()), rollout=rollout, **kw)

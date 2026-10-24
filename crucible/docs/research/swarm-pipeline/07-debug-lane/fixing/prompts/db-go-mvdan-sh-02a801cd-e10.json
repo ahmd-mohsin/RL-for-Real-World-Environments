@@ -1,0 +1,11 @@
+{
+ "builder": "claude-code:opus-5.5",
+ "opening": "Our editor tooling uses this shell parser and formatter (the syntax package) for highlighting, positions and formatting, and we run some of those scripts with its interpreter; several things come out wrong.",
+ "closing": "",
+ "requirements": {
+  "m01": "In zsh mode the \";|\" case clause terminator is rejected as a syntax error, although zsh accepts it with the same meaning mksh gives it (and mksh mode already supports it). It should parse and print in zsh mode as in mksh mode, and used outside a case clause it should fail with \"`;|` can only be used in a case clause\" in both modes.",
+  "m02": "When the interpreter compares modification times with -nt or -ot and one of the two files does not exist, the test is always false. Bash and POSIX define that case: a -nt b is true when a exists and b does not, and a -ot b is true when b exists and a does not; when neither file exists both stay false. This must hold in both [[ ... ]] and [ ... ] tests.",
+  "m03": "Several syntax nodes report the wrong end position (End). An array element written with an index and an equals sign but no value ends at its index instead of after the \"]=\"; a file whose last statement carries several comments ends at the first of them instead of the last; a naked indexed assignment without \"=\" (such as declare a[1]) is reported as ending one byte too far; and the mksh brace forms of for and case clauses end four bytes after the closing \"}\" instead of right after it.",
+  "m04": "The interpreter's type builtin reports its errors under the wrong name: type -o echo prints command: invalid option \"-o\" where it should print type: invalid option \"-o\" (its exit status 2 is right). Every error message of the type builtin must start with type:."
+ }
+}

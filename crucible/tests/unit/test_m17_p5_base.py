@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from test_m17_p5_rebreak import make_repo
 
 from crucible.factory.generators.base import (
@@ -90,6 +91,18 @@ def test_gates_run_cheap_first_and_stop_at_the_first_failure() -> None:
     assert list(res["gates"]) == ["S6", "S5", "S8", "S3", "S10"] and res["gates"]["S6"]["ok"] is False and not res["ok"]
     assert all(res["gates"][g]["ok"] is None and res["gates"][g]["findings"] == ["not_run: an earlier gate failed"] for g in ("S5", "S8", "S3", "S10"))
     assert res["gates"]["S6"]["evidence"]["executed_edges"] == 0
+
+
+def test_s6_lets_a_window_built_for_separate_bugs_go_without_an_edge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """subset --no-link (the lead's call, 2026-10-23): a window recorded allow_independent passes S6 with no edge."""
+    # the contract check reduced to its edge rule: "short" only when an edge is required
+    monkeypatch.setattr("crucible.factory.longtask.check_longtask", lambda task, long_horizon=True, need_prompt=True: ["short: no edge"] if long_horizon else [])
+    strict = asyncio.run(deterministic_gates(FailingS6(), cfg=GateConfig(gates=("S6",))))["gates"]["S6"]
+    free_task = FailingS6()
+    free_task.window = {"allow_independent": True}
+    free = asyncio.run(deterministic_gates(free_task, cfg=GateConfig(gates=("S6",))))["gates"]["S6"]
+    assert strict["ok"] is False and strict["findings"] == ["short: no edge"]
+    assert free["ok"] is True and free["findings"] == [] and free["evidence"] == {"executed_edges": 0, "milestones": 2, "allow_independent": True}
 
 
 def test_author_writes_in_the_generators_voice_and_the_lane_states_required_names(tmp_path: Path) -> None:
