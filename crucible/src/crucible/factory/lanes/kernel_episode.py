@@ -358,7 +358,16 @@ class KernelEpisodeTask(kd.KernelDebugTask):
         self.split = str(rec.get("split") or "train")
         self.intent = "+".join(sorted((kd.task_intent(rec) or {}).get("skills") or [])) if not is_migration(rec) else "toolkit_migration"
         self.lane = kd.LANE
-        self._mirrors: dict[str, Path] = {}
+        self.id = self.task_id  # the runner's key (runtime.run)
+        self.world_id = f"factory/kernel-gpu/{host.name}/{rec.get('repo', '')}"
+
+    def identity_config(self) -> dict[str, Any]:
+        """What a resume compares (``runtime.identity``): the record's content, the grader and the GPU host the episodes run
+        on (a re-measurement on another GPU is another run)."""
+        from crucible.factory.lanes import kernel as K
+
+        return {"id": self.task_id, "record": K.kp_hash(self.rec), "verifier_version": self.verifier_version, "host": self.host.name, "gpu": self.host.gpu,
+                "arch": self.host.arch, "world_image": world_image(self.host, self.rec), "template": template_key(self.host, self.rec)}
 
     @property
     def milestones(self) -> list[dict[str, Any]]:

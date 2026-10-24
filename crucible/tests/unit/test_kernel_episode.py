@@ -195,6 +195,22 @@ def test_kernel_targeting_picks_the_tasks_passing_on_the_host_s_gpu_and_labels_s
     assert a.host == "rtx5090" and a.pilot_task == kt.PILOT_TASK and a.out.endswith("kernel-rtx5090") and a.kernel.endswith("kernel_debug")
 
 
+def test_a_remote_world_is_probed_on_its_own_daemon(tmp_path):
+    """2026-10-24: the liveness probe asked the local daemon about the 5090's container, so every GPU episode was masked
+    as a dead World after its first step. The probe runs with the World's Docker environment."""
+    from crucible.factory.envs import world_alive
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "docker"
+    fake.write_text('#!/bin/sh\n[ "$DOCKER_HOST" = "unix:///remote.sock" ] && echo true && exit 0\nexit 1\n')  # running only on "the remote"
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    path = f"{bin_dir}:{os.environ['PATH']}"
+    remote_world = SimpleNamespace(_crucible_container="crucible-lh-k-ep-x", _crucible_env={**os.environ, "PATH": path, "DOCKER_HOST": "unix:///remote.sock"})
+    local_world = SimpleNamespace(_crucible_container="crucible-lh-k-ep-x", _crucible_env={**os.environ, "PATH": path, "DOCKER_HOST": ""})
+    assert asyncio.run(world_alive(remote_world)) is True and asyncio.run(world_alive(local_world)) is False
+
+
 def test_a_task_may_defer_its_own_checkpoints_through_the_env():
     from crucible.factory.checkpoint import CheckpointConfig
     from crucible.factory.envs import make_env
