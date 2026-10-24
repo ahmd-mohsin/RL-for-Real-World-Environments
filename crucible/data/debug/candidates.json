@@ -96,7 +96,8 @@
   "prompt": true,
   "fairness_flags": [],
   "shares_fixes_with": [
-   "db-go-go-toml-a02114e3-c1-ca64e3"
+   "db-go-go-toml-a02114e3-c1-ca64e3",
+   "db-go-go-toml-a02114e3-c1-ca64e3-k6-a6516d"
   ]
  },
  {
@@ -130,7 +131,43 @@
   "prompt": true,
   "fairness_flags": [],
   "shares_fixes_with": [
-   "db-go-go-toml-a02114e3"
+   "db-go-go-toml-a02114e3",
+   "db-go-go-toml-a02114e3-c1-ca64e3-k6-a6516d"
+  ]
+ },
+ {
+  "id": "db-go-go-toml-a02114e3-c1-ca64e3-k6-a6516d",
+  "lang": "go",
+  "repo": "go-toml",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 99,
+  "milestone_tests": 33,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-go-go-toml-a02114e3",
+   "db-go-go-toml-a02114e3-c1-ca64e3"
   ]
  },
  {
@@ -261,10 +298,12 @@
   ],
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-5e983709",
    "db-go-mvdan-sh-5e983709-k2-d61b1f",
-   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109"
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
   ]
  },
  {
@@ -301,10 +340,54 @@
   ],
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-5e983709",
    "db-go-mvdan-sh-5e983709-k2-d61b1f",
-   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109"
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "easy",
+  "faults": 2,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 35,
+  "milestone_tests": 25,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": true,
+  "gates_passed": [
+   "S6",
+   "S5",
+   "S8",
+   "S3",
+   "S10"
+  ],
+  "prompt": true,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-04056a74",
+   "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-23d1c659",
+   "db-go-mvdan-sh-5e983709",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
   ]
  },
  {
@@ -336,9 +419,11 @@
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
    "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-dc951aeb",
    "db-go-mvdan-sh-dc951aeb-k2-980fe7",
-   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f"
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f-k6-7f7cef"
   ]
  },
  {
@@ -376,8 +461,10 @@
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
    "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-5e983709-k2-d61b1f",
-   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109"
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
   ]
  },
  {
@@ -415,8 +502,10 @@
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
    "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-5e983709",
-   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109"
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
   ]
  },
  {
@@ -454,8 +543,45 @@
   "shares_fixes_with": [
    "db-go-mvdan-sh-04056a74",
    "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
    "db-go-mvdan-sh-5e983709",
-   "db-go-mvdan-sh-5e983709-k2-d61b1f"
+   "db-go-mvdan-sh-5e983709-k2-d61b1f",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109-k6-18a1d5",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 3,
+  "modules": 1,
+  "edges": 1,
+  "oracle_lines": 16,
+  "milestone_tests": 46,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [
+   "visible_test_data: the fixes' changes to syntax/filetests_test.go stay in the agent's tree (strip mode)"
+  ],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-04056a74",
+   "db-go-mvdan-sh-04056a74-k1-1c2768",
+   "db-go-mvdan-sh-04056a74-k1-1c2768-c1-0b22d9",
+   "db-go-mvdan-sh-5e983709",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f",
+   "db-go-mvdan-sh-5e983709-k2-d61b1f-k1-e4f109"
   ]
  },
  {
@@ -492,7 +618,8 @@
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-2d320f54",
    "db-go-mvdan-sh-dc951aeb-k2-980fe7",
-   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f"
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f-k6-7f7cef"
   ]
  },
  {
@@ -529,7 +656,8 @@
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-2d320f54",
    "db-go-mvdan-sh-dc951aeb",
-   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f"
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f-k6-7f7cef"
   ]
  },
  {
@@ -566,7 +694,40 @@
    "db-go-mvdan-sh-23d1c659",
    "db-go-mvdan-sh-2d320f54",
    "db-go-mvdan-sh-dc951aeb",
-   "db-go-mvdan-sh-dc951aeb-k2-980fe7"
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f-k6-7f7cef"
+  ]
+ },
+ {
+  "id": "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f-k6-7f7cef",
+  "lang": "go",
+  "repo": "mvdan-sh",
+  "split": "train",
+  "stage": "mutants_valid",
+  "skills": [
+   "multi_fault_localization",
+   "interacting_faults",
+   "reproduce_from_report",
+   "regression_safety"
+  ],
+  "level": "hard",
+  "faults": 4,
+  "modules": 2,
+  "edges": 2,
+  "oracle_lines": 68,
+  "milestone_tests": 41,
+  "cutoff": "2026-05-01",
+  "contamination": "post-release",
+  "gates_ok": null,
+  "gates_passed": null,
+  "prompt": false,
+  "fairness_flags": [],
+  "shares_fixes_with": [
+   "db-go-mvdan-sh-23d1c659",
+   "db-go-mvdan-sh-2d320f54",
+   "db-go-mvdan-sh-dc951aeb",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7",
+   "db-go-mvdan-sh-dc951aeb-k2-980fe7-k3-d4520f"
   ]
  },
  {
