@@ -123,6 +123,7 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_LIST", "bool", False, "kernel debug harness: list the case pool and run none", kind="internal"),
     Knob("CRUCIBLE_DUMP", "path", None, "kernel debug harness: file each case's outputs are dumped to", kind="internal"),
     Knob("CRUCIBLE_REPS", "int", 1, "kernel debug harness: exact repetitions per case (perf bars)", kind="internal"),
+    Knob("CRUCIBLE_HARNESS_REPOS", "path", None, "kernel lane: the local (gitignored) table of held-out repositories -> harness profile", kind="internal"),
     Knob("CRUCIBLE_BASE", "str", None, "verifiers box quiesce: space-separated pids of the box's own base processes, never killed", kind="internal"),
     Knob("CRUCIBLE_KILL", "str", None, "verifiers box quiesce: the kill command, always passed by the caller", kind="internal"),
     Knob("CRUCIBLE_FA_REF_CASES", "path", None, "kernel debug harness (reference build): file of FLASH_ATTN_EXT cases whose CPU column is "

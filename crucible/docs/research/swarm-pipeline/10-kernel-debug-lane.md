@@ -167,6 +167,53 @@ candidate, best of 3 rounds + a re-measure, load guard, spread check -> infra, l
 per GPU model). No GPU -> masked `no_gpu`; uncalibrated -> masked; never a 0 (V8). Reward 0.5 Phi + 0.5 [all], the lane
 convention.
 
+### 4.1 Harness profiles: a second repository plugs in (2026-10-24)
+
+Until now every piece of the grader assumed ggml's `tests/test-backend-ops.cpp`. A repository now plugs in through one
+`KernelHarness` profile (`factory/lanes/kernel_profiles.py`, standard library, bundled in the kit next to
+`kernel_harness`), as a language plugs into the debug lane through its `LangProfile`:
+
+| piece | the profile's part |
+|---|---|
+| build | `prepare` (B's harness written into the grader's tree), `cmake_cuda` / `cmake_cpu` / `host_flags`, `target`, `exe`, `device_glob` (the binary gate's files) |
+| case enumeration | `list_argv`, `listed` |
+| per-case run and dump | `argv(exe, mode, backend, cases_file)`, `env(seed, cases, dump, reps)`, `cases_file`, `status`, `crashed`, `read_dump` |
+| reference and tolerance | `compare`: `dump` profiles compare outputs with the reference build's reference column inside each case's tolerance; `status` profiles take the repository's own self-checking verdict, the reference build passing the case first (else infra) |
+| sanitizer cases | `sanitizer_argv` (cases from the calibration) |
+| perf | `perf` and `argv(mode="perf")` with `env(reps=)` |
+| input streams | `seeded`: a grading seed reaches every input (fresh seeds drawn at grading time), or the tests' own fixed seeds only |
+
+- **ggml is unchanged.** `GgmlHarness` delegates every call to `kernel_harness`, which stays the one implementation. The
+  grader's environment, command lines, paths and comparisons are the same values as before (tests freeze them), and the
+  reference's identity still hashes `kernel_harness` alone for ggml, so references built before profiles stay valid.
+  A spec without `harness` is ggml: every task built so far.
+- **`Catch2Harness`** is a CMake project whose GPU tests are self-checking Catch2 executables. The first is CCCL's CUB
+  (`catch2-cccl`, training; NVIDIA/cccl, Apache-2.0 with LLVM exception). Cases are Catch2 test cases selected through
+  `--input-file` (names escaped to match literally), and the verdict is Catch2's XML report. Inputs come from the tests'
+  own fixed seeds (`seeded` False), and there is no perf mode. CCCL developer builds need the CUDA host compiler equal to
+  the C++ compiler, CMake >= 3.30.4 for its test configuration, and Catch2 through CPM (`CPM_SOURCE_CACHE`): a grader
+  image for this profile carries that CMake and a pre-filled cache so candidate builds stay offline (not built yet).
+- **Held-out repositories** are named only in `crucible/data/kernel_debug/harness_repos.json` (gitignored; override
+  `CRUCIBLE_HARNESS_REPOS`); code and docs say `<held-out kernel repo>`.
+
+**Supply** (post-2026-05-01 commits whose subject reads as a fix and that change `.cu`/`.cuh` and tests; bare blob-less
+clones, 2026-10-24): CCCL 77 (19 with a CUB device-code change and a CUB Catch2 test: DeviceFind, ReduceByKey,
+DeviceHistogram x4, merge sort, cooperative reductions, `Uninitialized` alignment), the held-out candidate 82 (48 not on
+sm_100/sm_103-only, multi-GPU or TMEM paths), then sglang 24, vllm 17, cuvs 15, warp 14, TransformerEngine 8,
+cuCollections 3, faiss 2, cutlass 1, DeepGEMM 1, flash-attention 0.
+
+**Smoke on the RTX 5090** (`scripts/lh_kernel_harness_smoke.py`, every flag, target, command and parser from the profile;
+`runs/kernel_harness_smoke_cccl.json`): B = `6ad0be74` (CUB ReduceByKey compared keys after converting them to a lossy
+output key type), A' = B with `cub/cub/agent/agent_reduce_by_key.cuh` from its parent and B's test kept. Both trees build
+`cub.test.device.reduce_by_key.lid_0.types_0` for `120a-real` (115 steps each); 3 cases listed; B passes 3/3, A' 2/3. The
+one case the revert breaks is the fix's own test ("compares keys before converting them to the output key type"); the
+other two pass on both.
+
+**Not wired yet:** the CPU gates and mining still read ggml only (`kernel_debug_world`, `kernel_debug_mine`); a status
+profile goes straight to the GPU gates once a builder writes its milestones (`harness_tests`: test source -> [target,
+exe]); the grader image for CCCL (CMake 3.31, CPM cache); a profile for the held-out repository (its tests are pytest
+over a JIT-compiled extension, so a `pytest` status profile with the package built per candidate).
+
 ## 5. CPU gates now, GPU gates bundled
 
 | state | CPU (here, Docker, aarch64 CUDA devel images, no GPU) | GPU (bundle) |

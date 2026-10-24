@@ -1128,6 +1128,7 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   (2-4 real toolkit-migration commits reverted at B: CUDA 12 -> 13 / CCCL 3 removals, CUDA 11 -> 12 texture/warp changes,
   merged into multi-program windows on the kernel-migration machinery). Training: ggml-org/llama.cpp and the two
   migration repos; held out: ikawrakow/ik_llama.cpp (disjoint repository and commits, same harness type), sealed by the lease.
+- **Harness profiles (2026-10-24, doc 10 §4.1):** a repository plugs in through a `KernelHarness` profile (`factory/lanes/kernel_profiles.py`: build, case listing, per-case run and dump, reference and tolerance as `dump` or `status` comparison, sanitizer run, perf, seeded or fixed inputs). `GgmlHarness` delegates to `kernel_harness` unchanged (same environment, commands and verdicts; the ggml reference identity unchanged); `Catch2Harness` runs self-checking Catch2 GPU tests, first CCCL's CUB (`catch2-cccl`, training), smoked on the 5090 (ReduceByKey `6ad0be74`: B 3/3, revert 2/3, the fix's own case broken). Held-out repositories are named only in the gitignored `data/kernel_debug/harness_repos.json`.
 - **Harness and grader:** the repository's own op test (`test-backend-ops`) as of B, owned by the grader and patched in
   two layouts (seeded inputs, case selection and listing, dumps, exact repetitions; anchored repairs where a fork's file
   no longer compiles); the grader builds the candidate's CUDA backend only (everything else from the start tree) with

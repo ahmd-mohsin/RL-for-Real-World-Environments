@@ -45,6 +45,7 @@ from pathlib import Path
 
 from crucible.factory.lanes import kernel_harness as kh
 from crucible.factory.lanes import kernel_plan as kp
+from crucible.factory.lanes import kernel_profiles as kprof
 from crucible.verify.runtime.patterns.compare import safe_read
 from crucible.verify.runtime.patterns.differential import draw_seed
 from crucible.verify.runtime.patterns.perf import LoadGuard, PerfBars
@@ -98,6 +99,7 @@ def perf_groups(key: str, cases: list[str], each: bool) -> dict[str, list[str]]:
 class KDGrader:
     def __init__(self, ctx: Context, spec: dict):
         self.ctx, self.spec, self.t = ctx, spec, ctx.trusted
+        self.h = kprof.of_spec(spec)  # the repository's harness profile (absent: ggml, every task built before profiles)
         self.arch = str(ctx.params.get("arch") or os.environ.get("CRUCIBLE_CUDA_ARCH") or spec.get("arch_default") or "90")
         self.ref = Path(ctx.params.get("ref") or "/k/ref")
         self.base = Path(ctx.params.get("base_tree") or "/k/base")
@@ -134,7 +136,7 @@ class KDGrader:
         harness = self.ref / "harness.cpp"
         if not harness.is_file():
             raise InfraError("the reference bundle has no patched harness")
-        kh.prepare_tree(src, harness.read_text(errors="replace"))
+        self.h.prepare(src, harness.read_text(errors="replace"))
         self.t.give(src)
         return src
 
@@ -147,7 +149,7 @@ class KDGrader:
             raise InfraError(f"no CUDA compiler at {nvcc}")
         # the compiler is named: the trusted runner's PATH has no toolkit directory, and CMake would score its absence
         # static libraries: sealing removes the build's symlinks, so shared libraries' SONAME links would be gone
-        flags, env = [*kh.cmake_cuda([self.arch]), f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DBUILD_SHARED_LIBS=OFF", *(self.spec.get("cmake_extra") or [])], {}
+        flags, env = [*self.h.cmake_cuda([self.arch]), f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DBUILD_SHARED_LIBS=OFF", *(self.spec.get("cmake_extra") or [])], {}
         if self.ctx.params.get("ccache"):  # the bundle's gate runs (the grader's own patches) only, never a task grade
             flags += kh.cmake_ccache()
             env = {"CCACHE_DIR": str(self.ctx.params["ccache"]), "CCACHE_BASEDIR": str(self.work), "CCACHE_NOHASHDIR": "1", "CCACHE_UMASK": "000",
@@ -156,17 +158,17 @@ class KDGrader:
         if cfg.rc != 0:
             self.t.seal(bld)
             return Verdict(False, {"stage": "configure", "rc": cfg.rc, "log": cfg.log[-2000:]})
-        r = self.t.run(["cmake", "--build", bld, "--target", kh.TARGET, "-j", jobs], cwd=bld, timeout=5400, candidate=True, env=env)
+        r = self.t.run(["cmake", "--build", bld, "--target", self.h.target, "-j", jobs], cwd=bld, timeout=5400, candidate=True, env=env)
         self.t.seal(bld)
-        exe = bld / "bin" / kh.TARGET
+        exe = bld / self.h.exe
         ok = r.rc == 0 and not r.timed_out and exe.is_file()
         errs = [ln for ln in r.log.splitlines() if re.search(r"\berror\b", ln)][:20]
         if ok:
-            self.exe, self.lib_dir = exe, bld / "bin"
+            self.exe, self.lib_dir = exe, exe.parent
         return Verdict(ok, {"stage": "build", "rc": r.rc, "errors": errs, "log": "" if ok else r.log[-2000:]})
 
     def binary(self) -> Verdict:
-        libs = sorted(p for p in (self.lib_dir or Path("/nonexistent")).glob("libggml-cuda*") if p.is_file())
+        libs = sorted(p for p in (self.lib_dir or Path("/nonexistent")).glob(self.h.device_glob) if p.is_file()) if self.h.device_glob else []
         targets = libs or ([self.exe] if self.exe else [])
         sms, ptxs = set(), set()
         for f in targets:
@@ -181,16 +183,11 @@ class KDGrader:
 
     # -- runs
     def _env(self, seed: int, cases_file: Path, dump: Path | None, *, reps: int = 0) -> dict:
-        env = {"CRUCIBLE_SEED": str(seed), "CRUCIBLE_CASES": str(cases_file), "GGML_CUDA_DISABLE_GRAPHS": "1", "CUDA_DISABLE_PTX_JIT": "1"}
-        if dump is not None:
-            env["CRUCIBLE_DUMP"] = str(dump)
-        if reps:
-            env["CRUCIBLE_REPS"] = str(reps)
-        return env
+        return self.h.env(seed, cases_file, dump, reps=reps)
 
     def _cases_file(self, d: Path, cases: list[str]) -> Path:
         f = d / "cases.txt"
-        f.write_text(kh.cases_file(cases))
+        f.write_text(self.h.cases_file(cases))
         os.chmod(f, 0o644)
         return f
 
@@ -208,27 +205,31 @@ class KDGrader:
             return self.refs[key]
         d = self.t.private(self.work / "ref" / f"{tag}-{seed}-{mode}-{reps}{'-x' if exact else ''}")
         cf = self._cases_file(d, cases)
+        dump = dump and self.h.compare_mode == "dump"  # a status profile's verdict is its own report: nothing is dumped
         dump_f = d / "ref.dump" if dump else None
         # the reference's libraries sit next to it (its build directory, which the RPATH names, is gone)
         env = {**self._env(seed, cf, dump_f, reps=reps), "LD_LIBRARY_PATH": str(self.ref / "bin")}
         if exact:
             xf = d / "fa_exact.txt"
-            xf.write_text(kh.cases_file(exact))
-            env[kh.FA_REF_ENV] = str(xf)
-        r = self.t.run([self.ref / "bin" / kh.TARGET, mode, "-b", "CUDA0"], cwd=d, env=env, timeout=3600)
+            xf.write_text(self.h.cases_file(exact))
+            env[self.h.FA_REF_ENV] = str(xf)
+        r = self.t.run(self.h.argv(self.ref / self.h.exe, mode, "CUDA0", cf), cwd=d, env=env, timeout=3600)
         if r.timed_out:
             raise InfraError(f"the reference timed out on {tag}")
         if dump_f and dump_f.exists() and dump_f.stat().st_size > MAX_DUMP:
             dump_f.unlink()
             raise _DumpTooBig(tag)
-        recs = kh.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
+        recs = self.h.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
         if dump_f:
             dump_f.unlink(missing_ok=True)
-        res = {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "rc": r.rc, "crashed": kh.crashed_case(r.stdout) if r.rc else None,
-               "exact": sorted(set(kh.EXACT_LINE.findall(r.log)))}
+        exact_line = getattr(self.h, "EXACT_LINE", None)
+        res = {"recs": recs, "wall_s": r.wall_s, "status": self.h.status(r.stdout), "rc": r.rc, "crashed": self.h.crashed(r.stdout) if r.rc else None,
+               "exact": sorted(set(exact_line.findall(r.log))) if exact_line else []}
         # pool mode: a chunk whose cases this backend does not support at all leaves no output, and those cases leave the pool
         if dump and cases and not recs and not res["crashed"] and not (self.mode == "pool" and res["status"] and set(res["status"].values()) <= {"not supported"}):
             raise InfraError(f"the reference produced no output for {tag} (rc {r.rc}): {r.log[-300:]}")
+        if self.h.compare_mode == "status" and cases and not res["status"] and not res["crashed"]:
+            raise InfraError(f"the reference reported no case for {tag} (rc {r.rc}): {r.log[-300:]}")
         if cache:
             self.refs[key] = res
         return res
@@ -237,18 +238,19 @@ class KDGrader:
                  launches: bool = True, timeout: float = 3600) -> tuple[dict, object]:
         d = self.t.udir(self.work / "cand" / f"{tag}-{seed}-{mode}-{reps}-{len(wrap or [])}")
         cf = self._cases_file(d, cases)
+        dump = dump and self.h.compare_mode == "dump"
         dump_f = d / "cand.dump" if dump else None
         env = {**self._env(seed, cf, dump_f, reps=reps), "LD_LIBRARY_PATH": str(self.lib_dir)}
         if launches:
             env["CUDA_INJECTION64_PATH"] = str(self.hooks / "libcrucible_launch.so")
             env["CRUCIBLE_LAUNCH_LOG"] = str(d / "launches.tsv")
-        r = self.t.run([*(wrap or []), self.exe, mode, "-b", "CUDA0"], cwd=d, env=env, timeout=timeout, candidate=True)
+        r = self.t.run([*(wrap or []), *self.h.argv(self.exe, mode, "CUDA0", cf)], cwd=d, env=env, timeout=timeout, candidate=True)
         self.t.seal(d)
-        recs = kh.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
+        recs = self.h.read_dump(safe_read(dump_f)) if dump_f and dump_f.exists() else []
         if dump_f:
             dump_f.unlink(missing_ok=True)
         n_launch = sum(kp.read_launches(d / "launches.tsv").values()) if launches else None
-        return {"recs": recs, "wall_s": r.wall_s, "status": kh.case_status(r.stdout), "launches": n_launch}, r
+        return {"recs": recs, "wall_s": r.wall_s, "status": self.h.status(r.stdout), "launches": n_launch}, r
 
     # -- checks
     def cases_of(self, m: dict) -> list[str]:
@@ -295,7 +297,7 @@ class KDGrader:
         # a candidate that takes ten times the reference's wall time plus a minute on a correctness chunk is hung (a faulty
         # kernel that never returns): the chunk fails instead of holding the GPU for the default hour
         cand, r = self.run_cand(tag, cases, seed, timeout=max(120.0, 10 * float(ref.get("wall_s") or 0) + 60))
-        return {"cmp": kh.compare_dumps(cand["recs"], ref["recs"], cases=cases), "launches": cand["launches"], "rc": [r.rc], "timed_out": r.timed_out}
+        return {"cmp": self.h.compare(cand, ref, cases), "launches": cand["launches"], "rc": [r.rc], "timed_out": r.timed_out}
 
     def golden(self, m: dict) -> Verdict:
         cases = self.cases_of(m)
