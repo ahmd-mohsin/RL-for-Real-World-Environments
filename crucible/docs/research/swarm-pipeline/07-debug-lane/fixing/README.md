@@ -1,6 +1,7 @@
 # Fixing the debug-lane tasks: how we do it
 
-Status 2026-10-23. Uzair fixed the first four; Haseeb and Azaan take the rest (`haseeb.md`, `azaan.md`). Worked examples,
+Status 2026-10-24. Uzair's eight tasks are fixed and kept (plain summary: `uzair-fixed-tasks.md`); Haseeb and Azaan take
+the rest (`haseeb.md`, `azaan.md`). Worked examples,
 one per task, are in `notes/`; the bug reports we wrote for the changed tasks are in `prompts/` (copy their shape). Paths
 under `crucible/data/debug-uzair/` and `crucible/data/targeting/uzair*` in the notes are on Uzair's machine (gitignored).
 
@@ -16,6 +17,7 @@ Ahmed's 17 non-GPU debugging tasks (10 training, 7 held out) had **0 kept**. Now
 | `db-node-h3-a6cd4654` (benchmark) | unchanged task; fixed a changelog hint and two Node environment bugs |
 | `db-go-excelize-824ac2ce-d1` (benchmark) | applied the two undone fixes the report never described; student 2/8, DeepSeek 2/2 |
 | `db-go-excelize-65be17e3-d1` (benchmark) | applied the undescribed VALUE fix; added the missing "OR returns a logical" rule; student 0/8, DeepSeek 1/2 |
+| `db-go-mvdan-sh-02a801cd-e10` (training) | stale tests that expected the bugs hidden (`--hide-tests`); kept Ahmed's `;|` and end-position bugs, added two real ones (-nt/-ot, type prefix); student 3/8, DeepSeek 2/2 |
 | `db-go-carbon-a783fb3a-h5` (training) | carbon moved to training; 4 bugs added step by step (lunar, minute DST, SQL NULL, same decade); student 1/8, DeepSeek 2/2 |
 
 Before the lead's call below, pulldown-cmark, unstorage, echo and the tasks whose "link" between bugs turned out fake
