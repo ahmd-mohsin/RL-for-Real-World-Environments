@@ -1,0 +1,284 @@
+#!/usr/bin/env python
+"""Crucible RL on DeltaAI: prime-rl's GPU trainer and vLLM server under Crucible's loop (swarm-pipeline/14).
+
+Every training flag is ``tinker_rl.py train``'s (shared builders ``add_common`` / ``add_train_flags`` / ``train_config``),
+so a run means the same on both backends; the deployment adds its own (``--train-gpus --infer-gpus --ep --cp --seq-len
+--kl-coeff --time``). The account is ``bjhg-dtai-gh`` (CIS262200) and nothing else (``deploy.DeltaConfig``).
+
+Commands:
+
+- ``plan --steps 30 --groups-per-step 4 --group 8 [--balance 991]``: GPU-hours per step and for the run (an estimate,
+  stated as one), against the account's balance less a benchmark reserve. No cluster access.
+- ``render --rows ROWS.jsonl --targeting T.json --run-name NAME --stage DIR [--resume-step S]``: ``trainer.toml``,
+  ``inference.toml``, ``job.sbatch``, ``deploy.json`` in ``DIR``; prints the submit command (``deploy.submit_command``:
+  ``env -u SBATCH_ACCOUNT ... sbatch --account=bjhg-dtai-gh``). Held-out tasks and tasks without a band are refused.
+- ``render-smoke --stage DIR --run-name NAME``: the plumbing smoke on a small model (default ``Qwen/Qwen3-0.6B``, 1 GPU
+  trainer + 1 GPU vLLM on the ``test`` partition): install prime-rl at the pin, two RL steps, the trainer killed and
+  relaunched from its checkpoint, one more step (``smoke``).
+- ``train ...`` (on the compute node, inside the job): the Tinker loop over ``PrimeRLBackend``.
+- ``smoke --out OUT [--resume REF]`` (on the compute node): ``train.bridges.primerl.smoke.run``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import importlib.util
+import json
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+
+def _tinker_cli():
+    spec = importlib.util.spec_from_file_location("tinker_rl", ROOT / "scripts" / "tinker_rl.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def add_deploy_flags(p) -> None:
+    from crucible.train.bridges.primerl.deploy import DeltaConfig
+
+    d = DeltaConfig()
+    p.add_argument("--base-model", default=d.base_model, help="the HF repo vLLM and the trainer load")
+    p.add_argument("--partition", default=d.partition)
+    p.add_argument("--nodes", type=int, default=d.nodes)
+    p.add_argument("--train-gpus", type=int, default=d.train_gpus)
+    p.add_argument("--infer-gpus", type=int, default=d.infer_gpus)
+    p.add_argument("--ep", type=int, default=d.ep)
+    p.add_argument("--cp", type=int, default=d.cp)
+    p.add_argument("--infer-tp", type=int, default=d.infer_tp)
+    p.add_argument("--seq-len", type=int, default=d.seq_len)
+    p.add_argument("--kl-coeff", type=float, default=d.kl_coeff, help="sampler-learner anchor β (0: off)")
+    p.add_argument("--time", default=d.time)
+    p.add_argument("--workdir", default=d.workdir)
+
+
+def delta_config(args):
+    from crucible.train.bridges.primerl.deploy import DeltaConfig
+
+    return DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=args.nodes, train_gpus=args.train_gpus, infer_gpus=args.infer_gpus,
+                       ep=args.ep, cp=args.cp, infer_tp=args.infer_tp, seq_len=args.seq_len, lora_rank=args.rank, kl_coeff=args.kl_coeff, time=args.time,
+                       workdir=args.workdir)
+
+
+def cmd_plan(args) -> None:
+    from crucible.train.bridges.primerl.deploy import plan
+
+    p = plan(steps=args.steps, tasks_per_step=args.groups_per_step, group_size=args.group, d=delta_config(args), balance=args.balance)
+    print(json.dumps(asdict(p), indent=1))
+
+
+def setup_lines(d, *, version: str) -> str:
+    """Install prime-rl at the pin and Crucible's source (no deps beyond its light core) inside the job, once."""
+    w = d.workdir
+    return f"""export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH
+[ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
+if [ ! -f {w}/prime-rl/.crucible-installed-{version} ]; then
+  mkdir -p {w} && cd {w}
+  [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
+  cd prime-rl && git submodule update --init --depth 1 -- deps/verifiers deps/renderers deps/pydantic-config
+  uv sync --all-extras
+  uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill
+  touch {w}/prime-rl/.crucible-installed-{version}
+fi
+cd {w}/prime-rl
+export PYTHONPATH={w}/crucible/src  # Crucible's source (rsynced); the trainer imports its loss from here
+"""
+
+
+def passthrough(argv: list[str]) -> list[str]:
+    """The ``render`` arguments the in-job ``train`` takes: the staging-only flags (with their values) removed."""
+    out, skip = [], False
+    for a in argv:
+        if skip:
+            skip = False
+            continue
+        if a in ("--stage", "--resume-step"):
+            skip = True
+            continue
+        if a.startswith(("--stage=", "--resume-step=")):
+            continue
+        out.append(a)
+    return out
+
+
+def cmd_render(args) -> None:
+    from crucible.train.bridges.primerl.deploy import PRIME_RL_VERSION, refuse_tasks, render, submit_command
+
+    tl = _tinker_cli()
+    cfg = tl.train_config(args)
+    d = delta_config(args)
+    if args.rows:
+        tasks = tl._tasks_from_rows(args)
+        targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
+        bad = refuse_tasks(tasks, targeting, cfg.model, require_band=cfg.require_band)
+        if bad:
+            sys.exit("refused: " + "; ".join(bad[:8]))
+    out = Path(d.workdir) / "runs" / args.run_name
+    cmd = f"uv run python {d.workdir}/crucible/scripts/delta_rl.py train --run-dir {out}/crucible --primerl-out {out} " + " ".join(passthrough(sys.argv[2:]))
+    paths = render(cfg, d, Path(args.stage), run_name=args.run_name, crucible_cmd=cmd, resume_step=args.resume_step,
+                   setup=setup_lines(d, version=PRIME_RL_VERSION))
+    print(json.dumps({k: str(v) for k, v in paths.items()} | {"submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
+
+
+def cmd_render_smoke(args) -> None:
+    import tomli_w
+
+    from crucible.train.bridges.primerl.deploy import PRIME_RL_VERSION, DeltaConfig, inference_toml, submit_command, trainer_toml
+    from crucible.train.bridges.tinker.trainer import TrainConfig
+
+    d = DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=1, train_gpus=1, infer_gpus=1, ep=1, cp=1, infer_tp=1, seq_len=4096,
+                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100)
+    cfg = TrainConfig(model="Qwen/Qwen3.6-35B-A3B", lora_rank=16, steps=3, learning_rate=args.lr, loss_fn="importance_sampling", require_band=False)
+    out = Path(d.workdir) / "runs" / args.run_name
+    stage = Path(args.stage)
+    stage.mkdir(parents=True, exist_ok=True)
+    t0 = trainer_toml(cfg, d, out)
+    t0["model"].pop("ep")
+    t0["model"].pop("cp")
+    t0["model"]["attn"] = "sdpa"
+    t1 = json.loads(json.dumps(t0))
+    t1["resume"] = {"step": 1}  # the checkpoint of step 1 (the second step): the relaunched trainer continues at step 2
+    inf = inference_toml(cfg, d)
+    (stage / "trainer.toml").write_text(tomli_w.dumps(t0))
+    (stage / "trainer_resume.toml").write_text(tomli_w.dumps(t1))
+    (stage / "inference.toml").write_text(tomli_w.dumps(inf))
+    py = f"uv run python {d.workdir}/crucible/scripts/delta_rl.py smoke --base-model {d.base_model} --lr {args.lr} --primerl-out {out}"
+    job = f"""#!/bin/bash
+#SBATCH --job-name=crucible-rl-smoke
+#SBATCH --account={d.account}
+#SBATCH --partition={d.partition}
+#SBATCH --nodes=1
+#SBATCH --gpus-per-node=2
+#SBATCH --cpus-per-gpu=16
+#SBATCH --mem=200G
+#SBATCH --time={d.time}
+#SBATCH --output={out}/slurm-%j.out
+set -uo pipefail
+unset SBATCH_ACCOUNT SLURM_ACCOUNT
+mkdir -p {out}
+{setup_lines(d, version=PRIME_RL_VERSION)}
+echo "=== versions"; uname -m; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; uv run python -c "import torch, vllm; print(torch.__version__, torch.version.cuda, vllm.__version__)"
+CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
+INF=$!
+CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
+TRN=$!
+for i in $(seq 1 180); do curl -sf localhost:{d.port}/health > /dev/null && break; sleep 10; done
+echo "=== phase 1: two steps"
+{py} --steps 2 --report {out}/smoke1.json
+kill $TRN; wait $TRN 2>/dev/null
+echo "=== phase 2: trainer relaunched from its step-1 checkpoint"
+CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer_resume.toml > {out}/trainer_resume.log 2>&1 &
+TRN=$!
+{py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
+RC=$?
+kill $INF $TRN 2>/dev/null || true
+echo "=== done rc=$RC"
+exit $RC
+"""
+    (stage / "job.sbatch").write_text(job)
+    print(json.dumps({"stage": str(stage), "cluster_out": str(out), "submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
+
+
+def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int):
+    from crucible.train.bridges.primerl.backend import FileIO, HttpClient, PrimeRLBackend
+
+    return PrimeRLBackend(io=FileIO(Path(args.primerl_out), ranks=ranks, seq_len=seq_len, model=args.base_model),
+                          http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss)
+
+
+def cmd_smoke(args) -> None:
+    from transformers import AutoTokenizer
+
+    from crucible.train.bridges.primerl.smoke import run
+
+    tok = AutoTokenizer.from_pretrained(args.base_model)
+
+    def encode(text: str) -> list[int]:
+        msgs = [{"role": "user", "content": text}]
+        try:
+            return list(tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False))
+        except TypeError:
+            return list(tok.apply_chat_template(msgs, add_generation_prompt=True))
+
+    resume = sampler_path = None
+    if args.resume_from:
+        prev = json.loads(Path(args.resume_from).read_text())
+        resume, sampler_path = prev["last_checkpoint"], prev["last_adapter"]
+    b = _backend(args, lr=args.lr, loss="importance_sampling", ranks=1, seq_len=4096)
+    out = asyncio.run(run(b, encode=encode, decode=lambda ids: tok.decode(list(ids), skip_special_tokens=True), model="Qwen/Qwen3.6-35B-A3B",
+                          steps=args.steps, learning_rate=args.lr, resume=resume, sampler_path=sampler_path, rank=16))
+    Path(args.report).write_text(json.dumps(out, indent=1, default=str))
+    print(json.dumps(out, indent=1, default=str)[:6000])
+
+
+def cmd_train(args) -> None:
+    from crucible.factory.tinker import train
+    from crucible.train.bridges.primerl.backend import local_model
+
+    tl = _tinker_cli()
+    cfg = tl.train_config(args)
+    d = delta_config(args)
+    tasks = tl._tasks_from_rows(args)
+    targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
+    b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len)
+    out = asyncio.run(train(tasks, config=cfg, run_dir=Path(args.run_dir), targeting=targeting, observe=tl._observe(args), backend=b,
+                            model=local_model(cfg.model, context=d.seq_len), **tl._envs_kw(args)))
+    tl.write(Path(args.run_dir) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})
+
+
+def main() -> None:
+    tl = _tinker_cli()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("plan")
+    tl.add_common(p, cap=1e9)
+    tl.add_train_flags(p)
+    add_deploy_flags(p)
+    p.add_argument("--balance", type=float, help="the account's GPU-hours left (accounts | grep bjhg)")
+    p.set_defaults(fn=cmd_plan)
+    p = sub.add_parser("render")
+    tl.add_common(p, cap=1e9)
+    tl.add_train_flags(p)
+    add_deploy_flags(p)
+    p.add_argument("--run-name", required=True)
+    p.add_argument("--stage", required=True, help="local directory the files are written to (rsync it to the run directory)")
+    p.add_argument("--resume-step", type=int)
+    p.set_defaults(fn=cmd_render)
+    p = sub.add_parser("render-smoke")
+    p.add_argument("--base-model", default="Qwen/Qwen3-0.6B")
+    p.add_argument("--partition", default="test")
+    p.add_argument("--time", default="01:45:00")
+    p.add_argument("--workdir", default="/work/hdd/bjhg/mahmedmohsin/crucible-train")
+    p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--run-name", default="smoke")
+    p.add_argument("--stage", required=True)
+    p.set_defaults(fn=cmd_render_smoke)
+    for name, fn in (("train", cmd_train), ("smoke", cmd_smoke)):
+        p = sub.add_parser(name)
+        p.add_argument("--primerl-out", required=True, help="the prime-rl trainer's output_dir")
+        p.add_argument("--port", type=int, default=8000)
+        if name == "train":
+            tl.add_common(p, cap=1e9)
+            tl.add_train_flags(p)
+            add_deploy_flags(p)
+            p.add_argument("--run-dir", required=True)
+            p.add_argument("--run-name", help="recorded; the run directory is --run-dir")
+        else:
+            p.add_argument("--base-model", default="Qwen/Qwen3-0.6B")
+            p.add_argument("--lr", type=float, default=1e-4)
+            p.add_argument("--steps", type=int, default=2)
+            p.add_argument("--resume-from")
+            p.add_argument("--report", required=True)
+        p.set_defaults(fn=fn)
+    args = ap.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

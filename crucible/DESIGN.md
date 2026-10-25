@@ -894,6 +894,33 @@ non-Claude model (difficulty ladder, cross-family roles):
   `gen` await, so concurrent episodes reset it (prefix breaks, masked episodes); `LLMToolPolicy._final_status_turn`
   ignored the engine's new-segment flag, so every limit-stopped episode on an "interleaved" template was masked.
 
+The DeltaAI trainer bridge (`train/bridges/primerl/`, `scripts/delta_rl.py`; `docs/research/swarm-pipeline/14`;
+2026-10-25; the user's decision: RL on DeltaAI GPUs, Tinker for task creation). prime-rl v0.10.0 (Apache-2.0; DEPEND on
+the cluster, imported lazily) was chosen over slime, verl, SkyRL and NeMo-RL. It models the student's `qwen3_5_moe`
+natively, has grouped-expert LoRA in vLLM's adapter format, ring CP for 100K+ sequences, aarch64 wheels, a Slurm
+launcher, filesystem transports and an import-path loss.
+- **Crucible keeps its loop.** `TinkerTrainer` runs unchanged over `PrimeRLBackend`, the `Backend` protocol over vLLM
+  `/v1/completions` (token ids in and out) and prime-rl's batch / broadcast handshake:
+  - `batches/step_<s>/rank_<i>.bin`, packed by prime-rl's `prepare_batch`;
+  - `broadcasts/step_<s>` (`.sender_ready` -> `.receiver_ready` -> `.finished`);
+  - `/load_lora_adapter`, one name per version, so stale groups keep their adapter;
+  - prime-rl's own checkpoint per step for resume.
+
+  So groups, filters, quarantine, the difficulty sampler, M6 credit, honesty and resume are shared code. A test pins that
+  the bridge trains the same datums, token for token, that Tinker receives. `TinkerTrainer(model=)` takes a row other
+  than the price table's: `local_model`, zero priced, since GPU hours are the cost.
+- **The loss** (`primerl/loss.crucible_loss`, prime-rl's custom loss): Tinker's `importance_sampling` / `ppo` / `cispo`
+  plus a stable_reinforce-style sampler anchor β·Σ(log q − log p_θ) (`--kl-coeff`). Advantages leave multiplied by the
+  step's trainable-token count (`wire.undo_token_mean`), cancelling prime-rl's division, so `loss_scale` is exact.
+- **Deployment** (`primerl/deploy.py`): `DeltaConfig` accepts account `bjhg-dtai-gh` only. The submit unsets the login
+  environment's `SBATCH_ACCOUNT`, and memory is requested per GPU. One node runs 2 trainer GPUs (`ep = 2`, `cp = 2`,
+  262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes).
+- **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
+  recommended first run is 40 steps, about 165 of the 976 hours left.
+- **CLI**: `delta_rl.py` takes `tinker_rl.py train`'s flags unchanged, through the shared builders `add_common` /
+  `add_train_flags` / `train_config`, plus the deployment's. The smoke runs on `ghx4-interactive`, since `test` is closed
+  to the account.
+
 Observability (`src/crucible/observe/`, `scripts/observe.py`; `docs/research/swarm-pipeline/11`; 2026-10-20). Every result,
 graph and agent trace goes to Weights & Biases through one module (an import-linter contract forbids `wandb` / `weave`
 anywhere else; the layer sits below `workflow`, above `connectors | signals`, so every producer reaches it):
