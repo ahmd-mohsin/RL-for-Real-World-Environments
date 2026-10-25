@@ -62,7 +62,12 @@ def main() -> None:
         from crucible.factory import benchaudit as ba
 
         d = a.data
-        tasks = ba.load_debug(d / "debug/gen/store/heldout") + ba.load_kernel(d / "kernel_debug/store/heldout")
+        from crucible.factory.lanes.windows import split_of
+
+        # a held-out store can still hold windows of a repo the lead has since moved to training (carbon, 2026-10-23):
+        # those are no longer held out, so they are not fingerprinted
+        tasks = [t for t in ba.load_debug(d / "debug/gen/store/heldout") if split_of(t.repo) == "heldout"]
+        tasks += ba.load_kernel(d / "kernel_debug/store/heldout")
         key = None
         try:
             from crucible.bench.dynamic import load_key
