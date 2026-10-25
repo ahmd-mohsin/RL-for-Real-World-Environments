@@ -354,7 +354,7 @@ def visible_test_changes(rec: Mapping[str, Any], repo: RepoGit) -> list[str]:
         return []
     from crucible.factory.generators.base import changed_paths, commit_meta
 
-    shown = set(rec.get("tests_b") or {}) | set(hidden.get("visible_stripped") or {})
+    shown = set(rec.get("tests_b") or {}) | set(hidden.get("visible_stripped") or {}) | set(hidden.get("table_entries_stripped") or {})
     out: set[str] = set()
     with scope(str(rec.get("lang") or "python")) as prof:
         for f in info.get("fixes") or []:
