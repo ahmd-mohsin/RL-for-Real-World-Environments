@@ -283,8 +283,9 @@ def test_go_strip_mode_removes_the_fixes_table_entries() -> None:
     half = [["\t{", "\t\t\"{ foo; } && (bar)\","]]  # an entry's opening without its closing: left alone
     assert strip_table_entries(text, half) == (text, 0)
     assert strip_table_entries(text, [["func helper() {"]]) == (text, 0)  # not inside a table
-    # a changed line inside a multi-line entry is not a whole element: removing it would leave {"in", } (too few values)
-    assert strip_table_entries(text, [["\t\t\"{ foo; } && (bar)\","]]) == (text, 0)
+    # a changed line inside a multi-line entry takes the whole entry (never half: {"in", } would have too few values)
+    out, n = strip_table_entries(text, [["\t\t\"{ foo; } && (bar)\","]])
+    assert n == 4 and "(bar)\",\n" not in out.split("func helper")[0] and "\t{\"if a; then b; fi\"" in out
 
 
 def test_profiles_registry() -> None:

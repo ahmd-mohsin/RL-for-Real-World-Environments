@@ -180,8 +180,9 @@ def strip_table_entries(text: str, runs: Sequence[Sequence[str]]) -> tuple[str, 
     """Strip mode's residue in Go: the table entries a fix added or changed stay readable in the agent's tree when only the
     test functions are stripped (mvdan-sh dc951aeb-e1, 2026-10-24: the fixes' printer cases sat in package-level tables of
     files whose functions were stripped). ``runs`` are the fix diffs' runs of consecutive added lines; each run found as a
-    contiguous block inside a package-level table, whose brackets (outside string literals) balance, is removed: whole
-    entries only, never half of one. Returns the text and the number of lines removed."""
+    contiguous block inside a package-level table is removed with the whole entries it belongs to (a changed line inside a
+    multi-line entry takes that entry), only when the removed block's brackets (outside string literals) balance at the
+    table's element level: never half an entry. Returns the text and the number of lines removed."""
     raw = text.splitlines(keepends=True)
     masked = _code_lines(text)
     spans = table_spans(text)
@@ -201,11 +202,17 @@ def strip_table_entries(text: str, runs: Sequence[Sequence[str]]) -> tuple[str, 
                         and not drop & set(range(i, i + len(want)))), None)
             if hit is None:
                 continue
-            idx = range(hit, hit + len(want))
-            # whole elements only: the run starts at the table's element level, closes every bracket it opens, and
-            # ends an element (a changed line inside a multi-line entry would leave ``{"in", }``: too few values)
-            whole = (depth_at[hit] == 1 and [sum(_counts(masked[i])[x] for i in idx) for x in range(3)] == [0, 0, 0]
-                     and masked[hit + len(want) - 1].rstrip().endswith(","))
+            lo, hi = hit, hit + len(want)  # [lo, hi)
+            if depth_at[lo] > 1:  # a changed line inside a multi-line entry: the whole entry goes (its want string changed)
+                while lo > a + 1 and depth_at[lo] > 1:
+                    lo -= 1
+                while hi < b - 1 and (depth_at.get(hi, 1) > 1 or not masked[hi - 1].rstrip().endswith(",")):
+                    hi += 1
+            idx = range(lo, hi)
+            # whole elements only: the block starts at the table's element level, closes every bracket it opens, and
+            # ends an element (half an entry would leave ``{"in", }``: too few values)
+            whole = (depth_at[lo] == 1 and depth_at.get(hi, 1) == 1 and [sum(_counts(masked[i])[x] for i in idx) for x in range(3)] == [0, 0, 0]
+                     and masked[hi - 1].rstrip().endswith(",") and not drop & set(idx))
             if whole:
                 drop |= set(idx)
             break
