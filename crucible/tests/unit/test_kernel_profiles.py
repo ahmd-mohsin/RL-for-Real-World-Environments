@@ -163,3 +163,18 @@ def test_a_ggml_reference_keeps_its_identity():
     old = "harness " + hashlib.sha256(Path(kh.__file__).read_bytes()).hexdigest()[:16]
     assert g.harness_digest() == g.harness_digest(kp.GGML) == old
     assert g.harness_digest(kp.cccl(["cub/test/catch2_test_device_reduce_by_key.cu"])) != old
+
+
+def test_a_ggml_kdspec_s_harness_table_is_not_a_profile_name():
+    """2026-10-25: every ggml kdspec carries ``harness`` as {file, dialect} (kernel_debug.kdspec); of_spec read the table as a
+    profile name and every kernel-bug episode grade raised TypeError (all masked)."""
+    assert kp.of_spec({"harness": {"file": "tests/test-backend-ops.cpp", "dialect": "2025"}}) is kp.GGML
+    assert kp.of_spec({"harness": {"file": "x", "dialect": "2025", "profile": "ggml"}}) is kp.GGML
+    from pathlib import Path
+
+    from crucible.factory.lanes import kernel_debug as kd
+
+    store = Path(__file__).resolve().parents[2] / "data" / "kernel_debug" / "store"
+    recs = list(kd.records(store)) if store.exists() else []
+    for rec in recs[:5]:
+        assert kp.of_spec(kd.kdspec(rec)) is kp.GGML
