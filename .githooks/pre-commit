@@ -1,0 +1,8 @@
+#!/bin/sh
+# The seal guard (crucible/scripts/seal_guard.py): refuses held-out content in a commit.
+# Publish anyway, journaled: CRUCIBLE_SEAL_OVERRIDE="<reason>" git commit ...
+# Enable once per clone: python crucible/scripts/seal_guard.py install   (git config core.hooksPath .githooks)
+top=$(git rev-parse --show-toplevel) || exit 1
+py="$top/crucible/.venv/bin/python"
+[ -x "$py" ] || py=python3
+exec "$py" "$top/crucible/scripts/seal_guard.py" check --staged

@@ -186,6 +186,30 @@ DEBUG_REPO_URLS.update({
     "sqlglot": "tobymao/sqlglot", "isort": "PyCQA/isort", "websockets": "python-websockets/websockets", "strawberry": "strawberry-graphql/strawberry",
     "sqlite-utils": "simonw/sqlite-utils", "pymodbus": "pymodbus-dev/pymodbus", "dnspython": "rthalley/dnspython", "mitmproxy": "mitmproxy/mitmproxy"})
 REPO_URLS.update(DEBUG_REPO_URLS)
+# the draws after 2026-10-24 are kept off git (the debug held-out tasks went public on 2026-10-22): a local file,
+# $CRUCIBLE_SEALED_DIR/heldout_draw.json (default crucible/data/sealed, which the seal guard refuses to commit), adds
+# {"repos": {name: "owner/repo"}} to the debug sources and holds every one of them out. A malformed file is an error,
+# never ignored: ignoring it would put held-out repositories into training.
+SEALED_DIR = Path(os.environ.get("CRUCIBLE_SEALED_DIR") or Path(__file__).resolve().parents[4] / "data" / "sealed")
+
+
+def local_draw(path: Path | None = None) -> dict[str, str]:
+    p = Path(path) if path else SEALED_DIR / "heldout_draw.json"
+    if not p.is_file():
+        return {}
+    repos = json.loads(p.read_text()).get("repos")
+    if not isinstance(repos, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.count("/") == 1 for k, v in repos.items()):
+        raise ValueError(f"{p}: 'repos' must map a local name to owner/repo")
+    clash = sorted(n for n in repos if n in DEBUG_REPO_URLS and n not in HELD_OUT_REPOS)
+    if clash:
+        raise ValueError(f"{p}: {clash} are training sources; a repository never changes sides silently")
+    return dict(repos)
+
+
+_DRAW = local_draw()
+DEBUG_REPO_URLS.update(_DRAW)
+REPO_URLS.update(_DRAW)
+HELD_OUT_REPOS.update({n: "D" for n in _DRAW})
 # one module that fails to import must not stop the others from running: a milestone's tests are judged on their own
 COLLECT_ALL = ("--continue-on-collection-errors",)
 STAGES = ("windows", "world_built", "leak_ok", "f2p_valid", "dependent", "mutants_valid")

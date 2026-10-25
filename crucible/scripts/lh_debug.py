@@ -552,9 +552,53 @@ def cmd_report(args: argparse.Namespace) -> None:
     (ROOT / "funnel_table.json").write_text(json.dumps(data, indent=1))
 
 
+def cmd_seal(args: argparse.Namespace) -> None:
+    """Freeze the chosen held-out set (factory.benchseal): refuses unless every task is held out, gated and sealed by the
+    latest contamination audit; writes the hashed manifest, fresh seeds, the lease and the power plan under SEALED_DIR."""
+    from crucible.factory import benchseal
+    from crucible.factory.lanes.windows import REPO_URLS, SEALED_DIR
+
+    ids = [i for i in args.ids.split(",") if i]
+    audit = json.loads(Path(args.audit).read_text())
+    store = ROOT / "gen" / "store" / "heldout" / "tasks"
+    locate, gates_ok, repos, dates, prompts = {}, {}, {}, {}, {}
+    for i in ids:
+        w = store / i / "window.json"
+        if not w.is_file():
+            continue
+        rec = json.loads(w.read_text())
+        locate[i] = store / i
+        g = ROOT / "gates" / f"{i}.json"
+        gates_ok[i] = g.is_file() and bool(json.loads(g.read_text()).get("ok"))
+        repos[i] = REPO_URLS.get(rec.get("repo"), rec.get("repo"))
+        fd = (rec.get("rebreak") or {}).get("fix_dates") or {}
+        dates[i] = sorted(map(str, fd.values() if isinstance(fd, dict) else fd))
+        prompts[i] = next((p for p in (SEALED_DIR / "prompts" / f"{i}.json", ROOT / "prompts" / f"{i}.json") if p.is_file()), None)
+    noise = json.loads(Path(args.noise).read_text())["sets"][args.noise_set]["pass"]["noise"]
+    try:
+        res = benchseal.seal(args.name, ids, audit, out_root=SEALED_DIR / "benchmark", locate=locate, gates_ok=gates_ok, repos=repos, fix_dates=dates,
+                             noise=noise, k=args.k, target=args.target, ref=args.ref or None, prompts=prompts, require_power=args.require_power)
+    except benchseal.SealRefused as e:
+        print("seal refused:\n  " + str(e).replace("; ", "\n  "))
+        sys.exit(1)
+    print(json.dumps(res["public"], indent=1))
+    print(f"sealed under {res['dir']} (manifest, sealed.json for the lease, public.json: the only file that may be published)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    se = sub.add_parser("seal", help="freeze a held-out set: hashed manifest, fresh seeds, the eval lease, the power plan (factory.benchseal)")
+    se.add_argument("--name", required=True)
+    se.add_argument("--ids", required=True)
+    here = Path(__file__).resolve().parents[1] / "docs" / "research" / "swarm-pipeline" / "runs"
+    se.add_argument("--audit", default=str(here / "benchmark_contamination.json"))
+    se.add_argument("--ref", default="origin/main", help="the ref the audit must have run on ('' to accept any)")
+    se.add_argument("--noise", default=str(here / "benchmark_power.json"))
+    se.add_argument("--noise-set", default="debug-300")
+    se.add_argument("--k", type=int, default=8)
+    se.add_argument("--target", type=float, default=0.20)
+    se.add_argument("--require-power", action="store_true")
     s = sub.add_parser("scout")
     s.add_argument("--since", default="")
     s.add_argument("--repos", default="", help="scout only these (local names or owner/repo, or @file with one per line); the rows merge into scout.json")
@@ -620,6 +664,8 @@ def main() -> None:
         cmd_brief(args)
     elif args.cmd == "write-prompts":
         cmd_write_prompts(args)
+    elif args.cmd == "seal":
+        cmd_seal(args)
     else:
         cmd_report(args)
 

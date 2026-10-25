@@ -398,6 +398,17 @@ alternating order, a noise re-run, guards).
 3. Training scouts and authors refuse sealed sources (`factory/sealing.py`, exists).
 4. A rise on the benchmark after training is the transfer test, reported paired by task with the MDE (about 13 points at
    n = 30 when σ_d ≈ 0.25).
+5. **Sealed is measured, not assumed** (2026-10-24, after the debug held-out tasks went public on 2026-10-22):
+   - `scripts/bench_audit.py` (`factory.benchaudit`) audits every held-out task against our public tree and every training
+     source and marks it `sealed`, `contaminated` (with the evidence), `unknown` or `not_heldout`. The lead decides what a
+     verdict means for a task; the audit never relabels.
+   - The **seal guard** (`scripts/seal_guard.py`, `.githooks/pre-commit`, enabled per clone with `seal_guard.py install`)
+     refuses held-out paths, ids, `owner/repo` names, hidden content and the bench key in any commit, `git add -f`
+     included; an override needs a reason and is journaled. A unit test holds HEAD to the frozen baseline.
+   - New held-out sources come from `scripts/heldout_supply.py` and live off git (`crucible/data/sealed/`): owners
+     disjoint from every training source and from anything our history names. `windows.local_draw` holds them out.
+   - `lh_debug.py seal` freezes a chosen set: hashed manifest, fresh seeds, the eval lease and the power plan, and refuses
+     any task that is not held out, gated and `sealed`.
 
 ---
 

@@ -1,0 +1,378 @@
+{
+ "ref": "HEAD",
+ "note": "exposures public before the guard (paths and rules only; the audit has the evidence)",
+ "findings": [
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-go-carbon-93371b6f.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-go-carbon-a783fb3a.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-go-excelize-65be17e3.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-go-excelize-824ac2ce.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-go-urfave-cli-2b0adb14.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-node-h3-a6cd4654.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/authored/db-node-unstorage-d7aee0b7.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/candidates.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/funnel.jsonl"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates-loop2.log"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-go-carbon-93371b6f.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-go-carbon-a783fb3a.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-go-excelize-65be17e3.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-go-excelize-824ac2ce.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-go-urfave-cli-2b0adb14.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-node-h3-a6cd4654.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/gates/db-node-unstorage-d7aee0b7.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/mine-heldout1.log"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/mine-heldout2.log"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-go-carbon-93371b6f.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-go-carbon-a783fb3a.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-go-excelize-65be17e3.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-go-excelize-824ac2ce.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-go-urfave-cli-2b0adb14.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-node-h3-a6cd4654.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/data/debug/prompts/db-node-unstorage-d7aee0b7.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/candidates.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/README.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/azaan.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/haseeb.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/carbon-93371b6f.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/carbon-a783fb3a.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/excelize-65be17e3.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/excelize-824ac2ce.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/h3-a6cd4654.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/unstorage-d7aee0b7-h2.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/unstorage-d7aee0b7.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/urfave-cli-2b0adb14.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-carbon-a783fb3a-h5.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-excelize-65be17e3-d1.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-excelize-824ac2ce-d1.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-urfave-cli-2b0adb14-d1.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-carbon-93371b6f/gates.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-carbon-93371b6f/report.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/10-kernel-debug-lane.md"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_contamination.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_power.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/kernel_debug_funnel.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/repath_install.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/repath_install_reinstall.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/s15_debug_targeting.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/s15_debug_targeting_t300.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/docs/research/swarm-pipeline/runs/seal_baseline.json"
+  },
+  {
+   "rule": "heldout_id",
+   "path": "crucible/scripts/bench_audit.py"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/THIRD_PARTY.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/authored/db-go-urfave-cli-2b0adb14.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/prompts/db-go-urfave-cli-2b0adb14.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/repos.txt"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/repos2.txt"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/repos6.txt"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/data/debug/scout.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/04-build-log.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/azaan.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/notes/urfave-cli-2b0adb14.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-urfave-cli-2b0adb14-d1.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/runs/bench_v2_manifest.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/runs/repath_install.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/docs/research/swarm-pipeline/runs/repath_install_reinstall.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/src/crucible/_vendor/dotenv_parser.py"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/tests/unit/test_m17_bench_sealing.py"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/tests/unit/test_m17_debug_langs.py"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "crucible/tests/unit/test_m17_p5_sources.py"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/PROVENANCE.md"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/cattrs-partial-structuring-recovery/environment/Dockerfile"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/cattrs-partial-structuring-recovery/task.toml"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/go-git-worktree-merge-conflicts/environment/Dockerfile"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/go-git-worktree-merge-conflicts/task.toml"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/go-git-worktree-merge-conflicts/tests/config.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/go-git-worktree-merge-conflicts/tests/test.patch"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/manifest.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/ofetch-per-origin-circuit-breaker/environment/Dockerfile"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/ofetch-per-origin-circuit-breaker/solution/solution.patch"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/ofetch-per-origin-circuit-breaker/task.toml"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/environment/Dockerfile"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/solution/solution.patch"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/task.toml"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/tests/config.json"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/tests/test.patch"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/participle-grammar-conflict-analysis/tests/test.sh"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/tomlkit-toml-table-converters/environment/Dockerfile"
+  },
+  {
+   "rule": "heldout_repo",
+   "path": "deepswe/tasks/tomlkit-toml-table-converters/task.toml"
+  }
+ ]
+}

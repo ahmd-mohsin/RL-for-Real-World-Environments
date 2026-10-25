@@ -98,6 +98,36 @@ The store lives at `CRUCIBLE_DEBUG_ROOT` (the main checkout's `crucible/data/deb
 worktree), else the tree's own `data/debug`; `lh_debug.py scout --repos @file` scouts a list and merges into
 `scout.json`.
 
+### 4.1 The benchmark's contamination, measured (2026-10-24)
+
+On 2026-10-22 the held-out debug tasks' reports, check sets (with their hidden test ids) and gate records were pushed to
+the public repository (`078eb364`), and on 2026-10-23 the co-authors' variants' reports were added under
+`07-debug-lane/fixing/prompts/` (`aafb4f99`). `scripts/bench_audit.py` (`factory.benchaudit`) measures what that did,
+task by task (`runs/benchmark_contamination.json`; counts, paths and commits only):
+
+| Task | Verdict | Evidence |
+|---|---|---|
+| urfave-cli-2b0adb14-d1 (benchmark) | contaminated | 8/8 report sentences public; 39 hidden test names in public files that name its parent |
+| h3-a6cd4654 (benchmark) | contaminated | 7/7 report sentences; 4 hidden test names in its public check set |
+| excelize-824ac2ce-d1 (benchmark) | contaminated | 5/6 report sentences; 60 hidden test names in its parent's public check set |
+| excelize-65be17e3-d1 (benchmark) | contaminated | 8/8 report sentences; 1 hidden test name |
+| unstorage-d7aee0b7-h2 (in progress) | contaminated | its two original bugs' report (6/6 sentences) and 3 hidden test names are public; the four added bugs' text is private (audited through the parent) |
+| excelize-583585d2, go-zero ×2, unimport, gleam ×2, minijinja | sealed | nothing of their content in the public tree or in training |
+| carbon ×2 | not held out | carbon moved to training on 2026-10-23 |
+
+No benchmark task has a fix or hidden-test **line** in the public tree, and none overlaps training: what is public is the
+report and the hidden test ids, which say what is checked, not how to fix it. The student's weights predate all of it, so
+the before/after numbers of the frozen student are not inflated by the push. What is lost is the claim of a sealed
+benchmark: anyone (or any later model) can read what each task checks. Two caveats on the `sealed` rows: four of them
+have no report yet (nothing to leak), and excelize-583585d2's hidden tests are the same table-test functions as its two
+public siblings', so its test ids are known although nothing ties them to it. The kernel held-out tasks show no public
+content; 4 of 12 share code lines with llama.cpp training fixes (ik_llama.cpp is a llama.cpp fork), and 1 shares a report
+passage with a training report.
+
+From now on held-out content is kept off git by the seal guard (`scripts/seal_guard.py`), new held-out sources come from
+`scripts/heldout_supply.py` into `crucible/data/sealed/`, and `lh_debug.py seal` refuses any task the audit does not mark
+`sealed`.
+
 ## 5. Funnel and results (runs of 2026-10-20, CPU only, $0)
 
 Sources: 178 clones scouted (licence from the clone, language detected, fix units counted), 72 mined at least once

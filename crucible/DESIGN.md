@@ -1318,6 +1318,33 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   show the bug at A' and pass at the oracle; a missing repro is `unverified`, never a failure. The keep rule reports
   whether its band decision is settled by the attempts run (`targeting.band_power`, a flag).
 
+- **The benchmark, sealed for real (2026-10-24, `swarm-pipeline/00` §10, `07` §4.1):** the debug held-out tasks went
+  public on 2026-10-22 through a `git add -f` of `crucible/data/debug`, so sealing is now measured and guarded, not assumed.
+  - **Contamination audit** (`factory/benchaudit.py`, `scripts/bench_audit.py`, `runs/benchmark_contamination.json`):
+    every held-out task (debug and kernel) and every kept benchmark variant, against our public tree (`git grep -F` of
+    its id, report sentences, hidden test names and the lines its fix and hidden tests add; the commit that first
+    published each file) and against every training source (`bench.contamination`: 13-grams, code substrings, near
+    duplicates, containment; sentences in three or more reports are template, and 13-gram hits spread over three or more
+    sources or under five shared n-grams are weak). Verdicts `sealed`, `contaminated`, `unknown`, `not_heldout`, every
+    reason listed; the report holds counts, paths and commits only. Result: all five benchmark tasks are contaminated.
+  - **Seal guard** (`factory/sealguard.py`, `scripts/seal_guard.py`, `.githooks/pre-commit`): refuses sealed paths
+    (`crucible/data/sealed/`, any `heldout` directory, `bench.key`, `sealed.json`), held-out ids and `owner/repo` names in
+    added lines (the three registries exempt from the name rule only), hidden content (16-character windows of every
+    fix line, hidden-test line and hidden test name, hashed; eight shared windows, or all of a short name, match) and
+    the bench key. `--i-know "<reason>"` / `$CRUCIBLE_SEAL_OVERRIDE` let a commit through, journaled without the text.
+    `check --tree --baseline` is a ratchet against `runs/seal_baseline.json` (the exposures public before the guard), and
+    a unit test runs it on HEAD.
+  - **Held-out supply off git** (`factory/heldout_supply.py`, `scripts/heldout_supply.py`): candidates from `gh api`
+    search, owners disjoint from every registered source and from anything our history names, permissive licences, the
+    lanes' languages, post-cutoff fixes that change a test and a source file counted on a blobless shallow clone, the
+    language manifest at HEAD. The list and the chosen draw live under `windows.SEALED_DIR` (`$CRUCIBLE_SEALED_DIR`,
+    default `crucible/data/sealed`); `windows.local_draw` reads `heldout_draw.json` at import, so the lanes, stores and
+    the eval lease hold the draw out without its names ever reaching git.
+  - **Seal** (`factory/benchseal.py`, `lh_debug.py seal`): refuses unless every chosen task is held out, gated and
+    `sealed` by an audit of the named ref; writes a hashed manifest, fresh per-task seeds (HMAC of a new master seed;
+    `public.json` carries only its commitment), `sealed.json` for the eval lease (repositories and orgs; no time cut by
+    default, since these lanes split by owner) and the `bench.power` plan (MDE for the chosen n x k; `--require-power`).
+
 ## 8. Layer 4: verification and isolation
 
 Every gate declares its kind (M7 R6): `gate`, a rule the instruction states (its failure zeroes the reward and the
