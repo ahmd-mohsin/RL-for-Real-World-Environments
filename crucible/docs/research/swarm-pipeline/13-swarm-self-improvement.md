@@ -359,3 +359,64 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 | The greedy kernel groups use each change once, so a group with one conflicting fault lost its other faults too | `build --subsets` (`kdm.connected_subsets`) |
 | A knob the diagnosis picks, not the controller's ranking | `revise --override task=KNOB[:milestone]@why`, journaled; C1 takes an explicit prerequisite-closed set |
 
+## 11. The training monitor: general failures, before the baseline and the RL run (2026-10-25)
+
+`scripts/train_monitor.py` (doc 11 §4.4) separates **general** failures (a behaviour seen in >= 3 tasks over >= 2
+languages or lanes) from **task-specific** ones (a task's milestone its failures keep missing), tracks them over training
+steps, and turns the persistent general ones into framework proposals and swarm intents. It reads stored episodes only;
+it never grades, rewards or gates.
+
+**Validation on the data we have** (no new episodes): the 150- and 300-call targeting runs, the swarm pilot's rounds and
+the GPU smoke; `--policy Qwen3.6-35B-A3B`, training split only (235 student episodes, 3 masked; Go 178, Python 48,
+Rust 8, CUDA 1). The co-authors' runs are on their machines and were not read.
+
+| general mode | student episodes | prevalence (95% CI) | tasks | languages |
+|---|---|---|---|---|
+| overclaims_status | 94/232 | 0.41 (0.34–0.47) | 18 | go, python, rust |
+| stalls_after_partial_fix | 81/209 failed | 0.39 (0.32–0.46) | 17 | go, python |
+| slow_first_edit | 68/209 failed | 0.33 (0.27–0.39) | 15 | go, python, rust |
+| breaks_regressions | 70/232 | 0.30 (0.25–0.36) | 14 | go, python, rust |
+| budget_flat | 43/209 failed | 0.21 (0.16–0.27) | 13 | cuda, go, python, rust |
+| lost_after_compaction | 27/173 compacted | 0.16 (0.11–0.22) | 12 | go, python, rust |
+| env_misuse | 25/232 | 0.11 (0.07–0.15) | 16 | go, python, rust |
+| claims_unverified | 11/232 | 0.05 (0.03–0.08) | 9 | go, python, rust |
+
+- **Recovers what we already knew:**
+  - the stall after the first fault (`stalls_after_partial_fix`, 0.39);
+  - overclaiming (`overclaims_status`, 0.41);
+  - budget stops (47% of the student's episodes end on the limit; 21% of its failures do so with Φ flat for the last
+    30%);
+  - the install false positive. Re-pathed under the current rules (228 student and 50 DeepSeek episodes),
+    `path:install` failed 6 times for the student and 5 for DeepSeek under the stored rules, and 1 and 0 under the
+    current ones.
+- **Task-specific, reported apart:**
+  - `loops_failing_command` (3 episodes, 2 tasks);
+  - `symptom_only` (1 of the 30 judged failures, one task);
+  - each task's stuck milestones, for example m04 of mvdan-sh-5e983709 and black-ae5830b7, m03 and m04 of
+    mvdan-sh-dc951aeb, m02 of go-toml-a02114e3.
+- **By model (training split):** the frontier models share most modes. Qwen3.5-397B stalls after a partial fix in 0.59
+  of its failures and DeepSeek in 0.39, so the stall is partly the tasks' shape (late faults are hard) and partly the
+  agent. The student stands out on `slow_first_edit` (0.33 against 0.22 and 0.17). On `breaks_regressions` it sits at
+  0.30, against 0.36 for Qwen3.5-397B and 0.12 for DeepSeek. DeepSeek's `env_misuse` (0.46) is mostly not installs (5
+  stored install fails in 50 episodes).
+- **The judge pass:** 36 student training failures sampled across tasks, judged by `openai/gpt-oss-120b` (never Qwen).
+  30 were labelled and 6 rejected (a quote not in the trace, or a label outside the closed lists), for $0.045. 16 of the
+  labelled already had a deterministic cause (budget), which a judge never overrides; the other 14 came out 7 skill_gap
+  and 7 spec_defect.
+- **No trend yet:** these runs are arms of one measurement, not training steps, so the monitor gives no
+  learned/regressing verdict and no trend alert. The first training run's `steps.jsonl` turns them on.
+
+**Proposals it makes today.** None is applied. Each needs an A/B on training tasks where the mode falls and the reward
+does not.
+
+| general mode | proposals |
+|---|---|
+| stall after a partial fix | checkpoint starts before the milestone that failures keep missing; an "interacting faults" swarm intent |
+| overclaims | a higher honesty weight; a clearer STATUS.json line |
+| slow first edit | a fast code-search affordance; a "localize fast" intent |
+| regressions | a regression term in Φ; a one-command full-suite runner |
+| lost after compaction | carry STATUS.json and the milestone vector into the compaction hand-off |
+
+`scripts/swarm.py diagnose --monitor <report.json>` now lists the general modes and their intent candidates for the
+builders.
+

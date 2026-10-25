@@ -115,6 +115,27 @@ it with the Reports API (`wandb_workspaces.reports.v2`; offline); `--push` saves
   trusted labels and spend; `findings`: `FailureFinding` rows, each attached to its episode's trace (below);
 - `spend`: USD per phase or role, the total in the summary.
 
+### 4.4 The training monitor (`scripts/train_monitor.py`, 2026-10-25)
+
+What the agent's traces show it learning, and which failures are general (a behaviour across tasks and languages) rather
+than one task's hard milestone. `factory/train_monitor.py` does the analysis; `observe/train_monitor.py` logs it
+(`monitor/modes`, `monitor/mode_lines`, `monitor/health_lines`, `monitor/alerts`, `monitor/proposals`, and one
+`monitor/*` scalar row per training step) and writes the local report.
+
+```
+python scripts/train_monitor.py report --roots data/targeting/debug-300 [...] --policy Qwen3.6-35B-A3B \
+    [--repath-store data/debug/gen/store] [--judge 36 --judge-cap 3 --env-file ../.env] [--wandb]
+python scripts/train_monitor.py watch --run <training run dir> --every 120 --wandb
+```
+
+- **Outputs:** `data/observe/train_monitor/<name>/{report.json, report.md, report.html, proposals.jsonl}` (gitignored).
+- **General modes:** listed in the module doc, with their rules and denominators. General means >= 3 tasks and >= 2
+  languages or lanes, with a Wilson interval.
+- **By model:** every policy's mode prevalence side by side. A mode the frontier models share is an agent-behaviour or
+  task failure; one only the student shows is the student's.
+- **Held out:** aggregate only, tasks as placeholders, never in a proposal, an intent or the judge's sample.
+- **First validation** (2026-10-25, stored targeting and pilot runs, 235 student training episodes): in `13` §11.
+
 ## 5. Agent traces (Weave)
 
 **What Weave can and cannot do offline (weave 0.53.12, checked in its source).** `weave.init` always logs in to W&B
