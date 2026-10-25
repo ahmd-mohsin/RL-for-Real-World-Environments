@@ -426,16 +426,33 @@ GH200 as on the 5090 (1 h 16 min cold). `km-cuda13-hecbench-591f311-4`: oracle 1
 window): passes (53 min).
 
 **Full run.** Four one-GPU stream jobs (perf alone on its GPU; three correctness streams, migrations first on one),
-12 h each, queued 2026-10-23 01:00 (the exclusive four-GPU node was estimated a day out). Not run here, because their cause does
+12 h each, queued 2026-10-23 01:00 (the exclusive four-GPU node was estimated a day out). The perf stream ran 2026-10-24
+22:15 to its 12 h limit (4 of 5 tasks; `kd-perf-llamacpp-d2084ba6` was mid-calibration). The three correctness streams were
+cancelled from the account on 2026-10-25 before they started, so no bug or migration task beyond the smoke has GH200 results.
+
+| Task | GH200 (sm_90) | 5090 (sm_120) |
+|---|---|---|
+| `kd-perf-llamacpp-4bc24fdb` | both milestones calibrate (m1 bar 1.356, revert 2.98x on one case; m2 bar 1.264), then every grade masked (below) | m1 drops (1.10x), not gradable |
+| `kd-perf-llamacpp-9d89aaa0` | calibrates both, but on implausible timings (B against itself 0.0 to 7189x; m1 bar 3019), then masked | m2 drops (at most 1.06x) |
+| held-out perf task 1 | no case's revert clears its bar (largest 1.33x against 1.59) | no case of the speed-ups' types |
+| held-out perf task 2 | the reference does not build on aarch64 (a C++ error in `llama-sampling`, outside the CUDA backend) | reference hung with grader cases |
+
+Two runner bugs, found here and fixed in `run_gpu.py` (unit-tested; not yet re-run on a GPU). (1) A perf milestone got no
+golden cases: its revert breaks no case by design, and only correctness milestones fell back to the cases B passes, so the
+golden check masked every grade ("milestone m1 has no calibrated cases"). It now guards correctness on cases B passes, and
+the perf bar decides the milestone. (2) Perf calibration accepted timings that measured nothing: on the GH200, B against
+itself read 0.0, 88x and 7189x on some iq2_xxs cases, and a revert read 2902x. `plausible_timing` now rejects a case
+whose B-vs-B ratio leaves 0.5-2x or whose revert is over 20x slower (recorded as "implausible timing"). Why those GH200
+timings broke is open; the same cases timed within about 2% on the 5090. Not run here, because their cause does
 not depend on the GPU: `kd-bug-llamacpp-7ac249cc`, `-4b8c156e` (speed-only, AMD-only), `-b377258d` (within tolerance),
-`kd-bug-ikllamacpp-4da3f014` (pre-Ampere), `-5b1dc162` (the 2024 op test cannot build its cases), `-47f22c74`, `-5b19ab0c`
-(no op-test class, multi-GPU only), and `kd-perf-llamacpp-3ad8a68c` (its start does not build; below).
+four held-out ik_llama.cpp bug tasks (pre-Ampere only; the 2024 op test cannot build the cases; no op-test class or
+multi-GPU only), and `kd-perf-llamacpp-3ad8a68c` (its start does not build; below).
 
 **3ad8a68c.** m1's fix adds the integer-division helpers to `common.cuh`; a later commit (no fault) uses them in
 `binbcast.cu`, so reverting m1 at B gives a start that does not build. The S3 start build now also compiles
 `start_dependents` (units no fault touches that use a name a fault's header change takes away), so the CPU gate fails
-such a start. It flags `binbcast.cu` here; in the other records, it flags 3 units in `kd-bug-ikllamacpp-5b8c07ff` and 5 in
-`kd-perf-ikllamacpp-09e3d098`, which the GPU sweeps built. The task itself is not corrected: keeping the helpers at A'
+such a start. It flags `binbcast.cu` here; in the other records, it flags 3 units in one held-out bug task and 5 in one held-out perf task;
+the GPU sweeps built both of those starts. The task itself is not corrected: keeping the helpers at A'
 would change m1's fault, because the start would then carry the tool the fix introduces.
 
 ### 8.4 The remaining grader gaps on the existing tasks (2026-10-23, RTX 5090)

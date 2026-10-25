@@ -61,6 +61,8 @@ IMAGE = "crucible-lh-k:base-12.8.1"
 PLAN = "crucible.factory.lanes.kernel_debug_plan"
 CASES_PER_MILESTONE = 32
 PERF_HEADROOM = 0.10
+B_SELF = (0.5, 2.0)  # B timed against itself outside this is a broken measurement, not noise (GH200 2026-10-24: 0.0, 7189x)
+REGRESSION_MAX = 20.0  # a revert this many times slower than B is a broken timing, not a kernel speed-up undone
 SANITIZERS = ("racecheck", "synccheck", "memcheck")
 MARGIN = 0.5  # an owned case B passes above this share of its tolerance on a stability grade is borderline and leaves
 PROFILE_SAMPLE = 192  # pool cases per milestone whose kernel launches are profiled to choose its sanitizer cases
@@ -742,9 +744,12 @@ def calibrate(d: Path, spec: dict, mode: str, arch: str) -> tuple[dict, dict]:
     keep = []
     for m in new["milestones"]:
         m["cases"] = owned.get(m["id"]) or []
-        if not m["cases"] and m["kind"] != "perf":
+        if not m["cases"]:
+            # a perf milestone's faults keep results correct, so no case breaks under its revert: its golden check guards
+            # correctness on cases B passes (before 2026-10-24 it had none, and every grade of a perf task was masked)
             m["cases"] = [c for c in (b_pass.get(m["id"]) or {}) if b_pass[m["id"]][c]][: CASES_PER_MILESTONE]
-            m["calibration_note"] = "no case breaks under the revert: kept only if a sanitizer tool catches it"
+            m["calibration_note"] = ("perf: golden on cases B passes; the perf bar decides the milestone" if m["kind"] == "perf"
+                                     else "no case breaks under the revert: kept only if a sanitizer tool catches it")
         m["requires"] = edges.get(m["id"], [])
         keep.append(m)
     new["milestones"] = keep
@@ -841,6 +846,12 @@ def perf_ratio(g: dict, cid: str, key: str) -> float | None:
     return float(v) if v is not None else None
 
 
+def plausible_timing(b1: float, b2: float, rv: float) -> bool:
+    """A perf candidate case is measurable only when B against itself stays within ``B_SELF`` and the revert's ratio is
+    positive and at most ``REGRESSION_MAX``: ratios of 0 or thousands are a timing that measured nothing."""
+    return all(B_SELF[0] <= x <= B_SELF[1] for x in (b1, b2)) and 0 < rv <= REGRESSION_MAX
+
+
 def calibrate_perf(d: Path, spec: dict, m: dict, entry: dict, mode: str, arch: str, gpu: str, *, keep: int = 3) -> dict:
     """Per perf candidate case (at most 8): B against itself twice (the noise floor) and the revert against B (the
     regression), with open bars; every case is timed on its own inside one grade (``perf_each``: three grades per
@@ -866,6 +877,10 @@ def calibrate_perf(d: Path, spec: dict, m: dict, entry: dict, mode: str, arch: s
         b1, b2, rv = (perf_ratio(g, cid, f"{key}#{i}") for g in gs)
         if None in (b1, b2, rv):
             rows.append({"case": case, "error": "unmeasured", "infra": [(g.get("infra") or {}).get("reason") for g in gs]})
+            continue
+        if not plausible_timing(b1, b2, rv):
+            rows.append({"case": case, "b_vs_b": [round(b1, 3), round(b2, 3)], "regression": round(rv, 3),
+                         "error": f"implausible timing: B against itself outside {B_SELF[0]}-{B_SELF[1]}x or the revert over {REGRESSION_MAX:g}x slower"})
             continue
         v = perf_bar([1.0, b1, b2], rv)
         rows.append({"case": case, "b_vs_b": [round(b1, 3), round(b2, 3)], **v})

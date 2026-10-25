@@ -1213,6 +1213,9 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
   `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
   use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
+  Perf calibration (GH200, 2026-10-24): a perf milestone's golden check now runs on cases B passes (its revert breaks none
+  by design; with no cases every grade masked), and a perf candidate case is kept only when B against itself stays within
+  0.5-2x and the revert is at most 20x slower (`plausible_timing`: the GH200 read ratios of 0.0 and thousands).
 - **Grader gaps closed on the existing tasks (2026-10-23, `10` §8.4):**
   - **A case's inputs no longer depend on the cases run before it.** The harness drew every input from one
     process-wide counter, so a case's inputs changed with its position in a chunk: the calibration (96-case chunks) and
