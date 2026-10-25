@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from crucible.factory import langs
-from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, use
-from crucible.factory.langs.golang import escape_module, import_name, prune_imports
+from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, subject_ref, use
+from crucible.factory.langs.golang import escape_module, import_name, prune_imports, strip_table_entries, table_spans
 
 GO = langs.get("go")
 RUST = langs.get("rust")
@@ -251,6 +251,40 @@ def test_release_changelog_entries_citing_a_fix_are_removed() -> None:
            "- Implement `help`, as well as `$-`\n  (wrapped) - #1398\n- Keep #15710 and 884502ab\n")
     assert CHANGELOG_FILE.search("CHANGELOG.md") and CHANGELOG_FILE.search("docs/RELEASE_NOTES.rst") and not CHANGELOG_FILE.search("README.md")
     assert strip_ref_entries(log, refs) == ("## v2\n\n- Keep #15710 and 884502ab\n", 4)
+
+
+def test_a_changelog_entry_that_repeats_the_fix_subject_is_removed() -> None:
+    """echo 48128ab (2026-10-24): "fix(static): preserve matched handler 404s" has no PR, issue or sha in its message, so its
+    release-changelog line (with the PR URL) stayed in the start tree. The subject itself now cites it."""
+    ref = subject_ref("fix(static): preserve matched handler 404s")
+    assert ref == "subject:preserve matched handler 404s"
+    log = ("## v4.13\n\n- **static:** Preserve matched handler 404s\n  (https://github.com/o/r/pull/2801)\n"
+           "- Preserve matched handler 404 pages for groups\n- Fix typo\n")
+    assert strip_ref_entries(log, {ref}) == ("## v4.13\n\n- Preserve matched handler 404 pages for groups\n- Fix typo\n", 2)
+    assert subject_ref("fix: typo") is None and subject_ref("chore(deps): bump x (#12)") is None  # too generic to match
+    assert subject_ref("Fix the parser for nested heredocs (#1404)") == "subject:fix the parser for nested heredocs"
+
+
+def test_go_strip_mode_removes_the_fixes_table_entries() -> None:
+    """mvdan-sh dc951aeb-e1 (2026-10-24): strip mode removed the changed test functions, but the fixes' new entries in
+    package-level tables stayed readable in the agent's tree. Whole entries the fix added go; braces inside string
+    literals (shell input) do not count; a table whose removal would not balance is left as it was."""
+    text = (
+        "package syntax\n\nvar printTests = []printCase{\n"
+        "\t{\"if a; then b; fi\", \"if a; then b; fi\"},\n"
+        "\t{\n\t\t\"{ foo; } && (bar)\",\n\t\t\"{ foo; } && (bar)\",\n\t},\n"
+        "\t{`x\n} y`, `x\n} y`},\n"
+        "}\n\nfunc helper() {\n\t_ = \"{ foo; } && (bar)\"\n}\n")
+    assert table_spans(text) == [(2, 12)]
+    added = [["\t{", "\t\t\"{ foo; } && (bar)\",", "\t\t\"{ foo; } && (bar)\",", "\t},"]]
+    out, n = strip_table_entries(text, added)
+    assert n == 4 and "(bar)\",\n" not in out.split("func helper")[0] and "_ = \"{ foo; } && (bar)\"" in out
+    assert out.startswith("package syntax\n\nvar printTests = []printCase{\n\t{\"if a; then b; fi\"")
+    half = [["\t{", "\t\t\"{ foo; } && (bar)\","]]  # an entry's opening without its closing: left alone
+    assert strip_table_entries(text, half) == (text, 0)
+    assert strip_table_entries(text, [["func helper() {"]]) == (text, 0)  # not inside a table
+    # a changed line inside a multi-line entry is not a whole element: removing it would leave {"in", } (too few values)
+    assert strip_table_entries(text, [["\t\t\"{ foo; } && (bar)\","]]) == (text, 0)
 
 
 def test_profiles_registry() -> None:

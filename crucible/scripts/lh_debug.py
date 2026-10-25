@@ -576,8 +576,10 @@ def cmd_seal(args: argparse.Namespace) -> None:
         prompts[i] = next((p for p in (SEALED_DIR / "prompts" / f"{i}.json", ROOT / "prompts" / f"{i}.json") if p.is_file()), None)
     noise = json.loads(Path(args.noise).read_text())["sets"][args.noise_set]["pass"]["noise"]
     try:
+        accept = dict(x.split("=", 1) for x in args.accept_exposure or [])
         res = benchseal.seal(args.name, ids, audit, out_root=SEALED_DIR / "benchmark", locate=locate, gates_ok=gates_ok, repos=repos, fix_dates=dates,
-                             noise=noise, k=args.k, target=args.target, ref=args.ref or None, prompts=prompts, require_power=args.require_power)
+                             noise=noise, k=args.k, target=args.target, ref=args.ref or None, prompts=prompts, require_power=args.require_power,
+                             accept_exposure=accept, journal=SEALED_DIR / "exposure_accepted.jsonl")
     except benchseal.SealRefused as e:
         print("seal refused:\n  " + str(e).replace("; ", "\n  "))
         sys.exit(1)
@@ -598,6 +600,9 @@ def main() -> None:
     se.add_argument("--noise-set", default="debug-300")
     se.add_argument("--k", type=int, default=8)
     se.add_argument("--target", type=float, default=0.20)
+    se.add_argument("--accept-exposure", action="append", metavar="TASK=REASON",
+                    help="the lead accepts that TASK's material is public (audit verdict contaminated): recorded per task in the manifest "
+                         "as exposed_public and journaled; every other refusal still holds (repeatable)")
     se.add_argument("--require-power", action="store_true")
     s = sub.add_parser("scout")
     s.add_argument("--since", default="")

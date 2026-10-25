@@ -1344,6 +1344,20 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     `sealed` by an audit of the named ref; writes a hashed manifest, fresh per-task seeds (HMAC of a new master seed;
     `public.json` carries only its commitment), `sealed.json` for the eval lease (repositories and orgs; no time cut by
     default, since these lanes split by owner) and the `bench.power` plan (MDE for the chosen n x k; `--require-power`).
+    **Accepted exposure** (the lead, 2026-10-25): `--accept-exposure TASK=REASON` lets one `contaminated` task through,
+    and only that verdict; the manifest records `exposed_public: <first-publishing commits> (lead accepted <date>:
+    <reason>)` per task so a paper can disclose it, `public.json` counts them, and `exposure_accepted.jsonl` under the
+    sealed directory journals each one. Every other refusal still holds.
+  - **Offline benchmark World** (`windows_world.require_offline`, called by `WindowTask.open`): `open_world` reads the
+    container's network mode back with `docker inspect` (never assumed from the run command), and a held-out task refuses
+    any World whose mode is not `none` (`OnlineWorldRefused`).
+  - **Start-tree residue** (2026-10-25, from the co-authors' fixing notes): a release changelog entry that only repeats a
+    fix's subject (no PR, issue or sha; echo 48128ab) is stripped through `langs.base.subject_ref` (4 words and 20
+    characters minimum). In strip mode the Go profile also removes the fixes' whole table entries from package-level test
+    tables (`golang.strip_table_entries`: contiguous runs of fix-added lines at the table's element level, brackets
+    balanced outside literals; mvdan-sh dc951aeb-e1 kept its then/do cases readable), recorded as
+    `hidden.table_entries_stripped`. `golang._code_lines` blanks literals by character, because `code_mask` shifts on
+    multi-byte runes (an open defect of `code_mask` itself).
 
 ## 8. Layer 4: verification and isolation
 

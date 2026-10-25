@@ -307,13 +307,33 @@ def fix_refs(subject: str, body: str, sha: str) -> set[str]:
     return {f"#{n}" for n in re.findall(r"#(\d+)", f"{subject}\n{body}")} | {sha[:7]}
 
 
+SUBJECT_REF = "subject:"
+_CC_PREFIX = re.compile(r"^\s*[a-z]+(?:\([^)]*\))?!?:\s*", re.IGNORECASE)
+
+
+def _prose(text: str) -> str:
+    """Lower case, markup and punctuation dropped, whitespace collapsed: how a changelog line and a commit subject compare."""
+    return " ".join(re.sub(r"[`*_\[\]()\"'.,;:!?]", " ", text.lower()).split())
+
+
+def subject_ref(subject: str) -> str | None:
+    """A fix cited by its subject alone: a changelog entry that repeats the commit subject (``fix(static): preserve
+    matched handler 404s`` -> "preserve matched handler 404s") with no PR, issue or sha to match (echo 48128ab, 2026-10-24:
+    its changelog line kept the PR URL in the start tree). The conventional-commit prefix and a trailing ``(#n)`` are
+    dropped; a subject under 4 words or 20 characters cites nothing (too generic to match safely)."""
+    s = _prose(re.sub(r"\s*\(#\d+\)\s*$", "", _CC_PREFIX.sub("", subject.strip())))
+    return f"{SUBJECT_REF}{s}" if len(s) >= 20 and len(s.split()) >= 4 else None
+
+
 def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
     """``text`` without the changelog entries that cite one of ``refs`` (``fix_refs``): a list item with its wrapped lines,
     else the line. A changelog written at release time names the fixes after the fact, so the fixes' own diffs never
     added these lines (``strip_added_lines`` cannot see them): mvdan-sh's "as well as ``$-`` - #1398", h3's "Call
     ``onError`` for stream errors in Node.js handlers (#1571)". Returns the text and the number of lines removed."""
+    refs = list(refs)
+    subjects = [r[len(SUBJECT_REF):] for r in refs if r.startswith(SUBJECT_REF)]
     pats = [re.compile(rf"(?<![\w/])#{re.escape(r[1:])}(?!\d)|/(?:pull|issues)/{re.escape(r[1:])}(?!\d)") if r.startswith("#")
-            else re.compile(rf"(?<![0-9a-fA-F]){re.escape(r)}(?![0-9a-fA-F])") for r in refs]
+            else re.compile(rf"(?<![0-9a-fA-F]){re.escape(r)}(?![0-9a-fA-F])") for r in refs if not r.startswith(SUBJECT_REF)]
     lines = text.splitlines(keepends=True)
     item = re.compile(r"^(\s*)([-*+]|\d+[.)])\s")
     out, k, removed = [], 0, 0
@@ -323,7 +343,8 @@ def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
             while end < len(lines) and lines[end].strip() and not item.match(lines[end]) and len(lines[end]) - len(lines[end].lstrip()) > len(m.group(1)):
                 end += 1
         chunk = lines[k:end]
-        if any(p.search(ln) for ln in chunk for p in pats):
+        prose = f" {_prose(''.join(chunk))} "
+        if any(p.search(ln) for ln in chunk for p in pats) or any(f" {x} " in prose for x in subjects):
             removed += len(chunk)
         else:
             out += chunk

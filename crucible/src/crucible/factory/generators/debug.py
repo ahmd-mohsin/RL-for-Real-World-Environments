@@ -96,7 +96,7 @@ from crucible.factory.lanes.windows import (
 )
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _bodies, first_parent_units, key_of_test, version_tags
 from crucible.factory.lanes.windows_world import ImageBook
-from crucible.factory.langs.base import CHANGELOG_FILE, fix_refs, strip_added_lines, strip_ref_entries, use
+from crucible.factory.langs.base import CHANGELOG_FILE, fix_refs, strip_added_lines, strip_ref_entries, subject_ref, use
 from crucible.factory.langs.runtime import IMAGE_REPO, PREFIX, lang_sandbox_factory, world_setup
 from crucible.factory.sources.lease import EvalLease
 from crucible.factory.sources.records import SourceRecord
@@ -872,9 +872,25 @@ class Debug(Rebreak):
             prose_b = {p: t for p in {q for d in prose_added.values() for q in d} if (t := repo.show(b, p)) is not None}
             # a changelog written at release time cites the fixes although their diffs never added the line (mvdan-sh, h3, unstorage)
             logs_b = {p: t for p in out(git(repo_dir, "ls-tree", "-r", "--name-only", b)).splitlines() if CHANGELOG_FILE.search(p) and (t := repo.show(b, p)) is not None}
-            refs = {f["sha"]: fix_refs(f["subject"], f["body"], f["sha"]) for f in fixes}
+            refs = {f["sha"]: fix_refs(f["subject"], f["body"], f["sha"]) | ({sr} if (sr := subject_ref(f["subject"])) else set()) for f in fixes}
             cited: dict[str, int] = {}
+            tables: dict[str, int] = {}
+            _added: dict[tuple[str, str], list[list[str]]] = {}
+
+            def table_added(f: Mapping[str, Any], p: str) -> list[list[str]]:
+                """The fix's runs of consecutive added lines in ``p`` (a table entry it added or changed)."""
+                if (f["sha"], p) not in _added:
+                    runs: list[list[str]] = [[]]
+                    for ln in full_patch(repo_dir, f["parent"], f["sha"], [p]).decode("utf-8", "replace").splitlines():
+                        if ln.startswith("+") and not ln.startswith("+++"):
+                            runs[-1].append(ln[1:])
+                        elif runs[-1]:
+                            runs.append([])
+                    _added[(f["sha"], p)] = [r for r in runs if r]
+                return _added[(f["sha"], p)]
+
             extra = self._locate_defs(repo, b, prof, extra_hide or {})
+            other_tests = sorted({p for f in fixes for p in f["files"] if prof.is_test_file(p) and p not in tests_b and p not in extra})
             forward = []
             for k, t in enumerate(src_forward):
                 pending = fixes[k:]
@@ -889,6 +905,20 @@ class Debug(Rebreak):
                     ks = set().union(*[keys.get(f["sha"], {}).get(p, set()) for f in pending]) if pending else set()
                     if ks:
                         files[p] = prof.strip_tests(txt, ks | (extra.get(p, set()) if pending else set()), p)
+                    tbl = getattr(prof, "strip_table_entries", None)
+                    if tbl and pending and files.get(p, txt) is not None:  # Go: the fixes' table entries, not only their functions
+                        cut, n = tbl(files.get(p, txt), [r for f in pending for r in table_added(f, p)])
+                        if n:
+                            files[p] = cut
+                            tables.setdefault(p, n)  # A' first: every fix still pending
+                for p in (other_tests if mode == "strip" and pending else ()):  # a table-only test file the fixes changed
+                    tbl = getattr(prof, "strip_table_entries", None)
+                    cur = files.get(p, repo.show(b, p))
+                    if tbl and cur is not None:
+                        cut, n = tbl(cur, [r for f in pending for r in table_added(f, p)])
+                        if n:
+                            files[p] = cut
+                            tables.setdefault(p, n)
                 for p, ks in extra.items() if pending else ():  # a data-driven case (``*``): its case file is not in A'
                     if "*" in ks and repo.show(t, p) is not None:
                         files[p] = None
@@ -913,8 +943,10 @@ class Debug(Rebreak):
                          a_date=cand.params["b_date"], b_date=cand.params["b_date"], b_version=None, units=units)
             info["fixes"] = [{"sha": f["sha"], "subject": f["subject"], "unit": u.sha} for f, u in zip(fixes, units, strict=True)]
             # strip mode leaves the fixes' other test-file changes in A' (a table row a driver test reads): recorded as a risk
-            vis_data = sorted({p for f in fixes for p in f["files"] if prof.is_test_file(p) and p not in tests_b and p not in extra}) if mode == "strip" else []
+            vis_data = sorted({p for f in fixes for p in f["files"] if prof.is_test_file(p) and p not in tests_b and p not in extra
+                               and p not in tables}) if mode == "strip" else []
             info["hidden"] = {"mode": mode, "prose": sorted(prose_b), "changelog_cited": cited, "visible_stripped": {p: sorted(ks) for p, ks in extra.items()},
+                              "table_entries_stripped": tables,
                               "visible_test_changes": vis_data,
                               **({"stripped": {p: sorted(set().union(*[keys.get(f["sha"], {}).get(p, set()) for f in fixes])) for p in tests_b}}
                                  if mode == "strip" else {"reverted": sorted({p for f in fixes for p in f["files"] if is_test_path(p)})})}

@@ -56,8 +56,21 @@ def task_seed(master: int, task_id: str) -> int:
     return int.from_bytes(hmac.new(master.to_bytes(8, "big"), task_id.encode(), hashlib.sha256).digest()[:8], "big") >> 1
 
 
-def check(ids: Sequence[str], audit: Mapping[str, Any], *, locate: Mapping[str, Path], gates_ok: Mapping[str, bool], ref: str | None = None) -> list[str]:
-    """Every reason the set cannot be sealed (empty: it can)."""
+def exposure_commits(row: Mapping[str, Any]) -> list[str]:
+    """The commits that first published a task's material (the audit's ``first_public``), oldest first."""
+    seen: dict[str, str] = {}
+    for v in (row.get("first_public") or {}).values():
+        sha, _, day = str(v).partition(" ")
+        if sha and (sha not in seen or day < seen[sha]):
+            seen[sha] = day
+    return [c for c, _ in sorted(seen.items(), key=lambda x: (x[1], x[0]))]
+
+
+def check(ids: Sequence[str], audit: Mapping[str, Any], *, locate: Mapping[str, Path], gates_ok: Mapping[str, bool], ref: str | None = None,
+          accept_exposure: Mapping[str, str] | None = None) -> list[str]:
+    """Every reason the set cannot be sealed (empty: it can). ``accept_exposure`` (task id -> the lead's reason) lets a
+    ``contaminated`` verdict through for that task only: every other refusal (unknown, not held out, not in the audit,
+    no store, gates) still holds, and an acceptance for a task that is not contaminated is itself refused."""
     why = []
     if len(set(ids)) != len(ids):
         why.append("a task is chosen twice")
@@ -68,8 +81,13 @@ def check(ids: Sequence[str], audit: Mapping[str, Any], *, locate: Mapping[str, 
         r = rows.get(i)
         if r is None:
             why.append(f"{i}: not in the audit")
+        elif r.get("verdict") == "contaminated" and i in (accept_exposure or {}):
+            if not str((accept_exposure or {})[i]).strip():
+                why.append(f"{i}: an exposure acceptance needs the lead's reason")
         elif r.get("verdict") != "sealed":
             why.append(f"{i}: {r.get('verdict')} ({'; '.join(r.get('why') or []) or 'see the audit'})")
+        if r is not None and i in (accept_exposure or {}) and r.get("verdict") != "contaminated":
+            why.append(f"{i}: exposure accepted, but the audit says {r.get('verdict')!r}, not 'contaminated'")
         if i not in locate:
             why.append(f"{i}: in no held-out store on this machine")
         if not gates_ok.get(i):
@@ -84,9 +102,17 @@ def plan(n: int, k: int, noise: Mapping[str, Any], *, target: float = power.TARG
 def seal(name: str, ids: Sequence[str], audit: Mapping[str, Any], *, out_root: Path, locate: Mapping[str, Path], gates_ok: Mapping[str, bool],
          repos: Mapping[str, str], fix_dates: Mapping[str, Sequence[str]], noise: Mapping[str, Any], k: int = 8, target: float = power.TARGET,
          ref: str | None = None, prompts: Mapping[str, Path] | None = None, require_power: bool = False, master: int | None = None,
-         time_cut: str | None = None) -> dict[str, Any]:
-    """Freeze ``ids`` as benchmark ``name`` (see the module doc). ``repos``: task id -> ``owner/repo``."""
-    why = check(ids, audit, locate=locate, gates_ok=gates_ok, ref=ref)
+         time_cut: str | None = None, accept_exposure: Mapping[str, str] | None = None, accepted_on: str | None = None,
+         journal: Path | None = None) -> dict[str, Any]:
+    """Freeze ``ids`` as benchmark ``name`` (see the module doc). ``repos``: task id -> ``owner/repo``. ``accept_exposure``:
+    the lead's explicit acceptance of a task whose material is public (task id -> reason); the manifest records it per task
+    as ``exposed_public: <commits> (lead accepted <date>: <reason>)`` so a paper can disclose it, and ``journal`` (a JSONL
+    file) gets one line per acceptance."""
+    accept = dict(accept_exposure or {})
+    stray = sorted(set(accept) - set(ids))
+    why = check(ids, audit, locate=locate, gates_ok=gates_ok, ref=ref, accept_exposure=accept)
+    if stray:
+        why.append(f"exposure accepted for tasks not chosen: {', '.join(stray)}")
     pw = plan(len(ids), k, noise, target=target)
     if require_power and pw.get("verdict") != "powered":
         why.append(f"underpowered: {pw.get('headline')}")
@@ -98,6 +124,16 @@ def seal(name: str, ids: Sequence[str], audit: Mapping[str, Any], *, out_root: P
     master = master if master is not None else secrets.randbits(63)
     tasks = {i: {"store": str(locate[i]), "repo": repos.get(i), "hashes": task_hashes(locate[i], (prompts or {}).get(i)),
                  "seed": task_seed(master, i)} for i in ids}
+    day = accepted_on or dt.datetime.now(dt.UTC).date().isoformat()
+    rows = {r["id"]: r for r in audit.get("tasks", [])}
+    for i, reason in accept.items():
+        commits = exposure_commits(rows[i])
+        tasks[i]["exposed_public"] = f"{', '.join(commits) or 'unknown commit'} (lead accepted {day}: {reason})"
+        if journal is not None:
+            Path(journal).parent.mkdir(parents=True, exist_ok=True)
+            with Path(journal).open("a") as fh:
+                fh.write(json.dumps({"at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), "benchmark": name, "task": i,
+                                     "commits": commits, "reason": reason, "by": "lead"}, sort_keys=True) + "\n")
     dates = sorted(d for i in ids for d in fix_dates.get(i, []) if d)
     slugs = sorted({repos[i].lower() for i in ids if repos.get(i)})
     # the debug and kernel lanes split by owner, not by time (both sides' fixes are after the student's cutoff), so the
@@ -108,7 +144,7 @@ def seal(name: str, ids: Sequence[str], audit: Mapping[str, Any], *, out_root: P
     manifest = {"name": name, "at": at, "k": k, "master_seed": master, "tasks": tasks, "lease": lease, "power": pw,
                 "audit": {"ref": audit.get("ref"), "sha256": _sha(audit)}}
     manifest["manifest_sha256"] = _sha({x: y for x, y in manifest.items() if x != "manifest_sha256"})
-    public = {"name": name, "at": at, "n": len(ids), "k": k, "manifest_sha256": manifest["manifest_sha256"],
+    public = {"name": name, "at": at, "n": len(ids), "k": k, "manifest_sha256": manifest["manifest_sha256"], "exposed_public": len(accept),
               "seed_commitment": _sha(str(master).encode()), "power": {x: pw.get(x) for x in ("verdict", "mde", "target", "headline")}}
     out.mkdir(parents=True, exist_ok=False)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True))

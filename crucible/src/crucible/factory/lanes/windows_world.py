@@ -34,7 +34,7 @@ import time
 import tomllib
 import uuid
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -683,6 +683,21 @@ def world_spec(ws: Path, base_dir: Path) -> Any:
         "actors": [{"id": "agent", "kind": "policy", "tools": ["repo.*"]}]})
 
 
+class OnlineWorldRefused(RuntimeError):
+    """A held-out (benchmark) task's World is not offline."""
+
+
+def require_offline(window: Mapping[str, Any], world: Any) -> None:
+    """A held-out task runs only in an offline World (the lead, 2026-10-25: the benchmark's tasks are partly public, and the
+    offline World is what keeps that from mattering). The network mode is read back from the container (``docker inspect``),
+    not trusted from the run command: anything but ``none`` refuses."""
+    if str(window.get("split") or "") != "heldout":
+        return
+    mode = getattr(world, "_crucible_network", None)
+    if mode != "none":
+        raise OnlineWorldRefused(f"held-out task {window.get('id')!r}: its World's network is {mode!r}, not 'none'; a benchmark World must be offline")
+
+
 async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: str, memory: str = "2g", cpus: str = "2",
                      name_prefix: str = f"{PREFIX}world-", workspace_mode: str = "rw", pythonpath: str | None = None) -> Any:
     """A started, reset World whose tools run in a ``--network none`` container of ``image`` (closing the World removes
@@ -718,6 +733,8 @@ async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: 
         raise
     w._crucible_ws = ws
     w._crucible_container = name
+    ins = await asyncio.to_thread(docker, "inspect", "-f", "{{.HostConfig.NetworkMode}}", name, timeout=60)
+    w._crucible_network = ins.stdout.strip() if ins.returncode == 0 else None  # as docker reports it, never assumed
     inner = w.close
 
     async def close() -> None:
