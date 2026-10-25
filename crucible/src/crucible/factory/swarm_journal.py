@@ -308,7 +308,7 @@ RULES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def diagnose(root: Path | str, *, min_artifacts: int = 3, low_pass: float = 0.3) -> dict[str, Any]:
+def diagnose(root: Path | str, *, min_artifacts: int = 3, low_pass: float = 0.3, monitor: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The bottlenecks of the swarm, ranked by the dollars spent on work a gate later refused (blamed failures × the
     role's mean dollars per session), each with its evidence and its proposals. Also: models whose sessions end in infra
     more than in task failures (a provider or harness problem, not a model problem), and roles below ``low_pass`` gate
@@ -338,7 +338,12 @@ def diagnose(root: Path | str, *, min_artifacts: int = 3, low_pass: float = 0.3)
     out.sort(key=lambda x: (-x["score_usd"], -x["evidence"]["blamed"]))
     infra = [{"model": m, "sessions": v["sessions"], "failure_kinds": v["kinds"]} for m, v in t["models"].items() if v["kinds"]]
     stuck = [c for c in credit if c["reward"] == 0.0 and c["phi_final"] < 1.0]
-    return {"tables": t, "bottlenecks": out, "models_with_failures": infra,
+    gf = None
+    if monitor:
+        gm = {r["mode"]: r for r in (monitor.get("general") or {}).get("modes") or [] if r.get("general")}
+        gf = {"modes": [{"mode": m, "p": r["p"], "ci": [r["lo"], r["hi"]], "tasks": len(r["tasks"]), "langs": r["langs"]} for m, r in gm.items()],
+              "intents": list(monitor.get("swarm_intents") or []), "source": "train_monitor (training split only)"}
+    return {"tables": t, "bottlenecks": out, "models_with_failures": infra, "general_failures": gf,
             "builder_credit": {"attempts": len(credit), "with_progress": sum(1 for c in credit if c["progress_turns"]),
                                "failed_below_phi_1": [{"role": c["role"], "state": c["state"], "phi_final": c["phi_final"], "dir": c["dir"]} for c in stuck][:20]}}
 
@@ -364,4 +369,9 @@ def render(d: Mapping[str, Any]) -> str:
     bc = d["builder_credit"]
     lines += ["", f"## Builder credit: {bc['attempts']} attempts with Φ, {bc['with_progress']} with progress turns", ""]
     lines += [f"- {c['role']} at {c['state']}: failed at Φ {c['phi_final']} ({c['dir']})" for c in bc["failed_below_phi_1"][:10]]
+    gf = d.get("general_failures")
+    if gf:
+        lines += ["", "## General failures of the student (training monitor): intents for the builders", ""]
+        lines += [f"- {m['mode']}: {m['p']:.2f} over {m['tasks']} tasks ({', '.join(m['langs'])})" for m in gf["modes"] if m.get("p") is not None]
+        lines += [f"- intent candidate: {i['behaviour']} ({i['mode']})" for i in gf["intents"]]
     return "\n".join(lines) + "\n"

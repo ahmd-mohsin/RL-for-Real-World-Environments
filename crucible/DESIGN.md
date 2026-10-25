@@ -1077,6 +1077,26 @@ build tasks that target its failures):
     written by the swarm's `prompt_author` under a knob instruction; World knobs re-run the start check and every executed
     gate, report knobs inherit the parent's gate verdicts only when the start tree and the hidden tests are byte-identical
     by sha256). Driver: `scripts/lh_difficulty_pilot.py propose|revise|measure`.
+  - **The training monitor** (2026-10-25, `swarm-pipeline/11` §4.4, 13 §11): `factory/train_monitor.py` (analysis) and
+    `observe/train_monitor.py` (W&B tables and lines, the markdown and HTML report; plain dicts in, so `observe` stays below
+    `factory`), driven by `scripts/train_monitor.py report|watch`.
+    - **Ingest:** every attempt under the roots (Runner layout `.../samples/<s>/a<n>`), read through
+      `traceaudit.load_bundle` plus the record's honesty block and the grader's check statuses. A training run's
+      `steps.jsonl` maps groups to steps; other roots are cohorts. Backend-neutral (Tinker or DeltaAI write the same
+      directories).
+    - **General modes** (`GENERAL_MODES`, deterministic): stalls after a partial fix, claims verified work with no test run
+      after the last edit, overclaims in STATUS.json, slow first edit, budget with Φ flat, loops on a failing command,
+      breaks pass-to-pass tests, loses Φ after a compaction, environment misuse; `symptom_only` comes from a capped judge
+      pass (never Qwen, a verbatim quote or the label is rejected, training failures only). A mode is general at >= 3
+      tasks over >= 2 languages or lanes (Wilson CI); the rest, and each task's stuck milestones, are task-specific.
+    - **Learning:** per step mode prevalence and health (reward, full pass, Φ, budget stops, hacks, path violations, tool
+      calls, compactions, Brier; the trainer's KL, loss, entropy and zero-spread groups); first vs last third gives
+      `learned`, `regressing`, `stuck`. Unordered cohorts (arms of one run) get no trend. Alerts: hacks up, honesty down,
+      reward up with full passes flat, KL spike, entropy collapse, flat groups, the band emptying.
+    - **Proposals and intents:** each persistent general mode maps to framework levers (`LEVERS`), journaled,
+      `applied: False`; `swarm_intents` feed `swarm_journal.diagnose(monitor=...)` (`scripts/swarm.py diagnose --monitor`).
+    - **Held-out discipline:** benchmark episodes are aggregated only (placeholders); `proposals`, `swarm_intents` and
+      `judge` raise `HeldOutUse` on a held-out episode.
   - **Controller fixes from the pilot:** a budget-bound task gets the horizon-shortening knobs (C1, K1; the 300-call
     budget never moves); a root milestone's rate is no checkpoint signal; a conditional rate above the band is not in band.
   - **Pilot fixes:** `sampler.ensure_cap` (every `write-prompts` stopped at the shared meter's 1-USD default whatever its
