@@ -33,7 +33,9 @@ calls, cap 15; the keep rule, the benchmark and RL use the same one); ``settings
 whether it was the lane's. A re-measurement passes ``--seed-offset`` so its run ids (the Weave trace keys) are new.
 
 One Tinker meter for the whole phase (``spend.jsonl``; ``CRUCIBLE_TINKER_CAP_USD`` = ``--cap``): every student, frontier,
-auditor and judge call books there and is refused past the cap. Episodes run under a host slot pool (``--slots``: Worlds
+auditor and judge call books there and is refused past the cap. ``--backend vllm`` (DeltaAI, doc 14) samples the student
+from our own vLLM server instead (``--vllm-url``; the engine record from ``--vllm-engine``, a ``ServeSpec.record()`` JSON):
+the same engine side, renderer and episodes, at no per-token price; the arm's settings record the backend and the engine. Episodes run under a host slot pool (``--slots``: Worlds
 open at once), so Docker on this Mac is never oversubscribed.
 """
 
@@ -257,7 +259,10 @@ class Phase:
 
     def est(self, model: str) -> float:
         """Projected USD per episode of ``model``: ``--est-usd`` if given, else the mean of its finished episodes in this
-        phase (the meter's attribution), else the pilot's measurement scaled to the tool limit (``PILOT_USD``)."""
+        phase (the meter's attribution), else the pilot's measurement scaled to the tool limit (``PILOT_USD``). On our own
+        vLLM server an episode has no per-token price (0)."""
+        if self.vllm():
+            return 0.0
         given = dict(x.split("=", 1) for x in self.a.est_usd.split(",") if "=" in x)
         if model in given:
             return float(given[model])
@@ -270,20 +275,37 @@ class Phase:
             return statistics.fmean(xs)
         return PILOT_USD.get(model, 3.0) * max(1.0, self.a.tool_limit / 100)
 
+    def vllm(self) -> bool:
+        return getattr(self.a, "backend", "tinker") == "vllm"
+
+    def row(self, model: str) -> Any:
+        """The model row the sampler runs: the Tinker id, or on ``--backend vllm`` our server's row (``vllm_model``)."""
+        if not self.vllm():
+            return model
+        from crucible.train.bridges.vllm.client import vllm_model
+
+        return vllm_model(model, context=self.a.vllm_context)
+
     def codec(self, model: str) -> Any:
         if model not in self._codecs:
             from crucible.train.bridges.tinker.codec import TinkerChatCodec, load_tokenizer
             from crucible.train.bridges.tinker.models import resolve
 
-            m = resolve(model)
+            m = self.row(model) if self.vllm() else resolve(model)
             self._codecs[model] = TinkerChatCodec(load_tokenizer(m), m, enable_thinking=self.a.thinking)
         return self._codecs[model]
 
     def backend(self) -> Any:
         if self._backend is None:
-            from crucible.train.bridges.tinker.backend import RealTinker
+            if self.vllm():
+                from crucible.train.bridges.vllm.client import VLLMBackend
 
-            self._backend = RealTinker()
+                eng = json.loads(Path(self.a.vllm_engine).read_text()) if self.a.vllm_engine else None
+                self._backend = VLLMBackend(self.a.vllm_url or None, engine=eng)
+            else:
+                from crucible.train.bridges.tinker.backend import RealTinker
+
+                self._backend = RealTinker()
         return self._backend
 
     def env_kw(self) -> dict[str, Any]:
@@ -326,7 +348,7 @@ class Phase:
             t0 = time.time()
             print(f"[{tag}] {tid}: k={k} start (spent {self.meter.spent:.3f})", flush=True)
             try:
-                rep = await benchmark([task], model=model, k=k, run_dir=rd, cap_usd=self.a.cap, meter=self.meter, backend=self.backend(),
+                rep = await benchmark([task], model=self.row(model), k=k, run_dir=rd, cap_usd=self.a.cap, meter=self.meter, backend=self.backend(),
                                       codec=self.codec(model), max_tokens=self.a.max_tokens, enable_thinking=self.a.thinking, concurrency=concurrency,
                                       seed=seed, purpose=purpose, observe=False, **self.env_kw())
             except Exception as e:  # noqa: BLE001 - one task's failure is recorded; the phase goes on
@@ -1174,6 +1196,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--cap", type=float, default=10.0, help="hard USD cap of the whole phase (one meter: spend.jsonl)")
     ap.add_argument("--tasks", default="", help="comma list (default: every candidate)")
     ap.add_argument("--student", default=STUDENT)
+    ap.add_argument("--backend", choices=("tinker", "vllm"), default="tinker", help="the student's sampler: Tinker, or our own vLLM server "
+                    "(DeltaAI, doc 14); frontier arms stay on Tinker")
+    ap.add_argument("--vllm-url", default="", help="the vLLM server (default CRUCIBLE_VLLM_URL, else http://127.0.0.1:8000)")
+    ap.add_argument("--vllm-context", type=int, default=262_144, help="the server's --max-model-len")
+    ap.add_argument("--vllm-engine", default="", help="a ServeSpec.record() JSON file: the engine stamped into every arm's settings")
     ap.add_argument("--preset", default="tinker", help="the ModelBook preset of the judges and the default frontier (swarm: tasks the Tinker swarm "
                     "built; its frontier never shares a builder's family)")
     ap.add_argument("--frontier", default="", help="comma list (default: the preset's frontier; tinker: " + ",".join(FRONTIER) + ")")

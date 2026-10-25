@@ -64,6 +64,7 @@ DEFAULT_PROVIDER = "openrouter"  # the fallback for a bare "org/model" id (unuse
 CLAUDE_CODE = "claude-code"  # the provider name of headless Claude Code (not an llm_providers entry: no HTTP endpoint)
 CLAUDE_BUILDER = f"{CLAUDE_CODE}:opus-5.5"
 TINKER = "tinker"  # a registered sampler backend (``register_backend``), supplied by train/bridges/tinker
+VLLM = "vllm"  # a registered sampler backend: our own vLLM server (train/bridges/vllm; DeltaAI GH200)
 
 # ---- the default map (2026-10-20): Claude builds, Tinker samples every other role ------------------------------------------
 DEEPSEEK = f"{TINKER}:deepseek-ai/DeepSeek-V4.1-Flash:peft:262144"
@@ -204,6 +205,12 @@ def _autoregister(name: str) -> None:
         except ImportError:
             return
         register_backend(TINKER, make, final=True, doc="Tinker sampling client (train/bridges/tinker)")
+    elif name == VLLM and name not in _BACKENDS:
+        try:
+            from crucible.train.bridges.vllm.sampler import make as make_vllm
+        except ImportError:
+            return
+        register_backend(VLLM, make_vllm, final=True, doc="our own vLLM server (train/bridges/vllm; DeltaAI GH200, doc 14)")
 
 
 def backend(name: str) -> SamplerBackend:

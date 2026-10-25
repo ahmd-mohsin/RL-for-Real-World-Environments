@@ -122,7 +122,7 @@ class TinkerSampler:
         return SamplerLLM(self, name=name)
 
     def settings(self) -> dict[str, Any]:
-        return {"provider": "tinker", "model": self.model.name, "family": self.model.family, "context": self.model.context,
+        return {"provider": self.model.provider, "model": self.model.name, "family": self.model.family, "context": self.model.context,
                 "codec": self.codec.settings() if hasattr(self.codec, "settings") else type(self.codec).__name__}
 
     def policy_ref(self, *, pid: str | None = None, temperature: float = 1.0, max_tokens: int = 1024, system: str | None = None,
@@ -136,9 +136,9 @@ class TinkerSampler:
         kw = {"temperature": temperature, "max_tokens": max_tokens, **policy_kw}
         cfg = {"sampler": self.settings(), "version": self.version, "path": self.path, "policy": {k: v for k, v in kw.items()},
                "system": system or "default"}
-        return PolicyRef(id=pid or f"tinker-{self.model.name.replace('/', '_').replace(':', '_')}-v{self.version}",
+        return PolicyRef(id=pid or f"{self.model.provider}-{self.model.name.replace('/', '_').replace(':', '_')}-v{self.version}",
                          make=lambda _a: {"agent": LLMToolPolicy("agent", shared, system=system or SYSTEM, **kw)},
-                         spend=lambda: (self.meter.spent, 0.0), settings=self.settings(), config=cfg, endpoint=f"tinker:{self.model.name}")
+                         spend=lambda: (self.meter.spent, 0.0), settings=self.settings(), config=cfg, endpoint=f"{self.model.provider}:{self.model.name}")
 
 
 class SamplerLLM:

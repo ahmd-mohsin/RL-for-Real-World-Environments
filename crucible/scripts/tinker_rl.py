@@ -25,6 +25,9 @@ Commands (each writes JSON under ``--out``; every paid command takes ``--cap`` U
   under a burst).
 - ``openai-check --checkpoint tinker://...``: one chat completion through Tinker's OpenAI-compatible endpoint (beta).
 - ``download --path tinker://.../sampler_weights/...``: the LoRA adapter.
+- ``eval`` / ``compare`` with ``--backend vllm`` (DeltaAI, doc 14): the student from our own vLLM server (``--vllm-url``,
+  ``--vllm-engine`` a ``ServeSpec.record()`` JSON, ``--vllm-context``); ``--checkpoint`` is then a PEFT LoRA directory on
+  the node, loaded onto the same base. No Tinker key is needed and both arms run on one engine build.
 - ``power --arms LABEL=DIR ... --n 10 --k 8 --json OUT``: offline, no key, $0. The A/A noise of existing arms' attempts,
   the MDE of an n x k paired comparison and the tasks needed for MDE <= each ``--target`` (``bench.power.study``).
 
@@ -67,9 +70,29 @@ def load_env_key(path: Path) -> bool:
     return False
 
 
-def need_key() -> None:
+def sampler_kw(args) -> dict:
+    """``model`` and ``backend`` for ``benchmark`` / ``compare``: the Tinker id (backend default), or on ``--backend vllm``
+    our server's model row and a ``VLLMBackend`` carrying the engine record."""
+    if getattr(args, "backend", "tinker") != "vllm":
+        return {"model": args.model}
+    from crucible.train.bridges.vllm.client import VLLMBackend, vllm_model
+
+    eng = json.loads(Path(args.vllm_engine).read_text()) if args.vllm_engine else None
+    return {"model": vllm_model(args.model, context=args.vllm_context), "backend": VLLMBackend(args.vllm_url or None, engine=eng)}
+
+
+def need_key(args=None) -> None:
+    if args is not None and getattr(args, "backend", "tinker") == "vllm":
+        return  # our own server: no Tinker key
     if not os.environ.get(ENV_KEY):
         sys.exit("TINKER_API_KEY is not in the environment: source the repo .env (set -a; . ../.env; set +a) or pass --env-file")
+
+
+def backend_args(p) -> None:
+    p.add_argument("--backend", choices=("tinker", "vllm"), default="tinker", help="the student's sampler: Tinker, or our own vLLM server (doc 14)")
+    p.add_argument("--vllm-url", default="", help="default CRUCIBLE_VLLM_URL, else http://127.0.0.1:8000")
+    p.add_argument("--vllm-context", type=int, default=262_144)
+    p.add_argument("--vllm-engine", default="", help="a ServeSpec.record() JSON: the engine stamped into each arm's settings")
 
 
 def cleanup_containers() -> list[str]:
@@ -175,10 +198,10 @@ def cmd_train(args) -> None:
 def cmd_eval(args) -> None:
     from crucible.factory.tinker import benchmark
 
-    need_key()
+    need_key(args)
     tasks = _tasks_from_rows(args) if args.rows else [toy_task(Path(tempfile.mkdtemp(prefix="tinker-toy-")), args.image)]
     try:
-        out = asyncio.run(benchmark(tasks, model=args.model, k=args.k, run_dir=_out(args), cap_usd=args.cap, checkpoint=args.checkpoint,
+        out = asyncio.run(benchmark(tasks, **sampler_kw(args), k=args.k, run_dir=_out(args), cap_usd=args.cap, checkpoint=args.checkpoint,
                                     max_tokens=args.max_tokens, enable_thinking=args.thinking, concurrency=args.concurrency, seed=args.seed,
                                     purpose=args.purpose, observe=_observe(args), **_envs_kw(args)))
         out.pop("episodes", None)
@@ -190,14 +213,14 @@ def cmd_eval(args) -> None:
 def cmd_compare(args) -> None:
     from crucible.factory.tinker import compare
 
-    need_key()
+    need_key(args)
     tasks = _tasks_from_rows(args) if args.rows else [toy_task(Path(tempfile.mkdtemp(prefix="tinker-toy-")), args.image)]
 
     def load(p):
         return json.loads(Path(p).read_text()) if p else None
 
     try:
-        out = asyncio.run(compare(tasks, model=args.model, checkpoint=args.checkpoint, run_dir=_out(args), cap_usd=args.cap, k=args.k, seed=args.seed,
+        out = asyncio.run(compare(tasks, **sampler_kw(args), checkpoint=args.checkpoint, run_dir=_out(args), cap_usd=args.cap, k=args.k, seed=args.seed,
                                   baseline=load(args.baseline), selection=load(args.selection), max_tokens=args.max_tokens, enable_thinking=args.thinking,
                                   concurrency=args.concurrency, observe=_observe(args),
                                   arm_dirs={a: Path(p).parent for a, p in (("baseline", args.baseline), ("selection", args.selection)) if p},
@@ -427,6 +450,7 @@ def main() -> None:
     p.add_argument("--concurrency", type=int, default=4)
     p.add_argument("--seed", type=int, default=0, help="run seed (a fresh baseline uses one the selection run did not)")
     p.add_argument("--purpose", default="baseline", choices=["selection", "baseline", "control", "trained", "smoke"])
+    backend_args(p)
     p.set_defaults(fn=cmd_eval)
     p = sub.add_parser("compare")
     common(p)
@@ -436,6 +460,7 @@ def main() -> None:
     p.add_argument("--concurrency", type=int, default=4)
     p.add_argument("--baseline", help="metrics.json of the fresh baseline run")
     p.add_argument("--selection", help="metrics.json of the selection run")
+    backend_args(p)
     p.set_defaults(fn=cmd_compare)
     p = sub.add_parser("power", help="offline A/A noise, MDE and the tasks needed (no key, $0)")
     p.add_argument("--arms", nargs="+", required=True, help="LABEL=DIR: an arm dir with episodes.jsonl, or a dir of <task>/episodes.jsonl")

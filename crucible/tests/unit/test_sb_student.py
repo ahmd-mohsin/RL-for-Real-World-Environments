@@ -71,7 +71,8 @@ def test_probe_reads_the_descriptor(tmp_path: Path) -> None:
     assert s.meta()["numerics"] == "dev" and s.meta()["tool_parser"] == "qwen3_coder"
     none = probe("http://127.0.0.1:8199/v1", root=tmp_path, check=False)
     assert none is not None and none.backend == "unknown" and none.dev_only  # unrecorded numerics never count
-    assert StudentServer("vllm", TARGET_MODEL, "u").numerics == "dev"  # local serving is calibration, not Tinker's sampler
+    assert StudentServer("vllm", TARGET_MODEL, "u").numerics == "final"  # our own engine on DeltaAI counts (2026-10-25), both arms on it
+    assert StudentServer("mlx", TARGET_MODEL, "u").numerics == "dev"  # the Mac's MLX server is calibration only
     assert StudentServer("tinker", TARGET_MODEL, "u").numerics == "final"
     assert StudentServer("tinker", DEV_MODEL, "u").dev_only  # a dev model is dev whatever served it
     assert StudentServer("tinker", "Qwen/Qwen3-4B-Instruct-2507", "u").dev_only
@@ -80,7 +81,8 @@ def test_probe_reads_the_descriptor(tmp_path: Path) -> None:
 @pytest.mark.parametrize(("policy", "dev"), [
     ("solver:student:Qwen/Qwen3.5-4B@mlx", True), ("solver:student:Qwen/Qwen3.5-4B@nudges6-mlx", True),
     ("solver:student:Qwen/Qwen3.5-4B@vllm", True), ("solver:tinker:Qwen/Qwen3.5-4B@tinker", True),
-    ("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker", False), ("solver:tinker:Qwen/Qwen3.6-35B-A3B@vllm", True),
+    ("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker", False), ("solver:vllm:Qwen/Qwen3.6-35B-A3B@vllm", False),  # our DeltaAI engine counts
+    ("solver:student:Qwen/Qwen3.6-35B-A3B@mlx", True),
     ("solver:student:Qwen/Qwen3-4B-Instruct-2507@tinker", True), ("solver:qwen/qwen3.7-flash@route", False),
     ("solver:tinker:Qwen/Qwen3.6-35B-A3B@unknown", True), ("", False)])
 def test_dev_policy_stamps(policy: str, dev: bool) -> None:
@@ -116,7 +118,7 @@ def test_a_sampler_registers_as_a_student_backend(monkeypatch: pytest.MonkeyPatc
     st.register_backend("tinker", lambda model, **kw: made.append((model, kw)) or "client", final=True, doc="TinkerSampler")
     st.register_backend("cpu", lambda model, **kw: "cpu-client")
     assert st.backend("tinker").make(TARGET_MODEL, thinking=False) == "client" and made == [(TARGET_MODEL, {"thinking": False})]
-    assert st.is_final_backend("tinker") and not st.is_final_backend("cpu") and not st.is_final_backend("vllm")
+    assert st.is_final_backend("tinker") and not st.is_final_backend("cpu") and st.is_final_backend("vllm") and not st.is_final_backend("mlx")
     assert is_dev_policy("solver:tinker:Qwen/Qwen3.6-35B-A3B@cpu") and not is_dev_policy("solver:tinker:Qwen/Qwen3.6-35B-A3B@tinker")
     assert sorted(st.backends()) == ["cpu", "tinker"]
     with pytest.raises(KeyError):

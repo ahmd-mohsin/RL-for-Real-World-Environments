@@ -1575,6 +1575,7 @@ class WindowTask(ExecTask):
     ``oracle_patch``, ``floors``, ``alternatives``, ``simplify('prerequisites')``, ``card``, ``ref``."""
 
     horizon = "H2"
+    world_network = "none"  # open_world starts the World with --network none (factory.tinker.require_offline reads this)
 
     def __init__(self, lane: WindowLane, mined: MinedTask, window: Mapping[str, Any], *, task_id: str, prompt: str, requirements: Sequence[Mapping[str, Any]],
                  spans: Mapping[str, Sequence[int]], checkset: Mapping[str, Any], weights: Mapping[str, float] | None = None,
