@@ -118,6 +118,7 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_TINKER_CAP_USD", "float", 1.0, "Tinker bridge: hard USD cap of the shared spend meter for factory roles sampled on Tinker"),
     Knob("CRUCIBLE_VLLM_URL", "str", "http://127.0.0.1:8000", "vLLM bridge: our own vLLM server (DeltaAI; train/bridges/vllm, doc 14)"),
     Knob("CRUCIBLE_VLLM_CONTEXT", "int", 262144, "vLLM bridge: the server's --max-model-len (the tasks' context)"),
+    Knob("CRUCIBLE_KERNEL_WORK", "path", None, "kernel episodes on a DeltaAI node (gh200-node): the job's node-local work directory", kind="internal"),
     Knob("CRUCIBLE_TINKER_SPEND", "path", None, "Tinker bridge: spend.jsonl the shared meter appends receipts to (default: none)"),
     Knob("CRUCIBLE_CUDA_HOME", "path", "/usr/local/cuda", "kernel lane grader: the CUDA toolkit inside the grading image", kind="internal"),
     Knob("CRUCIBLE_CUDA_ARCH", "str", None, "kernel lane grader: the native sm_XX the grader builds for (set by the GPU stage)", kind="internal"),

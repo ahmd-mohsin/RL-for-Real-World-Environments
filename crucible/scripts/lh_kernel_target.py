@@ -171,7 +171,8 @@ async def amain(a: argparse.Namespace) -> None:
     unsupported = [s for s in a.stages if s in ("worldfix", "disclose", "regrade", "fairness", "diag")]
     if unsupported:
         raise SystemExit(f"not a kernel targeting stage: {unsupported} (10 §9.3)")
-    if any(s in a.stages for s in ("pilot", "student", "frontier", "arms")) and not T.os.environ.get("TINKER_API_KEY"):
+    tinker_needed = any(s in a.stages for s in ("pilot", "frontier", "arms")) or ("student" in a.stages and getattr(a, "backend", "tinker") != "vllm")
+    if tinker_needed and not T.os.environ.get("TINKER_API_KEY"):
         raise SystemExit("TINKER_API_KEY is not in the environment (set -a; . ../.env; set +a)")
     import crucible.factory.generators.debug as gd
     from crucible.factory.lanes import kernel_debug as kd

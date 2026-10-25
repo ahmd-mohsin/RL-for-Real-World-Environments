@@ -29,8 +29,10 @@ GPU episode:
 - **Masking** (V8): a grade that cannot run (host unreachable, no calibrated spec, no reward document) is masked, never 0.
 
 DeltaAI (GH200, Apptainer, user-mode, ``trusted: false``) needs the runner on the compute node itself (no Docker daemon to
-reach from here); ``GpuHost.runtime == "apptainer"`` is declared for it and refused by ``open`` until that path is built
-(swarm-pipeline/10 §9.4).
+reach from here): ``gh200`` (from the Mac) stays declared and refused by ``open``; ``gh200-node`` is the host as seen from a
+job on the node (``local``: every host command runs in a local shell, the World's ``docker`` is the Apptainer shim of
+``scripts/deltaai``, the grader runs in its Apptainer mode, the work directory is the job's node-local scratch,
+``CRUCIBLE_KERNEL_WORK``; swarm-pipeline/14).
 """
 
 from __future__ import annotations
@@ -83,8 +85,12 @@ class GpuHost:
     template_memory: str = "40g"
     max_worlds: int = 2  # Worlds open at once (each may run nvcc); the shared 5090 has 93 GB
     key: str = "~/.ssh/id_ed25519"
+    local: bool = False  # this process runs on the host itself (a DeltaAI job): host commands run in a local shell
+    grade_mode: str = ""  # the grader runner's --mode (default: ``runtime``); a shimmed World on Apptainer grades with "apptainer"
 
     def ssh_argv(self, script: str) -> list[str]:
+        if self.local:
+            return ["bash", "-c", script]
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=6",
                 "-i", os.path.expanduser(self.key), self.ssh, "bash -c " + shlex.quote(script)]
 
@@ -97,6 +103,11 @@ HOSTS: dict[str, GpuHost] = {
     "gh200": GpuHost(name="gh200", ssh="deltaai", arch="90", gpu="NVIDIA GH200 120GB", docker_host="", bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle",
                      migration_bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle/migration", work="/work/hdd/bjhg/mahmedmohsin/crucible/episodes",
                      runtime="apptainer"),
+    # the same GH200 seen from a job on the node: the World through the docker shim, the grader in Apptainer mode
+    "gh200-node": GpuHost(name="gh200-node", ssh="local", arch="90", gpu="NVIDIA GH200 120GB", docker_host="",
+                          bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle", migration_bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle/migration",
+                          work=os.environ.get("CRUCIBLE_KERNEL_WORK") or "/tmp/crucible-kernel-ep", runtime="docker", local=True, grade_mode="apptainer",
+                          world_cpus="16", world_memory="64g"),
 }
 
 
@@ -251,7 +262,8 @@ class HostGrader:
         except Exception as e:  # noqa: BLE001 - the host or its bundle is unreachable: masked, never 0 (V8)
             return {"infra": {"status": "masked", "failure_kind": "gpu_host", "reason": f"{type(e).__name__}: {e}"[:400]}}
         runner = "stage_gpu.py" if mig else "run_gpu.py"
-        cmd = f"cd {shlex.quote(bundle)} && python3 {runner} --arch {self.host.arch} --mode {self.host.runtime} --grade-one {shlex.quote(str(rec['id']))}"
+        mode = self.host.grade_mode or self.host.runtime
+        cmd = f"cd {shlex.quote(bundle)} && python3 {runner} --arch {self.host.arch} --mode {mode} --grade-one {shlex.quote(str(rec['id']))}"
         r = await remote(self.host, GpuLock(self.host).wrap(cmd, exclusive=has_perf(rec)), stdin=patch, timeout=self.timeout_s)
         doc = last_json(r.out)
         row = {"task": rec["id"], "seconds": round(time.time() - t0, 1), "grade_s": (doc or {}).get("grade_s"), "rc": r.rc, "at": time.time()}
