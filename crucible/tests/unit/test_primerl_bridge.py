@@ -243,6 +243,25 @@ def test_the_tinker_loop_trains_the_same_datums_on_prime_rl_as_on_tinker(tmp_pat
     assert parse_ckpt(state["state_path"])[0] == 1 and state["sampler_path"].endswith("step_1")
 
 
+def test_a_reply_cut_at_the_token_limit_is_a_limit_stop_in_the_curriculum_and_still_trains() -> None:
+    """A truncated-reply stop (``max_output_tokens``) is a budget stop for the difficulty tracker (out of p̂, never a skill
+    failure), and its group still trains on its scored outcome (the limit policy scores it: it is not infrastructure)."""
+    from crucible.forge.difficulty import BUDGET_STOPS, DifficultyTracker
+    from crucible.train.curriculum import draws_of
+
+    recs = [RolloutRecord.model_validate({"rollout_id": f"r{j}", "sample": f"s{j}", "task": "a", "harness": "h", "policy": "p", "reward": r,
+                                          "stop": stop, "progress": {"phi_final": r}})
+            for j, (r, stop) in enumerate([(0.0, "max_output_tokens"), (0.0, "max_output_tokens"), (1.0, "agent_done"), (0.5, "agent_done")])]
+    draws = draws_of(recs)
+    assert "max_output_tokens" in BUDGET_STOPS and all(d.budget for d in draws[:2]) and not any(d.budget for d in draws[2:])
+    tr = DifficultyTracker()
+    tr.observe("a", 0, draws)
+    row = tr.rows()[0]
+    assert row["budget"] == 2 and row["p"] == pytest.approx(0.5)  # two measured draws, one pass: the truncated failures are not in p̂
+    g = Group(0, _env("a"), "a", "v1", "g0", recs, 0, 0.0)
+    assert not g.masked and len(g.rewards()) == 4  # scored, so the group trains
+
+
 # ---- deployment ---------------------------------------------------------------------------------------------------------------------
 def test_the_account_is_cis262200_only_and_shapes_are_checked() -> None:
     with pytest.raises(ValueError, match="bjhg-dtai-gh"):
@@ -320,7 +339,8 @@ def test_delta_rl_takes_every_tinker_train_flag_unchanged() -> None:
     dr = _load("delta_rl")
     delta = opts(lambda p: (tl.add_common(p, cap=1e9), tl.add_train_flags(p), dr.add_deploy_flags(p)))
     assert all(k in delta and delta[k][1] == v[1] for k, v in tinker.items())
-    assert {k for k, v in tinker.items() if delta[k][0] != v[0]} == {"cap"}  # no USD cap on DeltaAI (GPU hours are the cost)
+    # no USD cap on DeltaAI (GPU hours are the cost); 8192 output tokens per call (4096 cut replies and ended episodes)
+    assert {k for k, v in tinker.items() if delta[k][0] != v[0]} == {"cap", "max_tokens"} and delta["max_tokens"][0] == dr.MAX_TOKENS == 8192
     assert dr.passthrough(["--rows", "r", "--stage", "s", "--run-name", "n", "--resume-step=3"]) == ["--rows", "r", "--run-name", "n"]
     cfg = tl.train_config(argparse.Namespace(**{k: v[0] for k, v in tinker.items()}))
     assert isinstance(cfg, TrainConfig) and cfg.loss_fn == "importance_sampling" and statistics.fmean([cfg.band_lo, cfg.band_hi]) == pytest.approx(0.4)

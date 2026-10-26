@@ -114,7 +114,10 @@ ssh deltaai 'cd /work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001 && env -u
   follows the largest node share.
 - The `test` partition is closed to this account (`AllowAccounts=bbka-dtai-gh`). Smokes use `ghx4-interactive` (2 h max,
   partition priority factor 10,000 against ghx4's 100).
-- Same flags as `tinker_rl.py train` (a test pins it), plus the deployment's. Held-out tasks and tasks without a recorded
+- Same flags as `tinker_rl.py train` (a test pins it), plus the deployment's, except two defaults: no USD cap, and
+  `--max-tokens 8192` per model call (4096 cut the replies of ~90 stored episodes and ended GPU migration episodes). A
+  reply cut there is a limit stop (`max_output_tokens`, a budget stop for the audit and the difficulty tracker, never a
+  skill failure; a test pins it on the bridge's path). Held-out tasks and tasks without a recorded
   band are refused.
 
 ## 5. The smoke

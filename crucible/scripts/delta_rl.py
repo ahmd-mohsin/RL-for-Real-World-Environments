@@ -40,9 +40,14 @@ def _tinker_cli():
     return mod
 
 
+# per model call on DeltaAI (coordinator, 2026-10-26): 4096 cut the replies of ~90 stored episodes and ended GPU migration episodes
+MAX_TOKENS = 8192
+
+
 def add_deploy_flags(p) -> None:
     from crucible.train.bridges.primerl.deploy import DeltaConfig
 
+    p.set_defaults(max_tokens=MAX_TOKENS)  # a reply cut there is a limit stop (max_output_tokens), never a skill failure
     d = DeltaConfig()
     p.add_argument("--base-model", default=d.base_model, help="the HF repo vLLM and the trainer load")
     p.add_argument("--partition", default=d.partition)
