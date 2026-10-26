@@ -153,6 +153,10 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 
   `BUILD_OK` on 2026-10-26 in 13 min: torch 2.13.0+cu130, vLLM 0.31.0, verifiers (lock-pinned), and Crucible's bridge
   importable. The GPU job only checks the build marker; it never installs.
+- **Attempt 5** (ready on the cluster in `runs/smoke1`, reusing the built environment, with the GPU kernel check
+  `primerl.kernel_check`): not submitted. The one-per-user `ghx4-interactive` slot stayed with the inference worker's
+  job, and then the Mac lost DNS and the SSH control socket closed (2026-10-26 13:08). It goes in once the user runs
+  `ssh -fN deltaai` again.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers
