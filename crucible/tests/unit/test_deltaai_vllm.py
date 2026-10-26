@@ -167,7 +167,7 @@ def test_shim_run_is_locked_down(tmp_path, monkeypatch):
     assert o["image"] == "crucible-lh-d:go-x" and o["cmd"] == ["go", "test", "./..."] and o["gpus"] and o["name"] == "w1"
     ovl = d.new_overlay("w1") if False else str(tmp_path / "o")
     a = d.run_argv(o, overlay=ovl, env_file=None)
-    for f in ("--containall", "--cleanenv", "--no-home", "--fakeroot", "--nv"):
+    for f in ("--containall", "--cleanenv", "--no-home", "--fakeroot", "--ignore-fakeroot-command", "--nv"):
         assert f in a
     assert a[a.index("--network") + 1] == "none" and "--net" in a
     assert f"{ws.resolve()}:/w:ro" in a and f"{Path(ovl) / 'tmp'}:/tmp" in a and a[a.index("--overlay") + 1] == str(Path(ovl) / "ovl")

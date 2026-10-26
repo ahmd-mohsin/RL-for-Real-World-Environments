@@ -259,7 +259,9 @@ def common_flags(o: dict, *, overlay: str | None) -> list[str]:
     f = list(LOCKDOWN)
     user = o.get("user")
     if not user or str(user).split(":")[0] in ("root", "0"):
-        f.append("--fakeroot")
+        # the root-mapped user namespace only: without a subuid range Apptainer would also preload the host's libfakeroot,
+        # which needs glibc 2.38 and breaks every image older than the host (Debian bookworm: 2.36; job 3457639)
+        f += ["--fakeroot", "--ignore-fakeroot-command"]
     if overlay:
         f += ["--overlay", str(Path(overlay) / "ovl"), "-B", f"{Path(overlay) / 'tmp'}:/tmp", "-B", f"{Path(overlay) / 'vartmp'}:/var/tmp"]
     if o.get("gpus"):
