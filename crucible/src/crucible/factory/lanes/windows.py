@@ -87,7 +87,7 @@ from crucible.factory.lanes.executable import (
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, mine_windows
 from crucible.factory.lanes.windows_imports import project_roots, tolerant_tests
 from crucible.factory.lanes.windows_timing import timing_tests
-from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name
+from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name, require_offline
 from crucible.factory.langs.base import active as _lang
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
 from crucible.factory.pathcheck import RULES_VERSION as PATH_RULES_VERSION
@@ -2045,8 +2045,14 @@ class WindowTask(ExecTask):
 
     # -- the coding seam (WorkspaceHarness) -------------------------------------------------------------------------------
     async def open(self, workdir: Path) -> Any:
-        return await open_world(image=self.world_image or self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir),
-                                instruction=self.instruction, name_prefix=self.lane.world_prefix, workspace_mode=self.workspace_mode)
+        world = await open_world(image=self.world_image or self.window["world"]["image"], base_dir=self.base_dir, workdir=Path(workdir),
+                                 instruction=self.instruction, name_prefix=self.lane.world_prefix, workspace_mode=self.workspace_mode)
+        try:
+            require_offline(self.window, world)  # a held-out task never runs in an online World
+        except BaseException:
+            await world.close()
+            raise
+        return world
 
     def workspace(self, world: Any) -> Path:
         return world._crucible_ws

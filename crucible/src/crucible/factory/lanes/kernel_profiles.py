@@ -345,5 +345,10 @@ def profile(name: str | None = None, *, tests: Sequence[str] = (), targets: Mapp
 
 
 def of_spec(spec: Mapping) -> KernelHarness:
+    """A spec's profile. Every ggml task's kdspec already carries ``harness`` as a table (the op-test file and its dialect,
+    ``kernel_debug.kdspec``), so a table names its profile under ``profile`` and defaults to ``ggml``; only a string is a
+    profile name (2026-10-25: reading the table as a name raised TypeError in every kernel-bug grade)."""
     tests = spec.get("harness_tests") or {}
-    return profile(spec.get("harness"), tests=list(tests), targets=tests if isinstance(tests, Mapping) else None)
+    h = spec.get("harness")
+    name = h.get("profile") if isinstance(h, Mapping) else h
+    return profile(name, tests=list(tests), targets=tests if isinstance(tests, Mapping) else None)

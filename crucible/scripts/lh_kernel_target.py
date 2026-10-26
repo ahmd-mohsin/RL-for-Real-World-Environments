@@ -153,6 +153,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     extra.add_argument("--kernel", default="", help="the kernel lanes' data dir (default <data>/kernel_debug)")
     extra.add_argument("--funnel", default=str(FUNNEL))
     extra.add_argument("--env-file", default="", help="KEY=VALUE file loaded into the environment first (values never printed; swarm.load_env_file)")
+    extra.add_argument("--no-preflight", action="store_true", help="skip grading each task's oracle and empty patch before paid episodes")
     k, rest = extra.parse_known_args(argv)
     if k.env_file:
         from swarm import load_env_file
@@ -164,7 +165,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         rest += ["--out", str(T.data_dir() / "targeting" / f"kernel-{k.host}")]
     a = T.parse_args(rest)
     a.host, a.kernel, a.funnel = k.host, k.kernel or str(T.data_dir() / "kernel_debug"), k.funnel
+    a.no_preflight = k.no_preflight
     return a
+
+
+async def preflight(ph: Any, tids: list[str]) -> list[str]:
+    """Before any paid episode, every task's endpoints are graded the way an episode is (``lane_grade`` on the GPU host):
+    the oracle a full pass, the empty patch no milestone. A task whose grader is broken or masked is left out of the paid
+    stages, so a grader regression costs two GPU grades, not 8 masked episodes (2026-10-25: an ImportError, then a
+    TypeError in the episode grader masked all 8 episodes of 1b8b8fb1, 10.6 USD)."""
+    ok = []
+    for tid in tids:
+        task = ph.tasks.task(tid)
+        oracle = str(task.rec.get("oracle_patch") or "")
+        got = {}
+        for name, patch in (("oracle", oracle), ("empty", "")):
+            rep = await task.lane_grade(patch)
+            got[name] = (rep.infra.get("status"), dict((rep.meta or {}).get("milestones") or {}))
+        (os_, om), (es, em) = got["oracle"], got["empty"]
+        good = bool(oracle) and os_ == "ok" and es == "ok" and bool(om) and all(om.values()) and not any(em.values())
+        print(f"[preflight] {tid}: {'ok' if good else 'REFUSED'} oracle {os_} {om} empty {es} {em}", flush=True)
+        if good:
+            ok.append(tid)
+    return ok
 
 
 async def amain(a: argparse.Namespace) -> None:
@@ -182,6 +205,10 @@ async def amain(a: argparse.Namespace) -> None:
     ph = KernelPhase(a)
     tids = sorted(ph.tasks.rows)
     print(f"[kernel] host {ph.host.name} ({ph.host.gpu}); tasks {tids}", flush=True)
+    if any(s in a.stages for s in ("pilot", "student", "frontier", "arms")) and not a.no_preflight:
+        tids = await preflight(ph, tids)
+        if not tids:
+            raise SystemExit("[preflight] no task's endpoints grade as expected: nothing to measure")
     try:
         for st in a.stages:
             if st == "pilot":

@@ -1104,6 +1104,53 @@ build tasks that target its failures):
     written by the swarm's `prompt_author` under a knob instruction; World knobs re-run the start check and every executed
     gate, report knobs inherit the parent's gate verdicts only when the start tree and the hidden tests are byte-identical
     by sha256). Driver: `scripts/lh_difficulty_pilot.py propose|revise|measure`.
+  - **The training monitor** (2026-10-25, `swarm-pipeline/11` §4.4, 13 §11): `factory/train_monitor.py` (analysis) and
+    `observe/train_monitor.py` (W&B tables and lines, the markdown and HTML report; plain dicts in, so `observe` stays below
+    `factory`), driven by `scripts/train_monitor.py report|watch`.
+    - **Ingest:** every attempt under the roots (Runner layout `.../samples/<s>/a<n>`), read through
+      `traceaudit.load_bundle` plus the record's honesty block and the grader's check statuses. A training run's
+      `steps.jsonl` maps groups to steps; other roots are cohorts. Backend-neutral (Tinker or DeltaAI write the same
+      directories).
+    - **General modes** (`GENERAL_MODES`, deterministic): stalls after a partial fix, claims verified work with no test run
+      after the last edit, overclaims in STATUS.json, slow first edit, budget with Φ flat, loops on a failing command,
+      breaks pass-to-pass tests, loses Φ after a compaction, environment misuse; `symptom_only` comes from a capped judge
+      pass (never Qwen, a verbatim quote or the label is rejected, training failures only). A mode is general at >= 3
+      tasks over >= 2 languages or lanes (Wilson CI); the rest, and each task's stuck milestones, are task-specific.
+    - **Learning:** per step mode prevalence and health (reward, full pass, Φ, budget stops, hacks, path violations, tool
+      calls, compactions, Brier; the trainer's KL, loss, entropy and zero-spread groups); first vs last third gives
+      `learned`, `regressing`, `stuck`. Unordered cohorts (arms of one run) get no trend. Alerts: hacks up, honesty down,
+      reward up with full passes flat, KL spike, entropy collapse, flat groups, the band emptying.
+    - **Proposals and intents:** each persistent general mode maps to framework levers (`LEVERS`), journaled,
+      `applied: False`; `swarm_intents` feed `swarm_journal.diagnose(monitor=...)` (`scripts/swarm.py diagnose --monitor`).
+    - **Held-out discipline:** benchmark episodes are aggregated only (placeholders); `proposals`, `swarm_intents` and
+      `judge` raise `HeldOutUse` on a held-out episode.
+  - **Framework health** (2026-10-25, `swarm-pipeline/11` §4.5, 13 §12): `factory/framework_health.py`, driven by
+    `scripts/train_monitor.py health|fix` and inside `watch`; rendered by `observe/train_monitor.py` (`health_markdown`,
+    `log_health`). It is the framework side of the monitor.
+    - **Detectors:** deterministic, each labelled agent or framework and given a component (World, harness, grader,
+      sandbox, sampler, trainer, task spec). They cover masked failures, unmeasured checkpoints, World and tool faults
+      (core toolchain against convenience tools), host resources, token truncation, provider errors, nondeterministic
+      grades, the sidecar and final grader disagreeing, re-pathed false positives, stale visible tests, protected-edit
+      consensus, unreachable milestones, spec defects, codec suspects, S9b false fails, trainer numerics, job-log
+      errors and unreadable attempts.
+    - **Clusters:** grouped by a normalized signature, each with episodes, tasks, first occurrence, a reproduction, an
+      impact and a severity.
+      - **Impact:** the reward moved or at risk, the advantage distortion per rollout group (`sum |Δ advantage|`, sign
+        flips), and the samples and groups a masked defect cost.
+      - **Severity:** CRITICAL corrupts reward or advantage, HIGH wastes episodes, LOW is cosmetic.
+    - **Triage:** `pause` while a CRITICAL framework defect is open (the CLI exits 3).
+      - **Fixes:** recorded with `record_fix` in `<run>/framework_fixes.jsonl`, which sets a defect to `fixed@<version>`,
+        or to `recurring` if it shows up after the fix step.
+      - **Regrades:** `regrade_plan` names the offline tool (repath, or `factory.tinker.regrade` with
+        `versioning.OfflineGrade` rows that never enter training).
+      - **Versions:** `versions` gives the path-rules and reward-rule versions per step; a mix with no fix record is a
+        `version_mix` defect.
+    - **Metadata and tuning:** per lane and step, `metadata` covers tool failure, latency, tokens, context use,
+      compaction Φ, checkpoint cost, mask rate, GPU and World minutes, budget stops, first edit, and useful samples per
+      dollar and per GPU-hour. `tuning` turns these into proposals that are never applied: cadence, compaction,
+      truncation, output tokens, concurrency, group size from `1 - p^k - (1-p)^k`, tool affordances, and the band.
+    - **Held-out:** `redact` keeps component, kind, severity and counts, and withholds tasks, episodes, reproductions
+      and content-bearing signatures. Tuning reads training traces only.
   - **Controller fixes from the pilot:** a budget-bound task gets the horizon-shortening knobs (C1, K1; the 300-call
     budget never moves); a root milestone's rate is no checkpoint signal; a conditional rate above the band is not in band.
   - **Pilot fixes:** `sampler.ensure_cap` (every `write-prompts` stopped at the shared meter's 1-USD default whatever its
@@ -1220,6 +1267,9 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
   bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
   `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
   use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
+  Perf calibration (GH200, 2026-10-24): a perf milestone's golden check now runs on cases B passes (its revert breaks none
+  by design; with no cases every grade masked), and a perf candidate case is kept only when B against itself stays within
+  0.5-2x and the revert is at most 20x slower (`plausible_timing`: the GH200 read ratios of 0.0 and thousands).
 - **Grader gaps closed on the existing tasks (2026-10-23, `10` §8.4):**
   - **A case's inputs no longer depend on the cases run before it.** The harness drew every input from one
     process-wide counter, so a case's inputs changed with its position in a chunk: the calibration (96-case chunks) and
@@ -1371,6 +1421,20 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     `sealed` by an audit of the named ref; writes a hashed manifest, fresh per-task seeds (HMAC of a new master seed;
     `public.json` carries only its commitment), `sealed.json` for the eval lease (repositories and orgs; no time cut by
     default, since these lanes split by owner) and the `bench.power` plan (MDE for the chosen n x k; `--require-power`).
+    **Accepted exposure** (the lead, 2026-10-25): `--accept-exposure TASK=REASON` lets one `contaminated` task through,
+    and only that verdict; the manifest records `exposed_public: <first-publishing commits> (lead accepted <date>:
+    <reason>)` per task so a paper can disclose it, `public.json` counts them, and `exposure_accepted.jsonl` under the
+    sealed directory journals each one. Every other refusal still holds.
+  - **Offline benchmark World** (`windows_world.require_offline`, called by `WindowTask.open`): `open_world` reads the
+    container's network mode back with `docker inspect` (never assumed from the run command), and a held-out task refuses
+    any World whose mode is not `none` (`OnlineWorldRefused`).
+  - **Start-tree residue** (2026-10-25, from the co-authors' fixing notes): a release changelog entry that only repeats a
+    fix's subject (no PR, issue or sha; echo 48128ab) is stripped through `langs.base.subject_ref` (4 words and 20
+    characters minimum). In strip mode the Go profile also removes the fixes' whole table entries from package-level test
+    tables (`golang.strip_table_entries`: contiguous runs of fix-added lines at the table's element level, brackets
+    balanced outside literals; mvdan-sh dc951aeb-e1 kept its then/do cases readable), recorded as
+    `hidden.table_entries_stripped`. `golang._code_lines` blanks literals by character, because `code_mask` shifts on
+    multi-byte runes (an open defect of `code_mask` itself).
 
 ## 8. Layer 4: verification and isolation
 

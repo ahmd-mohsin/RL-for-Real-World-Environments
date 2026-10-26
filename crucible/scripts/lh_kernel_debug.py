@@ -807,7 +807,11 @@ def migration_family(fam: dict[str, Any], rows: list[dict[str, Any]]) -> None:
                 f["gpu_pass"] = f.get("gpu_pass", 0) + 1
             else:
                 f["gpu_drops"][failed] += 1
+        by_hw = {name: v.get("failed_gate") for name, v in (g.get("gpu") or {}).items()}
+        for name, gate in by_hw.items():
+            f.setdefault("gpu_pass_by_hardware", collections.Counter())[name] += int(gate is None)
         rows.append({"id": w["id"], "family": "kernel-migration", "gpu": gpu[0], "gpu_failed_gate": failed, "gpu_why": why, "gpu_pass": failed is None,
+                     "gpu_by_hardware": {name: {"pass": gate is None, "failed_gate": gate} for name, gate in by_hw.items()},
                      "flake": (gpu[1] or {}).get("flake"), "split": w.get("split", "train"), "repo": (w.get("source") or {}).get("full_name"),
                      "generation": w["generation"], "commits": len((w.get("source") or {}).get("commits") or []), "programs": len(w["programs"]),
                      "milestones": len(w["milestones"]), "kinds": g.get("graded_kinds") or sorted(w.get("kinds") or {}), "rung": w.get("rung"),

@@ -359,3 +359,140 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 | The greedy kernel groups use each change once, so a group with one conflicting fault lost its other faults too | `build --subsets` (`kdm.connected_subsets`) |
 | A knob the diagnosis picks, not the controller's ranking | `revise --override task=KNOB[:milestone]@why`, journaled; C1 takes an explicit prerequisite-closed set |
 
+## 11. The training monitor: general failures, before the baseline and the RL run (2026-10-25)
+
+`scripts/train_monitor.py` (doc 11 §4.4) separates **general** failures (a behaviour seen in >= 3 tasks over >= 2
+languages or lanes) from **task-specific** ones (a task's milestone its failures keep missing), tracks them over training
+steps, and turns the persistent general ones into framework proposals and swarm intents. It reads stored episodes only;
+it never grades, rewards or gates.
+
+**Validation on the data we have** (no new episodes): the 150- and 300-call targeting runs, the swarm pilot's rounds and
+the GPU smoke; `--policy Qwen3.6-35B-A3B`, training split only (235 student episodes, 3 masked; Go 178, Python 48,
+Rust 8, CUDA 1). The co-authors' runs are on their machines and were not read.
+
+| general mode | student episodes | prevalence (95% CI) | tasks | languages |
+|---|---|---|---|---|
+| overclaims_status | 94/232 | 0.41 (0.34–0.47) | 18 | go, python, rust |
+| stalls_after_partial_fix | 81/209 failed | 0.39 (0.32–0.46) | 17 | go, python |
+| slow_first_edit | 68/209 failed | 0.33 (0.27–0.39) | 15 | go, python, rust |
+| breaks_regressions | 70/232 | 0.30 (0.25–0.36) | 14 | go, python, rust |
+| budget_flat | 43/209 failed | 0.21 (0.16–0.27) | 13 | cuda, go, python, rust |
+| lost_after_compaction | 27/173 compacted | 0.16 (0.11–0.22) | 12 | go, python, rust |
+| env_misuse | 25/232 | 0.11 (0.07–0.15) | 16 | go, python, rust |
+| claims_unverified | 11/232 | 0.05 (0.03–0.08) | 9 | go, python, rust |
+
+- **Recovers what we already knew:**
+  - the stall after the first fault (`stalls_after_partial_fix`, 0.39);
+  - overclaiming (`overclaims_status`, 0.41);
+  - budget stops (47% of the student's episodes end on the limit; 21% of its failures do so with Φ flat for the last
+    30%);
+  - the install false positive. Re-pathed under the current rules (228 student and 50 DeepSeek episodes),
+    `path:install` failed 6 times for the student and 5 for DeepSeek under the stored rules, and 1 and 0 under the
+    current ones.
+- **Task-specific, reported apart:**
+  - `loops_failing_command` (3 episodes, 2 tasks);
+  - `symptom_only` (1 of the 30 judged failures, one task);
+  - each task's stuck milestones, for example m04 of mvdan-sh-5e983709 and black-ae5830b7, m03 and m04 of
+    mvdan-sh-dc951aeb, m02 of go-toml-a02114e3.
+- **By model (training split):** the frontier models share most modes. Qwen3.5-397B stalls after a partial fix in 0.59
+  of its failures and DeepSeek in 0.39, so the stall is partly the tasks' shape (late faults are hard) and partly the
+  agent. The student stands out on `slow_first_edit` (0.33 against 0.22 and 0.17). On `breaks_regressions` it sits at
+  0.30, against 0.36 for Qwen3.5-397B and 0.12 for DeepSeek. DeepSeek's `env_misuse` (0.46) is mostly not installs (5
+  stored install fails in 50 episodes).
+- **The judge pass:** 36 student training failures sampled across tasks, judged by `openai/gpt-oss-120b` (never Qwen).
+  30 were labelled and 6 rejected (a quote not in the trace, or a label outside the closed lists), for $0.045. 16 of the
+  labelled already had a deterministic cause (budget), which a judge never overrides; the other 14 came out 7 skill_gap
+  and 7 spec_defect.
+- **No trend yet:** these runs are arms of one measurement, not training steps, so the monitor gives no
+  learned/regressing verdict and no trend alert. The first training run's `steps.jsonl` turns them on.
+
+**Proposals it makes today.** None is applied. Each needs an A/B on training tasks where the mode falls and the reward
+does not.
+
+| general mode | proposals |
+|---|---|
+| stall after a partial fix | checkpoint starts before the milestone that failures keep missing; an "interacting faults" swarm intent |
+| overclaims | a higher honesty weight; a clearer STATUS.json line |
+| slow first edit | a fast code-search affordance; a "localize fast" intent |
+| regressions | a regression term in Φ; a one-command full-suite runner |
+| lost after compaction | carry STATUS.json and the milestone vector into the compaction hand-off |
+
+`scripts/swarm.py diagnose --monitor <report.json>` now lists the general modes and their intent candidates for the
+builders.
+
+## 12. Framework health: the framework's own bugs from the same traces (2026-10-25)
+
+`factory/framework_health.py` (doc 11 §4.5) asks, of every anomaly, whether the agent or the framework caused it, and
+which component. It clusters the anomalies by signature, with episodes, first occurrence, a reproduction and the
+reward and advantage they touched.
+- **Pause:** `train_monitor.py health` exits 3 while a CRITICAL framework defect is open.
+- **Fix:** each fix is recorded with `fix` and regraded offline.
+
+**Validation** covers 466 stored episodes:
+- the 150- and 300-call targeting runs and the swarm pilot;
+- the fairness smoke;
+- every 5090 kernel and migration run (smoke, plumbing, the masked 1b8b8fb1 run, r1).
+
+Held-out quick-pass roots were not read. The run found 50 clusters: 4 CRITICAL, 14 HIGH and 32 LOW. By class, 23 are
+framework, 25 agent and 2 suspect.
+
+**Known bugs it rediscovers:**
+
+| known bug | what the health report shows |
+|---|---|
+| scratch `go mod tidy` counted as an install | `path_false_positive` (grader, CRITICAL): path:install fail -> pass under path-2026-10-23b, 4 episodes in 3 tasks, reward +2.0 in all; and the network rule's change, 2 episodes, +2.0 |
+| Node World without the World tools' interpreter (Ahmed's broken Node environment) | `world_fault` (World, CRITICAL): `python3` missing in 24 episodes of 2 held-out Node tasks (tasks as placeholders); one cluster, the tool errors folded into it |
+| Node setup lost after a reset | a `world_fault` on the test runner where it appears (one stored episode here; the other runs were on a co-author's machine) |
+| the liveness probe on the wrong Docker daemon | `masked_failure` (sandbox, HIGH): "the World's sandbox died (after step N)", 2 samples lost, 4 groups without signal |
+| the flock bug | `host_resource` lock (sandbox, HIGH), found in the plumbing job log: those grades died before any episode existed |
+| the harness needing the verifier's GradeReport | `masked_failure` (harness, HIGH), 2 episodes |
+| the unquoted workspace path | not in this machine's data (the runs were on a co-author's machine); covered by a test (`masked_failure`, World, at seed) |
+| stale visible tests | none in this data: the stale go-toml and mvdan-sh builds were measured on co-authors' machines; covered by tests (both rules) |
+
+**New findings:**
+- **`credit_grade_mismatch` (grader, CRITICAL):** on one held-out task, the checkpoint sidecar graded the final patch
+  (the same sha256, at four checkpoints including `end`) with a milestone failing that the final grader passed. Φ and
+  the per-turn credit never booked the milestone that the outcome reward counted. Either the sidecar's grading differs
+  from the final grader's, or the test is flaky. Rerun both on that patch.
+- **Masked kernel grades from a stale kit (grader, HIGH):** `ImportError: cannot import name 'kernel_profiles'` in the
+  GPU episode bundle masked 8 episodes and every checkpoint (the $10.6 of masked 1b8b8fb1 episodes). The bundle's kit
+  must be re-staged whenever the lane's modules change. A further 3 episodes failed verification with
+  `TypeError: unhashable type: 'dict'`.
+- **`xxd` missing in every Go World (World, HIGH):** 64 episodes in 15 tasks reached for it; it's a convenience tool,
+  so not CRITICAL.
+- **`answer_exposed` masks (World, HIGH):** 3 attempts, each a World leak caught and masked (git history, grader
+  files, a privilege read).
+- **Agent-side, not framework (LOW):**
+  - `repo.edit_file` "old_string not found" in 163 episodes, about 9% of its calls, across families;
+  - `repo.search` regex errors in 38 + 21 + … episodes.
+
+  Both lead to a `tool_affordance` proposal: make the tools forgiving, so a regex error is retried as a literal and a
+  missed `old_string` is answered with the closest lines.
+- **Two milestones nobody reached (task spec, suspect):** both on held-out tasks (signatures withheld), for the
+  disclosure check.
+
+**Metadata** (per lane):
+
+| lane | episodes | mask | s/tool | tokens/turn in | context max | ckpt share | GPU min | budget stops | first edit | useful | $/useful |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| debug | 415 | 0.01 | 1.1 | 71k | 0.83 | 0.23 | – | 0.33 | 53 | 0.72 | 2.10 |
+| kernel | 20 | 0.75 | 1.6 | 46k | 0.43 | 0.20 | 0.7 | 1.00 | 29 | 0.00 | – |
+| migration | 31 | 0.00 | 16.0 | 53k | 0.60 | 1.02 | 37.5 | 0.00 | 36 | 0.58 | 1.53 |
+
+**Tuning proposals** (none applied):
+- **Checkpoint cadence 20 -> 40** (bounded at 2x). Grading takes 23% of World time in debug, 19% in kernel, and 102%
+  in migration.
+- **Migration concurrency: one episode per GPU.** Its GPU grading (37.5 GPU-min per episode) is longer than the
+  episode itself, and it yields 0.93 useful samples per GPU-hour: the bottleneck for GPU RL.
+- **Debug: carry STATUS.json and the milestone vector through compaction.** `lost_after_compaction` is 0.15 in the
+  monitor.
+- **Debug: lower the compaction threshold.** The context peaks at 0.83 of the window.
+- **Debug: a lower test-log limit** (71k input tokens per turn).
+- **Debug: higher sampler concurrency** (most of each episode waits on the model).
+- **Migration: a higher output-token limit** (0.5% of calls hit it).
+- **The difficulty controller before the next step:** only 8 of 24 measured training tasks are in the band.
+
+**Out of scope, noted:** in this worktree, the seal guard's baseline test fails on two lines that commit `078eb364` put
+in `crucible/data/debug`, the 2026-10-22 public push. They name a repository that a current held-out draw holds out. A
+newly drawn held-out repo was already public in that commit's mining log.
+

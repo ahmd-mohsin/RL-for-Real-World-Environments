@@ -35,7 +35,8 @@ def cmd_roles(a: argparse.Namespace) -> None:
 def cmd_diagnose(a: argparse.Namespace) -> None:
     from crucible.factory.swarm_journal import diagnose, render
 
-    d = diagnose(a.root)
+    mon = json.loads(Path(a.monitor).read_text()) if a.monitor else None
+    d = diagnose(a.root, monitor=mon)
     print(render(d) if a.md else json.dumps(d, indent=1, default=str))
 
 
@@ -201,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("diagnose")
     s.add_argument("--root", required=True)
     s.add_argument("--md", action="store_true")
+    s.add_argument("--monitor", default="", help="a train_monitor report.json: its general failures become intents for the builders")
     s = sub.add_parser("credit")
     s.add_argument("--root", required=True)
     s = sub.add_parser("smoke")

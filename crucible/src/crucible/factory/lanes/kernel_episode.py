@@ -175,6 +175,22 @@ class GpuLock:
 # ---- the episode bundles on the host ----------------------------------------------------------------------------------------------
 _BUNDLE_LOCK = asyncio.Lock()
 _BUNDLE_READY: set[tuple[str, str]] = set()
+# The modules each runner imports from the kit, as ``cmd_stage_gpu`` bundles them. The host's gate kit can predate one (on
+# 2026-10-25 kernel_profiles.py was missing there, so every episode grade raised ImportError and all 8 episodes of a task were
+# masked): the episode kit is the host kit's files plus these.
+KIT_MODULES = {"k": ("crucible/factory/lanes/kernel_debug_plan.py", "crucible/factory/lanes/kernel_harness.py",
+                     "crucible/factory/lanes/kernel_profiles.py", "crucible/factory/lanes/kernel_plan.py"),
+               "m": ("crucible/factory/lanes/kernel_plan.py",)}
+
+
+def kit_files(host_files: Sequence[str], lane: str) -> list[str]:
+    """The episode kit's ``crucible/...`` files: the host gate kit's, plus the runner's own modules and their packages."""
+    out = {x for x in host_files if x.startswith("crucible/")}
+    for rel in KIT_MODULES[lane]:
+        out.add(rel)
+        parts = rel.split("/")[:-1]
+        out.update("/".join(parts[:k]) + "/__init__.py" for k in range(1, len(parts) + 1))
+    return sorted(out)
 
 
 def _kit_tar(kit_files: Sequence[str], src_root: Path) -> bytes:
@@ -208,7 +224,7 @@ async def ensure_episode_bundle(host: GpuHost, *, migration: bool = False) -> st
         if r.rc != 0:
             raise RuntimeError(f"episode bundle on {host.name}: {r.err[-400:]}")
         here = Path(__file__).resolve().parents[3]  # .../src
-        kit = _kit_tar([x for x in r.out.split() if x.startswith("crucible/")], here)
+        kit = _kit_tar(kit_files(r.out.split(), key[1]), here)
         runner = Path(__file__).resolve().parents[4] / "scripts" / ("lh_kernel_gpu.py" if migration else "lh_kernel_debug_gpu.py")
         script = (f"set -e; rm -rf {shlex.quote(dest)}/kit.new; mkdir -p {shlex.quote(dest)}/kit.new; tar -xf - -C {shlex.quote(dest)}/kit.new; "
                   f"rm -rf {shlex.quote(dest)}/kit; mv {shlex.quote(dest)}/kit.new {shlex.quote(dest)}/kit")
@@ -221,6 +237,10 @@ async def ensure_episode_bundle(host: GpuHost, *, migration: bool = False) -> st
         r = await remote(host, f"cat > {shlex.quote(dest + '/' + name_on_host)}", stdin=runner.read_text(), timeout=120)
         if r.rc != 0:
             raise RuntimeError(f"episode runner on {host.name}: {r.err[-400:]}")
+        # preflight: the runner imports its kit (an ImportError here would mask every grade of every episode)
+        r = await remote(host, f"cd {shlex.quote(dest)} && python3 {name_on_host} --help > /dev/null", timeout=120)
+        if r.rc != 0:
+            raise RuntimeError(f"episode runner on {host.name} does not start: {r.err[-400:]}")
         _BUNDLE_READY.add(key)
         return dest
 

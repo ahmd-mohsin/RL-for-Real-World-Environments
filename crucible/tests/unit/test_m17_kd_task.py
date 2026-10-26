@@ -481,3 +481,12 @@ def test_migration_s10_leaves_masked_grades_out():
     v = m.flake_verdict([ok] * 59 + [masked])
     assert v["false_negatives"] == 0 and v["masked"] == 1 and v["measured"] == 59 and v["cp_upper"] < 0.05
     assert m.flake_verdict([ok] * 59 + [{"reward": 0.0, "infra": {"status": "ok"}}])["cp_upper"] > 0.05
+
+
+def test_perf_calibration_rejects_timings_that_measured_nothing():
+    g = load_gpu_runner()
+    assert g.plausible_timing(0.97, 1.03, 1.6)
+    assert not g.plausible_timing(1.0, 0.0, 1.6)  # B against itself at 0: the run timed nothing
+    assert not g.plausible_timing(1.15, 1007.2, 8551.7)  # GH200 2026-10-24: kept with a bar of 3019 before this rule
+    assert not g.plausible_timing(1.0, 1.0, 2902.0)  # a 2902x regression is a broken timing, not a speed-up undone
+    assert not g.plausible_timing(0.49, 0.62, 0.31)

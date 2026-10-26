@@ -63,6 +63,32 @@ def test_seal_writes_hashes_fresh_seeds_the_lease_and_the_power_plan(tmp_path: P
                 repos={}, fix_dates={}, noise=NOISE, ref="origin/main")
 
 
+def test_the_lead_can_accept_a_public_exposure_and_the_manifest_discloses_it(tmp_path: Path) -> None:
+    """2026-10-25: the lead accepted the public exposure of five benchmark tasks (offline World, base model predates the
+    leak). The acceptance is explicit per task, journaled, and recorded in the manifest; every other refusal still holds."""
+    ids = ["db-go-zzlib-00000001", "db-go-zzlib-00000002"]
+    loc = store(tmp_path, ids)
+    au = audit({ids[0]: "sealed", ids[1]: "contaminated"})
+    au["tasks"][1]["first_public"] = {"a/report.json": "078eb364 2026-10-22", "b/prompt.json": "aafb4f99 2026-10-23", "c.json": "078eb364 2026-10-22"}
+    kw = {"out_root": tmp_path / "sealed", "locate": loc, "gates_ok": dict.fromkeys(ids, True), "repos": dict.fromkeys(ids, "acme/zzlib"),
+          "fix_dates": {}, "noise": NOISE, "ref": "origin/main", "master": 7}
+    with pytest.raises(bs.SealRefused, match=f"{ids[1]}: contaminated"):
+        bs.seal("v4", ids, au, **kw)  # no acceptance: refused as before
+    with pytest.raises(bs.SealRefused, match="not 'contaminated'"):
+        bs.seal("v4", ids, au, accept_exposure={ids[0]: "x", ids[1]: "y"}, **kw)  # only a contaminated task can be accepted
+    with pytest.raises(bs.SealRefused, match="needs the lead's reason"):
+        bs.seal("v4", ids, au, accept_exposure={ids[1]: " "}, **kw)
+    with pytest.raises(bs.SealRefused, match="its gates have not all passed"):
+        bs.seal("v4", ids, au, accept_exposure={ids[1]: "offline World"}, **{**kw, "gates_ok": {ids[0]: True}})  # other refusals hold
+    j = tmp_path / "journal.jsonl"
+    res = bs.seal("v4", ids, au, accept_exposure={ids[1]: "offline World, base model predates"}, accepted_on="2026-10-25", journal=j, **kw)
+    man = json.loads((Path(res["dir"]) / "manifest.json").read_text())
+    assert man["tasks"][ids[1]]["exposed_public"] == "078eb364, aafb4f99 (lead accepted 2026-10-25: offline World, base model predates)"
+    assert "exposed_public" not in man["tasks"][ids[0]] and res["public"]["exposed_public"] == 1
+    row = json.loads(j.read_text().splitlines()[0])
+    assert row["task"] == ids[1] and row["commits"] == ["078eb364", "aafb4f99"] and row["by"] == "lead"
+
+
 def test_seal_states_the_mde_and_can_require_power(tmp_path: Path) -> None:
     p = bs.plan(14, 8, NOISE)
     assert p["mde"] < bs.plan(10, 8, NOISE)["mde"] and "MDE" in p["headline"]
@@ -137,3 +163,35 @@ def test_draw_only_grows_and_feeds_the_local_draw(tmp_path: Path) -> None:
     hs.draw(p, [hs.Candidate("acme/zzlib", "go", "mit", 1, "")])
     hs.draw(p, [hs.Candidate("acme2/qq", "rust", "mit", 1, "")])
     assert windows.local_draw(p) == {"zzlib": "acme/zzlib", "qq": "acme2/qq"}
+
+
+def test_a_held_out_task_refuses_an_online_world() -> None:
+    """The benchmark runs offline (the lead, 2026-10-25): the network mode is read back from the container, and anything
+    but ``none`` refuses a held-out task; a training task is not this check's business."""
+    from types import SimpleNamespace
+
+    from crucible.factory.lanes.windows_world import OnlineWorldRefused, require_offline
+
+    held = {"id": "db-go-zzlib-00000001", "split": "heldout"}
+    require_offline(held, SimpleNamespace(_crucible_network="none"))
+    for mode in ("bridge", "host", None):
+        with pytest.raises(OnlineWorldRefused):
+            require_offline(held, SimpleNamespace(_crucible_network=mode))
+    require_offline({"id": "t", "split": "train"}, SimpleNamespace(_crucible_network="bridge"))
+
+
+def test_seen_many_finds_an_owner_in_a_data_file_a_later_commit_removed(tmp_path: Path) -> None:
+    """2026-10-25: a held-out candidate was named in crucible/data/debug files published by one commit; a later tree may no
+    longer hold them, so every past version of the published data and docs is searched too."""
+    import subprocess
+
+    r = tmp_path / "r"
+    (r / "crucible" / "data" / "debug").mkdir(parents=True)
+    for a in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(r), *a], check=True)
+    (r / "crucible" / "data" / "debug" / "mine.log").write_text("[gonelib] 3 candidate group(s) from goneowner/gonelib\n")
+    subprocess.run(["git", "-C", str(r), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "data"], check=True)
+    subprocess.run(["git", "-C", str(r), "rm", "-q", "-r", "crucible/data"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "drop the data"], check=True)
+    assert hs.seen_many(r, ["goneowner", "goneowner/gonelib", "neverseen"]) == {"goneowner", "goneowner/gonelib"}

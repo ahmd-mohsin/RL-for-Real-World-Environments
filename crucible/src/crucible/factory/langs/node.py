@@ -33,6 +33,10 @@ BASE_IMAGE = "node@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78
 EXTS = (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx")
 LOCKS = ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock")
 _CALL = re.compile(r"(?<![\w$.])(describe|suite|context|it|test)((?:\s*\.\s*(?:only|skip|concurrent|sequential|todo|fails|shuffle))*)\s*\(")
+# ``it.skipIf(cond)("title", fn)`` / ``it.runIf(cond)(...)``: the title is the second call's (h3's node-only tests)
+_COND_CALL = re.compile(r"(?<![\w$.])(it|test)\s*\.\s*(?:skipIf|runIf)\s*\(")
+# a runner-added target suffix on a test title (h3's describeMatrix runs each test as "<title> (node)" / "(web)")
+_TARGET_SUFFIX = re.compile(r" \((?:node|web|bun|deno|browser|edge|workerd)\)$")
 _FUNCS = (re.compile(r"(?<![\w$.])(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*[<(]"),
           re.compile(r"(?<![\w$.])(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*(?:async\s*)?(?:function\b|\([^)\n]*\)\s*(?::[^=\n]+)?=>|[A-Za-z_$][\w$]*\s*=>)"),
           re.compile(r"(?m)^[ \t]+(?:(?:public|private|protected|static|async|get|set|override|readonly)\s+)*(?!if\b|for\b|while\b|switch\b|catch\b|return\b|function\b)"
@@ -184,6 +188,21 @@ class NodeProfile(CLikeProfile):
             if text[end: end + 1] == ";":
                 end += 1
             out.append(("group" if m.group(1) in ("describe", "suite", "context") else "test", title, m.start(), end))
+        for m in _COND_CALL.finditer(masked):  # the condition's call, then the test call it returns
+            close = match_bracket(text, m.end() - 1, "node")
+            if close < 0:
+                continue
+            j = close
+            while j < len(text) and text[j] in " \t\r\n":
+                j += 1
+            if text[j: j + 1] != "(" or (title := _literal(text, j + 1)) is None:
+                continue
+            end = match_bracket(text, j, "node")
+            if end < 0:
+                continue
+            if text[end: end + 1] == ";":
+                end += 1
+            out.append(("test", title, m.start(), end))
         return out
 
     def _find_tests(self, text: str, path: str) -> list[tuple[str, int, int]]:
@@ -213,6 +232,22 @@ class NodeProfile(CLikeProfile):
 
     def leaf(self, key: str) -> str:
         return key.rsplit("::", 1)[-1]
+
+    def strip_tests(self, text: str, keys: set[str], path: str = "") -> str | None:
+        """As the C-like profile, plus a key the runner names through a matrix helper (ancestors the source never spells,
+        a target suffix: h3's ``app::node::<title> (node)``) maps to the source test whose title it carries, when that
+        title is unique in the file; an ambiguous title is never guessed."""
+        found = self._find_tests(text, path)
+        have = {k for k, _, _ in found}
+        leaves: dict[str, list[str]] = {}
+        for k, _, _ in found:
+            leaves.setdefault(self.leaf(k), []).append(k)
+        mapped = set(keys) & have
+        for k in set(keys) - have:
+            leaf = _TARGET_SUFFIX.sub("", self.leaf(k))
+            if len(leaves.get(leaf, [])) == 1:
+                mapped.add(leaves[leaf][0])
+        return super().strip_tests(text, mapped or set(keys), path)
 
     def new_test_names(self, tests_b: Mapping[str, str], a_tests: Mapping[str, str | None], tree: Path) -> set[str]:
         names = super().new_test_names(tests_b, a_tests, tree)

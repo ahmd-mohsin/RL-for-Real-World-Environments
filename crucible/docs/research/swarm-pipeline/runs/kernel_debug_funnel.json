@@ -1,5 +1,5 @@
 {
- "at": "2026-10-24T06:14:44Z",
+ "at": "2026-10-25T21:48:10Z",
  "families": {
   "kernel-bug:heldout": {
    "authored_clean": 9,
@@ -50,6 +50,7 @@
    },
    "gpu_pass": 4,
    "gpu_pass_by_hardware": {
+    "NVIDIA GH200 120GB": 1,
     "NVIDIA GeForce RTX 5090": 4
    },
    "grouped": 17,
@@ -69,6 +70,10 @@
     "S5_oracle": 1
    },
    "gpu_pass": 4,
+   "gpu_pass_by_hardware": {
+    "NVIDIA GH200 120GB": 1,
+    "NVIDIA GeForce RTX 5090": 4
+   },
    "grouped": 5,
    "mined_commits": 24,
    "real_changes": 24
@@ -80,6 +85,9 @@
    "drop_reasons": {
     "reaches 79 ops": 1,
     "touches code outside the CUDA backend": 3
+   },
+   "gpu_pass_by_hardware": {
+    "NVIDIA GH200 120GB": 0
    },
    "grouped": 3,
    "mined_commits": 8,
@@ -96,9 +104,11 @@
     "touches code outside the CUDA backend": 5
    },
    "gpu_drops": {
-    "calibration": 4
+    "S5_oracle": 2,
+    "calibration": 2
    },
    "gpu_pass_by_hardware": {
+    "NVIDIA GH200 120GB": 0,
     "NVIDIA GeForce RTX 5090": 0
    },
    "grouped": 4,
@@ -904,10 +914,15 @@
    ],
    "faults": 3,
    "flake": null,
-   "gpu": null,
-   "gpu_by_hardware": {},
+   "gpu": "NVIDIA GH200 120GB",
+   "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": "gpu_reference",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
+   "gpu_failed_gate": "gpu_reference",
    "gpu_kept_milestones": null,
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
@@ -923,7 +938,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "the reference build failed",
    "id": "kd-perf-ikllamacpp-09e3d098",
    "lint": [],
    "ops": [
@@ -971,11 +986,16 @@
    ],
    "faults": 3,
    "flake": null,
-   "gpu": null,
-   "gpu_by_hardware": {},
+   "gpu": "NVIDIA GH200 120GB",
+   "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": "calibration",
+     "pass": false
+    }
+   },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "pending",
-   "gpu_kept_milestones": null,
+   "gpu_failed_gate": "calibration",
+   "gpu_kept_milestones": [],
    "gpu_mutants_excluded": null,
    "gpu_pass": false,
    "gpu_pending": [
@@ -990,7 +1010,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "not run on a GPU",
+   "gpu_why": "0 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0, 'm3': 0}, unstable [])",
    "id": "kd-perf-ikllamacpp-4c7c57fa",
    "lint": [],
    "ops": [
@@ -1982,8 +2002,12 @@
     "measured": 60,
     "n": 60
    },
-   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu": "NVIDIA GH200 120GB",
    "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": null,
+     "pass": true
+    },
     "NVIDIA GeForce RTX 5090": {
      "failed_gate": null,
      "pass": true
@@ -2538,19 +2562,33 @@
    ],
    "faults": 2,
    "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu": "NVIDIA GH200 120GB",
    "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": "S5_oracle",
+     "pass": false
+    },
     "NVIDIA GeForce RTX 5090": {
      "failed_gate": "calibration",
      "pass": false
     }
    },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
+   "gpu_failed_gate": "S5_oracle",
    "gpu_kept_milestones": [
+    "m1",
     "m2"
    ],
-   "gpu_mutants_excluded": null,
+   "gpu_mutants_excluded": {
+    "mutant_partial-m1": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    },
+    "mutant_partial-m2": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    }
+   },
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -2564,7 +2602,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
+   "gpu_why": "the oracle does not score 1 on the calibrated spec",
    "id": "kd-perf-llamacpp-4bc24fdb",
    "lint": [],
    "ops": [
@@ -2609,19 +2647,33 @@
    ],
    "faults": 2,
    "flake": null,
-   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu": "NVIDIA GH200 120GB",
    "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": "S5_oracle",
+     "pass": false
+    },
     "NVIDIA GeForce RTX 5090": {
      "failed_gate": "calibration",
      "pass": false
     }
    },
    "gpu_executed_edges": {},
-   "gpu_failed_gate": "calibration",
+   "gpu_failed_gate": "S5_oracle",
    "gpu_kept_milestones": [
-    "m1"
+    "m1",
+    "m2"
    ],
-   "gpu_mutants_excluded": null,
+   "gpu_mutants_excluded": {
+    "mutant_partial-m1": {
+     "status": "equivalent",
+     "why": "breaks no pool case and no sanitizer check on this GPU"
+    },
+    "mutant_partial-m2": {
+     "status": "uninformative",
+     "why": "does not build for this GPU"
+    }
+   },
    "gpu_pass": false,
    "gpu_pending": [
     "S1_executed real-fix check (B passes, each single revert fails its milestone's cases)",
@@ -2635,7 +2687,7 @@
     "S10 flake: 60 oracle grades at concurrency 1 and 4",
     "S12 hackers, S13 student and strong solver, S14/S15 audit and targeting"
    ],
-   "gpu_why": "1 milestone(s) kept after calibration (owned {'m1': 0, 'm2': 0}, unstable [])",
+   "gpu_why": "the oracle does not score 1 on the calibrated spec",
    "id": "kd-perf-llamacpp-9d89aaa0",
    "lint": [],
    "ops": [
@@ -2754,6 +2806,12 @@
    },
    "generation": "cuda12",
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": "S5_oracle",
+     "pass": false
+    }
+   },
    "gpu_failed_gate": "S5_oracle",
    "gpu_pass": false,
    "gpu_pending": [
@@ -2795,6 +2853,12 @@
    },
    "generation": "cuda12",
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_failed_gate": null,
    "gpu_pass": true,
    "gpu_pending": [
@@ -2837,7 +2901,17 @@
     "n": 60
    },
    "generation": "cuda13",
-   "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu": "NVIDIA GH200 120GB",
+   "gpu_by_hardware": {
+    "NVIDIA GH200 120GB": {
+     "failed_gate": null,
+     "pass": true
+    },
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_failed_gate": null,
    "gpu_pass": true,
    "gpu_pending": [
@@ -2890,6 +2964,12 @@
    },
    "generation": "cuda13",
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_failed_gate": null,
    "gpu_pass": true,
    "gpu_pending": [
@@ -2932,6 +3012,12 @@
    },
    "generation": "cuda13",
    "gpu": "NVIDIA GeForce RTX 5090",
+   "gpu_by_hardware": {
+    "NVIDIA GeForce RTX 5090": {
+     "failed_gate": null,
+     "pass": true
+    }
+   },
    "gpu_failed_gate": null,
    "gpu_pass": true,
    "gpu_pending": [

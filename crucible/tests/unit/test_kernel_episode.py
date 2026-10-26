@@ -226,3 +226,39 @@ def test_a_task_may_defer_its_own_checkpoints_through_the_env():
     env = make_env(t, checkpoint=CheckpointConfig(every=20, cap=15), tool_limit=40)
     side = env.sidecar(SimpleNamespace(task=t, dir=Path("/tmp/crucible-ke-test")))
     assert side.inner.cfg.defer is True and side.inner.cfg.every == 20
+
+
+def test_the_episode_kit_ships_every_module_its_runner_imports_even_when_the_host_kit_predates_one():
+    """2026-10-25: the host's gate kit had no kernel_profiles.py, the episode kit copied only the host kit's files, and every
+    grade of 8 episodes raised ImportError (all masked). The kit adds the runner's own modules and their packages; each one
+    must exist in this checkout."""
+    from crucible.factory.lanes import kernel_episode as ke
+
+    old = ["crucible/__init__.py", "crucible/factory/__init__.py", "crucible/factory/lanes/__init__.py",
+           "crucible/factory/lanes/kernel_plan.py", "crucible/verify/runtime/trusted.py", "README.md"]
+    got = ke.kit_files(old, "k")
+    assert "crucible/factory/lanes/kernel_profiles.py" in got and "crucible/verify/runtime/trusted.py" in got and "README.md" not in got
+    assert ke.kit_files(old, "m") == sorted(x for x in old if x.startswith("crucible/"))
+    src = Path(ke.__file__).resolve().parents[3]
+    assert all((src / rel).is_file() for lane in ("k", "m") for rel in ke.KIT_MODULES[lane])
+    runner = (Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug_gpu.py").read_text()
+    imported = {f"crucible/factory/lanes/{m}.py" for m in ("kernel_harness", "kernel_plan", "kernel_profiles", "kernel_debug_plan") if m in runner}
+    assert imported <= set(ke.KIT_MODULES["k"])
+
+
+def test_the_episode_kit_is_rebuilt_from_this_checkout_s_sources_in_every_process():
+    """The episode bundle is re-staged by every targeting process (``_BUNDLE_READY`` lives in the process), from this
+    checkout's lane code, so a lane change reaches the host on the next run; the shipped bytes are the local files."""
+    import io
+    import tarfile
+
+    from crucible.factory.lanes import kernel_episode as ke
+
+    src = Path(ke.__file__).resolve().parents[3]
+    files = ke.kit_files(["crucible/factory/lanes/kernel_plan.py"], "k")
+    with tarfile.open(fileobj=io.BytesIO(ke._kit_tar(files, src))) as tf:
+        names = set(tf.getnames())
+        prof = tf.extractfile("crucible/factory/lanes/kernel_profiles.py").read()
+    assert "crucible/factory/lanes/kernel_profiles.py" in names and "crucible/factory/lanes/__init__.py" in names
+    assert prof == (src / "crucible/factory/lanes/kernel_profiles.py").read_bytes()
+    assert isinstance(ke._BUNDLE_READY, set)  # per process: a new run re-stages

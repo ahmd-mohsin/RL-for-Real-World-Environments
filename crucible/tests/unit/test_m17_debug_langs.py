@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from crucible.factory import langs
-from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, use
-from crucible.factory.langs.golang import escape_module, import_name, prune_imports
+from crucible.factory.langs.base import CHANGELOG_FILE, active, code_mask, fix_refs, match_bracket, strip_added_lines, strip_ref_entries, subject_ref, use
+from crucible.factory.langs.golang import escape_module, import_name, prune_imports, strip_table_entries, table_spans
 
 GO = langs.get("go")
 RUST = langs.get("rust")
@@ -253,6 +253,41 @@ def test_release_changelog_entries_citing_a_fix_are_removed() -> None:
     assert strip_ref_entries(log, refs) == ("## v2\n\n- Keep #15710 and 884502ab\n", 4)
 
 
+def test_a_changelog_entry_that_repeats_the_fix_subject_is_removed() -> None:
+    """echo 48128ab (2026-10-24): "fix(static): preserve matched handler 404s" has no PR, issue or sha in its message, so its
+    release-changelog line (with the PR URL) stayed in the start tree. The subject itself now cites it."""
+    ref = subject_ref("fix(static): preserve matched handler 404s")
+    assert ref == "subject:preserve matched handler 404s"
+    log = ("## v4.13\n\n- **static:** Preserve matched handler 404s\n  (https://github.com/o/r/pull/2801)\n"
+           "- Preserve matched handler 404 pages for groups\n- Fix typo\n")
+    assert strip_ref_entries(log, {ref}) == ("## v4.13\n\n- Preserve matched handler 404 pages for groups\n- Fix typo\n", 2)
+    assert subject_ref("fix: typo") is None and subject_ref("chore(deps): bump x (#12)") is None  # too generic to match
+    assert subject_ref("Fix the parser for nested heredocs (#1404)") == "subject:fix the parser for nested heredocs"
+
+
+def test_go_strip_mode_removes_the_fixes_table_entries() -> None:
+    """mvdan-sh dc951aeb-e1 (2026-10-24): strip mode removed the changed test functions, but the fixes' new entries in
+    package-level tables stayed readable in the agent's tree. Whole entries the fix added go; braces inside string
+    literals (shell input) do not count; a table whose removal would not balance is left as it was."""
+    text = (
+        "package syntax\n\nvar printTests = []printCase{\n"
+        "\t{\"if a; then b; fi\", \"if a; then b; fi\"},\n"
+        "\t{\n\t\t\"{ foo; } && (bar)\",\n\t\t\"{ foo; } && (bar)\",\n\t},\n"
+        "\t{`x\n} y`, `x\n} y`},\n"
+        "}\n\nfunc helper() {\n\t_ = \"{ foo; } && (bar)\"\n}\n")
+    assert table_spans(text) == [(2, 12)]
+    added = [["\t{", "\t\t\"{ foo; } && (bar)\",", "\t\t\"{ foo; } && (bar)\",", "\t},"]]
+    out, n = strip_table_entries(text, added)
+    assert n == 4 and "(bar)\",\n" not in out.split("func helper")[0] and "_ = \"{ foo; } && (bar)\"" in out
+    assert out.startswith("package syntax\n\nvar printTests = []printCase{\n\t{\"if a; then b; fi\"")
+    half = [["\t{", "\t\t\"{ foo; } && (bar)\","]]  # an entry's opening without its closing: left alone
+    assert strip_table_entries(text, half) == (text, 0)
+    assert strip_table_entries(text, [["func helper() {"]]) == (text, 0)  # not inside a table
+    # a changed line inside a multi-line entry takes the whole entry (never half: {"in", } would have too few values)
+    out, n = strip_table_entries(text, [["\t\t\"{ foo; } && (bar)\","]])
+    assert n == 4 and "(bar)\",\n" not in out.split("func helper")[0] and "\t{\"if a; then b; fi\"" in out
+
+
 def test_profiles_registry() -> None:
     assert langs.get("golang") is GO and langs.get("ts") is NODE
     with pytest.raises(KeyError):
@@ -344,3 +379,27 @@ def test_fairness_flags() -> None:
     go = {"lang": "go", "milestones": [{"id": "m01", "unit": "u", "requires": [], "tests": ["a_test.go::TestEllipsis/cjk", "a_test.go::TestparseInt64"]}]}
     assert fairness_flags(go, {"Ellipsis", "parseInt64"}) == ["internal_function_check: m01 test TestparseInt64 is named after the changed function parseInt64"]
     assert task_intent(go, {"Ellipsis"})["fairness_flags"] == []
+
+
+def test_node_strips_conditional_and_matrix_named_tests() -> None:
+    """h3 (2026-10-25): its node-only tests are ``it.skipIf(cond)(title, fn)`` inside a matrix helper that runs each test as
+    ``app::node::<title> (node)``; neither the call form nor the runner's name was recognised, so strip mode left the
+    hidden tests visible. A unique title is matched through the suffix; an ambiguous one is never guessed."""
+    src = ('describeMatrix("app", (t, { it }) => {\n'
+           '  it("plain", () => {});\n'
+           '  it.skipIf(t.target !== "node")(\n    "piping (with Error)",\n    async () => { expect(1).toBe(1); },\n  );\n'
+           '  it.runIf(t.target === "web")("dup", () => {});\n'
+           '  it("dup", () => {});\n'
+           '});\n')
+    assert "piping (with Error)" in NODE.test_defs(src)
+    out = NODE.strip_tests(src, {"app::node::piping (with Error) (node)"}, "test/app.test.ts")
+    assert "piping (with Error)" not in out and 'it("plain"' in out
+    assert NODE.strip_tests(src, {"app::web::dup (web)"}, "test/app.test.ts") == src  # two tests titled dup: left alone
+
+
+def test_a_rust_string_spans_lines() -> None:
+    """gleam's formatter tests (2026-10-25): a plain Rust string holding a multi-line program (``"pub fn main() {\\n...}"``)
+    ended at the newline, so its ``{`` opened a block and the tests after it were never found (22 of 35 in one file)."""
+    src = ('#[test]\nfn construction() {\n    assert_format!(\n        "fn main() {\n  let a = 1\n}\n",\n    );\n}\n\n'
+           '#[test]\nfn pattern() {\n    assert_format!("fn main() {\n}\n");\n}\n')
+    assert sorted(k.rsplit("::", 1)[-1] for k in RUST.test_defs(src, "src/tests/bit_array.rs")) == ["construction", "pattern"]

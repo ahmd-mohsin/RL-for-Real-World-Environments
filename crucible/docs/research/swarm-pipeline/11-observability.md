@@ -115,6 +115,85 @@ it with the Reports API (`wandb_workspaces.reports.v2`; offline); `--push` saves
   trusted labels and spend; `findings`: `FailureFinding` rows, each attached to its episode's trace (below);
 - `spend`: USD per phase or role, the total in the summary.
 
+### 4.4 The training monitor (`scripts/train_monitor.py`, 2026-10-25)
+
+What the agent's traces show it learning, and which failures are general (a behaviour across tasks and languages) rather
+than one task's hard milestone. `factory/train_monitor.py` does the analysis; `observe/train_monitor.py` logs it
+(`monitor/modes`, `monitor/mode_lines`, `monitor/health_lines`, `monitor/alerts`, `monitor/proposals`, and one
+`monitor/*` scalar row per training step) and writes the local report.
+
+```
+python scripts/train_monitor.py report --roots data/targeting/debug-300 [...] --policy Qwen3.6-35B-A3B \
+    [--repath-store data/debug/gen/store] [--judge 36 --judge-cap 3 --env-file ../.env] [--wandb]
+python scripts/train_monitor.py watch --run <training run dir> --every 120 --wandb
+```
+
+- **Outputs:** `data/observe/train_monitor/<name>/{report.json, report.md, report.html, proposals.jsonl}` (gitignored).
+- **General modes:** listed in the module doc, with their rules and denominators. General means >= 3 tasks and >= 2
+  languages or lanes, with a Wilson interval.
+- **By model:** every policy's mode prevalence side by side. A mode the frontier models share is an agent-behaviour or
+  task failure; one only the student shows is the student's.
+- **Held out:** aggregate only, tasks as placeholders, never in a proposal, an intent or the judge's sample.
+- **First validation** (2026-10-25, stored targeting and pilot runs, 235 student training episodes): in `13` §11.
+
+### 4.5 Framework health (`scripts/train_monitor.py health|fix`, 2026-10-25)
+
+The framework side of the same traces. For every anomaly, it records whether the agent or the framework caused it, which
+component, how many episodes and how much reward it touched, and what reproduces it. `factory/framework_health.py`
+does the analysis; `observe/train_monitor.py` (`health_markdown`, `log_health`: `health/defects`, `health/tuning`,
+`health/critical`, `health/pause`) renders it.
+
+```
+python scripts/train_monitor.py health --run <training run dir> [--repath-store data/debug/gen/store] [--k 8] [--wandb]
+python scripts/train_monitor.py health --roots data/targeting/debug-300 [...]          # stored runs
+python scripts/train_monitor.py fix --run <run> --defect fd-... --component grader --version path-2026-10-23b \
+    --commit <sha> --after-step 12 [--regraded <attempt dirs>]
+```
+
+- **Detectors and components:**
+  - **World:** missing commands (core toolchain against convenience tools), World-tool faults, an answer the World exposes.
+  - **Harness:** tool errors, harness time limits, job-log tracebacks, unreadable attempts.
+  - **Grader:** masked grades, unmeasured checkpoints, the same patch graded two ways, the sidecar disagreeing with the
+    final grade, path rules the current rules flip (re-pathed), and S9b false fails or low agreement.
+  - **Sandbox and host:** OOM, disk, lock, network, Apptainer, the container daemon.
+  - **Sampler:** token-limit calls, provider errors, one model's malformed tool calls far above the others' (codec).
+  - **Trainer:** NaN or inf loss, KL spikes, dropped groups, staleness.
+  - **Task spec:** stale visible tests, protected tests edited by several families, milestones nobody reaches, spec
+    defects.
+
+  The module doc's table gives each rule.
+- **Agent or framework:** `cls` on every cluster. A tool error caused by the agent's own arguments (a wrong old_string,
+  a bad regex, a missing path), or a made-up command, is `agent`: LOW, never a pause.
+- **Severity and impact:** CRITICAL corrupts reward or advantage; HIGH wastes episodes or credit; LOW is cosmetic. The
+  impact covers:
+  - **Reward:** the reward moved where the corrected reward is known (a re-path), or the reward at risk as an upper
+    bound where it is not;
+  - **Advantage:** `sum |Δ advantage|` and sign flips over each rollout group;
+  - **Masked attempts:** the samples and the groups left without signal.
+- **Triage:** `health` exits 3 while a CRITICAL framework defect is open. `watch` writes `health.{json,md}` every pass
+  and alerts `framework_critical`. That is the signal to pause before the next step. The operator then fixes the defect
+  with a test and runs `fix`, which appends to `<run>/framework_fixes.jsonl`. They regrade the affected stored episodes
+  offline following `regrade_plans`: re-path for path rules, `factory.tinker.regrade` for the grader or the task. Those
+  rows are `versioning.OfflineGrade`, never training rewards. Then the trainer resumes.
+  - A defect seen again after its fix step is `recurring`.
+  - `versions` lists the path-rules and reward-rule versions per step; two in one run with no fix record is a HIGH
+    `version_mix`.
+- **Metadata and tuning:** per lane and step, it covers:
+  - tool failure rate and fault mix, seconds per tool call and per model call;
+  - tokens per turn, cache share, context use;
+  - compactions and Φ across them, checkpoint grading share and cost, mask rate;
+  - World and GPU minutes, budget stops, first edit;
+  - useful samples (an episode in a group with reward spread) per dollar and per GPU-hour.
+
+  `tuning` turns these into proposals with the expected effect and evidence, never applied: checkpoint cadence
+  (bounded at 2x), compaction, tool-output limits, output-token limit, concurrency (grading GPU-seconds against episode
+  wall time), group size (from the spread probability `1 - p^k - (1-p)^k` of in-band tasks), tool affordances and the
+  difficulty band.
+- **Held out:** a defect on held-out traces keeps its component, kind, severity and counts. Its tasks become
+  placeholders, and its episodes, reproduction and any content-bearing signature are withheld. Tuning reads training
+  traces only.
+- **First validation** (2026-10-25, 466 stored episodes): in `13` §12.
+
 ## 5. Agent traces (Weave)
 
 **What Weave can and cannot do offline (weave 0.53.12, checked in its source).** `weave.init` always logs in to W&B

@@ -100,6 +100,125 @@ def prune_imports(before: str, after: str) -> str:
     return re.sub(r"(?m)^import[ \t]*\([ \t]*\n[ \t]*\)[ \t]*\n", "", out)  # an import block left empty
 
 
+def _code_lines(text: str) -> list[str]:
+    """``text``'s lines with string, rune and raw-string literals and comments blanked, by character (``code_mask`` shifts
+    on multi-byte runes: mvdan-sh's ``○`` left a comment's ``)`` unmasked and cut a table short)."""
+    out, cur, i, n = [], [], 0, len(text)
+    state = None  # None | '"' | "'" | '`' | '/*' | '//'
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            out.append("".join(cur))
+            cur = []
+            if state in ('"', "'", "//"):
+                state = None
+            i += 1
+            continue
+        if state is None:
+            if text.startswith("//", i):
+                state, i = "//", i + 2
+                continue
+            if text.startswith("/*", i):
+                state, i = "/*", i + 2
+                continue
+            if c in "\"'`":
+                state = c
+                cur.append(" ")
+            else:
+                cur.append(c)
+            i += 1
+        elif state in ('"', "'"):
+            if c == "\\":
+                i += 2
+                continue
+            if c == state:
+                state = None
+            i += 1
+        elif state == "`":
+            if c == "`":
+                state = None
+            i += 1
+        elif state == "/*":
+            if text.startswith("*/", i):
+                state, i = None, i + 2
+            else:
+                i += 1
+        else:  # //
+            i += 1
+    out.append("".join(cur))
+    return out
+
+
+def _counts(line: str) -> tuple[int, int, int]:
+    return line.count("{") - line.count("}"), line.count("(") - line.count(")"), line.count("[") - line.count("]")
+
+
+def table_spans(text: str) -> list[tuple[int, int]]:
+    """Line spans [start, end) of package-level ``var`` declarations that hold a composite literal: the test tables
+    (``var printTests = []struct{...}{...}``, ``var (...)``) that table-driven Go tests range over. Brackets inside string
+    literals and comments do not count (``_code_lines``): shell and template inputs are full of them."""
+    raw = text.splitlines(keepends=True)
+    masked = _code_lines(text)
+    out, k = [], 0
+    while k < len(raw):
+        if re.match(r"^var\b", raw[k]) and ("{" in masked[k] or masked[k].rstrip().endswith("(")):
+            depth, j = 0, k
+            while j < len(raw):
+                c = _counts(masked[j])
+                depth += c[0] + c[1]
+                if depth <= 0:
+                    break
+                j += 1
+            out.append((k, min(j, len(raw) - 1) + 1))
+            k = j + 1
+        else:
+            k += 1
+    return out
+
+
+def strip_table_entries(text: str, runs: Sequence[Sequence[str]]) -> tuple[str, int]:
+    """Strip mode's residue in Go: the table entries a fix added or changed stay readable in the agent's tree when only the
+    test functions are stripped (mvdan-sh dc951aeb-e1, 2026-10-24: the fixes' printer cases sat in package-level tables of
+    files whose functions were stripped). ``runs`` are the fix diffs' runs of consecutive added lines; each run found as a
+    contiguous block inside a package-level table is removed with the whole entries it belongs to (a changed line inside a
+    multi-line entry takes that entry), only when the removed block's brackets (outside string literals) balance at the
+    table's element level: never half an entry. Returns the text and the number of lines removed."""
+    raw = text.splitlines(keepends=True)
+    masked = _code_lines(text)
+    spans = table_spans(text)
+    drop: set[int] = set()
+    depth_at: dict[int, int] = {}  # bracket depth before each line, from its table's declaration
+    for a, b in spans:
+        d = 0
+        for i in range(a, b):
+            depth_at[i] = d
+            d += sum(_counts(masked[i]))
+    for run in runs:
+        want = [ln.rstrip() for ln in run]
+        if not want or not any(w.strip() for w in want):
+            continue
+        for a, b in spans:
+            hit = next((i for i in range(a + 1, b - len(want)) if all(raw[i + j].rstrip() == w for j, w in enumerate(want))
+                        and not drop & set(range(i, i + len(want)))), None)
+            if hit is None:
+                continue
+            lo, hi = hit, hit + len(want)  # [lo, hi)
+            if depth_at[lo] > 1:  # a changed line inside a multi-line entry: the whole entry goes (its want string changed)
+                while lo > a + 1 and depth_at[lo] > 1:
+                    lo -= 1
+                while hi < b - 1 and (depth_at.get(hi, 1) > 1 or not masked[hi - 1].rstrip().endswith(",")):
+                    hi += 1
+            idx = range(lo, hi)
+            # whole elements only: the block starts at the table's element level, closes every bracket it opens, and
+            # ends an element (half an entry would leave ``{"in", }``: too few values)
+            whole = (depth_at[lo] == 1 and depth_at.get(hi, 1) == 1 and [sum(_counts(masked[i])[x] for i in idx) for x in range(3)] == [0, 0, 0]
+                     and masked[hi - 1].rstrip().endswith(",") and not drop & set(idx))
+            if whole:
+                drop |= set(idx)
+            break
+    return "".join(ln for i, ln in enumerate(raw) if i not in drop), len(drop)
+
+
 class GoProfile(CLikeProfile):
     name = "go"
     lang = "go"
@@ -161,6 +280,9 @@ class GoProfile(CLikeProfile):
             if ext:
                 out.append((f"{m.group(1)}.{m.group(2)}" if m.group(1) else m.group(2), *ext))
         return out
+
+    def strip_table_entries(self, text: str, runs: Sequence[Sequence[str]]) -> tuple[str, int]:
+        return strip_table_entries(text, runs)
 
     def strip_tests(self, text: str, keys: set[str], path: str = "") -> str | None:
         found = self._find_tests(text, path)
