@@ -189,6 +189,8 @@ unset SBATCH_ACCOUNT SLURM_ACCOUNT
 mkdir -p {out}
 {setup_lines(d, version=PRIME_RL_VERSION)}
 echo "=== versions"; uname -m; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; uv run python -c "import torch, vllm; print(torch.__version__, torch.version.cuda, vllm.__version__)"
+echo "=== the student's Gated DeltaNet kernels on the GPU, and vLLM's registry (advisory: the 0.6B smoke does not need them)"
+CUDA_VISIBLE_DEVICES=0 timeout 600 uv run python -m crucible.train.bridges.primerl.kernel_check > {out}/kernel_check.json 2>{out}/kernel_check.err; cat {out}/kernel_check.json
 CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
 CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
