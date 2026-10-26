@@ -110,10 +110,45 @@ episode (no lockdown, no episodes).
   rule read them unchanged.
 - **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a
   network (`WindowTask.world_network = "none"`), and the shim refuses any network at the container level.
+- **8192 output tokens per model call** on the vllm backend (`train/bridges/vllm.DEFAULT_MAX_TOKENS`, the coordinator's
+  setting of 2026-10-25: replies cut at 4096 in about 90 stored episodes across most debug tasks, and on a migration
+  task the cut ended episodes). It is the default of `lh_debug_target.py` / `lh_kernel_target.py` / `tinker_rl.py` on
+  `--backend vllm` and lands in every arm's `settings.max_tokens`, so the before and after arms are identical.
 
 ## 5. Smoke and throughput
 
-See §5.1 (filled from job logs).
+**Setup costs** (`smoke.sbatch`; the environment, SIFs and weights are built once and reused):
+
+| Step | Measured |
+|---|---|
+| crucible environment (uv, Python 3.12, crucible editable, transformers 5.20.2) | 2.8 min (job 3457639) |
+| CPU torch for `crucible.train.engine` | 8.5 min (job 3459051) |
+| a debug World SIF from the Mac's image (go-toml, 384 MB archive) | 19 s |
+| the student's weights (71.9 GB, 40 files) | 35 s |
+| vLLM ready, TP=2 on two GH200s | 334 s (job 3459051) |
+| KV cache, TP=2, gpu-memory-utilization 0.90 | 3,873,563 tokens: 14.8 full 262,144-token sequences at once |
+
+**Throughput** (`throughput.py`, random-id prompts, so no prefix-cache hits; TP=2, one server):
+
+| Concurrent requests | Prompt tokens | Max output | Wall | Sampled tok/s | Prefill tok/s | p50 latency |
+|---|---|---|---|---|---|---|
+| 8 | 16,000 | 512 | 12.4 s | 137 | 10,314 | 9.7 s |
+| 32 | 32,000 | 512 | 24.5 s | 269 | 41,758 | 21.9 s |
+| 64 | 64,000 | 256 | 85.7 s | 144 | 47,771 | 73.1 s |
+
+Prefill dominates long-horizon turns. Real episodes re-send a growing prompt, which the prefix cache serves, so a
+turn's cost is closer to its new tokens plus the reply.
+
+**Fixes the smoke runs found** (each committed with its job id):
+- the host's preloaded `libfakeroot.so` needs glibc 2.38 and broke the bookworm-based World (3457639): the shim uses the
+  root-mapped user namespace only (`--ignore-fakeroot-command`);
+- vLLM's FlashInfer JIT workspace failed under `--no-home` (read-only `/u`; 3458633): `ServeSpec.cache_dir` gives the
+  server a writable HOME and caches;
+- `crucible.train.engine` imports torch (3458633): the environment installs the CPU build;
+- a container's `-w` directory must exist before Apptainer will chdir into it (the kernel World's seed copy, 3459051):
+  the shim creates it, as Docker does;
+- the debug lane's generator reads every training repository's clone: the job's data dir needs them (training clones
+  only; held-out stores and clones are never copied for a smoke).
 
 ## 6. Rules for jobs (from the earlier DeltaAI work)
 
