@@ -1713,3 +1713,42 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   evidence (`r1_a2a` left out: 15 min), M3 audit and core files: 425 passed. Ruff on the changed files and lint-imports
   (5 contracts) are clean.
 - **Merge notes.** One `except` clause in `relay()`; R-2 will reuse the new test's uvicorn harness.
+
+## 75. M3 R-2: an exchange whose client left is evidence, never an action, a trained call or a retry copy
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended, with one
+  narrowing: only an answer (status < 400) is marked; an upstream error whose client left keeps its own status as M10's
+  evidence. Not taken: "the last attempt sent wins" (misses resends without a retry header, and the deadline kill),
+  `after_end` (the key is revoked before the kill), recording only after the flush (M10 loses its row), replaying
+  retries (changes what the agent gets). Pattern from slime `adapters/common.py:428-443` and AReaL `cache.py:620-639`
+  (Apache-2.0); no code copied.
+- **Files.** `src/crucible/connectors/capture_proxy.py` (`CLIENT_LEFT`, `client_left`, `forward_call`,
+  `CaptureLogConnector.fetch`, `normalize`, module docstring), `src/crucible/interop/agentenv/harness.py`
+  (`calls_from_capture`), `src/crucible/interop/harbor/reconcile.py` (`reconcile`), `src/crucible/runtime/agent_evidence.py`
+  (`verdict_of` uses the shared check), `docs/modules/M03-connectors.md` (capture_proxy row, finding 4),
+  `tests/unit/test_capture_client_left.py`.
+- **Public names.** New `crucible.connectors.capture_proxy.CLIENT_LEFT` (`"client disconnected"`) and
+  `client_left(row) -> bool` (a capture row or a `calls_from_capture` call).
+- **Behaviour.**
+  - Proxy: a non-streaming answer whose client already left (a deadline kill, a client timeout) is recorded with
+    `error: "client disconnected"`, keeping status, response and usage; `complete` stays unset, so `capture_spend`
+    still books it as certain. It was an ordinary 200. Starlette's `is_disconnected()` returns at once.
+  - `normalize`: a client-left exchange (streamed or not) gives its `llm_call` with `data.error` and no `tool_call` or
+    server-tool result. A deadline-killed mini-swe-agent call listed `echo hi > out.txt` with `writes: file:out.txt`.
+  - `fetch`: a client-left attempt counts as failed, so a later attempt of the same body replaces it; a client-left
+    row answered after any earlier attempt of the same body (the timed-out original answering after its retry, turns
+    later) is dropped. A lone client-left row (the deadline kill) stays. The raw log keeps every row for M10.
+  - `calls_from_capture`: a client-left call is `trainable: false` (`runtime/record.py` already honours it); Harbor's
+    `reconcile` leaves it out of the comparison (it was read as an auxiliary call the agent did not log).
+- **Formats.** A non-streaming capture row can now carry `error: "client disconnected"`; a `calls.json` call can carry
+  `trainable: false` for it. M10 already read that error as `client_left`.
+- **Tests.** `test_capture_client_left.py` (+6: a deadline kill under uvicorn gives a client-left row with usage, no
+  tool_call, a non-trainable call and certain spend, while a waiting client's row is unmarked; a timeout then SDK retry
+  gives 2 exchanges, not 3, and no abandoned write; `fetch` in three orders; reconcile). All 6 failed before the fix.
+  Every unit file that drives the capture proxy, `calls_from_capture`, reconcile or the evidence code (`r1_a2a` and
+  training left out), M3 audit and core files: 519 passed; `test_sb_claude_builder.py` has its 8 known failures (the
+  fake `claude` shebang breaks on the path with a space). Ruff on the changed files and lint-imports (5 contracts) are
+  clean (FURB162 at `agent_evidence.py:223` is pre-existing).
+- **Merge notes.** Small edits in `capture_proxy.py` (forward_call's non-streaming record, fetch, three tool-call loops
+  in normalize), one line each in `calls_from_capture`, `reconcile` and `verdict_of`. A test fake that answers after its
+  client left now gets a marked row.

@@ -139,11 +139,14 @@ def calls_from_capture(path: Path | None, actor: str, policy_version: int | None
 
     M10 lab audit R-1: each call keeps the upstream ``status``, its ``error`` (scrubbed: a provider can echo a key) and
     ``complete: false`` for a cut or errored stream, plus ``latency_s``. They were dropped (harness.py:71-79), so the
-    calls a harness recorded could not show a provider outage. The proxy's own limit-stop rows are never calls."""
+    calls a harness recorded could not show a provider outage. The proxy's own limit-stop rows are never calls.
+
+    M3 audit R-2: a call whose client left before the answer (a deadline kill) is ``trainable: false``: the agent never
+    received it."""
     if path is None or not Path(path).exists():
         return []
     from crucible.connectors.base import SourceRef
-    from crucible.connectors.capture_proxy import CaptureLogConnector
+    from crucible.connectors.capture_proxy import CaptureLogConnector, client_left
     from crucible.core.secrets import scrub_secrets
 
     rows = CaptureLogConnector().fetch(SourceRef(connector="capture_log", key=Path(path).stem, meta={"path": str(path)})).payload["exchanges"]
@@ -165,6 +168,8 @@ def calls_from_capture(path: Path | None, actor: str, policy_version: int | None
         err = r.get("error") or resp.get("error") or (f"HTTP {status}" if isinstance(status, int) and status >= 400 else None)
         if err:
             call["error"] = scrub_secrets(str(err))[:500]
+        if client_left(r):
+            call["trainable"] = False
         if r.get("complete") is False:
             call["complete"] = False
         if r.get("latency_s") is not None:
