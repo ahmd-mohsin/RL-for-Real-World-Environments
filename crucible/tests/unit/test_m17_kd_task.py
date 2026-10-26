@@ -529,3 +529,21 @@ def test_s7k_the_report_states_what_sets_a_milestone_s_cases_apart():
     missing = {**sharp, "requirements": sharp["requirements"][:2]}
     assert "S7k unasked: milestone m3 has no requirement" in kd.report_gate(missing)
     assert kd.parse_case(fa.format(h=1, v=2, r=3, b=4, t="f16"))[1]["nr23"] == "[3,1]"
+
+
+def test_k6_states_only_parameters_the_milestone_s_cases_have():
+    """A K6 revision may only name values its hidden cases carry (the cases are the GPU-executed reproduction)."""
+    g = load_gpu_lane_script()
+    rec = {"milestones": [{"id": "m2", "cases": ["FLASH_ATTN_EXT(hsk=576,hsv=512,nh=4,nr23=[4,1],kv=512,type_KV=q4_0)"]}]}
+    assert g.k6_claims_ok(rec, "m2", "FLASH_ATTN_EXT is wrong for head size 576 with value size 512 and a quantized cache.") == []
+    assert g.k6_claims_ok(rec, "m2", "FLASH_ATTN_EXT is wrong for head size 256.") == ["K6 claim: 256 is no parameter of m2's cases"]
+
+
+def load_gpu_lane_script():
+    import importlib.util
+
+    p = Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug.py"
+    spec = importlib.util.spec_from_file_location("lh_kernel_debug_k6", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod

@@ -528,6 +528,92 @@ def cmd_write_prompts(a: argparse.Namespace) -> None:
         print(json.dumps({k: res[k] for k in ("task", "status", "usd", "sessions", "phi_final")}, default=str), flush=True)
 
 
+def k6_claims_ok(rec: dict[str, Any], mid: str, text: str) -> list[str]:
+    """A sharpened requirement may only state what its milestone's cases are: every number it gives must be a parameter
+    value of one of those cases (a K6 that names a shape no hidden case has would send the agent after a symptom the
+    grader never checks). The cases themselves are the reproduction: S5 executed them on the GPU (A' fails, B passes)."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    m = next(x for x in rec["milestones"] if x["id"] == mid)
+    vals = {v for c in m.get("cases") or [] for p in kd.parse_case(c)[1].values() for v in re.split(r"[\[\],]", p) if v}
+    nums = set(re.findall(r"(?<![\w.])\d{2,}(?!\w|\.\d)", text.replace(",", "")))
+    return [f"K6 claim: {n} is no parameter of {mid}'s cases" for n in sorted(nums - vals)]
+
+
+def cmd_revise(a: argparse.Namespace) -> None:
+    """A swarm revision of one kernel record (the difficulty controller's knobs; no Claude): K6 sharpens one requirement,
+    rewritten by the swarm's ``prompt_author`` from a brief of that milestone alone plus the gate's finding; every other
+    requirement, the opening and the closing stay word for word. The revision is accepted only through ``kernel_debug.author``
+    (lint, ledger, S7k) and ``k6_claims_ok``; the code and hidden cases do not change, so the GPU gates hold (the targeting
+    preflight re-grades the endpoints). The record and its authored source are backed up and the action journaled."""
+    from crucible.train.bridges.tinker.sampler import ensure_cap
+
+    ensure_cap(a.cap)
+    import asyncio
+    import copy
+    import time
+
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.models import ModelBook
+    from crucible.factory.swarm_journal import SwarmJournal
+    from crucible.factory.swarm_prompts import PromptJob, write_prompt
+
+    if a.knob != "K6":
+        raise SystemExit(f"kernel revise supports K6 only, not {a.knob}")
+    rec = next(r for r in kd.records(ROOT / "store") if r["id"] == a.id)
+    if rec["split"] != "train":
+        raise SystemExit("held-out records are never revised")
+    src = ROOT / "prompts" / f"{rec['id']}.json"
+    authored = json.loads(src.read_text())
+    book = ModelBook(preset=a.preset)
+    builder = book.spec("prompt_author").ref
+    before = copy.deepcopy(rec)
+    gate = [f for f in kd.report_gate(rec) if f".{a.milestone}" in f or f" {a.milestone}" in f or f"{a.milestone}'s" in f]
+
+    def splice(draft: dict) -> dict:
+        reqs = dict(authored.get("requirements") or {})
+        reqs[a.milestone] = str((draft.get("requirements") or {}).get(a.milestone) or "")
+        return {**authored, "requirements": reqs, "builder": builder}
+
+    def lint(draft: dict) -> list[str]:
+        sp = splice(draft)
+        return kd.author(copy.deepcopy(before), sp)["findings"] + k6_claims_ok(before, a.milestone, sp["requirements"][a.milestone])
+
+    brief = kernel_brief(rec)
+    brief["milestones"] = [m for m in brief["milestones"] if m["id"] == a.milestone]
+    brief["milestone_ids"] = [a.milestone]
+    m = next(x for x in rec["milestones"] if x["id"] == a.milestone)
+    brief["revision"] = {"knob": "K6", "milestone": a.milestone, "why": a.why, "gate_findings": gate,
+                         "current_text": (authored.get("requirements") or {}).get(a.milestone),
+                         "cases": (m.get("cases") or [])[:12],
+                         "instruction": ("Rewrite only this one requirement, as the user who saw it fail would: name the op, the symptom and the "
+                                         "inputs it fails on (the shape parameters these cases share, in a user's words with their values), so a "
+                                         "competent engineer could reproduce it. Never the cause, the fix, a function, kernel, file or case string. "
+                                         "Write requirements for this milestone id only; the rest of the report is kept as it is.")}
+    sroot = ROOT / "swarm" / rec["split"] / "k6"
+    tmp = sroot / "drafts" / f"{rec['id']}.json"
+    job = PromptJob(rec["id"], [a.milestone], brief, ROOT / "store" / rec["tree_a"], lint, lambda t, rec=rec: kd.lint_prompt(t, rec), tmp)
+    res = asyncio.run(write_prompt(job, book=book, root=sroot, journal=SwarmJournal(sroot / "journal"), budget_usd=a.budget, max_turns=a.max_turns))
+    out = {k: res.get(k) for k in ("task", "status", "usd", "sessions", "phi_final")}
+    if res["status"] == "done" and tmp.exists():
+        sp = splice(json.loads(tmp.read_text()))
+        found = lint(json.loads(tmp.read_text()))
+        if not found:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            (src.parent / f"{src.name}.bak-k6-{stamp}").write_text(src.read_text())
+            (ROOT / "store" / rec["split"] / rec["id"] / f"record.json.bak-k6-{stamp}").write_text(json.dumps(before, indent=1))
+            sp["revision"] = {"knob": "K6", "milestone": a.milestone, "why": a.why, "at": stamp, "swarm": json.loads(tmp.read_text()).get("swarm")}
+            src.write_text(json.dumps(sp, indent=1))
+            kd.author(rec, sp)
+            kd.save(ROOT / "store", rec)
+            out.update(accepted=True, text=sp["requirements"][a.milestone])
+        else:
+            out.update(accepted=False, findings=found)
+    with (ROOT / "revisions.jsonl").open("a") as fh:
+        fh.write(json.dumps({"task": rec["id"], "knob": a.knob, "milestone": a.milestone, "why": a.why, **out}, default=str) + "\n")
+    print(json.dumps(out, default=str), flush=True)
+
+
 # ---- stage the GPU gates -------------------------------------------------------------------------------------------------------------------
 GPU_PENDING = ["S1_executed real-fix check (B passes, each single revert fails its milestone's cases)", "case calibration (milestone cases = cases each revert breaks)",
                "S6 executed edges (cases broken by two single reverts; prober A' + one fix)", "S5 oracle reward 1 on the GPU", "S8 floors 0 and mutants fail (GPU)",
@@ -1037,9 +1123,18 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--cap", type=float, default=10.0, help="USD over every record of this run")
     s.add_argument("--budget", type=float, default=1.5, help="USD per record (the machine's budget)")
     s.add_argument("--max-turns", type=int, default=60)
+    s = sub.add_parser("revise", help="a swarm revision of one training record (K6: sharpen one requirement; no Claude)")
+    s.add_argument("--id", required=True)
+    s.add_argument("--knob", default="K6")
+    s.add_argument("--milestone", required=True)
+    s.add_argument("--why", default="")
+    s.add_argument("--preset", default="swarm")
+    s.add_argument("--cap", type=float, default=3.0)
+    s.add_argument("--budget", type=float, default=2.5)
+    s.add_argument("--max-turns", type=int, default=120)
     a = ap.parse_args(argv)
     {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe,
-     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts}[a.cmd](a)
+     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts, "revise": cmd_revise}[a.cmd](a)
     return 0
 
 
