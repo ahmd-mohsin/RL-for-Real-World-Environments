@@ -126,7 +126,15 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 
 ### 5.1 Results
 
-(filled in from `runs/smoke1/smoke{1,2}.json`.)
+- **Attempt 1** (job 3455884, `ghx4-interactive`, 2026-10-25, 31 min, about 2 GPU-hours: the interactive partition billed
+  the whole node, `billing=4000`): it failed in the install. prime-rl's submodules (`deps/verifiers`, `deps/renderers`)
+  are declared with SSH URLs, and the cluster has no GitHub key, so `renderers` was empty and `uv sync` refused it. The job
+  then waited 30 min for a vLLM that never started. Fixed:
+  - the submodules are fetched over HTTPS (`git -c url."https://github.com/".insteadOf=git@github.com:`);
+  - the install is limited to `--extra gpu --extra flash-attn` (the prebuilt aarch64 FA2 wheel, nothing compiled);
+  - an import check gates the install marker, and the job stops at once if vLLM or the trainer exits.
+- **Attempt 2** (job 3457642, `ghx4`, 2 GPUs, 200 GB, at most 2 h 45 min): queued. `ghx4-interactive` allows one job per
+  user, and another worker holds it.
 
 ## 6. Open items
 

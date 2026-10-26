@@ -81,12 +81,16 @@ def setup_lines(d, *, version: str) -> str:
 if [ ! -f {w}/prime-rl/.crucible-installed-{version} ]; then
   mkdir -p {w} && cd {w}
   [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
-  cd prime-rl && git submodule update --init --depth 1 -- deps/verifiers deps/renderers deps/pydantic-config
-  uv sync --all-extras
+  # the submodules are declared with SSH URLs; the cluster has no GitHub key, so they are fetched over HTTPS
+  cd prime-rl && git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --depth 1 -- deps/verifiers deps/renderers deps/pydantic-config
+  # the trainer and vLLM only: the prebuilt aarch64 flash-attn 2 wheel, nothing compiled here (no FA3 / FA4 / FlashMLA)
+  uv sync --extra gpu --extra flash-attn
   uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill
-  touch {w}/prime-rl/.crucible-installed-{version}
+  uv run python -c "import prime_rl, vllm, torch; print('prime-rl ok', torch.__version__, torch.version.cuda, vllm.__version__)" \
+    && touch {w}/prime-rl/.crucible-installed-{version}
 fi
 cd {w}/prime-rl
+[ -f {w}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl install failed"; exit 4; }}
 export PYTHONPATH={w}/crucible/src  # Crucible's source (rsynced); the trainer imports its loss from here
 """
 
@@ -154,9 +158,9 @@ def cmd_render_smoke(args) -> None:
 #SBATCH --account={d.account}
 #SBATCH --partition={d.partition}
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node={args.gpus}
 #SBATCH --cpus-per-gpu=16
-#SBATCH --mem=200G
+#SBATCH --mem={args.mem_gb}G
 #SBATCH --time={d.time}
 #SBATCH --output={out}/slurm-%j.out
 set -uo pipefail
@@ -168,7 +172,8 @@ CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference
 INF=$!
 CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
 TRN=$!
-for i in $(seq 1 180); do curl -sf localhost:{d.port}/health > /dev/null && break; sleep 10; done
+for i in $(seq 1 120); do curl -sf localhost:{d.port}/health > /dev/null && break; kill -0 $INF 2>/dev/null || {{ echo "vLLM exited"; tail -40 {out}/inference.log; exit 5; }}; kill -0 $TRN 2>/dev/null || {{ echo "trainer exited"; tail -40 {out}/trainer.log; exit 6; }}; sleep 10; done
+curl -sf localhost:{d.port}/health > /dev/null || {{ echo "vLLM not healthy after 20 min"; tail -40 {out}/inference.log; exit 7; }}
 echo "=== phase 1: two steps"
 {py} --steps 2 --report {out}/smoke1.json
 kill $TRN; wait $TRN 2>/dev/null
@@ -256,6 +261,8 @@ def main() -> None:
     p.add_argument("--time", default="01:45:00")
     p.add_argument("--workdir", default="/work/hdd/bjhg/mahmedmohsin/crucible-train")
     p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--gpus", type=int, default=2, help="GPUs requested (the smoke uses 2: trainer + vLLM)")
+    p.add_argument("--mem-gb", type=int, default=200, help="memory request; keep it proportional to the GPUs (charging follows the largest share)")
     p.add_argument("--run-name", default="smoke")
     p.add_argument("--stage", required=True)
     p.set_defaults(fn=cmd_render_smoke)
