@@ -61,6 +61,7 @@ def add_deploy_flags(p) -> None:
     p.add_argument("--kl-coeff", type=float, default=d.kl_coeff, help="sampler-learner anchor β (0: off)")
     p.add_argument("--time", default=d.time)
     p.add_argument("--workdir", default=d.workdir)
+    p.add_argument("--no-router-replay", action="store_true", help="sample over /v1/completions and let the trainer recompute MoE routing")
 
 
 def delta_config(args):
@@ -68,7 +69,7 @@ def delta_config(args):
 
     return DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=args.nodes, train_gpus=args.train_gpus, infer_gpus=args.infer_gpus,
                        ep=args.ep, cp=args.cp, infer_tp=args.infer_tp, seq_len=args.seq_len, lora_rank=args.rank, kl_coeff=args.kl_coeff, time=args.time,
-                       workdir=args.workdir)
+                       workdir=args.workdir, router_replay=not args.no_router_replay)
 
 
 def cmd_plan(args) -> None:
@@ -158,7 +159,7 @@ def cmd_render_smoke(args) -> None:
     from crucible.train.bridges.tinker.trainer import TrainConfig
 
     d = DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=1, train_gpus=1, infer_gpus=1, ep=1, cp=1, infer_tp=1, seq_len=4096,
-                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100)
+                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100, router_replay=False)  # a dense model: no experts
     cfg = TrainConfig(model="Qwen/Qwen3.6-35B-A3B", lora_rank=16, steps=3, learning_rate=args.lr, loss_fn="importance_sampling", require_band=False)
     out = Path(d.workdir) / "runs" / args.run_name
     stage = Path(args.stage)
@@ -217,11 +218,13 @@ exit $RC
     print(json.dumps({"stage": str(stage), "cluster_out": str(out), "submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
 
 
-def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int):
+def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False):
     from crucible.train.bridges.primerl.backend import FileIO, HttpClient, PrimeRLBackend
+    from crucible.train.bridges.primerl.routing import RoutingStore
 
     return PrimeRLBackend(io=FileIO(Path(args.primerl_out), ranks=ranks, seq_len=seq_len, model=args.base_model),
-                          http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss)
+                          http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss,
+                          routing=RoutingStore() if router_replay else None)
 
 
 def cmd_smoke(args) -> None:
@@ -258,7 +261,7 @@ def cmd_train(args) -> None:
     d = delta_config(args)
     tasks = tl._tasks_from_rows(args)
     targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
-    b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len)
+    b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len, router_replay=d.router_replay)
     out = asyncio.run(train(tasks, config=cfg, run_dir=Path(args.run_dir), targeting=targeting, observe=tl._observe(args), backend=b,
                             model=local_model(cfg.model, context=d.seq_len), **tl._envs_kw(args)))
     tl.write(Path(args.run_dir) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})

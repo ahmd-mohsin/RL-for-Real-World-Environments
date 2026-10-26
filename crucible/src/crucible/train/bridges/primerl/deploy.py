@@ -55,6 +55,7 @@ class DeltaConfig:
     ratio_high: float = 1.2
     max_importance_ratio: float = 1e4
     gpu_memory_utilization: float = 0.90
+    router_replay: bool = True  # MoE routing replay (``routing``): vLLM returns the routes, the trainer replays them
     time: str = "12:00:00"
     mem_gb_per_gpu: int = 110  # a quarter node per GPU: charging follows the largest share
     cpus_per_gpu: int = 18
@@ -104,6 +105,7 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
         "ckpt": {"interval": 1, "keep_last": 3},
         "weight_broadcast": {"type": "filesystem"},
         "rollout_transport": {"type": "filesystem"},
+        "enable_router_replay": bool(d.router_replay),
         "monitors": {"file": {}},
     }
     if resume_step is not None:
@@ -116,7 +118,8 @@ def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
     return {"server": {"port": d.port},
             "vllm": {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
                      "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
-                     "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank)},
+                     "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),
+                     "enable_return_routed_experts": bool(d.router_replay)},
             "weight_broadcast": {"type": "filesystem"}}
 
 

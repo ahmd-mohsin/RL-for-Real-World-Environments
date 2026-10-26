@@ -60,9 +60,31 @@ scripted groups run through Tinker's fake and through the bridge's fake trainer,
   advantages multiplied by that count (`wire.undo_token_mean`), so `loss_scale = sum` or `token_mean` trains exactly what
   it does on Tinker.
 - **Off-policy.** Each weight version is served under its own adapter name, so groups still sampling from an older version
-  keep it, and `--max-staleness` / `--async-groups` are the trainer's bound, as on Tinker. MoE routing replay (prime-rl's
-  `enable_router_replay` with vLLM's routed-expert capture, against train/inference routing mismatch) is not wired yet: it
-  needs the completions path to return routed experts.
+  keep it, and `--max-staleness` / `--async-groups` are the trainer's bound, as on Tinker.
+- **MoE routing replay** (`primerl/routing.py`; on by default, `--no-router-replay` turns it off). The student routes
+  every token to 8 of 256 experts on all 40 layers. A trainer that recomputes the router can pick another expert set for
+  a token whose scores are close, so its logprob comes from a different sub-network than the one that sampled it. That
+  is the MoE train/inference mismatch. Both halves exist upstream; the bridge joins them:
+  - **Sampling** goes through `/inference/v1/generate` on prime-rl's vLLM server (`enable_return_routed_experts`). It
+    returns the experts of every token the call forwarded, as `{data, shape [rows, layers, top_k], dtype, start}` (prime-rl
+    `inference/vllm/serving_tokens.py:88-99`). The prefix cache is salted per episode (`cache_salt`), so every position
+    an episode feeds was forwarded by one of its own calls.
+  - **Out of band, since Crucible keeps its own records.** The routes sit in a `RoutingStore` keyed by the sha of the
+    call's prompt + completion ids. At train time `stitch` rebuilds each sequence's `[T, layers, top_k]`: the first call
+    that forwarded a position wins, and the never-forwarded last token gets a zero row.
+  - **The trainer** gathers them in place of its own top-k (`enable_router_replay`; prime-rl
+    `trainer/models/layers/moe.py:226-228`), sharded with the sequence under context parallel.
+  - **All or none per step**, and incomplete coverage is refused, never zero-filled, as the torch trainer's R3 replay
+    does (M12 #36). prime-rl packs one routing stream per micro batch.
+  - **Metrics:** `routing/coverage_mean`, `routing/coverage_min`, `routing/replayed_share`. With replay off, the
+    mismatch the loss logs (`kl/mismatch` = E[r − 1 − log r] per sampled token) is the signal routing drift feeds.
+    `topk_overlap` compares two routings of the same tokens when both are known. prime-rl exports no trainer-side
+    routes, so it is a library function, not a logged metric.
+  - **Cost:** the routes are uint8, 40 × 8 bytes per token, about 51 MB for a 160K-token episode. They are held in the
+    loop's memory until the step trains, then dropped.
+  - **Verification so far:** unit tests with a faked server. The smoke model is dense (Qwen3-0.6B), so replay is off
+    there. The 2-step run of the real 35B is the first live check: replayed share 1.0, coverage 1.0, and `kl/mismatch`
+    compared with a `--no-router-replay` step.
 - **Step numbering.** Crucible's version v (after v optimizer steps) is prime-rl's policy `v{v-1}`: prime-rl's step index
   starts at 0, and its startup broadcast is policy `v-1`, acknowledged by `trainer()`. A resumed run relaunches the trainer
   with `resume.step = s` and continues at batch step s + 1.
@@ -167,7 +189,7 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 
 ## 6. Open items
 
-- **MoE routing replay**: return routed experts through the sampling path and enable `enable_router_replay`.
+- **MoE routing replay is built but not yet run live** (§2): it is first checked on the 2-step real-model run.
 - **Model-written code is graded as the user on DeltaAI** (Apptainer user mode, `trusted: false`): acceptable for our own
   patches, not for RL episodes at scale, until NCSA grants a subuid range or a different sandbox is used. This blocks the
   real run's grading, not the trainer.

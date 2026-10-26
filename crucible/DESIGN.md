@@ -917,6 +917,14 @@ launcher, filesystem transports and an import-path loss.
   262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes).
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
+- **MoE routing replay** (`primerl/routing.py`, on by default):
+  - sampling goes through prime-rl's `/inference/v1/generate` with vLLM's routed-expert capture and a per-episode
+    prefix-cache salt;
+  - the routes are kept out of band per call (`RoutingStore`, keyed by the sha of prompt + completion), stitched per
+    training sequence (the first call that forwarded a position wins), and replayed by the trainer
+    (`enable_router_replay`);
+  - all or none per step, with incomplete coverage refused, as the torch trainer's R3 replay does;
+  - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off.
 - **CLI**: `delta_rl.py` takes `tinker_rl.py train`'s flags unchanged, through the shared builders `add_common` /
   `add_train_flags` / `train_config`, plus the deployment's. The smoke runs on `ghx4-interactive`, since `test` is closed
   to the account.

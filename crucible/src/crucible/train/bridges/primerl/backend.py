@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from crucible.train.bridges.primerl import wire
+from crucible.train.bridges.primerl.routing import RoutingStore, decode
 from crucible.train.bridges.tinker.backend import FBOut, SampleOut, TokenDatum, with_retries
 from crucible.train.bridges.tinker.models import Prices, TinkerModel, resolve
 
@@ -152,14 +153,35 @@ class _Sampler:
     path: str | None
     stats: dict[str, int]
     timeout_s: float = 3600.0
+    routing: RoutingStore | None = None  # router replay: the generate endpoint, its routes kept per call (``routing``)
 
     async def sample(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
+        if self.routing is not None:
+            return await self._generate(prompt_ids, max_tokens=max_tokens, temperature=temperature, stop=stop, seed=seed)
         body: dict[str, Any] = {"model": self.name, "prompt": list(prompt_ids), "max_tokens": int(max_tokens), "temperature": float(temperature),
                                 "logprobs": 0, "return_tokens_as_token_ids": True, "skip_special_tokens": False, "stop_token_ids": list(stop or [])}
         if seed is not None:
             body["seed"] = int(seed)
         out = await with_retries("vllm completions", lambda: self.http.post("/v1/completions", body, timeout_s=self.timeout_s), stats=self.stats)
         return parse_completion(out)
+
+    async def _generate(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
+        """vLLM's token-in/token-out ``/inference/v1/generate`` on prime-rl's server: the routed experts come back with
+        the completion. The prefix cache is salted per episode, so every position this episode feeds was forwarded by one
+        of its own calls (``routing.stitch``)."""
+        from crucible.train.bridges.tinker.sampler import _EPISODE
+
+        sp: dict[str, Any] = {"max_tokens": int(max_tokens), "temperature": float(temperature), "logprobs": 0, "stop_token_ids": list(stop or [])}
+        if seed is not None:
+            sp["seed"] = int(seed)
+        body: dict[str, Any] = {"model": self.name, "token_ids": list(prompt_ids), "sampling_params": sp}
+        if (ep := _EPISODE.get()) is not None:
+            body["cache_salt"] = f"crucible-{ep}"
+        out = await with_retries("vllm generate", lambda: self.http.post("/inference/v1/generate", body, timeout_s=self.timeout_s), stats=self.stats)
+        res, routes = parse_generate(out)
+        if routes is not None and self.routing is not None:
+            self.routing.put(list(prompt_ids) + list(res.tokens), routes)
+        return res
 
 
 def parse_completion(out: dict[str, Any]) -> SampleOut:
@@ -175,6 +197,28 @@ def parse_completion(out: dict[str, Any]) -> SampleOut:
                      cached_prompt_tokens=int(cached) if isinstance(cached, int) else None)
 
 
+def parse_generate(out: dict[str, Any]) -> tuple[SampleOut, Any]:
+    """prime-rl's generate response: ``token_ids``, the sampled logprobs packed as ``completion_logprobs`` (float32) or
+    in ``logprobs.content``, and ``routed_experts`` (``routing.decode``)."""
+    import base64
+
+    import numpy as np
+
+    ch = (out.get("choices") or [{}])[0]
+    toks = [int(t) for t in ch.get("token_ids") or []]
+    cl = ch.get("completion_logprobs")
+    if cl:
+        lps = np.frombuffer(base64.b64decode(cl["data"]), dtype=np.dtype(cl["dtype"])).astype(float).tolist()
+    else:
+        lps = [float(x.get("logprob", 0.0)) for x in ((ch.get("logprobs") or {}).get("content") or [])]
+    if len(toks) != len(lps):
+        raise ValueError(f"vLLM generate returned {len(toks)} tokens and {len(lps)} logprobs")
+    cached = ((out.get("usage") or {}).get("prompt_tokens_details") or {}).get("cached_tokens")
+    so = SampleOut(tokens=toks, logprobs=lps, stop_reason="length" if ch.get("finish_reason") == "length" else "stop",
+                   cached_prompt_tokens=int(cached) if isinstance(cached, int) else None)
+    return so, decode(ch.get("routed_experts"))
+
+
 @dataclass
 class _Trainer:
     backend: PrimeRLBackend
@@ -184,7 +228,7 @@ class _Trainer:
         b = self.backend
         if loss_fn != b.loss_kind:
             raise ValueError(f"the prime-rl trainer was launched with loss {b.loss_kind!r}, not {loss_fn!r} (deploy.trainer_toml)")
-        rows = wire.samples(datums, temperature=b.temperature, env_name=b.env_name)
+        rows = wire.samples(datums, temperature=b.temperature, env_name=b.env_name, routing=b.routing)
         t0 = time.monotonic()
         await b.io.send(self.step, rows)
         d = await b.io.wait_broadcast(self.step, timeout_s=b.step_timeout_s)
@@ -193,6 +237,13 @@ class _Trainer:
         m = dict(b.io.metrics(self.step))
         m.update({"primerl/step": float(self.step), "primerl/step_s": time.monotonic() - t0, "primerl/samples": float(len(rows)),
                   "primerl/token_scale": wire.undo_token_mean(datums)})
+        if b.routing is not None:
+            cov = [r["routing_coverage"] for r in rows]
+            m["routing/coverage_mean"], m["routing/coverage_min"] = sum(cov) / len(cov), min(cov)
+            m["routing/replayed_share"] = sum(x is not None for x in wire.replay_all_or_none(rows)) / len(rows)  # what the step sends
+            for d in datums:  # trained: their calls' routes are no longer needed
+                for end in wire.call_ends(d):
+                    b.routing.drop(wire.full_ids(d)[:end])
         b.last = (self.step, d, name)
         self.step += 1
         return FBOut(target_logprobs=[], metrics=m)
@@ -237,6 +288,7 @@ class PrimeRLBackend:
     startup_timeout_s: float = 3 * 3600.0
     stats: dict[str, int] = field(default_factory=dict)
     adapters: dict[str, str] = field(default_factory=dict)  # adapter dir -> the name vLLM serves it under
+    routing: RoutingStore | None = None  # MoE router replay (``routing``): None samples over /v1/completions without routes
     last: tuple[int, Path, str] | None = None
 
     async def load_adapter(self, name: str, path: Path) -> None:
@@ -246,12 +298,12 @@ class PrimeRLBackend:
 
     async def sampler(self, model: str, path: str | None = None) -> _Sampler:
         if path is None:
-            return _Sampler(self.http, self.base_model, None, self.stats)
+            return _Sampler(self.http, self.base_model, None, self.stats, routing=self.routing)
         name = self.adapters.get(str(path))
         if name is None:  # a resumed run samples from a version this process never loaded
             name = f"{self.adapter_prefix}-{Path(path).name}"
             await self.load_adapter(name, Path(path))
-        return _Sampler(self.http, name, str(path), self.stats)
+        return _Sampler(self.http, name, str(path), self.stats, routing=self.routing)
 
     async def trainer(self, model: str, *, rank: int, resume: str | None = None, seed: int | None = None) -> _Trainer:
         """The trainer process is already running (``deploy``); its first step is 0, or the checkpoint step + 1 for
