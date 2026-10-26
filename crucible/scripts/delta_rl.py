@@ -78,27 +78,39 @@ def cmd_plan(args) -> None:
     print(json.dumps(asdict(p), indent=1))
 
 
+def build_script(d, *, version: str) -> str:
+    """The environment build, run once on the login node (downloads, unpacks and imports only; coordinator, 2026-10-26:
+    three install bugs each cost a turn on the one interactive GPU slot). Nothing compiles: the CUDA builds of mamba and
+    causal-conv1d are skipped (only nemotron_h uses them), and ``mooncake-transfer-engine`` is not installed (its aarch64
+    wheel needs glibc 2.39; DeltaAI has 2.38; it is for KV offload, which this run does not use)."""
+    w = d.workdir
+    return f"""#!/bin/bash
+set -uo pipefail
+export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH UV_FROZEN=1
+export MAMBA_SKIP_CUDA_BUILD=TRUE CAUSAL_CONV1D_SKIP_CUDA_BUILD=TRUE MAX_JOBS=4
+[ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
+mkdir -p {w} && cd {w}
+[ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
+cd prime-rl && rm -f .crucible-installed-{version}
+# the submodules are declared with SSH URLs and the cluster has no GitHub key: HTTPS, full history
+[ -f deps/pydantic-config/pyproject.toml ] || {{ rm -rf deps/verifiers deps/renderers deps/pydantic-config .git/modules/deps
+  git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init -- deps/verifiers deps/renderers deps/pydantic-config || exit 11; }}
+# prime-rl's own lockfile, never re-resolved (UV_FROZEN, also for every later uv run): the trainer and vLLM extras only
+nice -n 19 uv sync --frozen --extra gpu --extra flash-attn --no-install-package mooncake-transfer-engine || exit 12
+nice -n 19 uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill || exit 13
+uv run --frozen python -c "import prime_rl, verifiers, torch, vllm; print('verifiers', verifiers.__version__, 'torch', torch.__version__, torch.version.cuda, 'vllm', vllm.__version__)" || exit 14
+PYTHONPATH={w}/crucible/src uv run --frozen python -c "import crucible.train.bridges.primerl.loss, crucible.train.bridges.primerl.backend; print('crucible bridge ok')" || exit 15
+touch {w}/prime-rl/.crucible-installed-{version}
+echo BUILD_OK
+"""
+
+
 def setup_lines(d, *, version: str) -> str:
-    """Install prime-rl at the pin and Crucible's source (no deps beyond its light core) inside the job, once."""
+    """The GPU job's preamble: the environment ``build_script`` made on the login node, reused; never installed here."""
     w = d.workdir
     return f"""export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH UV_FROZEN=1
-[ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
-if [ ! -f {w}/prime-rl/.crucible-installed-{version} ] || [ ! -f {w}/prime-rl/deps/pydantic-config/pyproject.toml ]; then
-  rm -f {w}/prime-rl/.crucible-installed-{version}  # a marker without its submodules is stale (2026-10-26: job 3460686)
-  mkdir -p {w} && cd {w}
-  [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
-  # the submodules are declared with SSH URLs; the cluster has no GitHub key, so they are fetched over HTTPS, with their
-  # history: their versions come from git tags (a shallow verifiers read as < 0.3.2.dev158 and failed resolution, job 3462156)
-  cd prime-rl && rm -rf deps/verifiers deps/renderers deps/pydantic-config .git/modules/deps
-  git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init -- deps/verifiers deps/renderers deps/pydantic-config
-  # the trainer and vLLM only, from prime-rl's own lockfile (UV_FROZEN: never re-resolved, here or by a later ``uv run``)
-  uv sync --extra gpu --extra flash-attn
-  uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill
-  uv run python -c "import prime_rl, vllm, torch; print('prime-rl ok', torch.__version__, torch.version.cuda, vllm.__version__)" \
-    && touch {w}/prime-rl/.crucible-installed-{version}
-fi
+[ -f {w}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl environment not built: run build_env.sh on the login node first"; exit 4; }}
 cd {w}/prime-rl
-[ -f {w}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl install failed"; exit 4; }}
 export PYTHONPATH={w}/crucible/src  # Crucible's source (rsynced); the trainer imports its loss from here
 """
 
@@ -135,6 +147,7 @@ def cmd_render(args) -> None:
     cmd = f"uv run python {d.workdir}/crucible/scripts/delta_rl.py train --run-dir {out}/crucible --primerl-out {out} " + " ".join(passthrough(sys.argv[2:]))
     paths = render(cfg, d, Path(args.stage), run_name=args.run_name, crucible_cmd=cmd, resume_step=args.resume_step,
                    setup=setup_lines(d, version=PRIME_RL_VERSION))
+    (Path(args.stage) / "build_env.sh").write_text(build_script(d, version=PRIME_RL_VERSION))
     print(json.dumps({k: str(v) for k, v in paths.items()} | {"submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
 
 
@@ -195,6 +208,7 @@ echo "=== done rc=$RC"
 exit $RC
 """
     (stage / "job.sbatch").write_text(job)
+    (stage / "build_env.sh").write_text(build_script(d, version=PRIME_RL_VERSION))
     print(json.dumps({"stage": str(stage), "cluster_out": str(out), "submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
 
 

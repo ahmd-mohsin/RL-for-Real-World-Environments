@@ -104,11 +104,13 @@ uv run python scripts/delta_rl.py render --rows R.jsonl --targeting T.json --run
     --steps 40 --groups-per-step 4 --group 8 --sampler difficulty --eta 0.1 --loss cispo --kl-coeff 0.01
 rsync -a crucible/src crucible/scripts crucible/pyproject.toml deltaai:/work/hdd/bjhg/mahmedmohsin/crucible-train/crucible/
 rsync -a stage/rl-001/ deltaai:/work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001/
+ssh deltaai 'bash /work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001/build_env.sh'   # once, on the login node: BUILD_OK
 ssh deltaai 'cd /work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001 && env -u SBATCH_ACCOUNT -u SLURM_ACCOUNT sbatch --account=bjhg-dtai-gh job.sbatch'
 ```
 
-- The job installs prime-rl at the pin once (`uv sync --all-extras` in `crucible-train/prime-rl`), puts Crucible's source on
-  `PYTHONPATH` (the trainer imports the loss from it), starts vLLM and the trainer, and runs the loop.
+- `build_env.sh` builds prime-rl's environment once on the login node (§5.1). The job only checks its marker, puts
+  Crucible's source on `PYTHONPATH` (the trainer imports the loss from it), starts vLLM and the trainer, and runs the
+  loop.
 - Account rules (DeltaAI memory): `bjhg-dtai-gh` only. `DeltaConfig` refuses any other, and the submit unsets
   `SBATCH_ACCOUNT`, which the login environment sets to another project. Memory is requested per GPU, because charging
   follows the largest node share.
@@ -136,8 +138,28 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   - the submodules are fetched over HTTPS (`git -c url."https://github.com/".insteadOf=git@github.com:`);
   - the install is limited to `--extra gpu --extra flash-attn` (the prebuilt aarch64 FA2 wheel, nothing compiled);
   - an import check gates the install marker, and the job stops at once if vLLM or the trainer exits.
-- **Attempt 2** (job 3457642, `ghx4`, 2 GPUs, 200 GB, at most 2 h 45 min): queued. `ghx4-interactive` allows one job per
-  user, and another worker holds it.
+- **Attempt 2** (job 3457642, `ghx4`): cancelled before it started, to move to `ghx4-interactive` (its estimated start
+  was 2026-10-27).
+- **Attempts 3 and 4** (jobs 3460686, 3462156; `ghx4-interactive`, 2 GPUs, 120 GB): both failed in the install, in 14 s
+  and 5 min. Attempt 1 had left a marker without its submodules, and the shallow submodules gave verifiers a version too
+  low for prime-rl-configs, so uv's resolution failed.
+- **The environment is now built on the login node, once** (`build_env.sh`, written by `render` / `render-smoke`). It only
+  downloads, unpacks and imports, under `nice`, and no compiler runs. Steps:
+  - the submodules over HTTPS with their history;
+  - `uv sync --frozen --extra gpu --extra flash-attn` from prime-rl's lockfile;
+  - `mooncake-transfer-engine` not installed (its aarch64 wheel needs glibc 2.39; DeltaAI has 2.38; it is for KV-cache
+    offload, unused here);
+  - the mamba and causal-conv1d CUDA builds skipped.
+
+  `BUILD_OK` on 2026-10-26 in 13 min: torch 2.13.0+cu130, vLLM 0.31.0, verifiers (lock-pinned), and Crucible's bridge
+  importable. The GPU job only checks the build marker; it never installs.
+- **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
+  is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
+- **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers
+  plus 10 full-attention layers. prime-rl's Gated DeltaNet layer (`trainer/models/qwen3_5/gated_delta_net.py`) takes
+  its kernels from flash-linear-attention (`fla.modules.conv.causal_conv1d`, `fla.ops.gated_delta_rule`; Triton,
+  installed from the lockfile). It does not use the `causal-conv1d` or `mamba-ssm` packages, whose CUDA builds are
+  skipped: those serve only `nemotron_h`.
 
 ## 6. Open items
 
