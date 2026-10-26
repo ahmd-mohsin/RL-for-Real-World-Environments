@@ -77,7 +77,10 @@ from crucible.factory.pathcheck import PathRules, ToolCall, check_paths, command
 from crucible.factory.versioning import Version, VersionStore, sha
 
 DEFECT_KINDS = ("verifier_gap", "false_fail", "spec_defect", "unstated_format", "world_bug", "intent_drift")
-BUDGET_STOPS = ("max_steps", "max_tokens", "timeout", "budget", "wall_clock", "compaction_failed", "too_many_compactions", "context_overflow")
+# max_output_tokens: the policy's stop when every reply up to its nudge allowance was cut at the reply limit (actors.policy,
+# M2 R-5); a limit of ours, as max_tokens is (2026-10-25: 3 of the 4 failures of km b62f9ad-4 at --max-tokens 4096)
+BUDGET_STOPS = ("max_steps", "max_tokens", "max_output_tokens", "timeout", "budget", "wall_clock", "compaction_failed", "too_many_compactions",
+                "context_overflow")
 EPS = 1e-9
 
 

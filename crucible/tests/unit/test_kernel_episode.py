@@ -244,3 +244,21 @@ def test_the_episode_kit_ships_every_module_its_runner_imports_even_when_the_hos
     runner = (Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug_gpu.py").read_text()
     imported = {f"crucible/factory/lanes/{m}.py" for m in ("kernel_harness", "kernel_plan", "kernel_profiles", "kernel_debug_plan") if m in runner}
     assert imported <= set(ke.KIT_MODULES["k"])
+
+
+def test_the_episode_kit_is_rebuilt_from_this_checkout_s_sources_in_every_process():
+    """The episode bundle is re-staged by every targeting process (``_BUNDLE_READY`` lives in the process), from this
+    checkout's lane code, so a lane change reaches the host on the next run; the shipped bytes are the local files."""
+    import io
+    import tarfile
+
+    from crucible.factory.lanes import kernel_episode as ke
+
+    src = Path(ke.__file__).resolve().parents[3]
+    files = ke.kit_files(["crucible/factory/lanes/kernel_plan.py"], "k")
+    with tarfile.open(fileobj=io.BytesIO(ke._kit_tar(files, src))) as tf:
+        names = set(tf.getnames())
+        prof = tf.extractfile("crucible/factory/lanes/kernel_profiles.py").read()
+    assert "crucible/factory/lanes/kernel_profiles.py" in names and "crucible/factory/lanes/__init__.py" in names
+    assert prof == (src / "crucible/factory/lanes/kernel_profiles.py").read_bytes()
+    assert isinstance(ke._BUNDLE_READY, set)  # per process: a new run re-stages

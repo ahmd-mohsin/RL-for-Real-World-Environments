@@ -33,7 +33,7 @@ from typing import Any
 from crucible.credit.operators.branch_value import wilson
 from crucible.forge.learnability import BANDS, Band, learnability
 
-BUDGET_STOPS = frozenset({"max_steps", "budget", "tool_limit", "timeout", "agent_timeout", "rollout_timeout"})
+BUDGET_STOPS = frozenset({"max_steps", "budget", "tool_limit", "timeout", "agent_timeout", "rollout_timeout", "max_output_tokens"})
 
 
 @dataclass(frozen=True)

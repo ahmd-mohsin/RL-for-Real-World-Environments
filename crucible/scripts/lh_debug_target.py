@@ -1096,7 +1096,7 @@ def stage_summary(ph: Phase, *, docs: Path | None = None) -> dict[str, Any]:
     md = [(f"| task | lang | split | faults | student pass@1 (k) [95% CI] | mean Φ | per milestone | frontier (397B; DS-Flash) | budget stops "
            f"(student; frontier) | on-intent skill gap | dominant failure modes | verdict |{cmp_head}"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|" + ("---|" if prev else "")]
-    budget = {"max_steps", "timeout", "context_overflow", "budget", "max_tokens"}
+    budget = {"max_steps", "timeout", "context_overflow", "budget", "max_tokens", "max_output_tokens"}
 
     def stops(arm: str, t: str) -> int:
         return sum(1 for e in episodes(ph.out, arm, t) if str(e["stop"]) in budget)
