@@ -108,6 +108,7 @@ Report: `docs/audit/2026-10-12/M03-connectors.md`; 80 regression tests in `tests
 3. **Old sources are not UTF-8.** A Latin-1 `©` in a 2011 PCL diff crashed the PR connector. Git output is now decoded with replacement.
 4. **The capture log must not drop retries.** Recording "the first attempt only" (the verifiers guard, adapted) would keep a response the agent never saw when the client timed out and retried. Every attempt is recorded, and the connector keeps the last one.
 5. **`fetch` depended on `discover` in the same process** for `sql_audit_log` and `otel_import`. A ref from an earlier run now re-reads its source.
+6. **How a client's disconnect reaches a stream depends on the server.** The proxy named only `GeneratorExit` "client disconnected". Under uvicorn, which Crucible serves the proxy with, Starlette cancels the stream task instead, so an abandoned stream read `CancelledError: ...`. M10 then blamed the upstream, and a deadline kill of a streaming agent became unknown blame. `CancelledError` now counts as the client leaving too, and a test drives a real uvicorn-served disconnect (M3 audit 2026-10-20, R-1).
 
 ## Not done
 - **`issues` (GitHub / Jira / Linear) and `gitlab`.** They need API calls, which were deferred on purpose. `github_pr` review threads and check runs exist only in the API cache from M4; the 55 gate PRs are git-only.

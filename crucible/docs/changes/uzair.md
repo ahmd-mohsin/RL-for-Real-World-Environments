@@ -1689,3 +1689,27 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   earlier: `card_tools_only`, `r1_harbor` 503, two studio tests, the coding pack fixture, `test_sampling`'s rollout
   version. `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under full-suite load
   only (it passes alone and with its neighbours). Ruff on the changed files and lint-imports (5 contracts) are clean.
+
+## 74. M3 R-1: a stream the client abandons is "client disconnected" under uvicorn
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended. Not taken:
+  widening M10's `verdict_of` to read Starlette's `CancelledError` text (the wrong cause would stay in M3's rows), a
+  separate `cancelled` verdict (no consumer), a shielded row write (every probe wrote the row without one).
+  Pattern from NeMo-Gym's `base_responses_api_model.py:1166-1169` (Apache-2.0); no code copied.
+- **Files.** `src/crucible/connectors/capture_proxy.py` (`CaptureProxy.app` → `forward_call` → `relay`, module
+  docstring), `tests/unit/test_capture_client_left.py` (new), `docs/modules/M03-connectors.md` (finding 6).
+- **Public names.** none.
+- **Behaviour.** A streamed exchange ended from the downstream side, by `GeneratorExit` or by the
+  `asyncio.CancelledError` that Starlette 1.7 raises when the client disconnects under uvicorn 0.54 (ASGI 2.3), is
+  recorded with `error: "client disconnected"`, `complete: false`, its status and the partial response. It read
+  `CancelledError: Cancelled via cancel scope ...`, which `verdict_of` took for `infra`: when Crucible's deadline
+  killed a streaming agent (claude-code or codex via Harbor, an A2A agent), its probe answered ok and the end became
+  `agent_run_error` with blame `unknown` (masked, counted by the 5% stop) instead of an evidenced `timeout`. Upstream
+  failures keep `"<Type>: <message>"`. Trade-off: a mid-stream shutdown of the proxy itself is labelled the same.
+- **Formats.** none (the `error` string of such capture rows).
+- **Tests.** `test_capture_client_left.py` (1: the proxy served by uvicorn, a client that leaves after 5 chunks gives
+  one row `complete: false`, `error: "client disconnected"`, partial reply kept, verdict `client_left`, nothing left in
+  flight; it failed before the fix with the `CancelledError` row). Every unit file that drives the capture proxy or its
+  evidence (`r1_a2a` left out: 15 min), M3 audit and core files: 425 passed. Ruff on the changed files and lint-imports
+  (5 contracts) are clean.
+- **Merge notes.** One `except` clause in `relay()`; R-2 will reuse the new test's uvicorn harness.

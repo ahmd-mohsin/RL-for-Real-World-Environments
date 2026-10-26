@@ -56,6 +56,11 @@ M10 lab audit R-1 (2026-10-15): the proxy log is the evidence an external agent'
   ``unregister`` (a killed client does not cancel the proxy's forward, so a revoked session's calls still load the
   upstream and leave no row until they end); ``drain(session, timeout_s)`` waits for them. The self-load guard of
   ``agent_evidence`` counts what is left, so Crucible's probe never queues behind the session's own calls.
+
+M3 audit R-1 (2026-10-20): a stream ended from the downstream side (``GeneratorExit``, or the ``CancelledError`` Starlette
+raises on a disconnect under uvicorn) is ``error: "client disconnected"``. Under uvicorn it read ``CancelledError: ...``,
+which M10 took for an upstream failure, so a deadline kill of a streaming agent became unknown blame. A mid-stream
+shutdown of the proxy itself is labelled the same.
 """
 
 from __future__ import annotations
@@ -372,7 +377,11 @@ class CaptureProxy:
                         complete = terminal and stream_err is None
                         err = stream_err or (None if terminal else STREAM_DROP)
                     except BaseException as e:  # upstream failure or the client left (an interrupted turn is the strongest signal)
-                        err = f"{type(e).__name__}: {e}" if not isinstance(e, GeneratorExit) else "client disconnected"
+                        # M3 audit R-1 (2026-10-20): under uvicorn (ASGI 2.3) Starlette cancels the stream task on a disconnect,
+                        # so a client that left raises CancelledError, not GeneratorExit (PATTERN: NeMo-Gym
+                        # base_responses_api_model.py:1166-1169)
+                        left = isinstance(e, (GeneratorExit, asyncio.CancelledError))
+                        err = "client disconnected" if left else f"{type(e).__name__}: {e}"
                         raise
                     finally:
                         try:
