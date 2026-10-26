@@ -102,8 +102,9 @@ _REGEX_PREV = set("(,=:[!&|?{};+-*%<>~^")
 _REGEX_WORDS = ("return", "typeof", "case", "do", "else", "in", "of", "delete", "void", "throw", "new", "yield", "await")
 
 
-def _skip_string(text: str, i: int, q: str) -> int:
-    """Index after the string literal opened by ``q`` at ``i`` (escapes honoured; a newline ends a broken one)."""
+def _skip_string(text: str, i: int, q: str, multiline: bool = False) -> int:
+    """Index after the string literal opened by ``q`` at ``i`` (escapes honoured; a newline ends a broken one, except in
+    a language whose plain strings span lines: Rust)."""
     n = len(text)
     j = i + 1
     while j < n:
@@ -113,7 +114,7 @@ def _skip_string(text: str, i: int, q: str) -> int:
             continue
         if c == q:
             return j + 1
-        if c == "\n" and q != "`":
+        if c == "\n" and q != "`" and not multiline:
             return j
         j += 1
     return n
@@ -208,7 +209,9 @@ def skip_noncode(text: str, i: int, lang: str) -> int | None:
         if lang == "java" and text.startswith('"""', i):
             j = text.find('"""', i + 3)
             return len(text) if j < 0 else j + 3
-        return _skip_string(text, i, '"')
+        # a Rust string spans lines (gleam's formatter tests: "pub fn main() {\n ... \n}" as one literal, whose "{" hid
+        # 13 of 35 tests in a file from the profile)
+        return _skip_string(text, i, '"', multiline=lang == "rust")
     if c == "`":
         if lang == "go":
             j = text.find("`", i + 1)

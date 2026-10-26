@@ -395,3 +395,11 @@ def test_node_strips_conditional_and_matrix_named_tests() -> None:
     out = NODE.strip_tests(src, {"app::node::piping (with Error) (node)"}, "test/app.test.ts")
     assert "piping (with Error)" not in out and 'it("plain"' in out
     assert NODE.strip_tests(src, {"app::web::dup (web)"}, "test/app.test.ts") == src  # two tests titled dup: left alone
+
+
+def test_a_rust_string_spans_lines() -> None:
+    """gleam's formatter tests (2026-10-25): a plain Rust string holding a multi-line program (``"pub fn main() {\\n...}"``)
+    ended at the newline, so its ``{`` opened a block and the tests after it were never found (22 of 35 in one file)."""
+    src = ('#[test]\nfn construction() {\n    assert_format!(\n        "fn main() {\n  let a = 1\n}\n",\n    );\n}\n\n'
+           '#[test]\nfn pattern() {\n    assert_format!("fn main() {\n}\n");\n}\n')
+    assert sorted(k.rsplit("::", 1)[-1] for k in RUST.test_defs(src, "src/tests/bit_array.rs")) == ["construction", "pattern"]
