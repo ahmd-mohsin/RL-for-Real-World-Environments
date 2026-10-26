@@ -219,7 +219,10 @@ async def ensure_episode_bundle(host: GpuHost, *, migration: bool = False) -> st
         if r.rc != 0:
             raise RuntimeError(f"episode bundle on {host.name}: {r.err[-400:]}")
         here = Path(__file__).resolve().parents[3]  # .../src
-        kit = _kit_tar([x for x in r.out.split() if x.startswith("crucible/")], here)
+        # the gate kit's files, plus every kernel-lane module of this checkout: a gate bundle staged before a module existed
+        # does not list it, and this checkout's runner imports it (kernel_profiles on DeltaAI's Oct 22 bundle, smoke 3461769)
+        lanes = sorted(f"crucible/factory/lanes/{p.name}" for p in (here / "crucible" / "factory" / "lanes").glob("kernel_*.py"))
+        kit = _kit_tar(sorted({x for x in r.out.split() if x.startswith("crucible/")} | set(lanes)), here)
         runner = Path(__file__).resolve().parents[4] / "scripts" / ("lh_kernel_gpu.py" if migration else "lh_kernel_debug_gpu.py")
         script = (f"set -e; rm -rf {shlex.quote(dest)}/kit.new; mkdir -p {shlex.quote(dest)}/kit.new; tar -xf - -C {shlex.quote(dest)}/kit.new; "
                   f"rm -rf {shlex.quote(dest)}/kit; mv {shlex.quote(dest)}/kit.new {shlex.quote(dest)}/kit")
