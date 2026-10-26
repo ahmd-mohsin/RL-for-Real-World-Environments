@@ -1752,3 +1752,37 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Merge notes.** Small edits in `capture_proxy.py` (forward_call's non-streaming record, fetch, three tool-call loops
   in normalize), one line each in `calls_from_capture`, `reconcile` and `verdict_of`. A test fake that answers after its
   client left now gets a marked row.
+
+## 76. M3 R-3: a frontier run its provider or harness ended is `unknown` and unscored
+
+- **Item.** R-3 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended, plus one addition
+  the user chose: `AgentRunSignalMapper` also scores no run graded under an older task version. Not taken: a list of
+  exception names (never complete), refusing such runs (MiMo; loses traces M5 and M2 use), parsing messages (M10's job).
+  Pattern from mini-swe-agent's exit vocabulary (MIT) and MiMo's `InfraError` rule (Apache-2.0); no code copied.
+- **Files.** `packs/coding/src/crucible_pack_coding/signals.py` (`SCORED_EXITS`, `unfinished`,
+  `AgentRunSignalMapper.map`), `packs/coding/src/crucible_pack_coding/connectors/agent_runs.py` (`normalize`, module
+  docstring), `docs/modules/M03-connectors.md` (agent_runs row), `tests/unit/test_agent_run_exits.py` (new).
+- **Public names.** New `crucible_pack_coding.signals.SCORED_EXITS` (`CLEAN_EXITS` minus the two limits: `Submitted`,
+  `RepeatedFormatError`) and `unfinished(exit_status, reward) -> bool`. They live in `signals.py`, not the connector,
+  because the connector imports Harbor at module level and the mapper must load without it.
+- **Behaviour.**
+  - `normalize`: a run with reward < 1 whose `exit_status` is not one of the agent's own scored stops is `unknown`,
+    "the run stopped on <status> before it was done" ("no exit status (killed)" for the empty status a kill leaves).
+    Only `LimitsExceeded` and `TimeExceeded` were exempt, so a graded provider 402 (`OpenRouterAPIError`), a harness
+    `RuntimeError` or a kill was `bad`. The stale-version and not-a-grade rules still come first, and reward >= 1 still
+    goes through the contamination rule. `details.exit_status` is recorded in every branch (was: the limits branch only).
+  - `AgentRunSignalMapper`: such a run gives no signal on any path (the limit exemption covered the reward path only, so
+    a limit-stopped run with failing gates gave -1 per gate); neither does a run with `stale_version` (the two task04 v1
+    passes gave +1 "every hidden gate passed" though the connector labels them `unknown` under v3). A trace stored
+    before `exit_status` was recorded keeps the old rule.
+  - The 11 recorded runs keep their labels (1 good, 5 bad, 5 unknown); their signals change only by the two stale +1s.
+- **Formats.** `details.exit_status` in every `coding/agent_run` trace outcome.
+- **Tests.** `test_agent_run_exits.py` (9: the two real crashed trajectories with a `{reward: 0.0}` report, with and
+  without a failing gate, and a killed run give `unknown`, the exit status and no signal; `Submitted` and
+  `RepeatedFormatError` at 0.0 stay `bad` with -1; a trace with no recorded exit keeps its -1; the real runs keep their
+  labels and the stale ones give no signal). 8 failed before the fix (the old-store guard passes either way). Coding
+  connectors, M3, M4, M8, M14, M15 audit, packs, span and stitch files: 289 passed, 12 skipped; the failure is the known
+  coding pack fixture (`data/cache/git` absent here, as on main). Ruff on the changed files and lint-imports (5
+  contracts) are clean.
+- **Merge notes.** `signals.py` now imports `crucible.runtime.agent_evidence` (no Harbor); `agent_runs.py` imports
+  `unfinished` from `signals.py`. M8 forge sees fewer -1s only for runs that crashed or were killed.
