@@ -98,6 +98,8 @@ for spec in "8 16000 512" "32 32000 512" "64 64000 256"; do
 done
 
 # 7. one short student episode on a training task (tool limit 20), the debug lane's own World and grader through the shim
+# (the lane's clones borrow objects from data/debug/src through git alternates that name the Mac's paths: repoint them)
+find "$W/data/debug" -path "*objects/info/alternates" -print0 | xargs -0 -r sed -i "s|/Users/[^ ]*/crucible/data/debug|$W/data/debug|g"
 t "episode: $TASK"
 cd "$W/code/crucible"
 $PY scripts/lh_debug_target.py student --backend vllm --vllm-engine "$O/engine.json" --student "$MODEL" --tasks "$TASK" --k 1 \

@@ -305,9 +305,7 @@ def exec_argv(name: str, cmd: list[str], *, workdir: str | None, env_file: str |
     a = [APPTAINER, "exec", "--cleanenv"]
     if env_file:
         a += ["--env-file", env_file]
-    wd = workdir or record.get("workdir")
-    if wd:
-        a += ["--pwd", wd]
+    a += ["--pwd", workdir or record.get("workdir") or "/"]  # Docker's default is the image's dir, never the host's cwd
     return [*a, f"instance://{name}", *cmd]
 
 
@@ -530,15 +528,15 @@ def cmd_cp(argv: list[str]) -> int:
     if ":" in src and not src.startswith("/"):
         name, path = src.split(":", 1)
         p = Path(path)
-        tar = subprocess.Popen([APPTAINER, "exec", f"instance://{name}", "tar", "-C", str(p.parent), "-cf", "-", p.name], stdout=subprocess.PIPE,
-                               env=host_env())
+        tar = subprocess.Popen([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "tar", "-C", str(p.parent), "-cf", "-", p.name],
+                               stdout=subprocess.PIPE, env=host_env())
         Path(dst).mkdir(parents=True, exist_ok=True) if not Path(dst).exists() and not Path(dst).parent.exists() else None
         target = Path(dst)
         if target.is_dir():
-            r = subprocess.run(["tar", "-C", str(target), "-xf", "-"], stdin=tar.stdout, check=False)
+            r = subprocess.run(["tar", "--no-same-owner", "-C", str(target), "-xf", "-"], stdin=tar.stdout, check=False)
         else:
             tmp = Path(tempfile.mkdtemp(dir=state_dir()))
-            r = subprocess.run(["tar", "-C", str(tmp), "-xf", "-"], stdin=tar.stdout, check=False)
+            r = subprocess.run(["tar", "--no-same-owner", "-C", str(tmp), "-xf", "-"], stdin=tar.stdout, check=False)
             shutil.move(str(tmp / p.name), str(target))
             shutil.rmtree(tmp, ignore_errors=True)
         tar.wait()
@@ -546,7 +544,10 @@ def cmd_cp(argv: list[str]) -> int:
     name, path = dst.split(":", 1)
     s = Path(src)
     tar = subprocess.Popen(["tar", "-C", str(s.parent), "-cf", "-", s.name], stdout=subprocess.PIPE)
-    r = subprocess.run([APPTAINER, "exec", f"instance://{name}", "sh", "-c", f'mkdir -p "$(dirname {json.dumps(path)})" && tar -C "$(dirname {json.dumps(path)})" -xf -'],
+    # --no-same-owner: the host user's uid is not mapped inside the root-mapped namespace (smoke 3459402: "Cannot change
+    # ownership to uid 98407"); the files land owned by the container's root, as ``docker cp`` leaves them
+    r = subprocess.run([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "sh", "-c",
+                        f'mkdir -p "$(dirname {json.dumps(path)})" && tar --no-same-owner -C "$(dirname {json.dumps(path)})" -xf -'],
                        stdin=tar.stdout, env=host_env(), check=False)
     tar.wait()
     return r.returncode
