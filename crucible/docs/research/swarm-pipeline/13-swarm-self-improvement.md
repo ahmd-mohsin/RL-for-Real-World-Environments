@@ -420,3 +420,79 @@ does not.
 `scripts/swarm.py diagnose --monitor <report.json>` now lists the general modes and their intent candidates for the
 builders.
 
+## 12. Framework health: the framework's own bugs from the same traces (2026-10-25)
+
+`factory/framework_health.py` (doc 11 §4.5) asks, of every anomaly, whether the agent or the framework caused it, and
+which component. It clusters the anomalies by signature, with episodes, first occurrence, a reproduction and the
+reward and advantage they touched.
+- **Pause:** `train_monitor.py health` exits 3 while a CRITICAL framework defect is open.
+- **Fix:** each fix is recorded with `fix` and regraded offline.
+
+**Validation** covers 466 stored episodes:
+- the 150- and 300-call targeting runs and the swarm pilot;
+- the fairness smoke;
+- every 5090 kernel and migration run (smoke, plumbing, the masked 1b8b8fb1 run, r1).
+
+Held-out quick-pass roots were not read. The run found 50 clusters: 4 CRITICAL, 14 HIGH and 32 LOW. By class, 23 are
+framework, 25 agent and 2 suspect.
+
+**Known bugs it rediscovers:**
+
+| known bug | what the health report shows |
+|---|---|
+| scratch `go mod tidy` counted as an install | `path_false_positive` (grader, CRITICAL): path:install fail -> pass under path-2026-10-23b, 4 episodes in 3 tasks, reward +2.0 in all; and the network rule's change, 2 episodes, +2.0 |
+| Node World without the World tools' interpreter (Ahmed's broken Node environment) | `world_fault` (World, CRITICAL): `python3` missing in 24 episodes of 2 held-out Node tasks (tasks as placeholders); one cluster, the tool errors folded into it |
+| Node setup lost after a reset | a `world_fault` on the test runner where it appears (one stored episode here; the other runs were on a co-author's machine) |
+| the liveness probe on the wrong Docker daemon | `masked_failure` (sandbox, HIGH): "the World's sandbox died (after step N)", 2 samples lost, 4 groups without signal |
+| the flock bug | `host_resource` lock (sandbox, HIGH), found in the plumbing job log: those grades died before any episode existed |
+| the harness needing the verifier's GradeReport | `masked_failure` (harness, HIGH), 2 episodes |
+| the unquoted workspace path | not in this machine's data (the runs were on a co-author's machine); covered by a test (`masked_failure`, World, at seed) |
+| stale visible tests | none in this data: the stale go-toml and mvdan-sh builds were measured on co-authors' machines; covered by tests (both rules) |
+
+**New findings:**
+- **`credit_grade_mismatch` (grader, CRITICAL):** on one held-out task, the checkpoint sidecar graded the final patch
+  (the same sha256, at four checkpoints including `end`) with a milestone failing that the final grader passed. Φ and
+  the per-turn credit never booked the milestone that the outcome reward counted. Either the sidecar's grading differs
+  from the final grader's, or the test is flaky. Rerun both on that patch.
+- **Masked kernel grades from a stale kit (grader, HIGH):** `ImportError: cannot import name 'kernel_profiles'` in the
+  GPU episode bundle masked 8 episodes and every checkpoint (the $10.6 of masked 1b8b8fb1 episodes). The bundle's kit
+  must be re-staged whenever the lane's modules change. A further 3 episodes failed verification with
+  `TypeError: unhashable type: 'dict'`.
+- **`xxd` missing in every Go World (World, HIGH):** 64 episodes in 15 tasks reached for it; it's a convenience tool,
+  so not CRITICAL.
+- **`answer_exposed` masks (World, HIGH):** 3 attempts, each a World leak caught and masked (git history, grader
+  files, a privilege read).
+- **Agent-side, not framework (LOW):**
+  - `repo.edit_file` "old_string not found" in 163 episodes, about 9% of its calls, across families;
+  - `repo.search` regex errors in 38 + 21 + … episodes.
+
+  Both lead to a `tool_affordance` proposal: make the tools forgiving, so a regex error is retried as a literal and a
+  missed `old_string` is answered with the closest lines.
+- **Two milestones nobody reached (task spec, suspect):** both on held-out tasks (signatures withheld), for the
+  disclosure check.
+
+**Metadata** (per lane):
+
+| lane | episodes | mask | s/tool | tokens/turn in | context max | ckpt share | GPU min | budget stops | first edit | useful | $/useful |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| debug | 415 | 0.01 | 1.1 | 71k | 0.83 | 0.23 | – | 0.33 | 53 | 0.72 | 2.10 |
+| kernel | 20 | 0.75 | 1.6 | 46k | 0.43 | 0.20 | 0.7 | 1.00 | 29 | 0.00 | – |
+| migration | 31 | 0.00 | 16.0 | 53k | 0.60 | 1.02 | 37.5 | 0.00 | 36 | 0.58 | 1.53 |
+
+**Tuning proposals** (none applied):
+- **Checkpoint cadence 20 -> 40** (bounded at 2x). Grading takes 23% of World time in debug, 19% in kernel, and 102%
+  in migration.
+- **Migration concurrency: one episode per GPU.** Its GPU grading (37.5 GPU-min per episode) is longer than the
+  episode itself, and it yields 0.93 useful samples per GPU-hour: the bottleneck for GPU RL.
+- **Debug: carry STATUS.json and the milestone vector through compaction.** `lost_after_compaction` is 0.15 in the
+  monitor.
+- **Debug: lower the compaction threshold.** The context peaks at 0.83 of the window.
+- **Debug: a lower test-log limit** (71k input tokens per turn).
+- **Debug: higher sampler concurrency** (most of each episode waits on the model).
+- **Migration: a higher output-token limit** (0.5% of calls hit it).
+- **The difficulty controller before the next step:** only 8 of 24 measured training tasks are in the band.
+
+**Out of scope, noted:** in this worktree, the seal guard's baseline test fails on two lines that commit `078eb364` put
+in `crucible/data/debug`, the 2026-10-22 public push. They name a repository that a current held-out draw holds out. A
+newly drawn held-out repo was already public in that commit's mining log.
+

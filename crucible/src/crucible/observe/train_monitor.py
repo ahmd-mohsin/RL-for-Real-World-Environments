@@ -102,5 +102,42 @@ def html(report: Mapping[str, Any], *, title: str = "Training monitor") -> str:
             f"<pre style='font:14px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-width:1000px;margin:24px auto'>{body}</pre>")
 
 
+def health_markdown(h: Mapping[str, Any], *, title: str = "Framework health") -> str:
+    """The framework-health report (``factory.framework_health.health_report``): the ranked defects, the pause decision, the
+    regrade plans, the tuning proposals, the versions per step and the per-lane metadata."""
+    out = [f"# {title}", "", (f"{h.get('episodes')} episodes ({h.get('masked')} masked). Defects by severity {json.dumps(h.get('by_severity'))}, "
+                              f"by component {json.dumps(h.get('by_component'))}."), ""]
+    out.append("**PAUSE before the next step:** " + "; ".join(h.get("pause_reason") or []) if h.get("pause") else "No open CRITICAL defect: the run may continue.")
+    out += ["", "## Defects (ranked)", "", "| id | severity | component | kind | status | episodes | tasks | signature | impact |", "|---|---|---|---|---|---|---|---|---|"]
+    for d in h.get("defects") or []:
+        imp = {k: v for k, v in (d.get("impact") or {}).items() if k not in ("tasks",)}
+        out.append(f"| {d['id']} | {d['severity']} | {d['component']} | {d['kind']} | {d['status']} | {len(d['episodes']) or (d.get('impact') or {}).get('episodes')} | "
+                   f"{len(d['tasks'])} | {_html.escape(str(d['signature']))[:140]} | {json.dumps(imp, default=str)[:160]} |")
+    out += ["", "## Reproductions (first occurrence)", ""]
+    for d in (h.get("defects") or [])[:20]:
+        if d.get("repro") and not d.get("heldout"):
+            out.append(f"- {d['id']} {d['kind']}: {json.dumps(d['repro'], default=str)[:400]}")
+    out += ["", "## Regrade plans (CRITICAL)", ""] + [f"- {p['defect']}: {p['tool']} over {p['episodes']} episodes: {p['command']}" for p in h.get("regrade_plans") or []]
+    out += ["", "## Tuning proposals (never applied; each needs an A/B)", ""]
+    for t in h.get("tuning") or []:
+        out.append(f"- [{t['lever']}] {t['lane']}: {t['text']}. Expected: {t['expected']}. Evidence: {json.dumps(t['evidence'], default=str)[:200]}")
+    out += ["", "## Versions per step or cohort", ""] + [f"- {at}: path {json.dumps(r['path_rules'])}; reward {json.dumps(r['reward_rule'])}" for at, r in (h.get("versions") or {}).items()]
+    out += ["", "## Metadata by lane", "", "| lane | episodes | mask | tool fail | s/tool | tokens/turn in | context max | compactions | ckpt share | GPU min | budget stops | first edit | useful | $/useful |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for lane, m in ((h.get("metadata") or {}).get("lanes") or {}).items():
+        out.append(f"| {lane} | {m['episodes']} | {_f(m['mask_rate'])} | {_f(m['tool_fail_rate'])} | {_f(m['world_s_per_tool_call'], 1)} | {_f(m['input_tokens_per_turn'], 0)} | "
+                   f"{_f(m['context_use_max'])} | {_f(m['compactions_per_episode'])} | {_f(m['checkpoint_share_of_agent_time'])} | {_f(m['gpu_min_per_episode'], 1)} | "
+                   f"{_f(m['budget_stop_share'])} | {_f(m['first_edit_call'], 0)} | {m['useful_samples']} ({_f(m['useful_share'])}) | {_f(m['usd_per_useful_sample'])} |")
+    return "\n".join(out) + "\n"
+
+
+def log_health(run: ObsRun, h: Mapping[str, Any], *, key: str = "health", step: int | None = None) -> None:
+    run.table(f"{key}/defects", ["id", "severity", "component", "kind", "status", "episodes", "signature"],
+              [[d["id"], d["severity"], d["component"], d["kind"], d["status"], len(d["episodes"]), str(d["signature"])[:200]] for d in h.get("defects") or []], step=step)
+    run.table(f"{key}/tuning", ["lever", "lane", "text", "expected"], [[t["lever"], t["lane"], t["text"], t["expected"]] for t in h.get("tuning") or []], step=step)
+    sev = h.get("by_severity") or {}
+    run.summary({f"{key}/critical": sev.get("CRITICAL", 0), f"{key}/high": sev.get("HIGH", 0), f"{key}/pause": bool(h.get("pause"))})
+
+
 def table_rows(report: Mapping[str, Any]) -> Sequence[Sequence[Any]]:
     return [[r["mode"], r["general"], r["p"], r["lo"], r["hi"]] for r in (report.get("general") or {}).get("modes") or []]
