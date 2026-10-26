@@ -178,3 +178,20 @@ def test_a_held_out_task_refuses_an_online_world() -> None:
         with pytest.raises(OnlineWorldRefused):
             require_offline(held, SimpleNamespace(_crucible_network=mode))
     require_offline({"id": "t", "split": "train"}, SimpleNamespace(_crucible_network="bridge"))
+
+
+def test_seen_many_finds_an_owner_in_a_data_file_a_later_commit_removed(tmp_path: Path) -> None:
+    """2026-10-25: a held-out candidate was named in crucible/data/debug files published by one commit; a later tree may no
+    longer hold them, so every past version of the published data and docs is searched too."""
+    import subprocess
+
+    r = tmp_path / "r"
+    (r / "crucible" / "data" / "debug").mkdir(parents=True)
+    for a in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(r), *a], check=True)
+    (r / "crucible" / "data" / "debug" / "mine.log").write_text("[gonelib] 3 candidate group(s) from goneowner/gonelib\n")
+    subprocess.run(["git", "-C", str(r), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "data"], check=True)
+    subprocess.run(["git", "-C", str(r), "rm", "-q", "-r", "crucible/data"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "drop the data"], check=True)
+    assert hs.seen_many(r, ["goneowner", "goneowner/gonelib", "neverseen"]) == {"goneowner", "goneowner/gonelib"}

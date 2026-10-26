@@ -96,6 +96,9 @@ def seen(repo: Path, needle: str, refs: Sequence[str] = ("--all",)) -> bool:
 CACHE_DIR = "data/llm_cache"  # 51k cached model responses: searched for owner/repo only (a word scan of it takes hours)
 
 
+HISTORY_PATHS = ("crucible/data", "crucible/docs")  # published task data and docs (the model-response cache is checked by slug above)
+
+
 def seen_many(repo: Path, needles: Iterable[str], refs: Sequence[str] = ("HEAD", "origin/main", "origin/dev")) -> set[str]:
     """``seen`` for many needles at once: per distinct tree, one whole-word ``git grep -o`` outside the model-response
     cache and one ``owner/repo`` grep inside it, and one pass over every commit message."""
@@ -117,8 +120,17 @@ def seen_many(repo: Path, needles: Iterable[str], refs: Sequence[str] = ("HEAD",
         if slugs:
             g = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-o", "-i", "-F", *slugs, ref, "--", CACHE_DIR], capture_output=True, text=True, check=False)
             got.update(x.strip().lower() for x in g.stdout.splitlines())
+    # every past version of the published data and docs (a held-out repo named in a file that a later commit changed or
+    # removed is still public: 078eb364's crucible/data/debug funnel and mine logs, 2026-10-25), in one ``git grep`` per
+    # chunk of commits
+    hist = subprocess.run(["git", "-C", str(repo), "rev-list", "--all", "--", *HISTORY_PATHS], capture_output=True, text=True, check=False).stdout.split()
+    for k in range(0, len(hist), 64):
+        g = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-o", "-i", "-w", "-F", *words, *hist[k: k + 64], "--", *HISTORY_PATHS],
+                           capture_output=True, text=True, check=False)
+        got.update(x.strip().lower().split(":", 1)[-1] for x in g.stdout.splitlines())
     msgs = subprocess.run(["git", "-C", str(repo), "log", "--all", "--format=%B"], capture_output=True, text=True, check=False).stdout.lower()
     got.update(n for n in want if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", msgs))
+    got.update(x.split("/", 1)[0] for x in list(got) if "/" in x)  # ``grep -o`` reports the slug, not the owner inside it
     return got & set(want)
 
 
