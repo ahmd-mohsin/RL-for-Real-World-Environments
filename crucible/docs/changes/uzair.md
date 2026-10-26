@@ -1689,3 +1689,125 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   earlier: `card_tools_only`, `r1_harbor` 503, two studio tests, the coding pack fixture, `test_sampling`'s rollout
   version. `r5_host_calls::test_sibling_attempts_keep_stepping_while_one_git_call_blocks` fails under full-suite load
   only (it passes alone and with its neighbours). Ruff on the changed files and lint-imports (5 contracts) are clean.
+
+## 74. M3 R-1: a stream the client abandons is "client disconnected" under uvicorn
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended. Not taken:
+  widening M10's `verdict_of` to read Starlette's `CancelledError` text (the wrong cause would stay in M3's rows), a
+  separate `cancelled` verdict (no consumer), a shielded row write (every probe wrote the row without one).
+  Pattern from NeMo-Gym's `base_responses_api_model.py:1166-1169` (Apache-2.0); no code copied.
+- **Files.** `src/crucible/connectors/capture_proxy.py` (`CaptureProxy.app` → `forward_call` → `relay`, module
+  docstring), `tests/unit/test_capture_client_left.py` (new), `docs/modules/M03-connectors.md` (finding 6).
+- **Public names.** none.
+- **Behaviour.** A streamed exchange ended from the downstream side, by `GeneratorExit` or by the
+  `asyncio.CancelledError` that Starlette 1.7 raises when the client disconnects under uvicorn 0.54 (ASGI 2.3), is
+  recorded with `error: "client disconnected"`, `complete: false`, its status and the partial response. It read
+  `CancelledError: Cancelled via cancel scope ...`, which `verdict_of` took for `infra`: when Crucible's deadline
+  killed a streaming agent (claude-code or codex via Harbor, an A2A agent), its probe answered ok and the end became
+  `agent_run_error` with blame `unknown` (masked, counted by the 5% stop) instead of an evidenced `timeout`. Upstream
+  failures keep `"<Type>: <message>"`. Trade-off: a mid-stream shutdown of the proxy itself is labelled the same.
+- **Formats.** none (the `error` string of such capture rows).
+- **Tests.** `test_capture_client_left.py` (1: the proxy served by uvicorn, a client that leaves after 5 chunks gives
+  one row `complete: false`, `error: "client disconnected"`, partial reply kept, verdict `client_left`, nothing left in
+  flight; it failed before the fix with the `CancelledError` row). Every unit file that drives the capture proxy or its
+  evidence (`r1_a2a` left out: 15 min), M3 audit and core files: 425 passed. Ruff on the changed files and lint-imports
+  (5 contracts) are clean.
+- **Merge notes.** One `except` clause in `relay()`; R-2 will reuse the new test's uvicorn harness.
+
+## 75. M3 R-2: an exchange whose client left is evidence, never an action, a trained call or a retry copy
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended, with one
+  narrowing: only an answer (status < 400) is marked; an upstream error whose client left keeps its own status as M10's
+  evidence. Not taken: "the last attempt sent wins" (misses resends without a retry header, and the deadline kill),
+  `after_end` (the key is revoked before the kill), recording only after the flush (M10 loses its row), replaying
+  retries (changes what the agent gets). Pattern from slime `adapters/common.py:428-443` and AReaL `cache.py:620-639`
+  (Apache-2.0); no code copied.
+- **Files.** `src/crucible/connectors/capture_proxy.py` (`CLIENT_LEFT`, `client_left`, `forward_call`,
+  `CaptureLogConnector.fetch`, `normalize`, module docstring), `src/crucible/interop/agentenv/harness.py`
+  (`calls_from_capture`), `src/crucible/interop/harbor/reconcile.py` (`reconcile`), `src/crucible/runtime/agent_evidence.py`
+  (`verdict_of` uses the shared check), `docs/modules/M03-connectors.md` (capture_proxy row, finding 4),
+  `tests/unit/test_capture_client_left.py`.
+- **Public names.** New `crucible.connectors.capture_proxy.CLIENT_LEFT` (`"client disconnected"`) and
+  `client_left(row) -> bool` (a capture row or a `calls_from_capture` call).
+- **Behaviour.**
+  - Proxy: a non-streaming answer whose client already left (a deadline kill, a client timeout) is recorded with
+    `error: "client disconnected"`, keeping status, response and usage; `complete` stays unset, so `capture_spend`
+    still books it as certain. It was an ordinary 200. Starlette's `is_disconnected()` returns at once.
+  - `normalize`: a client-left exchange (streamed or not) gives its `llm_call` with `data.error` and no `tool_call` or
+    server-tool result. A deadline-killed mini-swe-agent call listed `echo hi > out.txt` with `writes: file:out.txt`.
+  - `fetch`: a client-left attempt counts as failed, so a later attempt of the same body replaces it; a client-left
+    row answered after any earlier attempt of the same body (the timed-out original answering after its retry, turns
+    later) is dropped. A lone client-left row (the deadline kill) stays. The raw log keeps every row for M10.
+  - `calls_from_capture`: a client-left call is `trainable: false` (`runtime/record.py` already honours it); Harbor's
+    `reconcile` leaves it out of the comparison (it was read as an auxiliary call the agent did not log).
+- **Formats.** A non-streaming capture row can now carry `error: "client disconnected"`; a `calls.json` call can carry
+  `trainable: false` for it. M10 already read that error as `client_left`.
+- **Tests.** `test_capture_client_left.py` (+6: a deadline kill under uvicorn gives a client-left row with usage, no
+  tool_call, a non-trainable call and certain spend, while a waiting client's row is unmarked; a timeout then SDK retry
+  gives 2 exchanges, not 3, and no abandoned write; `fetch` in three orders; reconcile). All 6 failed before the fix.
+  Every unit file that drives the capture proxy, `calls_from_capture`, reconcile or the evidence code (`r1_a2a` and
+  training left out), M3 audit and core files: 519 passed; `test_sb_claude_builder.py` has its 8 known failures (the
+  fake `claude` shebang breaks on the path with a space). Ruff on the changed files and lint-imports (5 contracts) are
+  clean (FURB162 at `agent_evidence.py:223` is pre-existing).
+- **Merge notes.** Small edits in `capture_proxy.py` (forward_call's non-streaming record, fetch, three tool-call loops
+  in normalize), one line each in `calls_from_capture`, `reconcile` and `verdict_of`. A test fake that answers after its
+  client left now gets a marked row.
+
+## 76. M3 R-3: a frontier run its provider or harness ended is `unknown` and unscored
+
+- **Item.** R-3 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended, plus one addition
+  the user chose: `AgentRunSignalMapper` also scores no run graded under an older task version. Not taken: a list of
+  exception names (never complete), refusing such runs (MiMo; loses traces M5 and M2 use), parsing messages (M10's job).
+  Pattern from mini-swe-agent's exit vocabulary (MIT) and MiMo's `InfraError` rule (Apache-2.0); no code copied.
+- **Files.** `packs/coding/src/crucible_pack_coding/signals.py` (`SCORED_EXITS`, `unfinished`,
+  `AgentRunSignalMapper.map`), `packs/coding/src/crucible_pack_coding/connectors/agent_runs.py` (`normalize`, module
+  docstring), `docs/modules/M03-connectors.md` (agent_runs row), `tests/unit/test_agent_run_exits.py` (new).
+- **Public names.** New `crucible_pack_coding.signals.SCORED_EXITS` (`CLEAN_EXITS` minus the two limits: `Submitted`,
+  `RepeatedFormatError`) and `unfinished(exit_status, reward) -> bool`. They live in `signals.py`, not the connector,
+  because the connector imports Harbor at module level and the mapper must load without it.
+- **Behaviour.**
+  - `normalize`: a run with reward < 1 whose `exit_status` is not one of the agent's own scored stops is `unknown`,
+    "the run stopped on <status> before it was done" ("no exit status (killed)" for the empty status a kill leaves).
+    Only `LimitsExceeded` and `TimeExceeded` were exempt, so a graded provider 402 (`OpenRouterAPIError`), a harness
+    `RuntimeError` or a kill was `bad`. The stale-version and not-a-grade rules still come first, and reward >= 1 still
+    goes through the contamination rule. `details.exit_status` is recorded in every branch (was: the limits branch only).
+  - `AgentRunSignalMapper`: such a run gives no signal on any path (the limit exemption covered the reward path only, so
+    a limit-stopped run with failing gates gave -1 per gate); neither does a run with `stale_version` (the two task04 v1
+    passes gave +1 "every hidden gate passed" though the connector labels them `unknown` under v3). A trace stored
+    before `exit_status` was recorded keeps the old rule.
+  - The 11 recorded runs keep their labels (1 good, 5 bad, 5 unknown); their signals change only by the two stale +1s.
+- **Formats.** `details.exit_status` in every `coding/agent_run` trace outcome.
+- **Tests.** `test_agent_run_exits.py` (9: the two real crashed trajectories with a `{reward: 0.0}` report, with and
+  without a failing gate, and a killed run give `unknown`, the exit status and no signal; `Submitted` and
+  `RepeatedFormatError` at 0.0 stay `bad` with -1; a trace with no recorded exit keeps its -1; the real runs keep their
+  labels and the stale ones give no signal). 8 failed before the fix (the old-store guard passes either way). Coding
+  connectors, M3, M4, M8, M14, M15 audit, packs, span and stitch files: 289 passed, 12 skipped; the failure is the known
+  coding pack fixture (`data/cache/git` absent here, as on main). Ruff on the changed files and lint-imports (5
+  contracts) are clean.
+- **Merge notes.** `signals.py` now imports `crucible.runtime.agent_evidence` (no Harbor); `agent_runs.py` imports
+  `unfinished` from `signals.py`. M8 forge sees fewer -1s only for runs that crashed or were killed.
+
+## 77. M3 R-4: a lone surrogate no longer aborts an ingest batch
+
+- **Item.** R-4 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended. Not taken:
+  escaping in each connector (misses the next one), in `Store.put_doc` or `core.canonical` (changes stored bytes core-wide,
+  M0 R-20/R-21), moving `store.put` into `ingest`'s `try` (still loses the session). Pattern from karotte
+  `src/karotte/text.py:4-24` (MIT), already ported as `core/text.py` (`safe_text`, `safe_json`); no new copy.
+- **Files.** `src/crucible/connectors/redact.py` (`redact`, module docstring), `docs/modules/M03-connectors.md`
+  (Redaction list), `tests/unit/test_ingest_surrogates.py` (new).
+- **Public names.** none.
+- **Behaviour.** `redact()` passes the trace's JSON dump through `core.text.safe_json` before redacting, so every string
+  and key it returns is UTF-8 encodable: a lone surrogate (a cut emoji in tool output, the `\udXXX` escapes the capture
+  proxy writes) becomes escape text such as `\ud83d`. It passed `normalize` and `redact`, then `Store.put_doc` raised
+  `UnicodeEncodeError` outside `ingest`'s per-source `try`: that source and every later one were lost (0 of 3 stored)
+  and the error named no source. `safe_json` returns its input unchanged when nothing needs escaping, so every other
+  trace keeps its bytes and store key. Affects every JSON-fed connector, `crucible label` and the M3 gate.
+- **Formats.** none (stored traces may hold escape text where a lone surrogate was).
+- **Tests.** `test_ingest_surrogates.py` (2: a capture dir whose first session holds `\ud83d` in a user turn and
+  `\udcff` in a tool argument stores 3 of 3 with the escape text, it failed before the fix with the
+  `UnicodeEncodeError`; surrogate-free sessions get the same store keys as with `safe_json` bypassed). Redaction,
+  ingest, store, M3, M4 and M14 audit, coding connector, observe, tags, packs and core files: 461 + 119 passed, 8
+  skipped; the failure is the known coding pack fixture (`data/cache/git` absent here, as on main). Ruff on the changed
+  files and lint-imports (5 contracts) are clean.
+- **Merge notes.** One line and one import in `redact()`. The M3 should items (R-1..R-4) are all done; the 23 later items
+  wait for their consumer.

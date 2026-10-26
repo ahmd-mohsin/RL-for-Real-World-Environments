@@ -6,6 +6,11 @@ Harbor's own mini-swe-agent -> ATIF converter (DEPEND) and ``atif_import``; then
 ``final_patch`` (files and lines the submission changed), one ``check`` event per graded gate (pass / fail), and
 the outcome from the verifier's reward -- or, for runs without a report, from the calibration record the pack
 keeps for every seed task (``seeds.SEEDS[...]["frontier"]``). Runs with no recorded result stay ``unknown``.
+
+M3 audit R-3 (2026-10-20): a reward < 1 is a verdict only for a run that ended on the agent's own stop (``Submitted``,
+``RepeatedFormatError``). One its limits, its provider or its harness ended (an exception's class name, or the empty
+status a kill leaves) is ``unknown`` and unscored by ``AgentRunSignalMapper``; only the limits were exempt, so a graded
+provider 402 or crash became ``bad`` and M4 -1s. ``details.exit_status`` is recorded in every branch.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from typing import Any
 from crucible.connectors.base import RawRecord, SourceRef
 from crucible.core.schema.trace import Trace, TraceEvent, TraceOutcome, TraceSource
 from crucible.interop.harbor.atif_import import convert_mini_swe_agent, trajectory_to_trace
+from crucible_pack_coding.signals import unfinished
 
 FAMILY = "coding/agent_run"
 
@@ -94,13 +100,15 @@ class AgentRunConnector:
         except (TypeError, ValueError):
             reward = None
         exit_status = str((p["trajectory"].get("info") or {}).get("exit_status") or "")
+        details["exit_status"] = exit_status  # M3 audit R-3: in every branch ("" for a killed run); the signal mapper reads it
         if reward is not None and graded_under and current and graded_under != current:
             outcome = TraceOutcome(label="unknown", label_source=f"graded under {graded_under}; the task is now {current}",
                                    details={**details, "reward": reward, "stale_version": True})
         elif reward is not None and (math.isnan(reward) or reward < 0):  # NaN, or a harness's -1 "not graded" (M4 audit: both were "bad")
             outcome = TraceOutcome(label="unknown", label_source=f"reward {reward} is not a grade", details=details)
-        elif reward is not None and reward < 1.0 and exit_status in ("LimitsExceeded", "TimeExceeded"):  # the run never finished: not a verdict on the work
-            outcome = TraceOutcome(label="unknown", label_source=f"the run stopped on {exit_status} before it was done", details={**details, "reward": reward, "exit_status": exit_status})
+        elif unfinished(exit_status, reward):  # the run never finished: not a verdict on the work (M3 audit R-3: not only its limits)
+            outcome = TraceOutcome(label="unknown", label_source=f"the run stopped on {exit_status or 'no exit status (killed)'} before it was done",
+                                   details={**details, "reward": reward})
         elif reward is None:
             outcome = TraceOutcome(label="unknown", label_source="no recorded verifier result for this run", details=details)
         elif hit and float(reward) >= 1.0:  # Repo2RLEnv: every green score reached through the answer key was contamination

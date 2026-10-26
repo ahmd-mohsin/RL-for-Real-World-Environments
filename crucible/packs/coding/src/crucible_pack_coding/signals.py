@@ -24,6 +24,7 @@ import re
 
 from crucible.core.schema.signal import Signal, SignalTarget
 from crucible.core.schema.trace import Trace, TraceEvent
+from crucible.runtime.agent_evidence import CLEAN_EXITS
 from crucible.signals.extract import signal_id
 
 REQUEST_CUES = (
@@ -200,6 +201,19 @@ def _passed(x) -> bool:
     return x is True or (isinstance(x, (int, float)) and x >= 1) or (isinstance(x, str) and x.strip().lower() in ("true", "pass", "passed", "1", "yes"))
 
 
+# M3 audit R-3: mini-swe-agent's own stops whose work its reward judges (its limits stop it before it is done)
+SCORED_EXITS = frozenset(CLEAN_EXITS) - {"LimitsExceeded", "TimeExceeded"}
+
+
+def unfinished(exit_status: str, reward: float | None) -> bool:
+    """A reward < 1 from a run that did not end on the agent's own stop is no verdict on its work (P16): a limit, an
+    exception (mini-swe-agent records its class name: a provider's 402, a harness crash) or a kill (the last save has an
+    empty status). ``connectors.agent_runs`` labels such a run ``unknown`` and ``AgentRunSignalMapper`` scores none of
+    it. PATTERN: MiMo never grades an InfraError (``mimoagent_runner.py:42,279-281``). Trade-off: a run that crashed
+    after finishing its work is not scored."""
+    return reward is not None and reward < 1.0 and exit_status not in SCORED_EXITS
+
+
 class AgentRunSignalMapper:
     """Frontier-run traces (``coding/agent_run``) -> gate-level outcome signals (ARCHITECTURE §6, M4 row: "frontier
     failures -> gate-level outcomes"). Each failing hidden-verifier gate becomes a ``check_result`` -1 signal on the
@@ -209,7 +223,12 @@ class AgentRunSignalMapper:
 
     M4 audit: a green run reached through the answer key (``contaminated``) gave +1 (P27: never trusted); a graded run
     whose gates all passed gave nothing; a reward of "1.0" raised, NaN and the -1 "not graded" sentinel became -1, 0.5
-    counted as 0; ``"pass": "false"`` was a pass; a gate named twice aborted extraction on a duplicate id."""
+    counted as 0; ``"pass": "false"`` was a pass; a gate named twice aborted extraction on a duplicate id.
+
+    M3 audit R-3: a run its provider or harness ended (``unfinished``) gives nothing on any path; only a limit stop was
+    exempt, on the reward path only. A run graded under an older task version (``stale_version``) gives nothing either: it
+    gave +1 for task04 v1 passes the connector already labels ``unknown`` under v3. A trace stored before the exit status
+    was recorded keeps the old rule."""
 
     def map(self, trace: Trace) -> list[Signal]:
         det = (trace.outcome.details if trace.outcome else None) or {}
@@ -217,6 +236,8 @@ class AgentRunSignalMapper:
         if fin is None:
             return []
         reward = _reward(det.get("reward"))
+        if det.get("stale_version") or ("exit_status" in det and unfinished(str(det["exit_status"] or ""), reward)):
+            return []
         contaminated = bool(det.get("contaminated"))
         base = {"task": det.get("task"), "run": det.get("run"), "model": det.get("model"), "reward": reward, "automated": True}
 

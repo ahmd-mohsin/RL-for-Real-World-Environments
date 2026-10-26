@@ -63,7 +63,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from crucible.actors.llm import CONTEXT_OVERFLOW_MARKERS, UNPRICED_USD_PER_M
-from crucible.connectors.capture_proxy import LIMIT_STOP_KIND, limit_stop_count
+from crucible.connectors.capture_proxy import CLIENT_LEFT, LIMIT_STOP_KIND, client_left, limit_stop_count
 from crucible.core.config import looks_like_secret_key
 from crucible.core.schema.run import Failure
 from crucible.core.secrets import scrub_secrets
@@ -138,8 +138,8 @@ def verdict_of(row: Mapping[str, Any]) -> tuple[str, str]:
     status = row.get("status") if isinstance(row.get("status"), int) and not isinstance(row.get("status"), bool) else None
     err = scrub_secrets(str(row.get("error") or ""))  # before any cut: the detail is stored in records
     resp = row.get("response")
-    if err.startswith("client disconnected"):  # the agent's own client left mid-stream (it was killed, or gave up)
-        return "client_left", "client disconnected"
+    if client_left(row):  # the agent's own client left before the answer (it was killed, or gave up; M3 audit R-1, R-2)
+        return "client_left", CLIENT_LEFT
     if status == 502 and err and "response" not in row:  # the proxy's own record of an httpx error (capture_proxy forward())
         return "infra", f"connect: {err}"[:200]
     if row.get("complete") is False:  # stream_drop, stream_error, or a connection cut mid-stream

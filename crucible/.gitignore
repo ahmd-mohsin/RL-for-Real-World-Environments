@@ -8,3 +8,4 @@ __pycache__/
 .envs/
 site/_mobile.html
 site/index.html
+/wandb/

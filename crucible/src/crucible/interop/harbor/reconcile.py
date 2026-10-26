@@ -38,7 +38,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from crucible.connectors.capture_proxy import LIMIT_STOP_TEXT
+from crucible.connectors.capture_proxy import LIMIT_STOP_TEXT, client_left
 
 Finding = dict  # {"level": one of LEVELS, "code": str, "detail": str}
 LEVELS = ("ok", "info", "warn", "fatal")
@@ -217,9 +217,11 @@ def reconcile(atif: dict[str, Any] | None, calls: Sequence[dict[str, Any]], *, l
     if dispatch:
         notes.add("info", "atif_dispatch_steps", f"left out {dispatch} agent step(s) with llm_call_count 0 (deterministic dispatches, not model calls)")
     steps = _excluded(agent_steps(atif), max(0, int(limit_stops or 0)), notes)
-    kept = [c for c in calls if not (c.get("error") and _call_tokens(c) is None)]
+    # M3 audit R-2: a call answered after the agent's client left is no step of the agent's (it never received it)
+    kept = [c for c in calls if not (c.get("error") and _call_tokens(c) is None) and not client_left(c)]
     if len(kept) < len(calls):
-        notes.add("info", "failed_calls", f"left out {len(calls) - len(kept)} captured call(s) that failed upstream with no completion (no reply to log)")
+        notes.add("info", "failed_calls", f"left out {len(calls) - len(kept)} captured call(s) that failed upstream with no completion or were "
+                                          "answered after the agent's client left (no reply to log)")
     _compare(rep, steps, kept)
     rep.findings += notes.findings
     if steps and kept:

@@ -9,8 +9,8 @@ idea), and the real upstream key stays on the proxy, never in the agent's enviro
 ``<capture_dir>/<session>.jsonl``. The record keeps the request (messages, tools, parameters), the response
 (assembled from the SSE events for streaming calls), usage, logprobs when the upstream returns them, and latency.
 Every record carries a digest of its request body. A client retry (the same body again, e.g. after a timeout) is
-recorded too; the connector keeps only the last attempt, which is the response the agent actually saw. Nothing
-about the agent changes.
+recorded too; the connector keeps the attempt whose response the agent actually saw: the last one, never one whose
+client had left (M3 audit R-2). Nothing about the agent changes.
 
 ``CaptureLogConnector`` turns a session log into a Trace. Each request contributes the messages past the longest
 prefix it shares with an earlier request (user turns, tool results); each response contributes the agent's message and
@@ -56,6 +56,19 @@ M10 lab audit R-1 (2026-10-15): the proxy log is the evidence an external agent'
   ``unregister`` (a killed client does not cancel the proxy's forward, so a revoked session's calls still load the
   upstream and leave no row until they end); ``drain(session, timeout_s)`` waits for them. The self-load guard of
   ``agent_evidence`` counts what is left, so Crucible's probe never queues behind the session's own calls.
+
+M3 audit R-1 (2026-10-20): a stream ended from the downstream side (``GeneratorExit``, or the ``CancelledError`` Starlette
+raises on a disconnect under uvicorn) is ``error: "client disconnected"``. Under uvicorn it read ``CancelledError: ...``,
+which M10 took for an upstream failure, so a deadline kill of a streaming agent became unknown blame. A mid-stream
+shutdown of the proxy itself is labelled the same.
+
+M3 audit R-2 (2026-10-20): an exchange the agent never received stays as evidence but is never an action, a trained call
+or a copy of a turn (``client_left``). A non-streaming answer (status < 400) whose client already left (a deadline kill, a
+client timeout) is recorded with ``error: "client disconnected"``, keeping status, response and usage (``complete`` unset:
+it was billed). It was an ordinary 200, so the connector emitted its tool calls (a write that never happened) and a
+timed-out original answered after its retry was a second copy of the turn. ``normalize`` gives such an exchange its
+``llm_call`` only; ``fetch`` drops one answered after an attempt of the same body and lets a later attempt replace it;
+``calls_from_capture`` marks it ``trainable: false`` and Harbor's reconcile leaves it out.
 """
 
 from __future__ import annotations
@@ -68,7 +81,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,6 +101,7 @@ RETRY_HEADERS = ("x-stainless-retry-count", "idempotency-key", "x-stainless-time
 LIMIT_STOP_KIND = "limit_stop"
 LIMIT_STOP_TEXT = "[crucible] The model-call limit for this attempt is reached. Stop now."
 STREAM_DROP = "stream_drop: the upstream body ended without a terminal marker"
+CLIENT_LEFT = "client disconnected"  # M3 audit R-1, R-2: the error of an exchange the agent never received
 # M10 lab audit R-1: limit-stop rows per session. Past the cap the proxy's answer is local, instant and free, so one row
 # per answer let a policy that floods the proxy (its agent phase held open) grow the log on the Crucible host without
 # bound. Stops past this many are counted in memory and written as one coalesced row when the key is revoked (OpenEnv
@@ -100,6 +114,13 @@ def limit_stop_count(row: dict[str, Any]) -> int:
     """How many stop answers a ``limit_stop`` row stands for: 1, or a coalesced row's ``count`` (M10 lab audit R-1)."""
     n = row.get("count", 1)
     return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 1
+
+
+def client_left(row: Mapping[str, Any]) -> bool:
+    """The agent never received this exchange: its client left before the answer (M3 audit R-2). Such a row is evidence
+    (M10 reads it as ``client_left``), never an action, a trained call or a copy of a turn. A capture row or a
+    ``calls_from_capture`` call."""
+    return str(row.get("error") or "").startswith(CLIENT_LEFT)
 
 
 def _upstream_headers(api: str, up: Upstream, version: str = "2023-06-01", beta: str | None = None) -> dict[str, str]:
@@ -372,7 +393,11 @@ class CaptureProxy:
                         complete = terminal and stream_err is None
                         err = stream_err or (None if terminal else STREAM_DROP)
                     except BaseException as e:  # upstream failure or the client left (an interrupted turn is the strongest signal)
-                        err = f"{type(e).__name__}: {e}" if not isinstance(e, GeneratorExit) else "client disconnected"
+                        # M3 audit R-1 (2026-10-20): under uvicorn (ASGI 2.3) Starlette cancels the stream task on a disconnect,
+                        # so a client that left raises CancelledError, not GeneratorExit (PATTERN: NeMo-Gym
+                        # base_responses_api_model.py:1166-1169)
+                        left = isinstance(e, (GeneratorExit, asyncio.CancelledError))
+                        err = CLIENT_LEFT if left else f"{type(e).__name__}: {e}"
                         raise
                     finally:
                         try:
@@ -391,8 +416,12 @@ class CaptureProxy:
                 proxy._record(session, {**entry, "time": _now(), "status": 502, "complete": False, "error": f"{type(e).__name__}: {e}"})
                 return error(api, 502, f"upstream unreachable: {type(e).__name__}")
             out = _json_or_text(r.content, r.headers.get("content-type", ""))
+            # M3 audit R-2: an answer whose client already left (a deadline kill, a client timeout) is marked, with its status,
+            # response and usage (it was billed): it read as the agent's turn, a write that never happened. An upstream
+            # error keeps its own evidence. Starlette's check does not wait (PATTERN: slime adapters/common.py:428-443)
+            left = r.status_code < 400 and await request.is_disconnected()
             proxy._record(session, {**entry, "time": _now(), "latency_s": round(time.monotonic() - t0, 3), "status": r.status_code, "response": out,
-                                    **retry_after(r)})
+                                    **retry_after(r), **({"error": CLIENT_LEFT} if left else {})})
             return JSONResponse(out, status_code=r.status_code, headers=passed(r))
 
         async def chat(request: Request):
@@ -623,7 +652,9 @@ class CaptureLogConnector:
     def fetch(self, ref: SourceRef) -> RawRecord:
         """Retries collapse onto their earlier attempt only when marked: an SDK retry count > 0, or an earlier attempt
         that failed or did not complete. A repeated body is otherwise a real second call (best-of-n). Logs from clients
-        that send no retry information keep the old rule (an adjacent identical body is a retry)."""
+        that send no retry information keep the old rule (an adjacent identical body is a retry). M3 audit R-2: an attempt
+        whose client left counts as failed, and one answered after an attempt of the same body (anywhere earlier: the
+        abandoned original of a retry answers late, turns after it) is dropped; the agent saw neither."""
         exchanges: list[dict[str, Any]] = []
         limit_stops = 0
         lines = Path(ref.meta["path"]).read_text(encoding="utf-8").splitlines()
@@ -639,6 +670,8 @@ class CaptureLogConnector:
             if ex.get("kind") == LIMIT_STOP_KIND:  # M10 lab audit R-1: the proxy's own stop, never an exchange (no request)
                 limit_stops += limit_stop_count(ex)
                 continue
+            if client_left(ex) and ex.get("digest") and any(e.get("digest") == ex["digest"] for e in exchanges):
+                continue  # M3 audit R-2: a late answer to an attempt the agent gave up on; the raw row stays M10's evidence
             hdr = {k.lower(): v for k, v in (ex.get("headers") or {}).items()}
             retry = hdr.get("x-stainless-retry-count")
             same = [i for i in range(len(exchanges) - 1, max(-1, len(exchanges) - 6), -1) if ex.get("digest") and exchanges[i].get("digest") == ex["digest"]]
@@ -646,7 +679,7 @@ class CaptureLogConnector:
             if same:
                 i = same[0]
                 earlier = exchanges[i]
-                failed = earlier.get("complete") is False or (earlier.get("status") or 200) >= 400
+                failed = earlier.get("complete") is False or (earlier.get("status") or 200) >= 400 or client_left(earlier)
                 if retry is not None:
                     target = i if (str(retry) not in ("", "0") or failed) else None
                 elif failed or i == len(exchanges) - 1:
@@ -732,12 +765,15 @@ class CaptureLogConnector:
                                     **({"thread": thread} if thread else {}), **({"complete": False} if ex.get("complete") is False else {})}
             if resp.get("error") or ex.get("error") or (ex.get("status") or 200) >= 400:
                 data["error"] = resp.get("error") or ex.get("error") or f"HTTP {ex.get('status')}"
+            # M3 audit R-2: the agent never received a client-left answer, so its llm_call (with the error) is all it gives:
+            # its tool calls never ran (a deadline-killed call listed a write that never happened)
+            left = client_left(ex)
             if api == "anthropic":
                 blocks = resp.get("content") or []
                 thinking = "\n".join(b.get("thinking", "") for b in blocks if b.get("type") == "thinking")
                 data.update({"finish": resp.get("stop_reason"), **({"reasoning": thinking[:MAX_TEXT]} if thinking else {})})
                 add(t, kind="message", actor="agent", type="llm_call", text=_text(blocks)[:MAX_TEXT], data=data)
-                for b in blocks:
+                for b in [] if left else blocks:
                     if b.get("type") in ("tool_use", "server_tool_use"):  # server tools (web search, code execution) are calls too
                         call(t, b.get("id"), b.get("name", ""), b.get("input") or {}, thread, server=b["type"] == "server_tool_use")
                     elif b.get("type", "").endswith("_tool_result"):
@@ -748,7 +784,7 @@ class CaptureLogConnector:
                 text = "\n".join(_text(o.get("content")) for o in out if o.get("type") == "message")
                 data.update({"finish": resp.get("status")})
                 add(t, kind="message", actor="agent", type="llm_call", text=text[:MAX_TEXT], data=data)
-                for o in out:
+                for o in [] if left else out:
                     if o.get("type") in ("function_call", "custom_tool_call", "local_shell_call"):
                         call(t, o.get("call_id") or o.get("id"), o.get("name") or o["type"], _args(o.get("arguments") or o.get("input") or o.get("action") or ""), thread)
             else:
@@ -758,7 +794,7 @@ class CaptureLogConnector:
                              **({"reasoning": str(m.get("reasoning_content") or m.get("reasoning"))[:MAX_TEXT]} if m.get("reasoning_content") or m.get("reasoning") else {}),
                              **({"choices": len(resp["choices"])} if len(resp.get("choices") or []) > 1 else {})})
                 add(t, kind="message", actor="agent", type="llm_call", text=_text(m.get("content"))[:MAX_TEXT], data=data)
-                for tc in m.get("tool_calls") or []:
+                for tc in [] if left else m.get("tool_calls") or []:
                     fn = tc.get("function") or {}
                     call(t, tc.get("id"), fn.get("name") or "", _args(fn.get("arguments") or ""), thread)
         probes = annotate_probes(events)
