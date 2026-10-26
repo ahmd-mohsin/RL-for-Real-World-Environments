@@ -138,6 +138,8 @@ def test_serve_spec_command_line():
     full = s.apptainer_argv(binds=["/work/w/qwen"])
     assert full[:3] == ["apptainer", "exec", "--nv"] and "--cleanenv" in full and VLLM_SIF in full
     assert "/work/w/qwen:/work/w/qwen:ro" in full and "VLLM_ALLOW_RUNTIME_LORA_UPDATING=True" in full and "HF_HUB_OFFLINE=1" in full
+    c = ServeSpec(model="/w", name=MODEL, cache_dir="/work/c").apptainer_argv()  # HOME and the JIT caches writable (smoke 3458633)
+    assert "HOME=/work/c" in c and "FLASHINFER_WORKSPACE_BASE=/work/c" in c and "/work/c:/work/c" in c
 
 
 # ---- the Apptainer docker shim -------------------------------------------------------------------------------------------------
@@ -216,6 +218,24 @@ def test_the_kernel_host_on_a_deltaai_node_runs_locally_and_grades_in_apptainer_
     h = ke.host_of("gh200-node")
     assert h.local and h.ssh_argv("echo hi") == ["bash", "-c", "echo hi"] and h.grade_mode == "apptainer" and h.runtime == "docker"
     assert h.arch == "90" and ke.host_of("gh200").runtime == "apptainer" and ke.host_of("rtx5090").ssh_argv("x")[0] == "ssh"
+
+
+def test_vllm_runs_default_to_8192_output_tokens_and_record_it():
+    import importlib.util as iu
+    import sys as _sys
+
+    from crucible.factory.tinker import arm_settings
+    from crucible.train.bridges.vllm.client import DEFAULT_MAX_TOKENS
+
+    _sys.path.insert(0, str(ROOT / "scripts"))
+    spec = iu.spec_from_file_location("lh_debug_target_t", ROOT / "scripts" / "lh_debug_target.py")
+    T = iu.module_from_spec(spec)
+    spec.loader.exec_module(T)
+    assert DEFAULT_MAX_TOKENS == 8192
+    assert T.resolve_max_tokens(None, "vllm") == 8192 and T.resolve_max_tokens(None, "tinker") == 4096 and T.resolve_max_tokens(2048, "vllm") == 2048
+    a = arm_settings(model=MODEL, k=8, temperature=1.0, max_tokens=T.resolve_max_tokens(None, "vllm"), enable_thinking=False, tool_limit=300,
+                     timeouts=None, system=None, harness="h", context=262144, codec=None, backend="vllm")
+    assert a["max_tokens"] == 8192  # in the settings both arms must share (check_protocol)
 
 
 def test_a_held_out_task_must_have_an_offline_world():

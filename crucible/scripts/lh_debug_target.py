@@ -1186,6 +1186,17 @@ def cleanup() -> None:
     print(f"removed {len(names)} {PREFIX}* containers")
 
 
+def resolve_max_tokens(given: int | None, backend: str) -> int:
+    """``--max-tokens`` when given, else the backend's default (8192 on our vLLM engine, 4096 on Tinker)."""
+    if given is not None:
+        return int(given)
+    if backend == "vllm":
+        from crucible.train.bridges.vllm.client import DEFAULT_MAX_TOKENS
+
+        return DEFAULT_MAX_TOKENS
+    return 4096
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     from crucible.factory.generators.debug import ENV_BUDGET
 
@@ -1212,7 +1223,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--slots", type=int, default=10, help="Worlds open at once on this host")
     ap.add_argument("--grade-parallel", type=int, default=2, help="grading containers at once per World image")
     ap.add_argument("--tool-limit", type=int, default=ENV_BUDGET.tool_limit, help="the lane's env budget (generators.debug.ENV_BUDGET)")
-    ap.add_argument("--max-tokens", type=int, default=4096, help="per reply (factory.student.STUDENT_MAX_TOKENS)")
+    ap.add_argument("--max-tokens", type=int, default=None, help="per reply (default: 8192 on --backend vllm, train/bridges/vllm "
+                    "DEFAULT_MAX_TOKENS; else 4096, factory.student.STUDENT_MAX_TOKENS); recorded in every arm's settings")
     ap.add_argument("--thinking", action="store_true", help="enable_thinking (default off; recorded)")
     ap.add_argument("--agent-s", type=float, default=ENV_BUDGET.agent_s)
     ap.add_argument("--rollout-s", type=float, default=ENV_BUDGET.rollout_s)
@@ -1239,6 +1251,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--compare", default="", help="summary: a previous phase's out dir; its result per task sits beside this one's")
     ap.add_argument("--docs", default="", help="summary: also write runs/s15_debug_targeting.json here (the committed copy)")
     a = ap.parse_args(argv)
+    a.max_tokens = resolve_max_tokens(a.max_tokens, a.backend)
     d = data_dir()
     a.out = a.out or str(d / "targeting" / "debug")
     a.debug = a.debug or str(d / "debug")
@@ -1256,7 +1269,8 @@ def unknown_tasks(tids: Sequence[str], rows: Mapping[str, Any]) -> list[str]:
 
 
 async def amain(a: argparse.Namespace) -> None:
-    if any(s in a.stages for s in ("pilot", "student", "frontier")) and not os.environ.get("TINKER_API_KEY"):
+    tinker_needed = any(s in a.stages for s in ("pilot", "frontier")) or ("student" in a.stages and a.backend != "vllm")
+    if tinker_needed and not os.environ.get("TINKER_API_KEY"):
         raise SystemExit("TINKER_API_KEY is not in the environment (set -a; . ../.env; set +a)")
     ph = Phase(a)
     tids = [t for t in a.tasks.split(",") if t] or sorted(ph.tasks.rows)

@@ -44,6 +44,7 @@ class ServeSpec:
     max_loras: int = 2
     max_num_seqs: int = 64
     enable_lora: bool = True
+    cache_dir: str = ""  # a writable directory for HOME and the engine's caches (FlashInfer JIT, Triton, torch.compile)
     extra: tuple[str, ...] = ()
     env: Mapping[str, str] = field(default_factory=dict)
 
@@ -59,6 +60,10 @@ class ServeSpec:
     def environment(self) -> dict[str, str]:
         e = {"VLLM_ALLOW_RUNTIME_LORA_UPDATING": "True" if self.enable_lora else "False", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
              "VLLM_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1"}
+        if self.cache_dir:  # --no-home leaves HOME unmounted and read-only: FlashInfer's JIT workspace failed there (smoke 3458633)
+            c = self.cache_dir
+            e.update({"HOME": c, "XDG_CACHE_HOME": c, "VLLM_CACHE_ROOT": f"{c}/vllm", "TRITON_CACHE_DIR": f"{c}/triton",
+                      "FLASHINFER_WORKSPACE_BASE": c, "TORCHINDUCTOR_CACHE_DIR": f"{c}/inductor"})
         return {**e, **dict(self.env)}
 
     def apptainer_argv(self, *, sif: str = VLLM_SIF, binds: Sequence[str] = ()) -> list[str]:
@@ -69,6 +74,8 @@ class ServeSpec:
             cmd += ["--env", f"{k}={v}"]
         for b in binds:
             cmd += ["-B", b if ":" in b else f"{b}:{b}:ro"]
+        if self.cache_dir:
+            cmd += ["-B", f"{self.cache_dir}:{self.cache_dir}"]
         return [*cmd, sif, *self.vllm_argv()]
 
     def shell(self, **kw: Any) -> str:

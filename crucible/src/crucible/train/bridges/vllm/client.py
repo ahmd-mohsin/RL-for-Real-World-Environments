@@ -31,6 +31,10 @@ from crucible.train.bridges.tinker.models import MODELS, Prices, TinkerModel
 PROVIDER = "vllm"
 ZERO = Prices(0.0, 0.0, 0.0, 0.0)  # our own GPUs: no per-token price (GPU-hours are the Slurm account's ledger)
 DEFAULT_CONTEXT = 262_144
+# max output tokens per model call on our own engine (the coordinator, 2026-10-25): replies cut at 4096 in about 90 stored
+# episodes across most debug tasks, and on a migration task the cut ended episodes outright. One value for every arm of a
+# comparison; each arm's settings record it (``factory.tinker.arm_settings``: ``max_tokens``).
+DEFAULT_MAX_TOKENS = 8192
 
 
 @dataclass(frozen=True)

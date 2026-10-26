@@ -15,7 +15,7 @@ MODEL=Qwen/Qwen3.6-35B-A3B
 TASK=${TASK:-db-go-go-toml-a02114e3}
 IMG=crucible-lh-d_go-go-toml-d4fe68839d05
 TP=${TP:-2}
-mkdir -p "$J/state" "$J/ovl" "$J/cfg" "$J/cache" "$J/atmp" "$J/ws" "$W/sif" "$W/out" "$W/hf"
+mkdir -p "$J/state" "$J/ovl" "$J/cfg" "$J/cache" "$J/atmp" "$J/ws" "$W/sif" "$W/out" "$W/hf" "$W/vcache"
 export CRUCIBLE_SIF_DIR=$W/sif CRUCIBLE_SHIM_STATE=$J/state CRUCIBLE_SHIM_SCRATCH=$J/ovl CRUCIBLE_SHIM_CONFIGDIR=$J/cfg CRUCIBLE_SHIM_ALLOW=$J
 export APPTAINER_CACHEDIR=$J/cache APPTAINER_TMPDIR=$J/atmp TMPDIR=$J
 export PATH=$W/bin:$PATH
@@ -35,6 +35,12 @@ if [ ! -x "$W/venv/bin/python" ]; then
   t "env: rc=$? $($W/venv/bin/python -c 'import crucible, transformers; print("crucible ok, transformers", transformers.__version__)' 2>&1 | tail -1)"
 fi
 PY=$W/venv/bin/python
+if ! $PY -c "import torch" 2>/dev/null; then  # crucible.train.engine imports torch (the CPU build is enough off the GPU)
+  t "env: torch (cpu)"
+  module load python/3.11.9; python3 -m venv "$J/uvenv" && "$J/uvenv/bin/pip" -q install uv >> "$O/env.log" 2>&1
+  "$J/uvenv/bin/uv" pip install -q --python "$PY" torch --index-url https://download.pytorch.org/whl/cpu >> "$O/env.log" 2>&1
+  t "env: torch $($PY -c 'import torch; print(torch.__version__)' 2>&1 | tail -1)"
+fi
 
 # 2. the World SIF from the Mac's image (docker save) and its config side file
 if [ ! -f "$W/sif/$IMG.sif" ]; then
@@ -70,7 +76,7 @@ grep -q "LOCKDOWN OK" "$O/lockdown.verdict" || { t "lockdown failed: no model ep
 cat > "$J/serve.py" <<EOF
 import json, sys
 from crucible.train.bridges.vllm.serve import ServeSpec
-s = ServeSpec(model="$MODEL", name="$MODEL", tp=$TP, seed=0, env={"HF_HOME": "$W/hf"})
+s = ServeSpec(model="$MODEL", name="$MODEL", tp=$TP, seed=0, env={"HF_HOME": "$W/hf"}, cache_dir="$W/vcache")
 json.dump(s.record(), open("$O/engine.json", "w"))
 print(s.shell(binds=["$W/hf:$W/hf"]))
 EOF

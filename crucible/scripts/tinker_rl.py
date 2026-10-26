@@ -406,7 +406,7 @@ def main() -> None:
         p.add_argument("--cap", type=float, default=cap, help="hard USD cap for this command")
         p.add_argument("--out", default=str(ROOT / "data" / "tinker" / time.strftime("%Y%m%d-%H%M%S")))
         p.add_argument("--image", default=DEFAULT_IMAGE)
-        p.add_argument("--max-tokens", type=int, default=1024)
+        p.add_argument("--max-tokens", type=int, default=None, help="per reply (default 1024; 8192 on --backend vllm, recorded in each arm)")
         p.add_argument("--thinking", action="store_true", help="enable_thinking (default off; recorded)")
         p.add_argument("--tool-limit", type=int, default=16)
         p.add_argument("--agent-s", type=float, default=900.0)
@@ -487,6 +487,13 @@ def main() -> None:
     p.add_argument("--path", required=True)
     p.set_defaults(fn=cmd_download)
     args = ap.parse_args()
+    if hasattr(args, "max_tokens") and args.max_tokens is None:  # commands without common() (power) have no reply cap
+        if getattr(args, "backend", "tinker") == "vllm":
+            from crucible.train.bridges.vllm.client import DEFAULT_MAX_TOKENS
+
+            args.max_tokens = DEFAULT_MAX_TOKENS
+        else:
+            args.max_tokens = 1024
     load_env_key(Path(args.env_file))
     args.fn(args)
 
