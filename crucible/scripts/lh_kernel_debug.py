@@ -536,8 +536,97 @@ def k6_claims_ok(rec: dict[str, Any], mid: str, text: str) -> list[str]:
 
     m = next(x for x in rec["milestones"] if x["id"] == mid)
     vals = {v for c in m.get("cases") or [] for p in kd.parse_case(c)[1].values() for v in re.split(r"[\[\],]", p) if v}
-    nums = set(re.findall(r"(?<![\w.])\d{2,}(?!\w|\.\d)", text.replace(",", "")))
+    plain = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)  # 70,000 -> 70000; a list [1,1] stays two values
+    nums = set(re.findall(r"(?<![\w.])\d{2,}(?!\w|\.\d)", plain))
     return [f"K6 claim: {n} is no parameter of {mid}'s cases" for n in sorted(nums - vals)]
+
+
+# Finding the fault is the skill these tasks train: a revision may state the symptom more exactly (op, failing case
+# parameters, observable error) but never point at the location (the coordinator's guard, 2026-10-26).
+LOCATION_HINT = re.compile(r"\bdispatch\w*|\bkernel selection\b|\bselects? (?:the|a|which) kernel\b|\bfall(?:s)? ?back\b|\bcode path\b|\.cuh?\b|ggml-cuda/|"
+                           r"\b(?:in|inside) the (?:\w+ )?(?:kernel|function|file|template|launcher|helper)\b", re.IGNORECASE)
+TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+
+
+def location_probe(rec: dict[str, Any], mid: str, text: str) -> list[str]:
+    """Deterministic: the lane's prompt lint (hashes, links, faulty functions, kernels, files, hidden case names), the
+    location-hint words, and a grep of the start tree's CUDA backend: a word of the requirement that occurs only in the
+    milestone's own fault files (one grep away from the location) is refused."""
+    import subprocess
+
+    from crucible.factory.lanes import kernel_debug as kd
+
+    out = kd.lint_prompt(text, rec)
+    out += [f"location hint: {m.group(0)!r}" for m in LOCATION_HINT.finditer(text)]
+    m = next(x for x in rec["milestones"] if x["id"] == mid)
+    fault = set(m.get("files") or [])
+    tree = ROOT / "store" / rec["tree_a"]
+    backend = tree / "ggml" / "src" / "ggml-cuda"
+    if backend.is_dir():
+        for tok in sorted({t for t in TOKEN.findall(text) if t.lower() not in {"cuda", "with", "when", "that", "this", "from", "returns", "results"}}):
+            r = subprocess.run(["grep", "-rlwF", tok, str(backend)], capture_output=True, text=True, check=False)
+            hits = {str(Path(p).relative_to(tree)) for p in r.stdout.split()}
+            if hits and hits <= fault:
+                out.append(f"location grep: {tok!r} occurs only in {sorted(hits)}")
+    return out
+
+
+async def location_check(book: Any, rec: dict[str, Any], mid: str, text: str, baseline: str) -> dict[str, Any]:
+    """A non-builder checker (``reviewer``: never the prompt writer's family, ``ModelBook``'s family rule), blind: it sees
+    only a requirement and the CUDA backend's file names, never the fault, and says which files it would open first. Asked
+    for the revised and for the original text: the revision implies the location when its pick hits a fault file and the
+    original's does not (the op's name alone already points at its own files, and naming the op is allowed). A verdict
+    column next to the deterministic probe (V6); a checker that cannot answer is recorded, never a pass."""
+    m = next(x for x in rec["milestones"] if x["id"] == mid)
+    fault = {f.rsplit("/", 1)[-1] for f in m.get("files") or []}
+    backend = ROOT / "store" / rec["tree_a"] / "ggml" / "src" / "ggml-cuda"
+    names = sorted(p.name for p in backend.iterdir() if p.suffix in (".cu", ".cuh")) if backend.is_dir() else []
+    sys_msg = ("A user filed this bug report against the CUDA backend of a library. From the report alone, which source files would you "
+               "open first to find the fault? Answer JSON {\"files\": [at most 3 names from the list], \"why\": str}.")
+
+    async def pick(t: str) -> list[str]:
+        d = await book.client("reviewer").complete_json([{"role": "system", "content": sys_msg},
+                                                         {"role": "user", "content": json.dumps({"report": t, "backend_files": names})}],
+                                                        schema=["files", "why"], max_tokens=600)
+        return [str(x).rsplit("/", 1)[-1] for x in d.get("files") or []][:3]
+
+    try:
+        rev, base = await pick(text), await pick(baseline)
+    except Exception as e:  # noqa: BLE001
+        return {"model": book.spec("reviewer").ref, "implies_location": None, "error": f"{type(e).__name__}: {e}"[:300]}
+    hit_rev, hit_base = sorted(fault & set(rev)), sorted(fault & set(base))
+    return {"model": book.spec("reviewer").ref, "picks_revised": rev, "picks_original": base, "fault_files": sorted(fault),
+            "implies_location": bool(hit_rev) and not hit_base}
+
+
+def original_requirement(rec: dict[str, Any], mid: str) -> str:
+    """The milestone's requirement before any revision: the oldest ``record.json.bak-k6-*`` backup's text (the current
+    text when the record was never revised)."""
+    d = ROOT / "store" / rec["split"] / rec["id"]
+    baks = sorted(d.glob("record.json.bak-k6-*"))
+    src = json.loads(baks[0].read_text()) if baks else rec
+    return next((x["text"] for x in src.get("requirements") or [] if x.get("milestone") == mid), "")
+
+
+def cmd_leakcheck(a: argparse.Namespace) -> None:
+    """Before measuring a revised record: the deterministic location probe and the non-builder checker on the revised
+    requirement; both must clear. Recorded in ``rec["revision_checks"]``; exit 1 when it does not clear."""
+    import asyncio
+
+    from crucible.factory.lanes import kernel_debug as kd
+    from crucible.factory.models import ModelBook
+
+    rec = next(r for r in kd.records(ROOT / "store") if r["id"] == a.id)
+    q = next(x for x in rec["requirements"] if x["milestone"] == a.milestone)
+    det = location_probe(rec, a.milestone, q["text"])
+    base = original_requirement(rec, a.milestone)
+    chk = asyncio.run(location_check(ModelBook(preset=a.preset), rec, a.milestone, q["text"], base))
+    ok = not det and chk.get("implies_location") is False
+    rec.setdefault("revision_checks", []).append({"milestone": a.milestone, "text": q["text"], "probe": det, "checker": chk, "ok": ok})
+    kd.save(ROOT / "store", rec)
+    print(json.dumps({"task": rec["id"], "milestone": a.milestone, "ok": ok, "probe": det, "checker": chk}), flush=True)
+    if not ok:
+        raise SystemExit(1)
 
 
 def cmd_revise(a: argparse.Namespace) -> None:
@@ -577,7 +666,8 @@ def cmd_revise(a: argparse.Namespace) -> None:
 
     def lint(draft: dict) -> list[str]:
         sp = splice(draft)
-        return kd.author(copy.deepcopy(before), sp)["findings"] + k6_claims_ok(before, a.milestone, sp["requirements"][a.milestone])
+        return (kd.author(copy.deepcopy(before), sp)["findings"] + k6_claims_ok(before, a.milestone, sp["requirements"][a.milestone])
+                + location_probe(before, a.milestone, sp["requirements"][a.milestone]))
 
     brief = kernel_brief(rec)
     brief["milestones"] = [m for m in brief["milestones"] if m["id"] == a.milestone]
@@ -589,7 +679,9 @@ def cmd_revise(a: argparse.Namespace) -> None:
                          "instruction": ("Rewrite only this one requirement, as the user who saw it fail would: name the op, the symptom and the "
                                          "inputs it fails on (the shape parameters these cases share, in a user's words with their values), so a "
                                          "competent engineer could reproduce it. Never the cause, the fix, a function, kernel, file or case string. "
-                                         "Write requirements for this milestone id only; the rest of the report is kept as it is.")}
+                                         "Write requirements for this milestone id only; the rest of the report is kept as it is. Finding where the fault "
+                                         "is, is the agent's work: never name or hint at a file, function, kernel, code path or whether the fault sits "
+                                         "in a dispatcher or a kernel.")}
     sroot = ROOT / "swarm" / rec["split"] / "k6"
     tmp = sroot / "drafts" / f"{rec['id']}.json"
     job = PromptJob(rec["id"], [a.milestone], brief, ROOT / "store" / rec["tree_a"], lint, lambda t, rec=rec: kd.lint_prompt(t, rec), tmp)
@@ -1123,6 +1215,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--cap", type=float, default=10.0, help="USD over every record of this run")
     s.add_argument("--budget", type=float, default=1.5, help="USD per record (the machine's budget)")
     s.add_argument("--max-turns", type=int, default=60)
+    s = sub.add_parser("leakcheck", help="the location probe and a non-builder checker on a revised requirement")
+    s.add_argument("--id", required=True)
+    s.add_argument("--milestone", required=True)
+    s.add_argument("--preset", default="swarm")
     s = sub.add_parser("revise", help="a swarm revision of one training record (K6: sharpen one requirement; no Claude)")
     s.add_argument("--id", required=True)
     s.add_argument("--knob", default="K6")
@@ -1134,7 +1230,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--max-turns", type=int, default=120)
     a = ap.parse_args(argv)
     {"mine": cmd_mine, "build": cmd_build, "gates": cmd_gates, "author": cmd_author, "repool": cmd_repool, "stage-gpu": cmd_stage_gpu, "ingest-gpu": cmd_ingest_gpu, "stage-extras": cmd_stage_extras, "report": cmd_report, "observe": cmd_observe,
-     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts, "revise": cmd_revise}[a.cmd](a)
+     "reach": cmd_reach, "retire": cmd_retire, "write-prompts": cmd_write_prompts, "revise": cmd_revise, "leakcheck": cmd_leakcheck}[a.cmd](a)
     return 0
 
 

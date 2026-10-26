@@ -537,6 +537,9 @@ def test_k6_states_only_parameters_the_milestone_s_cases_have():
     rec = {"milestones": [{"id": "m2", "cases": ["FLASH_ATTN_EXT(hsk=576,hsv=512,nh=4,nr23=[4,1],kv=512,type_KV=q4_0)"]}]}
     assert g.k6_claims_ok(rec, "m2", "FLASH_ATTN_EXT is wrong for head size 576 with value size 512 and a quantized cache.") == []
     assert g.k6_claims_ok(rec, "m2", "FLASH_ATTN_EXT is wrong for head size 256.") == ["K6 claim: 256 is no parameter of m2's cases"]
+    # a list value is not one number (cef66d4a's first K6 said bs=[1,1], read as 11), a thousands separator is
+    mm = {"milestones": [{"id": "m3", "cases": ["MUL_MAT(type_a=q4_0,m=16,n=70000,k=256,bs=[1,1],nr=[1,1])"]}]}
+    assert g.k6_claims_ok(mm, "m3", "MUL_MAT fails for n=70,000 with bs=[1,1] and nr=[1,1].") == []
 
 
 def load_gpu_lane_script():
@@ -547,3 +550,19 @@ def load_gpu_lane_script():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_a_revision_never_points_at_the_location(tmp_path, monkeypatch):
+    """Finding the fault is the skill (2026-10-26 guard): the location probe refuses location words and any word of the
+    requirement that a grep of the start tree's CUDA backend finds only in the milestone's fault files."""
+    g = load_gpu_lane_script()
+    be = tmp_path / "store" / "train" / "t" / "a" / "ggml" / "src" / "ggml-cuda"
+    be.mkdir(parents=True)
+    (be / "fattn-mma-f16.cuh").write_text("void flash_attn_ext_f16_process_tile() { __syncthreads(); } // tile_barrier_rows\n")
+    (be / "fattn.cu").write_text("void dispatch() { /* FLASH_ATTN_EXT */ }\n")
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    rec = {"id": "t", "split": "train", "tree_a": "train/t/a", "milestones": [{"id": "m2", "files": ["ggml/src/ggml-cuda/fattn-mma-f16.cuh"],
+                                                                         "functions": ["flash_attn_ext_f16_process_tile"]}]}
+    assert g.location_probe(rec, "m2", "FLASH_ATTN_EXT with f16 caches and head size 128 hangs.") == []
+    got = g.location_probe(rec, "m2", "FLASH_ATTN_EXT hangs on tile_barrier_rows; the dispatcher picks the wrong path.")
+    assert any(x.startswith("location grep: 'tile_barrier_rows'") for x in got) and any("dispatcher" in x for x in got)
