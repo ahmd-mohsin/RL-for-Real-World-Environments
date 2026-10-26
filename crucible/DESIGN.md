@@ -1097,6 +1097,33 @@ build tasks that target its failures):
       `applied: False`; `swarm_intents` feed `swarm_journal.diagnose(monitor=...)` (`scripts/swarm.py diagnose --monitor`).
     - **Held-out discipline:** benchmark episodes are aggregated only (placeholders); `proposals`, `swarm_intents` and
       `judge` raise `HeldOutUse` on a held-out episode.
+  - **Framework health** (2026-10-25, `swarm-pipeline/11` §4.5, 13 §12): `factory/framework_health.py`, driven by
+    `scripts/train_monitor.py health|fix` and inside `watch`; rendered by `observe/train_monitor.py` (`health_markdown`,
+    `log_health`). It is the framework side of the monitor.
+    - **Detectors:** deterministic, each labelled agent or framework and given a component (World, harness, grader,
+      sandbox, sampler, trainer, task spec). They cover masked failures, unmeasured checkpoints, World and tool faults
+      (core toolchain against convenience tools), host resources, token truncation, provider errors, nondeterministic
+      grades, the sidecar and final grader disagreeing, re-pathed false positives, stale visible tests, protected-edit
+      consensus, unreachable milestones, spec defects, codec suspects, S9b false fails, trainer numerics, job-log
+      errors and unreadable attempts.
+    - **Clusters:** grouped by a normalized signature, each with episodes, tasks, first occurrence, a reproduction, an
+      impact and a severity.
+      - **Impact:** the reward moved or at risk, the advantage distortion per rollout group (`sum |Δ advantage|`, sign
+        flips), and the samples and groups a masked defect cost.
+      - **Severity:** CRITICAL corrupts reward or advantage, HIGH wastes episodes, LOW is cosmetic.
+    - **Triage:** `pause` while a CRITICAL framework defect is open (the CLI exits 3).
+      - **Fixes:** recorded with `record_fix` in `<run>/framework_fixes.jsonl`, which sets a defect to `fixed@<version>`,
+        or to `recurring` if it shows up after the fix step.
+      - **Regrades:** `regrade_plan` names the offline tool (repath, or `factory.tinker.regrade` with
+        `versioning.OfflineGrade` rows that never enter training).
+      - **Versions:** `versions` gives the path-rules and reward-rule versions per step; a mix with no fix record is a
+        `version_mix` defect.
+    - **Metadata and tuning:** per lane and step, `metadata` covers tool failure, latency, tokens, context use,
+      compaction Φ, checkpoint cost, mask rate, GPU and World minutes, budget stops, first edit, and useful samples per
+      dollar and per GPU-hour. `tuning` turns these into proposals that are never applied: cadence, compaction,
+      truncation, output tokens, concurrency, group size from `1 - p^k - (1-p)^k`, tool affordances, and the band.
+    - **Held-out:** `redact` keeps component, kind, severity and counts, and withholds tasks, episodes, reproductions
+      and content-bearing signatures. Tuning reads training traces only.
   - **Controller fixes from the pilot:** a budget-bound task gets the horizon-shortening knobs (C1, K1; the 300-call
     budget never moves); a root milestone's rate is no checkpoint signal; a conditional rate above the band is not in band.
   - **Pilot fixes:** `sampler.ensure_cap` (every `write-prompts` stopped at the shared meter's 1-USD default whatever its
