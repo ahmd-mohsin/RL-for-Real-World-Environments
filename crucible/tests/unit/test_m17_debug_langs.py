@@ -379,3 +379,19 @@ def test_fairness_flags() -> None:
     go = {"lang": "go", "milestones": [{"id": "m01", "unit": "u", "requires": [], "tests": ["a_test.go::TestEllipsis/cjk", "a_test.go::TestparseInt64"]}]}
     assert fairness_flags(go, {"Ellipsis", "parseInt64"}) == ["internal_function_check: m01 test TestparseInt64 is named after the changed function parseInt64"]
     assert task_intent(go, {"Ellipsis"})["fairness_flags"] == []
+
+
+def test_node_strips_conditional_and_matrix_named_tests() -> None:
+    """h3 (2026-10-25): its node-only tests are ``it.skipIf(cond)(title, fn)`` inside a matrix helper that runs each test as
+    ``app::node::<title> (node)``; neither the call form nor the runner's name was recognised, so strip mode left the
+    hidden tests visible. A unique title is matched through the suffix; an ambiguous one is never guessed."""
+    src = ('describeMatrix("app", (t, { it }) => {\n'
+           '  it("plain", () => {});\n'
+           '  it.skipIf(t.target !== "node")(\n    "piping (with Error)",\n    async () => { expect(1).toBe(1); },\n  );\n'
+           '  it.runIf(t.target === "web")("dup", () => {});\n'
+           '  it("dup", () => {});\n'
+           '});\n')
+    assert "piping (with Error)" in NODE.test_defs(src)
+    out = NODE.strip_tests(src, {"app::node::piping (with Error) (node)"}, "test/app.test.ts")
+    assert "piping (with Error)" not in out and 'it("plain"' in out
+    assert NODE.strip_tests(src, {"app::web::dup (web)"}, "test/app.test.ts") == src  # two tests titled dup: left alone
