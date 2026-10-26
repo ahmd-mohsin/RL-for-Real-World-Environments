@@ -546,9 +546,12 @@ def cmd_cp(argv: list[str]) -> int:
     tar = subprocess.Popen(["tar", "-C", str(s.parent), "-cf", "-", s.name], stdout=subprocess.PIPE)
     # --no-same-owner: the host user's uid is not mapped inside the root-mapped namespace (smoke 3459402: "Cannot change
     # ownership to uid 98407"); the files land owned by the container's root, as ``docker cp`` leaves them
-    r = subprocess.run([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "sh", "-c",
-                        f'mkdir -p "$(dirname {json.dumps(path)})" && tar --no-same-owner -C "$(dirname {json.dumps(path)})" -xf -'],
-                       stdin=tar.stdout, env=host_env(), check=False)
+    # ``docker cp SRC c:DEST`` copies into DEST when it is a directory, else *to* DEST (renamed): the World pushes its
+    # snippets as /tmp/.crucible_push_* to /tmp/.crucible_py_*.py (smoke 3459692: the snippet was not found)
+    q = json.dumps(path)
+    inner = (f'if [ -d {q} ]; then tar --no-same-owner -C {q} -xf -; else mkdir -p "$(dirname {q})" && d=$(mktemp -d) && '
+             f'tar --no-same-owner -C "$d" -xf - && mv "$d"/{json.dumps(s.name)} {q} && rmdir "$d"; fi')
+    r = subprocess.run([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "sh", "-c", inner], stdin=tar.stdout, env=host_env(), check=False)
     tar.wait()
     return r.returncode
 
@@ -563,37 +566,56 @@ def cmd_images(argv: list[str]) -> int:
     return 0
 
 
+def log(argv: list[str], rc: int, err: str = "") -> None:
+    """``CRUCIBLE_SHIM_LOG``: one JSON line per call (argv, exit code, the shim's own error): what a job's graders and
+    Worlds asked for and what was refused."""
+    path = os.environ.get("CRUCIBLE_SHIM_LOG")
+    if path:
+        try:
+            with open(path, "a") as fh:
+                fh.write(json.dumps({"argv": argv[:40], "rc": rc, "err": err[:600]}) + "\n")
+        except OSError:
+            pass
+
+
 def main(argv: list[str]) -> int:
+    try:
+        rc = dispatch(argv)
+    except ShimError as e:
+        print(f"docker: {e}", file=sys.stderr)
+        log(argv, e.code, str(e))
+        return e.code
+    log(argv, rc)
+    return rc
+
+
+def dispatch(argv: list[str]) -> int:
     if not argv:
         print("docker (Apptainer shim): run exec rm kill stop inspect image ps cp images info version", file=sys.stderr)
         return 1
     cmd, rest = argv[0], argv[1:]
-    try:
-        if cmd == "run":
-            return cmd_run(rest)
-        if cmd == "exec":
-            return cmd_exec(rest)
-        if cmd in ("rm", "kill", "stop"):
-            return cmd_rm(rest if cmd == "rm" else ["-f", *rest])
-        if cmd == "inspect":
-            return cmd_inspect(rest)
-        if cmd == "image" and rest[:1] == ["inspect"]:
-            return cmd_inspect(rest[1:], image=True)
-        if cmd == "ps" or (cmd == "container" and rest[:1] in (["ls"], ["list"])):
-            return cmd_ps(rest if cmd == "ps" else rest[1:])
-        if cmd == "cp":
-            return cmd_cp(rest)
-        if cmd == "images":
-            return cmd_images(rest)
-        if cmd == "events":  # no daemon event stream: nothing happened that Docker would report (OOM kills are the job cgroup's)
-            return 0
-        if cmd in ("info", "version"):
-            print("Apptainer shim (crucible scripts/deltaai/docker_shim.py); containers are Apptainer instances, offline")
-            return 0
-        raise ShimError(f"docker {cmd} is not supported by the Apptainer shim (build images with lh_deltaai.py images)")
-    except ShimError as e:
-        print(f"docker: {e}", file=sys.stderr)
-        return e.code
+    if cmd == "run":
+        return cmd_run(rest)
+    if cmd == "exec":
+        return cmd_exec(rest)
+    if cmd in ("rm", "kill", "stop"):
+        return cmd_rm(rest if cmd == "rm" else ["-f", *rest])
+    if cmd == "inspect":
+        return cmd_inspect(rest)
+    if cmd == "image" and rest[:1] == ["inspect"]:
+        return cmd_inspect(rest[1:], image=True)
+    if cmd == "ps" or (cmd == "container" and rest[:1] in (["ls"], ["list"])):
+        return cmd_ps(rest if cmd == "ps" else rest[1:])
+    if cmd == "cp":
+        return cmd_cp(rest)
+    if cmd == "images":
+        return cmd_images(rest)
+    if cmd == "events":  # no daemon event stream: nothing happened that Docker would report (OOM kills are the job cgroup's)
+        return 0
+    if cmd in ("info", "version"):
+        print("Apptainer shim (crucible scripts/deltaai/docker_shim.py); containers are Apptainer instances, offline")
+        return 0
+    raise ShimError(f"docker {cmd} is not supported by the Apptainer shim (build images with lh_deltaai.py images)")
 
 
 if __name__ == "__main__":

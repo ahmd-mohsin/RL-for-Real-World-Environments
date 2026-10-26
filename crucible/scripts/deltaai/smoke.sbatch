@@ -100,6 +100,13 @@ done
 # 7. one short student episode on a training task (tool limit 20), the debug lane's own World and grader through the shim
 # (the lane's clones borrow objects from data/debug/src through git alternates that name the Mac's paths: repoint them)
 find "$W/data/debug" -path "*objects/info/alternates" -print0 | xargs -0 -r sed -i "s|/Users/[^ ]*/crucible/data/debug|$W/data/debug|g"
+export CRUCIBLE_SHIM_LOG=$O/shim.log
+# the language grader's own copy step, by hand (a read-only tree in, copied to /w as the grader does)
+mkdir -p "$J/gtree/sub" && echo x > "$J/gtree/sub/f.go"
+docker run --rm --name crucible-lh-d-s15-grade-probe --label crucible.lane=debug --network none --tmpfs /tmp:rw,exec,size=1g --memory 2g --cpus 2 \
+  --pids-limit 2048 -v "$J/gtree:/src:ro" -e HOME=/tmp crucible-lh-d:go-go-toml-d4fe68839d05 \
+  sh -c 'id; rm -rf /w 2>/dev/null; mkdir -p /w && cp -a /src/. /w/ && cd /w && echo GRADER_COPY_OK; go version' > "$O/grader_probe.txt" 2>&1
+t "grader probe: rc=$? $(tr '\n' ' ' < $O/grader_probe.txt | cut -c1-400)"
 t "episode: $TASK"
 cd "$W/code/crucible"
 $PY scripts/lh_debug_target.py student --backend vllm --vllm-engine "$O/engine.json" --student "$MODEL" --tasks "$TASK" --k 1 \

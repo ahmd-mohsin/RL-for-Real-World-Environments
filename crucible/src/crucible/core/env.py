@@ -128,6 +128,7 @@ KNOBS: dict[str, Knob] = {k.name: k for k in [
     Knob("CRUCIBLE_SHIM_LIMITS", "bool", False, "docker shim: pass cgroup limits to Apptainer (refused in fakeroot mode on DeltaAI)", kind="internal"),
     Knob("CRUCIBLE_SHIM_PYTHON", "path", None, "docker shim: the Python that runs it (the node's /usr/bin/python3 is 3.6)", kind="internal"),
     Knob("CRUCIBLE_APPTAINER", "str", "apptainer", "docker shim: the apptainer command", kind="internal"),
+    Knob("CRUCIBLE_SHIM_LOG", "path", None, "docker shim: one JSON line per call (argv, exit code, refusal) for a job's record", kind="internal"),
     Knob("CRUCIBLE_TINKER_SPEND", "path", None, "Tinker bridge: spend.jsonl the shared meter appends receipts to (default: none)"),
     Knob("CRUCIBLE_CUDA_HOME", "path", "/usr/local/cuda", "kernel lane grader: the CUDA toolkit inside the grading image", kind="internal"),
     Knob("CRUCIBLE_CUDA_ARCH", "str", None, "kernel lane grader: the native sm_XX the grader builds for (set by the GPU stage)", kind="internal"),
