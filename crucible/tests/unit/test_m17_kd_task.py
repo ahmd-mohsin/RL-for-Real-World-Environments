@@ -490,3 +490,17 @@ def test_perf_calibration_rejects_timings_that_measured_nothing():
     assert not g.plausible_timing(1.15, 1007.2, 8551.7)  # GH200 2026-10-24: kept with a bar of 3019 before this rule
     assert not g.plausible_timing(1.0, 1.0, 2902.0)  # a 2902x regression is a broken timing, not a speed-up undone
     assert not g.plausible_timing(0.49, 0.62, 0.31)
+
+
+def test_a_report_never_asks_for_a_milestone_the_gpu_calibration_dropped():
+    """2026-10-25: the GPU ingest dropped cef66d4a's m2 and kept the old prompt, which still asked for R2 (V5). The ingest
+    now re-authors from prompts/<id>.json, and the kernel targeting preflight refuses a report with an ungraded requirement."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    rec = {"milestones": [{"id": "m1"}, {"id": "m3"}],
+           "requirements": [{"id": "R1", "milestone": "m1"}, {"id": "R2", "milestone": "m2"}, {"id": "R3", "milestone": "m3"}]}
+    assert kd.ungraded_requirements(rec) == ["R2"]
+    assert kd.ungraded_requirements({**rec, "requirements": [q for q in rec["requirements"] if q["id"] != "R2"]}) == []
+    p = Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug.py"
+    src = p.read_text()
+    assert "reauthor(rec)\n        kd.save(store, rec)" in src  # the ingest re-authors before it saves

@@ -453,6 +453,19 @@ def cmd_author(a: argparse.Namespace) -> None:
         print(rec["id"], "lint", res["findings"] or "clean", flush=True)
 
 
+def reauthor(rec: dict[str, Any]) -> list[str] | None:
+    """Recompose the stored report from its authored source (``prompts/<id>.json``) once milestones are dropped, so a
+    requirement whose milestone the GPU calibration dropped leaves the prompt (V5: nothing ungraded is asked). Before
+    2026-10-25 the ingest dropped milestones and kept the old prompt: 6 records still asked for one (cef66d4a's R2, a
+    FLASH_ATTN_EXT race no case grades). Returns the findings, None without an authored source."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    p = ROOT / "prompts" / f"{rec['id']}.json"
+    if not p.exists():
+        return None
+    return kd.author(rec, json.loads(p.read_text()))["findings"]
+
+
 def kernel_brief(rec: dict[str, Any], *, chars: int = 3000) -> dict[str, Any]:
     """The prompt writer's hand-off for one kernel record (``factory.swarm_prompts``): per milestone the fix's message, its
     hunks of the oracle patch (to understand, never to quote), the ops and checks a user would observe; and the strings
@@ -703,6 +716,7 @@ def cmd_ingest_gpu(a: argparse.Namespace) -> None:
         rec["dropped_milestones"] = sorted({m["id"] for m in rec["milestones"]} - {m["id"] for m in ms} | set(rec.get("dropped_milestones") or []))
         rec["milestones"] = ms
         rec["perf_bars"] = {**(rec.get("perf_bars") or {}), **(cal.get("perf_bars") or {})}
+        reauthor(rec)
         kd.save(store, rec)
         print(rec["id"], "milestones", [m["id"] for m in ms], "edges", [(m["id"], m["requires"]) for m in ms if m["requires"]], flush=True)
 

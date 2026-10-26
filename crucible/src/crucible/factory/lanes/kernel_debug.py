@@ -534,6 +534,13 @@ def ledger_of(rec: Mapping[str, Any]) -> tuple[Any, list[str]]:
     return K.ledger_of(view)
 
 
+def ungraded_requirements(rec: Mapping[str, Any]) -> list[str]:
+    """Requirement ids of the stored report whose milestone is not graded (dropped by the GPU calibration, or gone): a
+    report that asks for one breaks V5 (2026-10-25: cef66d4a still asked for R2 after its m2 was dropped)."""
+    graded = {m["id"] for m in rec.get("milestones") or []}
+    return [str(q["id"]) for q in rec.get("requirements") or [] if q.get("milestone") and q["milestone"] not in graded]
+
+
 def author(rec: dict[str, Any], authored: Mapping[str, Any]) -> dict[str, Any]:
     """Compose, lint and ledger the builder's report into ``rec`` (``prompt``, ``requirements``, ``spans``, ``lint``,
     ``prompt_provenance``); returns the findings (empty = publishable)."""

@@ -174,9 +174,15 @@ async def preflight(ph: Any, tids: list[str]) -> list[str]:
     the oracle a full pass, the empty patch no milestone. A task whose grader is broken or masked is left out of the paid
     stages, so a grader regression costs two GPU grades, not 8 masked episodes (2026-10-25: an ImportError, then a
     TypeError in the episode grader masked all 8 episodes of 1b8b8fb1, 10.6 USD)."""
+    from crucible.factory.lanes import kernel_debug as kd
+
     ok = []
     for tid in tids:
         task = ph.tasks.task(tid)
+        bad = kd.ungraded_requirements(task.rec)
+        if bad:  # the report asks for a milestone no case grades (V5): re-author (lh_kernel_debug.py author) before measuring
+            print(f"[preflight] {tid}: REFUSED report asks for ungraded requirements {bad}", flush=True)
+            continue
         oracle = str(task.rec.get("oracle_patch") or "")
         got = {}
         for name, patch in (("oracle", oracle), ("empty", "")):
