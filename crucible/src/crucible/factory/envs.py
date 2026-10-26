@@ -73,19 +73,25 @@ class Timeouts:
 
 
 # ---- liveness and the infra watch -------------------------------------------------------------------------------------------
-async def container_running(name: str, env: Mapping[str, str] | None = None) -> bool:
+async def container_running(name: str, env: Mapping[str, str] | None = None, *, timeout_s: float = 60.0) -> bool:
     """``env``: the Docker CLI's environment for the daemon the container runs on (a remote GPU host's ``DOCKER_HOST``);
-    None = this process's."""
-    p = await asyncio.create_subprocess_exec("docker", "inspect", "-f", "{{.State.Running}}", name, stdout=asyncio.subprocess.PIPE,
-                                             stderr=asyncio.subprocess.PIPE, env=dict(env) if env is not None else None)
-    out, _ = await p.communicate()
-    return p.returncode == 0 and out.decode().strip() == "true"
+    None = this process's. Bounded (2026-10-26: unbounded, a daemon that stopped answering held the episode here); a call
+    that runs out ``timeout_s`` answers False."""
+    from crucible.world.exec import _run_subprocess
+
+    out = await _run_subprocess(["docker", "inspect", "-f", "{{.State.Running}}", name], cwd=None, env=dict(env) if env is not None else None,
+                                timeout_s=timeout_s, stdin=None)
+    return out.ok and out.stdout.strip() == "true"
 
 
 async def world_alive(world: Any) -> bool:
     """A World is alive when its container runs (Docker World) and no host probe says otherwise (``_crucible_alive``). The
     container is asked of the daemon it runs on (``_crucible_env``: a GPU World on a remote host, kernel_episode); asking
-    the local daemon about a remote container read every GPU episode as a dead World after its first step."""
+    the local daemon about a remote container read every GPU episode as a dead World after its first step.
+
+    A remote World (``_crucible_reach``, a ``hostreach.HostReach``) whose container does not answer while its host does not
+    answer a probe either is an outage, not a dead World: the episode pauses for the host and asks again once it is back;
+    a host that does not come back raises ``HostUnreachable`` (``InfraWatch`` records it as such)."""
     probe = getattr(world, "_crucible_alive", None)
     if callable(probe):
         r = probe()
@@ -94,7 +100,20 @@ async def world_alive(world: Any) -> bool:
         if not r:
             return False
     name = getattr(world, "_crucible_container", None)
-    return await container_running(name, getattr(world, "_crucible_env", None)) if name else True
+    if not name:
+        return True
+    env = getattr(world, "_crucible_env", None)
+    if await container_running(name, env):
+        return True
+    reach = getattr(world, "_crucible_reach", None)
+    why = f"the World's container {name} did not answer its liveness check"
+    if reach is None or not await reach.confirm(why):
+        return False
+    from crucible.world.exec import HostUnreachable
+
+    if not await reach.outage(why, what="World liveness"):
+        raise HostUnreachable(reach.name, f"World liveness on {reach.name}: the host did not come back within the pause budget ({why})")
+    return await container_running(name, env)
 
 
 class InfraWatch:
@@ -106,7 +125,18 @@ class InfraWatch:
         self.dead: str | None = None
 
     async def _check(self, world: Any, where: str) -> None:
-        if self.dead is None and not await self.alive(world):
+        from crucible.world.exec import HOST_UNREACHABLE, HostUnreachable
+
+        if self.dead is not None:
+            return
+        try:
+            alive = await self.alive(world)
+        except HostUnreachable as e:  # the World's host stopped answering and did not come back (hostreach): masked as such
+            self.dead = where
+            if hasattr(world, "_infra"):
+                world._infra("transport_unreachable", f"the World's host is unreachable ({where}): {e}", failure_detail=HOST_UNREACHABLE)
+            return
+        if not alive:
             self.dead = where
             if hasattr(world, "_infra"):
                 world._infra("crucible:env_container_lost", f"the World's sandbox died ({where})")

@@ -104,9 +104,26 @@ from crucible.runtime.harness.base import Attempt, HarnessResult
 from crucible.runtime.infra import Health, RetryRule, coverage, mean_reward, pass_at_k
 from crucible.runtime.journal import BREAKER_META, LOCK, RunJournal, atomic_write
 from crucible.runtime.keys import SampleKey, attempt_id, derive_seed
-from crucible.world import lifecycle
+from crucible.world import hostreach, lifecycle
 from crucible.world.lifecycle import Hygiene
 from crucible.world.pool import close_pools
+
+OUTAGE_META = "host_outages"  # record.meta: the attempt's remote-host outages (``hostreach.Outages.to_json``)
+
+
+async def _run_harness(harness: Any, attempt: Attempt, timeout_s: float | None, outages: hostreach.Outages) -> HarnessResult:
+    """``harness.run(attempt)`` under the attempt clock (``timeout_s``; none without it), with ``outages`` as the attempt's
+    ledger and the clock registered with ``world.hostreach``: a remote host's outage holds it while the episode is paused
+    (2026-10-26), so a pause never runs an attempt out of time."""
+    with hostreach.episode(outages):
+        if not timeout_s:
+            return await harness.run(attempt)
+        # M10 lab audit R-3 review round 2: the clock is handed to the harness (Attempt.clock), which opens the grading's own
+        # window on it (grading.grading_window); asyncio.wait_for kept it out of reach
+        async with asyncio.timeout(timeout_s) as clock:
+            attempt.clock = clock
+            with hostreach.clock(clock):
+                return await harness.run(attempt)
 
 
 @dataclass
@@ -474,6 +491,7 @@ class Runner:
             want = planned.get(task.id)  # R-2: the task's content digest when the run's lock was taken
             d0 = _digest_now(task) if want is not None else None
             extra = {"grade_only": True} if self._grade_only_retry(adir, n) else {}
+            outages = hostreach.Outages()  # 2026-10-26: the remote-host outages this attempt paused for (``world.hostreach``)
             state["attempts"] += 1
             if want is not None and d0 != want:  # edited since the lock was taken: never dispatched, never graded
                 hr = _task_changed(task.id, want, d0, "since the run's lock was taken")
@@ -492,14 +510,7 @@ class Runner:
                     async with lifecycle.attempt(scope):
                         try:
                             hr: HarnessResult
-                            if spec.attempt_timeout_s:
-                                # M10 lab audit R-3 review round 2: the clock is handed to the harness (Attempt.clock), which opens the
-                                # grading's own window on it (grading.grading_window); asyncio.wait_for kept it out of reach
-                                async with asyncio.timeout(spec.attempt_timeout_s) as clock:
-                                    attempt.clock = clock
-                                    hr = await harness.run(attempt)
-                            else:
-                                hr = await harness.run(attempt)
+                            hr = await _run_harness(harness, attempt, spec.attempt_timeout_s, outages)
                         except asyncio.CancelledError:
                             raise
                         except Exception as ex:  # noqa: BLE001 -- the harness's own fault: masked, its spend unknown (held as uncertain)
@@ -542,6 +553,11 @@ class Runner:
             except Exception as ex:  # noqa: BLE001 -- a record or rollout that cannot be built: masked, never a crash
                 rec = self._record(spec, sk, aid, task, policy, harness, HarnessResult(failure=Failure(
                     kind="agent_run_error", stage="collect", blame="harness", reason=f"record/rollout: {type(ex).__name__}: {ex}"[:500])), d0, epoch=journal.epoch, **stamp)
+            if outages.rows:  # every pause of this attempt for a remote host, resumed or not: the record and the run journal carry them
+                rec.meta[OUTAGE_META] = outages.to_json()
+                journal.event("host_outage", attempt=aid, hosts=rec.meta[OUTAGE_META]["hosts"], paused_s=rec.meta[OUTAGE_META]["paused_s"],
+                              outages=len(outages.rows), resumed=rec.meta[OUTAGE_META]["resumed"], masked=bool(rec.mask_sample),
+                              failure=rec.failure.kind if rec.failure else None, detail=rec.failure.detail if rec.failure else None)
             self._evidence(rec)
             # M10 lab audit R-3: a verification-stage failure is retried only when the harness persisted the work for a re-grade
             # M10 lab audit R-4: the rule counts dispatched attempts, not the index: a refused reservation took an index and ran

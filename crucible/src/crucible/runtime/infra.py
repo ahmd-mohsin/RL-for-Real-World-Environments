@@ -67,6 +67,9 @@ NORMALIZE = {
     "env_admission_timeout": ("transport_timeout", "env_admission_timeout"), "env_seed_failed": ("crucible:backend_error", "env_seed_failed"),
     "env_server_error": ("crucible:backend_error", "env_server_error"),
     "StaleImage": ("crucible:stale_image", "StaleImage"),  # world.sandbox: the image is not the pinned one (M1 audit R-14)
+    # world.hostreach (2026-10-26): a remote World or grader host that stopped answering and did not come back within the pause
+    # budget (the exception, and a masked grade's ``failure_kind``): the shared transport kind, detail host_unreachable
+    "HostUnreachable": ("transport_unreachable", "host_unreachable"), "host_unreachable": ("transport_unreachable", "host_unreachable"),
     # LLM client
     "UsageBlank": ("crucible:usage_blank", "UsageBlank"), "BudgetExceeded": ("crucible:credits_exhausted", "BudgetExceeded"),
     "ContextOverflow": ("agent_timeout", "context_overflow"),

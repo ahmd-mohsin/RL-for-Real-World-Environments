@@ -12,6 +12,7 @@ reproduces it. Read-only over stored episodes; it never grades, rewards or gates
 | ``world_fault`` | World | ``traceaudit.facts`` ``world_fault`` (a missing command or module, a tool fault) | CRITICAL when systematic |
 | ``tool_error`` | World or harness | tool results with ``fault == "tool"``, clustered by their first line | CRITICAL when systematic |
 | ``host_resource`` | sandbox and host | OOM, disk, lock, network, Apptainer patterns in failures and tool results | HIGH |
+| ``host_unreachable`` | sandbox and host | a remote host that did not come back within the pause budget (detail ``host_unreachable``), one cluster per host; ``meta.host_outages`` of an episode that paused and resumed | HIGH / LOW |
 | ``token_truncation`` | sampler | model calls that finished on ``length``; a ``max_output_tokens`` stop | HIGH |
 | ``provider_error`` | sampler | model calls that finished on an error | HIGH |
 | ``tool_timeout`` | harness | a tool result that reports the harness's own time limit | LOW |
@@ -69,6 +70,10 @@ from typing import Any
 
 from crucible.factory.traceaudit import BUDGET_STOPS, EpisodeBundle, facts, honest_trace_facts, propose_spec_defects, propose_world_bugs
 from crucible.factory.train_monitor import Episode, _edit_steps, attempt_dirs, episode_of, in_band_tasks, placeholder, step_health, step_map
+from crucible.world.exec import HOST_UNREACHABLE
+from crucible.world.hostreach import INTERRUPTED
+
+OUTAGE_META = "host_outages"  # record.meta of an attempt that paused for a remote host (``runtime.run.OUTAGE_META``)
 
 SEVERITY = {"CRITICAL": 3, "HIGH": 2, "LOW": 1}
 COMPONENTS = ("world", "harness", "grader", "sandbox", "sampler", "trainer", "task_spec")
@@ -80,7 +85,7 @@ DETECTORS: dict[str, tuple[str, str]] = {  # kind -> (default component, default
     "unreachable_milestone": ("task_spec", "HIGH"), "spec_defect": ("task_spec", "HIGH"), "codec_suspect": ("sampler", "HIGH"),
     "fairness_false_fail": ("grader", "CRITICAL"), "trainer_numeric": ("trainer", "HIGH"), "version_mix": ("grader", "HIGH"),
     "path_verdict_drift": ("grader", "LOW"), "credit_grade_mismatch": ("grader", "CRITICAL"), "job_log_error": ("harness", "HIGH"),
-    "unreadable_attempt": ("harness", "HIGH"),
+    "unreadable_attempt": ("harness", "HIGH"), "host_unreachable": ("sandbox", "HIGH"),
 }
 CONTENT_KINDS = {"stale_visible_test", "protected_edit_consensus", "unreachable_milestone", "spec_defect", "fairness_false_fail"}
 HOST = ((re.compile(r"out of memory|OOM|Killed\b|exit (status|code) 137|MemoryError|Cannot allocate memory", re.IGNORECASE), "memory"),
@@ -217,6 +222,17 @@ class Hit:
     core: bool = True  # a World fault in something the task cannot be done without (escalates to CRITICAL when systematic)
 
 
+def host_gone(f: Mapping[str, Any], rep: Mapping[str, Any] | None = None) -> str | None:
+    """The host a masked failure says stopped answering (``world.hostreach``: detail ``host_unreachable``, or a masked grade
+    whose ``failure_kind`` is it), ``"?"`` when the reason does not name it; None for any other failure."""
+    infra = (rep or {}).get("infra") or {}
+    reason = str(f.get("reason") or infra.get("reason") or "")
+    if f.get("detail") != HOST_UNREACHABLE and infra.get("failure_kind") != HOST_UNREACHABLE and not reason.startswith(HOST_UNREACHABLE):
+        return None
+    m = re.search(r" on ([\w.@:-]+): the host", reason)
+    return m.group(1) if m else "?"
+
+
 def _failure_component(kind: str, stage: str, reason: str) -> str:
     k = kind.lower()
     if "container_lost" in k or "sandbox" in k:
@@ -236,7 +252,20 @@ def per_attempt(v: View) -> list[Hit]:
     """The anomalies one attempt shows (module doc), each with its component and a minimal reproduction."""
     b, ep, out = v.b, v.ep, []
     f = v.rec.get("failure") or {}
-    if ep.masked or f:
+    outages = (v.rec.get("meta") or {}).get(OUTAGE_META) or {}
+    gone = host_gone(f, v.rep)
+    if gone is not None:
+        # a remote host that stopped answering and did not come back within the pause budget (world.hostreach): one cluster
+        # per host, whatever operation it cut, never the generic mask or a network host_resource cluster of the same fact
+        host = next(iter(outages.get("hosts") or []), None) or gone
+        out.append(Hit("host_unreachable", "sandbox", f"{HOST_UNREACHABLE}: {host} (masked)", "HIGH", ep.id, ep.task,
+                       {"stage": f.get("stage"), "kind": f.get("kind"), "detail": f.get("detail") or HOST_UNREACHABLE, "error": error_line(str(f.get("reason") or "")),
+                        "paused_s": outages.get("paused_s")}))
+    elif outages.get("resumed"):  # paused for the host and resumed: the episode stands, the framework lost wall time (and maybe a cut call)
+        for host in outages.get("hosts") or ["?"]:
+            out.append(Hit("host_unreachable", "sandbox", f"{HOST_UNREACHABLE}: {host} (paused, resumed)", "LOW", ep.id, ep.task,
+                           {"paused_s": outages.get("paused_s"), "outages": outages.get("outages"), "rows": (outages.get("rows") or [])[:3]}))
+    if (ep.masked or f) and gone is None:
         kind, stage, reason = str(f.get("kind") or "masked"), str(f.get("stage") or ""), str(f.get("reason") or (v.rep.get("infra") or {}).get("reason") or "")
         comp = _failure_component(kind, stage, reason)
         host = next((what for rx, what in HOST if rx.search(reason)), None)
@@ -263,6 +292,8 @@ def per_attempt(v: View) -> list[Hit]:
     seen: set[str] = set()
     for st in b.steps:
         txt = st.result or ""
+        if INTERRUPTED in txt:  # a call an outage cut and the host came back: the host_unreachable cluster above, not a tool defect
+            continue
         if st.fault == "tool":
             first = next((ln for ln in txt.splitlines() if ln.strip()), "")
             agent = bool(AGENT_INPUT.search(txt)) and not NOT_FOUND.search(txt)

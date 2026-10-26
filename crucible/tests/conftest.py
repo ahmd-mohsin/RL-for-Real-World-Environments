@@ -71,3 +71,22 @@ def _toy_traces_ingested() -> None:
         return
     pack = find_pack("toy")
     ingest(pack, load_manifest(pack), M3)
+
+
+@pytest.fixture(autouse=True)
+def _host_reach_isolated():
+    """``world.hostreach`` keeps one ``HostReach`` per remote host for the process: every test starts with none, so a host a
+    test left down never pauses another. A fake daemon that also fails its probe would pause an episode for the real budget
+    (30 min): hosts made without a rule get a short one here."""
+    from dataclasses import replace
+
+    from crucible.world import hostreach
+
+    hostreach.reset()
+    saved = hostreach.DEFAULT_RULE
+    hostreach.DEFAULT_RULE = replace(saved, pause_s=1.0, backoff_s=0.05, backoff_cap_s=0.2, probe_timeout_s=2.0)
+    try:
+        yield
+    finally:
+        hostreach.DEFAULT_RULE = saved
+        hostreach.reset()

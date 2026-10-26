@@ -11,6 +11,8 @@ produced the artifact that failed, and the swarm can be debugged like a policy.
 - ``gates.jsonl``: a state's verdict (ok, findings, the owner it sends back to, retry) with the provenance of what it
   judged, and every state failure (``StateFailed`` = task, ``InfraError`` = infra) with the role that raised it.
 - ``runs.jsonl``: a machine run's end (status, terminal, reason, USD).
+- ``hosts.jsonl``: a remote host's outages (``world.hostreach`` events through ``host``: down, each paused operation
+  resumed or given up, up; a launcher's held launches), reason ``host_unreachable``; ``tables()["hosts"]`` counts them.
 
 **Blame.** A failed verdict blames, in order: the role its ``owner`` names (the state it sends the work back to), else
 the builder producers of the judged inputs (provenance), else the state's own role. A session's own failure (gave up,
@@ -38,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.factory.provenance import Provenance, ProvenanceLedger
+from crucible.world.exec import HOST_UNREACHABLE
 
 
 class SwarmJournal:
@@ -66,6 +69,13 @@ class SwarmJournal:
 
     def run_end(self, *, run: str, status: str, reason: str | None, usd: float, task: str = "", accepted: bool = False) -> None:
         self._append("runs.jsonl", {"run": run, "status": status, "reason": (reason or "")[:500], "usd": round(float(usd), 6), "task": task, "accepted": accepted})
+
+    def host(self, row: Mapping[str, Any]) -> None:
+        """``hostreach.listen(journal.host)``: a remote host's ``host_down``, ``outage`` (one paused operation: resumed or
+        given up) and ``host_up`` events, and a launcher's ``launch_held`` (``hosts.jsonl``). Infrastructure: never blamed on
+        a role (V8), counted per host by ``tables``."""
+        self._append("hosts.jsonl", {"event": row.get("event"), "host": row.get("host"), "reason": HOST_UNREACHABLE,
+                                     **{k: row[k] for k in ("what", "why", "paused_s", "resumed", "down_s", "task", "arm") if row.get(k) is not None}})
 
     # ---- the handler guard: provenance check, verdict and failure rows --------------------------------------------------------
     def guard(self, handlers: Mapping[str, Callable[[Any], Awaitable[Any]]], ledger: ProvenanceLedger) -> dict[str, Callable[[Any], Awaitable[Any]]]:
@@ -286,7 +296,27 @@ def tables(root: Path | str) -> dict[str, Any]:
     usd = sum(float(x.get("usd") or 0) for x in runs) or sum(v["usd"] for v in roles.values())
     accepted = sum(1 for x in runs if x.get("accepted"))
     return {"roles": roles, "models": {k: {**v, "usd": round(v["usd"], 6), "kinds": dict(v["kinds"])} for k, v in per_model.items()},
-            "runs": len(runs), "accepted": accepted, "usd": round(usd, 6), "accepted_per_usd": round(accepted / usd, 4) if usd else None}
+            "runs": len(runs), "accepted": accepted, "usd": round(usd, 6), "accepted_per_usd": round(accepted / usd, 4) if usd else None,
+            "hosts": host_table(root)}
+
+
+def host_table(root: Path | str) -> dict[str, dict[str, Any]]:
+    """Per remote host (``hosts.jsonl``): times it went down, operations paused for it (resumed or given up), seconds paused,
+    launches held, and the reason (``host_unreachable``)."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in read_rows(root, "hosts.jsonl"):
+        h = out.setdefault(str(r.get("host")), {"reason": HOST_UNREACHABLE, "down": 0, "outages": 0, "resumed": 0, "gave_up": 0, "paused_s": 0.0,
+                                                "launches_held": 0})
+        ev = r.get("event")
+        if ev == "host_down":
+            h["down"] += 1
+        elif ev == "outage":
+            h["outages"] += 1
+            h["resumed" if r.get("resumed") else "gave_up"] += 1
+            h["paused_s"] = round(h["paused_s"] + float(r.get("paused_s") or 0.0), 3)
+        elif ev == "launch_held":
+            h["launches_held"] += 1
+    return out
 
 
 # ---- diagnosis and proposals ------------------------------------------------------------------------------------------------------
@@ -366,6 +396,10 @@ def render(d: Mapping[str, Any]) -> str:
             lines.append(f"   - e.g. run {e['run']} state {e['state']} #{e['entry']}: {str(e['finding'])[:160]}")
     if d["models_with_failures"]:
         lines += ["", "## Session failure kinds per model", ""] + [f"- {m['model']}: {m['failure_kinds']}" for m in d["models_with_failures"]]
+    if t.get("hosts"):
+        lines += ["", "## Remote hosts (infrastructure, never a role's)", ""]
+        lines += [f"- {h} ({v['reason']}): down {v['down']}x, {v['outages']} operations paused ({v['resumed']} resumed, {v['gave_up']} given up), "
+                  f"{v['paused_s']:.0f}s paused, {v['launches_held']} launches held" for h, v in sorted(t["hosts"].items())]
     bc = d["builder_credit"]
     lines += ["", f"## Builder credit: {bc['attempts']} attempts with Φ, {bc['with_progress']} with progress turns", ""]
     lines += [f"- {c['role']} at {c['state']}: failed at Φ {c['phi_final']} ({c['dir']})" for c in bc["failed_below_phi_1"][:10]]
