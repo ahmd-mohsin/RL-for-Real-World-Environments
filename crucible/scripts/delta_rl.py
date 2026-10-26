@@ -189,6 +189,8 @@ unset SBATCH_ACCOUNT SLURM_ACCOUNT
 mkdir -p {out}
 {setup_lines(d, version=PRIME_RL_VERSION)}
 echo "=== versions"; uname -m; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; uv run python -c "import torch, vllm; print(torch.__version__, torch.version.cuda, vllm.__version__)"
+nvidia-smi --query-gpu=timestamp,index,memory.used,utilization.gpu --format=csv,noheader -l 10 > {out}/gpu_mem.csv 2>/dev/null &
+MEM=$!
 echo "=== the student's Gated DeltaNet kernels on the GPU, and vLLM's registry (advisory: the 0.6B smoke does not need them)"
 CUDA_VISIBLE_DEVICES=0 timeout 600 uv run python -m crucible.train.bridges.primerl.kernel_check > {out}/kernel_check.json 2>{out}/kernel_check.err; cat {out}/kernel_check.json
 CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
@@ -205,7 +207,8 @@ CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer_resume.toml > {out}/traine
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
 RC=$?
-kill $INF $TRN 2>/dev/null || true
+kill $INF $TRN $MEM 2>/dev/null || true
+echo "=== peak GPU memory (MiB) per GPU"; awk -F', ' '{{g=$2; m=$3+0; if(m>p[g])p[g]=m}} END{{for(g in p) print "gpu", g, p[g]}}' {out}/gpu_mem.csv
 echo "=== done rc=$RC"
 exit $RC
 """
