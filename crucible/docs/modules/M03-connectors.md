@@ -42,6 +42,7 @@ Redaction runs on every trace before it is stored:
 - **The tenant's known secret values**, whatever their format, via `RedactionPolicy.with_env_file(".env")`. `secret_values` is excluded from serialization, so a stored policy cannot carry them.
 - **Stable salted pseudonyms** for e-mails, internal hosts and private or Tailscale IPs. The same input gives the same token, so threads stay linkable.
 - **Human actors:** both the handle **and the id** of a human actor are pseudonymized, and every reference to the id is rewritten. `file_drop` uses the exported name or e-mail as the id, so handles alone were not enough. Agents and systems keep their ids.
+- **Always storable:** a lone surrogate (half of a UTF-16 pair: a cut emoji, or the `\udXXX` escapes the capture proxy writes) becomes escape text in every string and key (`core.text.safe_json`). It made the store's write raise outside `ingest`'s per-source `try`, so one such record lost its source and every later one in the batch (M3 audit 2026-10-20, R-4). A trace without one keeps its bytes and store key.
 
 ### Answer-key probes (`agent_events.py`, added in the article cross-check, 2026-10-09)
 Every agent-session connector (ATIF, capture proxy, OTel), and the World, tags tool calls that probe for the answer: git history, package registries, code hosts and web tools, grader files, privilege escalation, `/proc` snooping and test edits.

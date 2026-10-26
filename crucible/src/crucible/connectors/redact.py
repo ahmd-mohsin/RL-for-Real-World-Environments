@@ -10,6 +10,11 @@ e-mails and passwords); credentials in URLs, short passwords, Azure keys, card n
 prefix patterns need a word boundary ("task-04-gpu-migration" lost its tail to the ``sk-`` rule); ``threading.local()``
 and ``icon@2x.png`` are no longer a host and an e-mail; pseudonyms are an HMAC under a per-tenant secret (the public
 default salt "crucible" let anyone reverse a guessed address); redacting twice changes nothing.
+
+M3 audit R-4 (2026-10-20): every trace ``redact()`` returns is UTF-8 encodable. A lone surrogate (a cut emoji, or the
+``\\udXXX`` escapes the capture proxy writes) passed through and made ``Store.put_doc`` raise outside ``ingest``'s
+per-source ``try``, losing that source and every later one; it is now escape text (``core.text.safe_json``, PATTERN:
+karotte ``text.py:4-24``). A trace without one is returned with the same bytes, so its store key does not change.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from pydantic import Field
 from crucible.core.schema.base import CrucibleModel
 from crucible.core.schema.trace import Trace
 from crucible.core.secrets import _B, _CODE_VALUE, _KEYWORD, ASSIGNMENT, PRIVATE_KEY, SECRET_PATTERNS, URL_USERINFO  # noqa: F401 -- one list
+from crucible.core.text import safe_json
 
 _TRAILER = re.compile(r"(?im)^(\s*(?:Signed-off-by|Co-authored-by|Reviewed-by|Acked-by|Tested-by|Reported-by|Suggested-by)\s*:\s*)([^<\r\n]+?)(?=\s*<|\s*$)")
 IBAN = r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b"
@@ -246,7 +252,7 @@ def redact(trace: Trace, policy: RedactionPolicy | None = None) -> Trace:
     """Every string in the trace except structural names (kinds, types, roles, enum values) goes through the
     redactor: ids, refs, URLs, targets and dict keys as well as texts and data."""
     r = Redactor(policy or RedactionPolicy())
-    d = trace.model_dump(mode="json", by_alias=True)
+    d = safe_json(trace.model_dump(mode="json", by_alias=True))  # M3 audit R-4: lone surrogates as escape text (strings and keys)
     if r.p.pseudonymize_actors:
         people = {}
         for a in d["actors"]:

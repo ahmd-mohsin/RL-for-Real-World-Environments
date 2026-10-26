@@ -1786,3 +1786,28 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   contracts) are clean.
 - **Merge notes.** `signals.py` now imports `crucible.runtime.agent_evidence` (no Harbor); `agent_runs.py` imports
   `unfinished` from `signals.py`. M8 forge sees fewer -1s only for runs that crashed or were killed.
+
+## 77. M3 R-4: a lone surrogate no longer aborts an ingest batch
+
+- **Item.** R-4 of `docs/research/improvements/2026-10-20/M03-connectors.md` (should), as recommended. Not taken:
+  escaping in each connector (misses the next one), in `Store.put_doc` or `core.canonical` (changes stored bytes core-wide,
+  M0 R-20/R-21), moving `store.put` into `ingest`'s `try` (still loses the session). Pattern from karotte
+  `src/karotte/text.py:4-24` (MIT), already ported as `core/text.py` (`safe_text`, `safe_json`); no new copy.
+- **Files.** `src/crucible/connectors/redact.py` (`redact`, module docstring), `docs/modules/M03-connectors.md`
+  (Redaction list), `tests/unit/test_ingest_surrogates.py` (new).
+- **Public names.** none.
+- **Behaviour.** `redact()` passes the trace's JSON dump through `core.text.safe_json` before redacting, so every string
+  and key it returns is UTF-8 encodable: a lone surrogate (a cut emoji in tool output, the `\udXXX` escapes the capture
+  proxy writes) becomes escape text such as `\ud83d`. It passed `normalize` and `redact`, then `Store.put_doc` raised
+  `UnicodeEncodeError` outside `ingest`'s per-source `try`: that source and every later one were lost (0 of 3 stored)
+  and the error named no source. `safe_json` returns its input unchanged when nothing needs escaping, so every other
+  trace keeps its bytes and store key. Affects every JSON-fed connector, `crucible label` and the M3 gate.
+- **Formats.** none (stored traces may hold escape text where a lone surrogate was).
+- **Tests.** `test_ingest_surrogates.py` (2: a capture dir whose first session holds `\ud83d` in a user turn and
+  `\udcff` in a tool argument stores 3 of 3 with the escape text, it failed before the fix with the
+  `UnicodeEncodeError`; surrogate-free sessions get the same store keys as with `safe_json` bypassed). Redaction,
+  ingest, store, M3, M4 and M14 audit, coding connector, observe, tags, packs and core files: 461 + 119 passed, 8
+  skipped; the failure is the known coding pack fixture (`data/cache/git` absent here, as on main). Ruff on the changed
+  files and lint-imports (5 contracts) are clean.
+- **Merge notes.** One line and one import in `redact()`. The M3 should items (R-1..R-4) are all done; the 23 later items
+  wait for their consumer.
