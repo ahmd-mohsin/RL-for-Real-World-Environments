@@ -83,7 +83,8 @@ def setup_lines(d, *, version: str) -> str:
     w = d.workdir
     return f"""export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH
 [ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
-if [ ! -f {w}/prime-rl/.crucible-installed-{version} ]; then
+if [ ! -f {w}/prime-rl/.crucible-installed-{version} ] || [ ! -f {w}/prime-rl/deps/pydantic-config/pyproject.toml ]; then
+  rm -f {w}/prime-rl/.crucible-installed-{version}  # a marker without its submodules is stale (2026-10-26: job 3460686)
   mkdir -p {w} && cd {w}
   [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
   # the submodules are declared with SSH URLs; the cluster has no GitHub key, so they are fetched over HTTPS
