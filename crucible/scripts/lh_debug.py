@@ -174,6 +174,10 @@ async def subset(args: argparse.Namespace) -> None:
     needs = {s[:10]: [x[:10] for x in v] for s, v in cand.params["needs"].items() if v}
     print(f"[{args.repo}] {cand.id}: fixes {[s[:10] for s in cand.params['fixes']]}, executed edges {needs}", flush=True)
     rec = await gen.build(cand)
+    g = ROOT / "gates" / f"{cand.id}.json"
+    if g.exists() and json.loads(g.read_text()).get("window_a") != rec.get("a"):  # a rebuild: the old record graded another tree
+        g.rename(g.with_name(f"{cand.id}.json.prev-{int(time.time())}"))
+        print(f"[{args.repo}] {cand.id}: its earlier gate record graded another start tree; moved aside", flush=True)
     print(f"[{args.repo}] {cand.id}: {rec.get('stage')} {rec.get('reason', '')[:160]}", flush=True)
 
 
@@ -198,6 +202,13 @@ def merge_gates(prev: dict[str, Any], res: dict[str, Any], order: tuple[str, ...
             "passed": [g for g in gates if gates[g].get("ok")], **({"earlier": earlier} if earlier else {})}
 
 
+def gates_match(prev: dict, rec: dict) -> bool:
+    """Whether a stored gate record graded this window: its start commit (``window_a``) matches."""
+    if prev.get("window_a"):
+        return prev["window_a"] == rec.get("a")
+    return True  # a record from before the field: ``subset`` moves it aside when it rebuilds the window
+
+
 async def gates_once(args: argparse.Namespace) -> None:
     from crucible.factory.generators.base import GateConfig
     from crucible.factory.lanes.windows import WindowStore
@@ -218,6 +229,9 @@ async def gates_once(args: argparse.Namespace) -> None:
             out = ROOT / "gates" / f"{w}.json"
             lock = ROOT / "gates" / f"{w}.running"
             prev = json.loads(out.read_text()) if out.exists() else {}
+            rec_w = store.window(w)
+            if prev and not gates_match(prev, rec_w):
+                prev = {}  # a rebuilt window under the same id: the old record graded another start tree (h3, 2026-10-25)
             # a record of fewer gates (--gates S6,S5,S8 before a quick pass) is run again in full by a later plain run
             if (prev and not args.redo and set(cfg.gates) <= set(prev.get("gates") or {})) or lock.exists():
                 continue
@@ -231,6 +245,7 @@ async def gates_once(args: argparse.Namespace) -> None:
             res["seconds"] = round(time.monotonic() - t0, 1)
             if only and prev.get("gates"):
                 res = merge_gates(prev, res, GateConfig().gates)
+            res["window_a"] = rec_w.get("a")
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(res, indent=1, default=str))
             lock.unlink(missing_ok=True)
@@ -569,7 +584,7 @@ def cmd_seal(args: argparse.Namespace) -> None:
         rec = json.loads(w.read_text())
         locate[i] = store / i
         g = ROOT / "gates" / f"{i}.json"
-        gates_ok[i] = g.is_file() and bool(json.loads(g.read_text()).get("ok"))
+        gates_ok[i] = g.is_file() and bool((gr := json.loads(g.read_text())).get("ok")) and gates_match(gr, rec)
         repos[i] = REPO_URLS.get(rec.get("repo"), rec.get("repo"))
         fd = (rec.get("rebreak") or {}).get("fix_dates") or {}
         dates[i] = sorted(map(str, fd.values() if isinstance(fd, dict) else fd))
