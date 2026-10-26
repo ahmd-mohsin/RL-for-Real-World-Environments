@@ -541,6 +541,104 @@ def ungraded_requirements(rec: Mapping[str, Any]) -> list[str]:
     return [str(q["id"]) for q in rec.get("requirements") or [] if q.get("milestone") and q["milestone"] not in graded]
 
 
+# ---- the report gate (S7k): the report against the graded milestones -----------------------------------------------------------------
+# A requirement must let a competent user know what its hidden cases check. 2026-10-25: 1b8b8fb1's R2 said FLASH_ATTN_EXT
+# "picks a kernel for some K/V layouts that it cannot handle" while every one of its 32 cases has head sizes 576/512 (and
+# quantized K/V): the student failed it 8 of 8. The words a user would use for each op-test parameter:
+PARAM_WORDS = {
+    "hsk": ("head size", "head-size", "head dim", "head dimension", "hidden size"), "hsv": ("head size", "head-size", "head dim", "value size"),
+    "nh": ("heads",), "nr23": ("query heads", "kv heads", "k/v heads", "grouped", "grouped-query", "gqa", "heads"), "nb": ("batch",),
+    "kv": ("kv length", "context", "cache length", "sequence length", "tokens"), "mask": ("mask",), "sinks": ("sink",),
+    "max_bias": ("alibi", "bias"), "logit_softcap": ("softcap", "soft cap", "soft-cap"), "prec": ("precision",),
+    "type_kv": ("cache type", "k/v type", "kv type", "quantized", "quantised", "cache"), "type_k": ("cache type", "quantized", "cache"),
+    "type_v": ("cache type", "quantized", "cache"), "type": ("type", "quantized", "f16", "f32", "bf16"), "type_a": ("quantized", "weights", "type"),
+    "type_b": ("type",), "permute": ("permut", "layout", "non-contiguous", "noncontiguous", "transposed", "strided"),
+    "ne": ("dimension", "size", "shape", "large", "rows", "elements"), "n": ("rows", "batch", "large", "tokens"), "m": ("rows", "columns", "size"),
+    "r": ("rows", "large", "batch"), "k": ("size", "depth", "columns"), "bs": ("batch",), "nr": ("broadcast", "repeat"),
+    "per": ("permut", "layout", "transposed"), "noncontig_rows": ("non-contiguous", "noncontiguous", "strided"), "eps": ("epsilon",),
+    "n_kv_max": ("kv length", "cache length", "context"), "kv_view": ("view",), "v_is_view_of_k": ("view",),
+}
+SANITIZER_WORDS = {"racecheck": ("race", "hazard", "sanitizer", "repeated runs", "different values", "different numbers", "nondetermin",
+                                 "non-determin", "run to run", "run-to-run", "intermittent"), "synccheck": ("barrier", "sync", "sanitizer", "hang"),
+                   "memcheck": ("memory", "out-of-bounds", "out of bounds", "invalid", "sanitizer", "crash"),
+                   "perf": ("slow", "fast", "speed", "time", "throughput", "regress")}
+
+
+def parse_case(name: str) -> tuple[str, dict[str, str]]:
+    """``OP(k=v,k=[a,b],...)`` -> (op, {k: v}); bracketed values keep their commas."""
+    op, _, inner = str(name).partition("(")
+    inner = inner.removesuffix(")")
+    params, depth, cur = {}, 0, ""
+    for ch in inner + ",":
+        if ch == "," and depth == 0:
+            if "=" in cur:
+                k, v = cur.split("=", 1)
+                params[k.strip()] = v.strip()
+            cur = ""
+            continue
+        depth += ch == "["
+        depth -= ch == "]"
+        cur += ch
+    return op.strip(), params
+
+
+def discriminating(rec: Mapping[str, Any], mid: str) -> dict[str, dict[str, str]]:
+    """Per op of milestone ``mid``: the parameters constant over its cases whose value no other milestone's case of the
+    same op has (what sets its cases apart). Empty for an op no other milestone grades (nothing to compare with)."""
+    by = {m["id"]: [parse_case(c) for c in m.get("cases") or []] for m in rec.get("milestones") or []}
+    out: dict[str, dict[str, str]] = {}
+    for op in sorted({o for o, _ in by.get(mid) or []}):
+        mine = [p for o, p in by[mid] if o == op]
+        others = [p for m2, cs in by.items() if m2 != mid for o, p in cs if o == op]
+        if not mine or not others:
+            continue
+        const = {k: v for k, v in mine[0].items() if all(p.get(k) == v for p in mine)}
+        dis = {k: v for k, v in const.items() if all(p.get(k) != v for p in others)}
+        if dis:
+            out[op] = dis
+    return out
+
+
+def _mentions(text: str, key: str, value: str) -> bool:
+    low = text.lower()
+    words = PARAM_WORDS.get(key.lower(), ())
+    vals = [x for x in re.split(r"[\[\],]", value) if x and not re.fullmatch(r"0*\.?0*", x)]
+    return any(w in low for w in words) or any(re.search(rf"(?<![\w.]){re.escape(v.lower())}(?![\w.])", low.replace(",", "")) for v in vals if len(v) >= 2)
+
+
+def report_gate(rec: Mapping[str, Any]) -> list[str]:
+    """S7k, the report against the graded milestones (deterministic, no model): every requirement maps to a kept milestone
+    and every kept milestone has one (V5 both ways); a requirement names an op its cases exercise and, for a sanitizer or
+    perf check, the kind of symptom it times or flags; and where its cases differ from another milestone's cases of the
+    same op, it states at least one of the parameters that set them apart (``disclosure_check`` for kernels: a hidden case
+    may only check what the report says). Migration windows: the two-way map only."""
+    out = [f"S7k ungraded: {r} asks for a milestone no case grades" for r in ungraded_requirements(rec)]
+    reqs = rec.get("requirements") or []
+    by_m = {}
+    for q in reqs:
+        by_m.setdefault(str(q.get("milestone") or ""), []).append(q)
+    for m in rec.get("milestones") or []:
+        if m["id"] not in by_m:
+            out.append(f"S7k unasked: milestone {m['id']} has no requirement")
+    if str(rec.get("family") or "") == "kernel-migration" or str(rec.get("id") or "").startswith("km-"):
+        return out
+    for m in rec.get("milestones") or []:
+        text = " ".join(str(q.get("text") or "") for q in by_m.get(m["id"]) or [])
+        if not text:
+            continue
+        ops = sorted({parse_case(c)[0] for c in m.get("cases") or []} | set(m.get("ops") or []))
+        if ops and not any(o.lower() in text.lower() for o in ops):
+            out.append(f"S7k op: {m['id']}'s requirement names none of its ops {ops}")
+        for chk in m.get("checks") or []:
+            words = SANITIZER_WORDS.get(chk)
+            if words and not any(w in text.lower() for w in words):
+                out.append(f"S7k check: {m['id']} is checked by {chk}; its requirement never describes that symptom")
+        for op, dis in discriminating(rec, m["id"]).items():
+            if op.lower() in text.lower() and not any(_mentions(text, k, v) for k, v in dis.items()):
+                out.append(f"S7k undisclosed: {m['id']}'s {op} cases all have {', '.join(f'{k}={v}' for k, v in sorted(dis.items()))}; its requirement states none of these")
+    return out
+
+
 def author(rec: dict[str, Any], authored: Mapping[str, Any]) -> dict[str, Any]:
     """Compose, lint and ledger the builder's report into ``rec`` (``prompt``, ``requirements``, ``spans``, ``lint``,
     ``prompt_provenance``); returns the findings (empty = publishable)."""
@@ -559,6 +657,7 @@ def author(rec: dict[str, Any], authored: Mapping[str, Any]) -> dict[str, Any]:
     rec.update(prompt=prompt, requirements=reqs, spans=spans)
     _led, led_problems = ledger_of(rec)
     problems += led_problems
+    problems += report_gate(rec)
     rec["lint"] = {"findings": problems}
     rec["prompt_provenance"] = {"builder": str(authored.get("builder") or ""), "kind": "symptom report", "sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                                 "states_only": "symptoms and goals; no fix, faulty names, files or hidden case names (lint_prompt)"}

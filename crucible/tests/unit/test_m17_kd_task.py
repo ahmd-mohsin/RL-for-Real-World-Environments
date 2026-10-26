@@ -504,3 +504,28 @@ def test_a_report_never_asks_for_a_milestone_the_gpu_calibration_dropped():
     p = Path(__file__).resolve().parents[2] / "scripts" / "lh_kernel_debug.py"
     src = p.read_text()
     assert "reauthor(rec)\n        kd.save(store, rec)" in src  # the ingest re-authors before it saves
+
+
+def test_s7k_the_report_states_what_sets_a_milestone_s_cases_apart():
+    """S7k on 1b8b8fb1's shape (2026-10-25): R2 said FLASH_ATTN_EXT "picks a kernel for some K/V layouts that it cannot
+    handle" while all of m2's cases have head sizes 576/512; a sharpened requirement passes; ops, sanitizer symptoms and
+    the two-way map are checked too."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    fa = "FLASH_ATTN_EXT(hsk={h},hsv={v},nh=4,nr23=[{r},1],kv=512,nb={b},mask=1,prec=f32,type_KV={t},permute=[0,1,2,3])"
+    rec = {"id": "kd-x", "family": "kernel-bug", "milestones": [
+        {"id": "m1", "checks": ["golden", "racecheck"], "cases": ["CUMSUM(type=f32,ne=[10,5,4,3])"]},
+        {"id": "m2", "checks": ["golden"], "cases": [fa.format(h=576, v=512, r=4, b=1, t=t) for t in ("q4_0", "q8_0")]},
+        {"id": "m3", "checks": ["golden"], "cases": [fa.format(h=128, v=128, r=12, b=3, t=t) for t in ("f16", "f32")]}],
+        "requirements": [{"id": "R1", "milestone": "m1", "text": "CUMSUM differs between runs and compute-sanitizer's race check flags it."},
+                         {"id": "R2", "milestone": "m2", "text": "FLASH_ATTN_EXT picks a kernel for some K/V layouts that it cannot handle."},
+                         {"id": "R3", "milestone": "m3", "text": "FLASH_ATTN_EXT is wrong when query heads per KV head is not a power of two."}]}
+    got = kd.report_gate(rec)
+    assert len(got) == 1 and got[0].startswith("S7k undisclosed: m2's FLASH_ATTN_EXT") and "hsk=576" in got[0]
+    sharp = {**rec, "requirements": [*rec["requirements"][:1], {"id": "R2", "milestone": "m2", "text": "FLASH_ATTN_EXT is wrong for head size 576 with a value size of 512."}, rec["requirements"][2]]}
+    assert kd.report_gate(sharp) == []
+    no_race = {**rec, "requirements": [{"id": "R1", "milestone": "m1", "text": "CUMSUM is sometimes wrong."}, *sharp["requirements"][1:]]}
+    assert any(f.startswith("S7k check: m1") for f in kd.report_gate(no_race))
+    missing = {**sharp, "requirements": sharp["requirements"][:2]}
+    assert "S7k unasked: milestone m3 has no requirement" in kd.report_gate(missing)
+    assert kd.parse_case(fa.format(h=1, v=2, r=3, b=4, t="f16"))[1]["nr23"] == "[3,1]"

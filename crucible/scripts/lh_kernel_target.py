@@ -179,9 +179,9 @@ async def preflight(ph: Any, tids: list[str]) -> list[str]:
     ok = []
     for tid in tids:
         task = ph.tasks.task(tid)
-        bad = kd.ungraded_requirements(task.rec)
-        if bad:  # the report asks for a milestone no case grades (V5): re-author (lh_kernel_debug.py author) before measuring
-            print(f"[preflight] {tid}: REFUSED report asks for ungraded requirements {bad}", flush=True)
+        bad = kd.report_gate(task.rec)
+        if bad:  # S7k: the report against the graded milestones (V5, disclosure): re-author or revise before measuring
+            print(f"[preflight] {tid}: REFUSED report gate {bad}", flush=True)
             continue
         oracle = str(task.rec.get("oracle_patch") or "")
         got = {}
