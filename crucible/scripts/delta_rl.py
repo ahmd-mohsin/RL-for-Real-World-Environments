@@ -81,15 +81,17 @@ def cmd_plan(args) -> None:
 def setup_lines(d, *, version: str) -> str:
     """Install prime-rl at the pin and Crucible's source (no deps beyond its light core) inside the job, once."""
     w = d.workdir
-    return f"""export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH
+    return f"""export UV_CACHE_DIR={w}/uv-cache HF_HOME={w}/hf_cache PATH=$HOME/.local/bin:$PATH UV_FROZEN=1
 [ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
 if [ ! -f {w}/prime-rl/.crucible-installed-{version} ] || [ ! -f {w}/prime-rl/deps/pydantic-config/pyproject.toml ]; then
   rm -f {w}/prime-rl/.crucible-installed-{version}  # a marker without its submodules is stale (2026-10-26: job 3460686)
   mkdir -p {w} && cd {w}
   [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
-  # the submodules are declared with SSH URLs; the cluster has no GitHub key, so they are fetched over HTTPS
-  cd prime-rl && git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --depth 1 -- deps/verifiers deps/renderers deps/pydantic-config
-  # the trainer and vLLM only: the prebuilt aarch64 flash-attn 2 wheel, nothing compiled here (no FA3 / FA4 / FlashMLA)
+  # the submodules are declared with SSH URLs; the cluster has no GitHub key, so they are fetched over HTTPS, with their
+  # history: their versions come from git tags (a shallow verifiers read as < 0.3.2.dev158 and failed resolution, job 3462156)
+  cd prime-rl && rm -rf deps/verifiers deps/renderers deps/pydantic-config .git/modules/deps
+  git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init -- deps/verifiers deps/renderers deps/pydantic-config
+  # the trainer and vLLM only, from prime-rl's own lockfile (UV_FROZEN: never re-resolved, here or by a later ``uv run``)
   uv sync --extra gpu --extra flash-attn
   uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill
   uv run python -c "import prime_rl, vllm, torch; print('prime-rl ok', torch.__version__, torch.version.cuda, vllm.__version__)" \
