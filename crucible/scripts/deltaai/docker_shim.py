@@ -528,7 +528,7 @@ def cmd_cp(argv: list[str]) -> int:
     if ":" in src and not src.startswith("/"):
         name, path = src.split(":", 1)
         p = Path(path)
-        tar = subprocess.Popen([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "tar", "-C", str(p.parent), "-cf", "-", p.name],
+        tar = subprocess.Popen([APPTAINER, "exec", "--cleanenv", "--pwd", "/", f"instance://{name}", "tar", "-C", str(p.parent), "-cf", "-", p.name],
                                stdout=subprocess.PIPE, env=host_env())
         Path(dst).mkdir(parents=True, exist_ok=True) if not Path(dst).exists() and not Path(dst).parent.exists() else None
         target = Path(dst)
@@ -549,9 +549,9 @@ def cmd_cp(argv: list[str]) -> int:
     # ``docker cp SRC c:DEST`` copies into DEST when it is a directory, else *to* DEST (renamed): the World pushes its
     # snippets as /tmp/.crucible_push_* to /tmp/.crucible_py_*.py (smoke 3459692: the snippet was not found)
     q = json.dumps(path)
-    inner = (f'if [ -d {q} ]; then tar --no-same-owner -C {q} -xf -; else mkdir -p "$(dirname {q})" && d=$(mktemp -d) && '
+    inner = (f'if [ -d {q} ]; then tar --no-same-owner -C {q} -xf -; else mkdir -p "$(dirname {q})" && d=$(mktemp -d /tmp/.shimcp.XXXXXX) && '
              f'tar --no-same-owner -C "$d" -xf - && mv "$d"/{json.dumps(s.name)} {q} && rmdir "$d"; fi')
-    r = subprocess.run([APPTAINER, "exec", "--pwd", "/", f"instance://{name}", "sh", "-c", inner], stdin=tar.stdout, env=host_env(), check=False)
+    r = subprocess.run([APPTAINER, "exec", "--cleanenv", "--pwd", "/", f"instance://{name}", "sh", "-c", inner], stdin=tar.stdout, env=host_env(), check=False)
     tar.wait()
     return r.returncode
 
@@ -610,6 +610,8 @@ def dispatch(argv: list[str]) -> int:
         return cmd_cp(rest)
     if cmd == "images":
         return cmd_images(rest)
+    if cmd == "stats":  # no per-container cgroups (fakeroot mode): the host load monitor reads nothing, never an error
+        return 0
     if cmd == "events":  # no daemon event stream: nothing happened that Docker would report (OOM kills are the job cgroup's)
         return 0
     if cmd in ("info", "version"):

@@ -98,8 +98,11 @@ for spec in "8 16000 512" "32 32000 512" "64 64000 256"; do
 done
 
 # 7. one short student episode on a training task (tool limit 20), the debug lane's own World and grader through the shim
-# (the lane's clones borrow objects from data/debug/src through git alternates that name the Mac's paths: repoint them)
-find "$W/data/debug" -path "*objects/info/alternates" -print0 | xargs -0 -r sed -i "s|/Users/[^ ]*/crucible/data/debug|$W/data/debug|g"
+# The lane's data, copied to node-local disk without ACLs or xattrs: /work's ACLs ride along in the graders' temp trees
+# (shutil.copy2), and the grader's "cp -a" into the fuse-overlay cannot preserve them (exit 125, smoke 3460204).
+D=$J/data; mkdir -p "$D"; rsync -a --no-acls --no-xattrs "$W/data/" "$D/"
+# the lane's clones borrow objects from data/debug/src through git alternates that name the Mac's paths: repoint them
+find "$D/debug" -path "*objects/info/alternates" -print0 | xargs -0 -r sed -i "s|/[^ ]*/data/debug|$D/debug|g"
 export CRUCIBLE_SHIM_LOG=$O/shim.log
 # the language grader's own copy step, by hand (a read-only tree in, copied to /w as the grader does)
 mkdir -p "$J/gtree/sub" && echo x > "$J/gtree/sub/f.go"
@@ -107,10 +110,13 @@ docker run --rm --name crucible-lh-d-s15-grade-probe --label crucible.lane=debug
   --pids-limit 2048 -v "$J/gtree:/src:ro" -e HOME=/tmp crucible-lh-d:go-go-toml-d4fe68839d05 \
   sh -c 'id; rm -rf /w 2>/dev/null; mkdir -p /w && cp -a /src/. /w/ && cd /w && echo GRADER_COPY_OK; go version' > "$O/grader_probe.txt" 2>&1
 t "grader probe: rc=$? $(tr '\n' ' ' < $O/grader_probe.txt | cut -c1-400)"
+docker run --rm --name crucible-lh-d-s15-grade-probe2 --network none -v "$D/debug/gen/store/train/tasks/$TASK/base:/src:ro" \
+  crucible-lh-d:go-go-toml-d4fe68839d05 sh -c 'rm -rf /w; mkdir -p /w && cp -a /src/. /w/ && echo TASK_TREE_COPY_OK' > "$O/grader_probe2.txt" 2>&1
+t "grader probe (task tree, node-local copy): rc=$? $(tail -3 $O/grader_probe2.txt | tr '\n' ' ' | cut -c1-400)"
 t "episode: $TASK"
 cd "$W/code/crucible"
 $PY scripts/lh_debug_target.py student --backend vllm --vllm-engine "$O/engine.json" --student "$MODEL" --tasks "$TASK" --k 1 \
-  --tool-limit 20 --student-concurrency 1 --slots 2 --grade-parallel 1 --cap 1 --audit-reserve 0 --debug "$W/data/debug" --out "$J/runs/smoke" \
+  --tool-limit 20 --student-concurrency 1 --slots 2 --grade-parallel 1 --cap 1 --audit-reserve 0 --debug "$D/debug" --out "$J/runs/smoke" \
   > "$O/episode.log" 2>&1
 t "episode: rc=$? $(tail -3 $O/episode.log | tr '\n' ' ')"
 cp -r "$J/runs/smoke" "$O/run" 2>/dev/null
@@ -121,7 +127,7 @@ KSIF=/work/hdd/bjhg/mahmedmohsin/crucible/sif/crucible-lh-k_base-12.8.1.sif
 [ -e "$W/sif/crucible-lh-k_base-12.8.1.sif" ] || ln -s "$KSIF" "$W/sif/crucible-lh-k_base-12.8.1.sif"
 export CRUCIBLE_KERNEL_WORK=$J/kep PATH=$W/bin:$W/venv/bin:$PATH
 t "kernel episode: kd-bug-llamacpp-ca21f3a1"
-$PY scripts/lh_kernel_target.py student --host gh200-node --kernel "$W/data/kernel_debug" --backend vllm --vllm-engine "$O/engine.json" \
+$PY scripts/lh_kernel_target.py student --host gh200-node --kernel "$D/kernel_debug" --backend vllm --vllm-engine "$O/engine.json" \
   --student "$MODEL" --tasks kd-bug-llamacpp-ca21f3a1 --k 1 --tool-limit 20 --student-concurrency 1 --slots 1 --cap 1 --audit-reserve 0 \
   --out "$J/runs/ksmoke" > "$O/kepisode.log" 2>&1
 t "kernel episode: rc=$? $(tail -3 $O/kepisode.log | tr '\n' ' ')"
