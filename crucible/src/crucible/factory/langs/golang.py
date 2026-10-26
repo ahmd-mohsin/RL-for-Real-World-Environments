@@ -358,6 +358,7 @@ class GoProfile(CLikeProfile):
 
         out: dict[str, str] = {}
         build_failed: set[str] = set()
+        killed: list[str] = []
         st = {"pass": "passed", "fail": "failed", "skip": "skipped"}
         for line in report.splitlines():
             if not line.startswith("{"):
@@ -367,6 +368,10 @@ class GoProfile(CLikeProfile):
             except ValueError:
                 continue
             act = ev.get("Action")
+            # a test binary killed from outside (the OOM killer): go test reports it on the package, not on a test
+            if act == "output" and not ev.get("Test") and str(ev.get("Output") or "").strip() == "signal: killed":
+                killed.append(str(ev.get("Package") or ""))
+                continue
             if act == "build-fail" and ev.get("ImportPath"):
                 build_failed.add(ev["ImportPath"].split(" ", 1)[0])
                 continue
@@ -384,7 +389,7 @@ class GoProfile(CLikeProfile):
             if f is None:
                 continue
             out[f"{f}::{ev['Test']}"] = st[act]
-        notes = []
+        notes = [f"killed: signal: killed ({p})" for p in sorted(set(killed))]
         for pkg in sorted(p for p in build_failed if p):
             d = dir_of(pkg)
             if d is None:

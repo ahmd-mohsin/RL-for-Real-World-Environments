@@ -937,6 +937,12 @@ class NativeHarness:
                         f = await settle(attempt.task, f, workdir=attempt.dir / "control", timeout_s=self.control_timeout_s, probe=probe, attempt=attempt)
                     raise StageFailure(f)
                 res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()
+                if side is not None and hasattr(side, "reconcile") and reps:
+                    # one verdict on the end state (factory.checkpoint): the World graded here is the end checkpoint's state
+                    fm = (reps[-1].meta or {}).get("milestones") if (reps[-1].infra or {}).get("status") == "ok" else None
+                    got = side.reconcile(None, fm)
+                    if got is not None:
+                        res.grade["progress"] = got
             pen = self.limit_policy.penalty(ep.stop_condition) if ep.stop_condition in LIMIT_STOPS else None
             if pen is not None:  # m13 C-8 (A2-24): an incomplete trajectory gets the configured penalty, not its partial grade
                 res.grade["limit_penalty"] = pen

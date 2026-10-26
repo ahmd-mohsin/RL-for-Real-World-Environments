@@ -1111,6 +1111,13 @@ build tasks that target its failures):
       - **Impact:** the reward moved or at risk, the advantage distortion per rollout group (`sum |Δ advantage|`, sign
         flips), and the samples and groups a masked defect cost.
       - **Severity:** CRITICAL corrupts reward or advantage, HIGH wastes episodes, LOW is cosmetic.
+    - **First CRITICAL fixed** (2026-10-25, `swarm-pipeline/11` §4.5): the checkpoint sidecar and the final grader
+      disagreed on one episode's end patch, so Φ and per-turn credit missed +0.5 the outcome counted.
+      - `CheckpointSidecar.reconcile` makes the final grade's vector the end state's one verdict (`WorkspaceHarness` by
+        patch, `NativeHarness` for the end checkpoint), rebuilding the series, rows and summary.
+      - A test run killed from outside is masked, never a failure of the tests it did not reach (`executable.killed`,
+        the Go profile's package-level `signal: killed`).
+      - `tests/unit/test_credit_grade_agreement.py`.
     - **Triage:** `pause` while a CRITICAL framework defect is open (the CLI exits 3).
       - **Fixes:** recorded with `record_fix` in `<run>/framework_fixes.jsonl`, which sets a defect to `fixed@<version>`,
         or to `recurring` if it shows up after the fix step.

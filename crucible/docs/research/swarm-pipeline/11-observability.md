@@ -193,6 +193,31 @@ python scripts/train_monitor.py fix --run <run> --defect fd-... --component grad
   placeholders, and its episodes, reproduction and any content-bearing signature are withheld. Tuning reads training
   traces only.
 - **First validation** (2026-10-25, 466 stored episodes): in `13` §12.
+- **First CRITICAL fixed: the sidecar and the final grader disagreed** (`credit_grade_mismatch`, 2026-10-25).
+  - **What:** on one held-out debug task (placeholder `heldout-9d7c4174`), the checkpoint sidecar's grading of the final
+    patch failed a milestone that the final grade passed on the same bytes. Φ ended at 0 against the final grade's 0.5,
+    so the +0.5 the outcome counted was never booked as per-turn credit. All four checkpoints on that patch were one
+    grading (identical patches share a slot); it took 151 s during the episode, against 66 s for the final grade after the
+    World closed, and the episode's own trace shows a `go test` killed (`signal: killed`) inside its World.
+  - **Cause:** the same function grades both (`WindowTask.grade`), so the test selection, environment, timeouts, hidden
+    tests and tree were the same; regraded offline, both paths give the final vector, so the inputs do not diverge. The
+    sidecar does not keep a grading's failing tests, so the exact failure is not recorded. The most likely cause, from the
+    evidence: a test binary killed from outside under the episode's load stops the report where the kill hit, and the
+    tests it never reached were read as failed, with `infra: ok`. That grading counted only for the sidecar, so credit and
+    outcome split.
+  - **Fix:**
+    - **By construction:** `CheckpointSidecar.reconcile` makes the final grade's milestone vector the vector of every
+      checkpoint with the collected patch, and rebuilds the series, `progress.jsonl`, `checkpoints.jsonl` (`source:
+      final_grade`) and the summary (`reconciled`). It is called by `WorkspaceHarness` (by patch) and `NativeHarness` (the
+      end checkpoint). A masked final grade changes nothing and is never read as zeros.
+    - **Root cause:** a run killed from outside is masked, never the unreached tests failing (`executable.killed`, in both
+      sandboxes, and the Go profile's package-level `signal: killed`).
+    - **Tests:** `tests/unit/test_credit_grade_agreement.py`, including the invariant that the end vector equals the final
+      vector after reconcile for any episode.
+  - **Scan** (`versioning.OfflineGrade`: offline records, never training rows): over the 507 stored episodes on this
+    machine (debug and debug-300 targeting, the swarm pilot, the fairness smoke, the kernel and migration runs on the 5090),
+    1 episode in 1 task had the end-state disagreement and 0 had one patch graded two ways. Φ_end moved +0.5 there, and the
+    +0.5 of credit belongs on the call that closed the span ending at its first checkpoint on the final patch (turn 40).
 
 ## 5. Agent traces (Weave)
 

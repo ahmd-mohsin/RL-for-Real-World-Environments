@@ -212,6 +212,16 @@ def parse_junit(path: Path) -> dict[str, str] | None:
 
 
 _BLOCK = re.compile(r"@@M17-JUNIT-BEGIN@@\n(.*?)\n@@M17-JUNIT-END@@", re.DOTALL)
+# a test run something outside the tests killed (the kernel's OOM killer under the host's load, a container kill): its report
+# stops where the kill hit, so every test after it is missing, never failed (2026-10-25: an excelize grade during an episode
+# whose own ``go test`` was killed in the World read a passing milestone as failed)
+KILLED = re.compile(r"signal: killed|^Killed\b|\bexit status 137\b|\bgo test exit 13[47]\b|fatal error: runtime: out of memory", re.MULTILINE)
+
+
+def killed(text: str) -> str:
+    """The kill marker in a run's output, or ''."""
+    m = KILLED.search(text or "")
+    return m.group(0) if m else ""
 
 
 def junit_from_stdout(text: str) -> dict[str, str] | None:
@@ -301,6 +311,8 @@ class DockerSandbox:
             if code in (125, 126, 127) or (res is None and "docker:" in text[:400].lower()):
                 return TestRun({}, "masked", code, secs, text[-3000:], why=f"sandbox did not start (exit {code})")
             tail = _BLOCK.sub("", text)
+            if k := killed(tail):  # killed from outside the tests: unmeasured, never a failure of the tests it did not reach
+                return TestRun({}, "masked", code, secs, tail[-3000:], why=f"the test run was killed ({k})")
             return TestRun(res or {}, "ok", code, secs, tail[-4000:], why="" if res is not None else "no JUnit report (the run ended early)")
         finally:
             if out is not None:

@@ -99,7 +99,7 @@ class WorkspaceHarness(NativeHarness):
         res.timings = {k: round(v, 3) for k, v in t.items()}
         return res
 
-    async def _grade(self, attempt: Attempt, c: Collected, res: HarnessResult, t: dict, *, seen: int = 0) -> None:
+    async def _grade(self, attempt: Attempt, c: Collected, res: HarnessResult, t: dict, *, seen: int = 0) -> list:
         """Grade the patch on a pristine tree (``task.grade_patch``). M10 lab audit R-3: the stored patch makes the attempt
         ``regradable``, so a failure another attempt can answer (a contaminated node, a transport failure) is re-graded
         from it by the next attempt (``regrade``, never an agent re-run); an answer-sensitive failure (a hang or a checker
@@ -164,12 +164,14 @@ class WorkspaceHarness(NativeHarness):
         if f is not None:
             raise StageFailure(f)
         res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()
+        return reps
 
     async def run(self, attempt: Attempt) -> HarnessResult:
         t: dict[str, float] = {}
         res = HarnessResult()
         world = None
         policies: dict[str, Any] = {}
+        side = None
         spend0 = attempt.policy.spend()
         prior = self._prior(attempt)
         if prior is not None and prior[0] == "regrade":
@@ -248,7 +250,15 @@ class WorkspaceHarness(NativeHarness):
                 await closing.close()
             except Exception:  # noqa: BLE001, S110 -- cleanup never overrides a result
                 pass
-            await self._grade(attempt, c, res, t)
+            reps = await self._grade(attempt, c, res, t)
+            if side is not None and hasattr(side, "reconcile") and reps:
+                # one verdict on the end state (factory.checkpoint, "One verdict on the end state"): the final grade's milestone
+                # vector replaces the sidecar's own for the collected patch, so Φ, per-turn credit and the reward agree
+                rep = reps[-1]
+                fm = (rep.meta or {}).get("milestones") if (rep.infra or {}).get("status") == "ok" else None
+                got = side.reconcile(c.patch, fm)
+                if got is not None:
+                    res.grade["progress"] = got
         except StageFailure as sf:
             res.failure = sf.failure
         finally:
