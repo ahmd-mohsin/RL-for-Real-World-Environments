@@ -61,6 +61,7 @@ def add_deploy_flags(p) -> None:
     p.add_argument("--kl-coeff", type=float, default=d.kl_coeff, help="sampler-learner anchor β (0: off)")
     p.add_argument("--time", default=d.time)
     p.add_argument("--workdir", default=d.workdir)
+    p.add_argument("--envdir", default=d.envdir, help="prime-rl's checkout, venv, uv cache and CPython (NVMe)")
     p.add_argument("--no-router-replay", action="store_true", help="sample over /v1/completions and let the trainer recompute MoE routing")
 
 
@@ -69,7 +70,7 @@ def delta_config(args):
 
     return DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=args.nodes, train_gpus=args.train_gpus, infer_gpus=args.infer_gpus,
                        ep=args.ep, cp=args.cp, infer_tp=args.infer_tp, seq_len=args.seq_len, lora_rank=args.rank, kl_coeff=args.kl_coeff, time=args.time,
-                       workdir=args.workdir, router_replay=not args.no_router_replay)
+                       workdir=args.workdir, envdir=args.envdir, router_replay=not args.no_router_replay)
 
 
 def cmd_plan(args) -> None:
@@ -85,10 +86,22 @@ def cmd_plan(args) -> None:
 PYTHON = "3.12"
 
 
-def uv_env(w: str) -> str:
-    """The environment every uv call on the cluster shares: build and job alike."""
-    return (f"export UV_CACHE_DIR={w}/uv-cache UV_PYTHON_INSTALL_DIR={w}/uv-python UV_PYTHON_PREFERENCE=only-managed HF_HOME={w}/hf_cache "
+def uv_env(d) -> str:
+    """The environment every uv call on the cluster shares: build and job alike. The prime-rl checkout, its venv, uv's cache
+    and the managed CPython sit on ``d.envdir`` (/work/nvme): uv hard-links the venv from its cache, so both must be there.
+    On /work/hdd a cold GPU node took 8 min to import torch + vLLM and 13 min to start the trainer (attempt 6)."""
+    e = d.envdir
+    return (f"export UV_CACHE_DIR={e}/uv-cache UV_PYTHON_INSTALL_DIR={e}/uv-python UV_PYTHON_PREFERENCE=only-managed HF_HOME={d.workdir}/hf_cache "
             f"PATH=$HOME/.local/bin:$PATH UV_FROZEN=1")
+
+
+# the modules the GPU job imports, imported once at build time: a missing package fails the build, not a GPU job (attempt 6:
+# the trainer needs prime_kernels, from prime-rl's kernels extra), and their bytecode is written on the login node
+JOB_IMPORTS = ("import sys, prime_rl, verifiers, torch, vllm, triton, transformers; "
+               "from prime_rl.trainer.rl.train import train; import prime_rl.entrypoints.trainer, prime_rl.entrypoints.inference, prime_rl.inference.vllm.server; "
+               "import fla.ops.gated_delta_rule, fla.modules.conv; "
+               "print('python', sys.version.split()[0], 'verifiers', verifiers.__version__, 'torch', torch.__version__, torch.version.cuda, 'vllm', vllm.__version__, 'triton', triton.__version__)")
+CRUCIBLE_IMPORTS = "import crucible.train.bridges.primerl.loss, crucible.train.bridges.primerl.backend, crucible.train.bridges.primerl.smoke, crucible.train.bridges.primerl.kernel_check; print('crucible bridge ok')"
 
 
 HAS_HEADERS = ("import os, sys, sysconfig; h = os.path.join(sysconfig.get_paths()['include'], 'Python.h'); "
@@ -101,14 +114,15 @@ def build_script(d, *, version: str) -> str:
     causal-conv1d are skipped (only nemotron_h uses them), and ``mooncake-transfer-engine`` is not installed (its aarch64
     wheel needs glibc 2.39; DeltaAI has 2.38; it is for KV offload, which this run does not use). The venv is built on a
     uv-managed CPython (``PYTHON``) and the build fails unless its ``Python.h`` exists; a venv left on another interpreter
-    is removed and rebuilt from the uv cache."""
-    w = d.workdir
+    is removed and rebuilt from the uv cache. Extras: ``gpu``, ``flash-attn`` and ``kernels`` (prebuilt ``prime_kernels``,
+    which the trainer imports unconditionally). Every module the job imports is imported here once (``JOB_IMPORTS``)."""
+    w, e = d.workdir, d.envdir
     return f"""#!/bin/bash
 set -uo pipefail
-{uv_env(w)}
+{uv_env(d)}
 export MAMBA_SKIP_CUDA_BUILD=TRUE CAUSAL_CONV1D_SKIP_CUDA_BUILD=TRUE MAX_JOBS=4
 [ -x $HOME/.local/bin/uv ] || (curl -LsSf https://astral.sh/uv/install.sh | sh)
-mkdir -p {w} && cd {w}
+mkdir -p {e} && cd {e}
 [ -d prime-rl ] || git clone --depth 1 --branch {version} https://github.com/PrimeIntellect-ai/prime-rl.git
 cd prime-rl && rm -f .crucible-installed-{version}
 # the submodules are declared with SSH URLs and the cluster has no GitHub key: HTTPS, full history
@@ -120,22 +134,22 @@ PY=$(uv python find {PYTHON}) || exit 16  # only-managed: never the system pytho
 "$PY" -c "{HAS_HEADERS}" || exit 17
 [ -x .venv/bin/python ] && ! .venv/bin/python -c "{HAS_HEADERS}" && {{ echo "venv on an interpreter without headers: rebuilt"; rm -rf .venv; }}
 # prime-rl's own lockfile, never re-resolved (UV_FROZEN, also for every later uv run): the trainer and vLLM extras only
-nice -n 19 uv sync --frozen --python "$PY" --extra gpu --extra flash-attn --no-install-package mooncake-transfer-engine || exit 12
+nice -n 19 uv sync --frozen --python "$PY" --extra gpu --extra flash-attn --extra kernels --no-install-package mooncake-transfer-engine || exit 12
 nice -n 19 uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill || exit 13
 uv run --frozen python -c "{HAS_HEADERS}" || exit 17
-uv run --frozen python -c "import sys, prime_rl, verifiers, torch, vllm, triton, fla; print('python', sys.version.split()[0], 'verifiers', verifiers.__version__, 'torch', torch.__version__, torch.version.cuda, 'vllm', vllm.__version__, 'triton', triton.__version__)" || exit 14
-PYTHONPATH={w}/crucible/src uv run --frozen python -c "import crucible.train.bridges.primerl.loss, crucible.train.bridges.primerl.backend; print('crucible bridge ok')" || exit 15
-touch {w}/prime-rl/.crucible-installed-{version}
+nice -n 19 uv run --frozen python -c "{JOB_IMPORTS}" || exit 14
+PYTHONPATH={w}/crucible/src nice -n 19 uv run --frozen python -c "{CRUCIBLE_IMPORTS}" || exit 15
+touch {e}/prime-rl/.crucible-installed-{version}
 echo BUILD_OK
 """
 
 
 def setup_lines(d, *, version: str) -> str:
     """The GPU job's preamble: the environment ``build_script`` made on the login node, reused; never installed here."""
-    w = d.workdir
-    return f"""{uv_env(w)}
-[ -f {w}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl environment not built: run build_env.sh on the login node first"; exit 4; }}
-cd {w}/prime-rl
+    w, e = d.workdir, d.envdir
+    return f"""{uv_env(d)}
+[ -f {e}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl environment not built: run build_env.sh on the login node first"; exit 4; }}
+cd {e}/prime-rl
 export PYTHONPATH={w}/crucible/src  # Crucible's source (rsynced); the trainer imports its loss from here
 """
 
@@ -183,7 +197,7 @@ def cmd_render_smoke(args) -> None:
     from crucible.train.bridges.tinker.trainer import TrainConfig
 
     d = DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=1, train_gpus=1, infer_gpus=1, ep=1, cp=1, infer_tp=1, seq_len=4096,
-                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100, router_replay=False)  # a dense model: no experts
+                    lora_rank=16, time=args.time, workdir=args.workdir, envdir=args.envdir, mem_gb_per_gpu=100, router_replay=False)  # a dense model: no experts
     cfg = TrainConfig(model="Qwen/Qwen3.6-35B-A3B", lora_rank=16, steps=3, learning_rate=args.lr, loss_fn="importance_sampling", require_band=False)
     out = Path(d.workdir) / "runs" / args.run_name
     stage = Path(args.stage)
@@ -212,25 +226,31 @@ set -uo pipefail
 unset SBATCH_ACCOUNT SLURM_ACCOUNT
 mkdir -p {out}
 {setup_lines(d, version=PRIME_RL_VERSION)}
-echo "=== versions"; uname -m; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; uv run python -c "import sys, torch, vllm, triton; print(sys.version.split()[0], sys.base_prefix, torch.__version__, torch.version.cuda, vllm.__version__, triton.__version__)"; uv run python -c "{HAS_HEADERS}" || {{ echo "the venv's python has no headers: rerun build_env.sh"; exit 8; }}
+echo "=== versions"; uname -m; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; uv run python -c "{HAS_HEADERS}" || {{ echo "the venv's python has no headers: rerun build_env.sh"; exit 8; }}
 nvidia-smi --query-gpu=timestamp,index,memory.used,utilization.gpu --format=csv,noheader -l 10 > {out}/gpu_mem.csv 2>/dev/null &
 MEM=$!
+# vLLM, the trainer and the kernel check start together: each import is paid once, in parallel
 CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
-echo "=== the student's Gated DeltaNet kernels on the GPU, and vLLM's registry (advisory: the 0.6B smoke does not need them; vLLM loads meanwhile)"
-CUDA_VISIBLE_DEVICES=0 timeout 600 uv run python -m crucible.train.bridges.primerl.kernel_check > {out}/kernel_check.json 2>{out}/kernel_check.err; echo "rc=$?"; cat {out}/kernel_check.json; grep -m3 -i -e error -e "roll back" {out}/kernel_check.err
 CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
 TRN=$!
-for i in $(seq 1 120); do curl -sf localhost:{d.port}/health > /dev/null && break; kill -0 $INF 2>/dev/null || {{ echo "vLLM exited"; tail -40 {out}/inference.log; exit 5; }}; kill -0 $TRN 2>/dev/null || {{ echo "trainer exited"; tail -40 {out}/trainer.log; exit 6; }}; sleep 10; done
-curl -sf localhost:{d.port}/health > /dev/null || {{ echo "vLLM not healthy after 20 min"; tail -40 {out}/inference.log; exit 7; }}
+CUDA_VISIBLE_DEVICES=0 timeout 1500 uv run python -m crucible.train.bridges.primerl.kernel_check > {out}/kernel_check.json 2>{out}/kernel_check.err &
+KC=$!
+T0=$SECONDS
+for i in $(seq 1 240); do curl -sf localhost:{d.port}/health > /dev/null && break; kill -0 $INF 2>/dev/null || {{ echo "vLLM exited"; tail -40 {out}/inference.log; exit 5; }}; kill -0 $TRN 2>/dev/null || {{ echo "trainer exited"; tail -40 {out}/trainer.log; exit 6; }}; sleep 10; done
+curl -sf localhost:{d.port}/health > /dev/null || {{ echo "vLLM not healthy after 40 min"; tail -40 {out}/inference.log; exit 7; }}
+echo "vLLM healthy after $((SECONDS - T0)) s"
 echo "=== phase 1: two steps"
-{py} --steps 2 --report {out}/smoke1.json
+{py} --steps 2 --report {out}/smoke1.json || {{ echo "phase 1 failed"; tail -30 {out}/trainer.log; tail -20 {out}/inference.log; kill $INF $TRN $MEM 2>/dev/null; exit 9; }}
 kill $TRN; wait $TRN 2>/dev/null
 echo "=== phase 2: trainer relaunched from its step-1 checkpoint"
 CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer_resume.toml > {out}/trainer_resume.log 2>&1 &
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
 RC=$?
+[ $RC = 0 ] || {{ tail -30 {out}/trainer_resume.log; tail -20 {out}/inference.log; }}
+echo "=== the student's Gated DeltaNet kernels on the GPU, and vLLM's registry (advisory: the 0.6B smoke does not need them)"
+wait $KC; echo "kernel_check rc=$?"; cat {out}/kernel_check.json; grep -m3 -i -e error -e "roll back" {out}/kernel_check.err
 kill $INF $TRN $MEM 2>/dev/null || true
 echo "=== peak GPU memory (MiB) per GPU"; awk -F', ' '{{g=$2; m=$3+0; if(m>p[g])p[g]=m}} END{{for(g in p) print "gpu", g, p[g]}}' {out}/gpu_mem.csv
 echo "=== done rc=$RC"
@@ -313,6 +333,7 @@ def main() -> None:
     p.add_argument("--partition", default="test")
     p.add_argument("--time", default="01:45:00")
     p.add_argument("--workdir", default="/work/hdd/bjhg/mahmedmohsin/crucible-train")
+    p.add_argument("--envdir", default="/work/nvme/bjhg/mahmedmohsin/crucible-train")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--gpus", type=int, default=2, help="GPUs requested (the smoke uses 2: trainer + vLLM)")
     p.add_argument("--mem-gb", type=int, default=200, help="memory request; keep it proportional to the GPUs (charging follows the largest share)")

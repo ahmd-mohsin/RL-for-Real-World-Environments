@@ -920,7 +920,10 @@ launcher, filesystem transports and an import-path loss.
   picks FA3 on the GH200).
 - **The build** (`build_env.sh`, on the login node): the venv sits on a uv-managed CPython 3.12
   (`UV_PYTHON_PREFERENCE=only-managed`), because Triton compiles its launcher against `Python.h` on the GPU node and the
-  system python has no headers. The build and the job both fail when `Python.h` is missing.
+  system python has no headers. The build and the job both fail when `Python.h` is missing. The environment (prime-rl,
+  its venv, uv's cache, CPython) sits on `/work/nvme` (`DeltaConfig.envdir`), because a cold GPU node took over 13 min to
+  import from `/work/hdd`. Extras: `gpu`, `flash-attn`, `kernels` (the trainer imports `prime_kernels`). The build imports
+  every module the job imports, so a missing package fails on the login node.
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

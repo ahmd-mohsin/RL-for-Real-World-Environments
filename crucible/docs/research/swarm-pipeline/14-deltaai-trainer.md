@@ -204,8 +204,24 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   3.12.15 (uv-managed, `Python.h` present), torch 2.13.0+cu130, vLLM 0.31.0, Triton 3.7.1, and Crucible's bridge
   importable.
 - **Attempt 6** (job 3468656, `ghx4-interactive`, 2 GPUs, 120 GB, account `bjhg-dtai-gh` checked with `squeue -o %a`):
-  submitted and PENDING (Priority). Then the SSH control socket closed again and stayed down for over an hour, so its
-  outcome is not yet known.
+  it failed after 21:05 (`ExitCode 6`, the job's "trainer exited"), 0.70 GPU-hours. The headers fix held: CPython 3.12.15
+  with `Python.h`, Triton 3.7.1. Two findings:
+  - **The trainer imports `prime_kernels`** (`trainer/distributed/collectives.py`, unconditionally), and that package sits
+    in prime-rl's `kernels` extra. Fixed: the build adds `--extra kernels` (a prebuilt aarch64 cu130 wheel, nothing
+    compiled). The build now imports every module the job imports (`JOB_IMPORTS`: the trainer's `train`, the inference
+    entrypoint and vLLM server, the fla ops, the smoke), so a missing package fails the build on the login node, not a GPU
+    job.
+  - **Imports from /work/hdd on a cold GPU node are very slow.** The versions line (`import torch, vllm, triton`) took
+    8 min. vLLM and the trainer were still importing 13 min after they started, and the kernel check hit its 600 s limit
+    before it printed anything (rc 124). The venv held almost no bytecode (97 `.pyc` in vLLM), and its files are
+    hard links into uv's cache on the HDD pool. Fixed:
+    - the prime-rl checkout, its venv, uv's cache and the managed CPython move to `/work/nvme/bjhg/mahmedmohsin/crucible-train`
+      (`DeltaConfig.envdir`). Runs, Crucible's source and the HF cache stay on `/work/hdd`;
+    - the build's imports write the bytecode on the login node;
+    - the job starts vLLM, the trainer and the kernel check together, waits up to 40 min for vLLM, and stops with the
+      logs if phase 1 fails.
+  - Also fixed: the real run's `job.sbatch` ran `cd {workdir}` before `uv run`, outside prime-rl's project, so `uv` would
+    not have found prime-rl's venv. It now stays in `{envdir}/prime-rl`.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

@@ -62,7 +62,8 @@ class DeltaConfig:
     time: str = "12:00:00"
     mem_gb_per_gpu: int = 110  # a quarter node per GPU: charging follows the largest share
     cpus_per_gpu: int = 18
-    workdir: str = f"{WORK}/crucible-train"
+    workdir: str = f"{WORK}/crucible-train"  # runs, Crucible's source, the HF cache
+    envdir: str = "/work/nvme/bjhg/mahmedmohsin/crucible-train"  # prime-rl, its venv, uv's cache, CPython: small files load fast
     port: int = 8000
     extra_env: dict[str, str] = field(default_factory=dict)
 
@@ -157,7 +158,6 @@ set -euo pipefail
 unset SBATCH_ACCOUNT SLURM_ACCOUNT
 {env}{setup}
 mkdir -p {out}
-cd {d.workdir}
 CUDA_VISIBLE_DEVICES={inf} uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
 CUDA_VISIBLE_DEVICES={tr} uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &

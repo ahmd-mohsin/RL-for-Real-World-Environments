@@ -19,10 +19,14 @@ def main() -> int:
     out: dict[str, object] = {"arch": ARCH}
     ok = True
     try:
+        import fla
         import torch
+        import triton
         from fla.modules.conv import causal_conv1d
         from fla.ops.gated_delta_rule import chunk_gated_delta_rule
 
+        out["versions"] = {"python": sys.version.split()[0], "torch": torch.__version__, "cuda": torch.version.cuda, "triton": triton.__version__,
+                           "fla": getattr(fla, "__version__", "?"), "gpu": torch.cuda.get_device_name(0)}
         dev = "cuda"
         b, t, h, k, v = 1, 64, 2, 32, 32
         q = torch.randn(b, t, h, k, device=dev, dtype=torch.bfloat16, requires_grad=True)

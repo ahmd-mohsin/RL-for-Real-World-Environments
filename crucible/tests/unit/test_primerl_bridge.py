@@ -360,7 +360,15 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
     assert "UV_PYTHON_PREFERENCE=only-managed" in build and f"uv python install {dr.PYTHON}" in build and '--python "$PY"' in build
     assert build.index("Python.h") < build.index("uv sync") and build.index(f'-c "{dr.HAS_HEADERS}" || exit 17', build.index("uv sync")) < build.index("touch ")
     assert "rm -rf .venv" in build and "--extra disagg" not in build
-    assert "UV_PYTHON_PREFERENCE=only-managed" in dr.setup_lines(d, version=deploy.PRIME_RL_VERSION)
+    setup = dr.setup_lines(d, version=deploy.PRIME_RL_VERSION)
+    assert "UV_PYTHON_PREFERENCE=only-managed" in setup
+    # attempt 6 (job 3468656): the trainer imports prime_kernels (the kernels extra), and a cold node took 13 min to import
+    # from /work/hdd: the environment sits on /work/nvme, and the build imports every module the job does
+    assert "--extra kernels" in build and f'-c "{dr.JOB_IMPORTS}" || exit 14' in build and "prime_rl.trainer.rl.train" in dr.JOB_IMPORTS
+    assert "crucible.train.bridges.primerl.smoke" in dr.CRUCIBLE_IMPORTS and f"UV_CACHE_DIR={d.envdir}/uv-cache" in build
+    assert d.envdir.startswith("/work/nvme/bjhg/") and f"cd {d.envdir}/prime-rl" in setup and f"HF_HOME={d.workdir}/hf_cache" in setup
+    job_real = deploy.sbatch_script(d, out=Path("/w/runs/x"), run_name="x", crucible_cmd="true", setup=setup)
+    assert f"cd {d.workdir}\n" not in job_real and job_real.index(f"cd {d.envdir}/prime-rl") < job_real.index("uv run inference")
     assert subprocess.run([sys.executable, "-c", dr.HAS_HEADERS], capture_output=True, check=False).returncode == 0  # this python has its headers
     cfg = TrainConfig(model=MODEL, steps=2, require_band=False)
     inf = deploy.inference_toml(cfg, d)
@@ -369,10 +377,11 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
         deploy.inference_toml(cfg, deploy.DeltaConfig(infer_gpus=2, infer_tp=1))
     assert deploy.trainer_toml(cfg, d, Path("/w"))["model"]["attn"] == deploy.ATTN == "flash_attention_2"
     stage = tmp_path / "smoke"
-    dr.cmd_render_smoke(SimpleNamespace(base_model="Qwen/Qwen3-0.6B", partition="ghx4-interactive", time="01:55:00", workdir="/w", lr=1e-4, gpus=2, mem_gb=120,
-                                        run_name="smoke1", stage=str(stage)))
+    dr.cmd_render_smoke(SimpleNamespace(base_model="Qwen/Qwen3-0.6B", partition="ghx4-interactive", time="01:55:00", workdir="/w", envdir="/n", lr=1e-4, gpus=2,
+                                        mem_gb=120, run_name="smoke1", stage=str(stage)))
     for name in ("trainer.toml", "trainer_resume.toml"):
         assert tomllib.loads((stage / name).read_text())["model"]["attn"] == "flash_attention_2"
     assert tomllib.loads((stage / "inference.toml").read_text())["router"] == "None"
     job = (stage / "job.sbatch").read_text()
-    assert job.index("uv run inference") < job.index("kernel_check") < job.index("uv run trainer") and "exit 8" in job
+    assert job.index("uv run inference") < job.index("uv run trainer") < job.index("kernel_check") < job.index("phase 1") and "exit 8" in job
+    assert "cd /n/prime-rl" in job and "exit 9" in job and "PYTHONPATH=/w/crucible/src" in job
