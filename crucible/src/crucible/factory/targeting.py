@@ -462,9 +462,12 @@ def band(rewards: Sequence[float | None]) -> dict[str, Any]:
 
 
 NOT_LABELS = ("abstain", "env_flake")
+# the keep rule's on-intent bar: a majority of the labelled failures are the intended skill gap (the lead lowered it
+# from 0.7, 2026-10-27: with 8 attempts, 0.7 dropped a task whose failures were 4 skill gaps and 3 budget stops)
+SKILL_MIN = 0.5
 
 
-def cause_mix(labels: Mapping[str, int] | Sequence[str], *, skill_min: float = 0.7, min_labels: int = 3) -> dict[str, Any]:
+def cause_mix(labels: Mapping[str, int] | Sequence[str], *, skill_min: float = SKILL_MIN, min_labels: int = 3) -> dict[str, Any]:
     """§7.3: the skill-gap share of the trusted labels (masked and abstained attempts are not labels). Fewer than
     ``min_labels`` labels is unmeasured (``ok`` None): a flag, never a pass."""
     counts = dict(labels) if isinstance(labels, Mapping) else dict(__import__("collections").Counter(labels))
@@ -487,7 +490,7 @@ class KeepRule:
     train_lo: float = 0.1
     train_hi: float = 0.6
     bench_hi: float = 0.3
-    skill_min: float = 0.7
+    skill_min: float = SKILL_MIN
     min_labels: int = 3  # fewer labelled failures: the intent share is unmeasured (never a pass)
 
 

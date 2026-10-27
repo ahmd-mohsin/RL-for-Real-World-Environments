@@ -115,7 +115,7 @@ def _ease_order(modes: Mapping[str, int], conditional_in_band: bool) -> tuple[st
 
 
 def control(task: str, rate: PassRate, *, split: str = "train", band: Band | None = None, final: bool = True, causes: Mapping[str, int] | None = None,
-            modes: Mapping[str, int] | None = None, skill_min: float = 0.7, conditional_rates: Mapping[str, float | None] | None = None,
+            modes: Mapping[str, int] | None = None, skill_min: float = 0.5, conditional_rates: Mapping[str, float | None] | None = None,
             frontier_passes: bool | None = None, applied: Sequence[str] = ()) -> KnobAction:
     """One difficulty action for a measured task. ``causes``: failure cause -> count (the targeting cause labels:
     skill_gap, budget, spec_defect, ...); ``modes``: failure mode -> count; ``conditional_rates``: p(m | prerequisites)

@@ -240,7 +240,7 @@ def reward_band(rewards: Sequence[float | None]) -> dict[str, Any]:
             "reward_range": [min(rs), max(rs)] if rs else None}
 
 
-def verdict(gates: Mapping[str, Any], band: Mapping[str, Any], mix: Mapping[str, int], reached: Mapping[str, bool], *, skill_min: float = 0.7) -> dict[str, Any]:
+def verdict(gates: Mapping[str, Any], band: Mapping[str, Any], mix: Mapping[str, int], reached: Mapping[str, bool], *, skill_min: float = 0.5) -> dict[str, Any]:
     """Accept-candidate / harden / split / back for one window from its evidence.
 
     - ``back``: a verifier or World gate failed (a floor scores, the oracle fails, a mutant passes, a confirmed hack) or

@@ -44,7 +44,8 @@ def test_keep_rule_training_band_intent_and_fairness() -> None:
     fr = {"Qwen/Qwen3.5-397B-A17B": [True, False]}
     v = keep_verdict(split="train", passes=3, n=8, on_intent=4, labelled=5, frontier=fr)
     assert v["verdict"] == "train" and v["keep"] and v["pass_rate"] == pytest.approx(0.375) and v["ci"][0] < 0.375 < v["ci"][1]
-    assert keep_verdict(split="train", passes=3, n=8, on_intent=3, labelled=5, frontier=fr)["verdict"] == "off_intent"  # 0.6 < 0.7
+    assert keep_verdict(split="train", passes=3, n=8, on_intent=2, labelled=5, frontier=fr)["verdict"] == "off_intent"  # 0.4 < 0.5
+    assert keep_verdict(split="train", passes=1, n=8, on_intent=4, labelled=7, frontier=fr)["verdict"] == "train"  # 4 skill gaps, 3 budget stops: 0.57
     assert keep_verdict(split="train", passes=3, n=8, on_intent=4, labelled=5, frontier={"a": [False, False], "b": [False]})["verdict"] == "unfair"
     assert keep_verdict(split="train", passes=6, n=8, on_intent=2, labelled=2, frontier=fr)["verdict"] == "too_easy"
     hard = keep_verdict(split="train", passes=0, n=8, on_intent=8, labelled=8, frontier=fr)
