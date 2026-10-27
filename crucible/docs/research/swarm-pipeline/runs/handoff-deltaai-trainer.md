@@ -20,9 +20,10 @@ This is for the worker who continues the DeltaAI trainer for Qwen/Qwen3.6-35B-A3
     `Python.h` for Triton, no `vllm-router`, and `attn = "sdpa"` invalid (doc 14 §5.1). All three are fixed in the
     code (2026-10-27), but **not yet on the cluster**: the SSH control socket closed again before the rsync, the
     rebuild (`build_env.sh`, which now moves the venv to a uv-managed CPython 3.12) and attempt 6.
-  - Next: `ssh -fN deltaai` (the user), rsync `crucible/{src,scripts,pyproject.toml}`, re-render the smoke
-    (`render-smoke` below) and rsync it to `runs/smoke1`, run `build_env.sh` on the login node until `BUILD_OK`, then
-    submit from `runs/smoke1`.
+  - 2026-10-27: the code and the smoke stage were rsynced, `build_env.sh` printed `BUILD_OK` (CPython 3.12.15 with
+    headers, Triton 3.7.1), and **attempt 6 was submitted as job 3468656** (`ghx4-interactive`, bjhg-dtai-gh). It was
+    PENDING when the SSH socket closed again. Next: `sacct -X -j 3468656 -o JobID,State,Elapsed,AllocTRES%70`, then
+    read `runs/smoke1/slurm-3468656.out`.
 - **GPU-hours used**: about 2 on bjhg-dtai-gh for attempt 1 (the interactive partition billed a whole node) and 0.70 for
   attempt 5. The last balance seen was 974.
 

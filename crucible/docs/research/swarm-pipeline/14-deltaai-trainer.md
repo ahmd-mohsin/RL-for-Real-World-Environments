@@ -200,6 +200,12 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
     have failed in the same way.
 
   The smoke job now also starts vLLM before the kernel check, so the check overlaps vLLM's load.
+- **Rebuild** (2026-10-27, login node, about 22 min, mostly Lustre I/O on the first imports): `BUILD_OK` on CPython
+  3.12.15 (uv-managed, `Python.h` present), torch 2.13.0+cu130, vLLM 0.31.0, Triton 3.7.1, and Crucible's bridge
+  importable.
+- **Attempt 6** (job 3468656, `ghx4-interactive`, 2 GPUs, 120 GB, account `bjhg-dtai-gh` checked with `squeue -o %a`):
+  submitted and PENDING (Priority). Then the SSH control socket closed again and stayed down for over an hour, so its
+  outcome is not yet known.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers
