@@ -522,7 +522,14 @@ class World:
         try:
             app_id, tool = self._split(call.function_name)
         except WorldError as e:
-            return fail(call.function_name, str(e), "bad_tool_name")
+            # the valid names and the nearest one (``shell`` -> ``repo.shell``): a hint, never an alias, so the policy acts
+            valid = sorted(t.qualified for t in self.tools_for(actor))
+            bare = safe_text(call.function_name).lower()
+            near = [q for q in valid if q.rsplit(".", 1)[-1] == bare] or difflib.get_close_matches(bare, valid, n=1, cutoff=0.4) or difflib.get_close_matches(
+                bare, [q.rsplit(".", 1)[-1] for q in valid], n=1, cutoff=0.4)
+            near = [next((q for q in valid if q.endswith("." + n)), n) if "." not in n else n for n in near]
+            hint = (f" Did you mean {near[0]}?" if near else "") + (f" Valid tools: {', '.join(valid)}." if valid else "")
+            return fail(call.function_name, str(e) + "." + hint, "bad_tool_name")
         qualified = f"{app_id}.{tool}"
         if app_id not in self.apps:
             return fail(qualified, f"Unknown app: {app_id}", "unknown_app")

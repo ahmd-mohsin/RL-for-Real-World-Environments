@@ -56,13 +56,36 @@ def _write(a):
     return {"bytes": len(a["content"].encode("utf-8"))}
 
 
+def _closest(text, old):
+    """Where old_string nearly is: the file's lines most like its first non-blank line, numbered, so the policy can copy
+    the exact text (whitespace, tabs) and retry; a hint only, the edit is never applied for it."""
+    import difflib
+
+    want = next((ln.strip() for ln in old.splitlines() if ln.strip()), "")
+    if not want:
+        return ""
+    lines = text.splitlines()
+    stripped = [ln.strip() for ln in lines]
+    near = difflib.get_close_matches(want, stripped, n=3, cutoff=0.6)
+    hits = []
+    for cand in near:
+        for i, s in enumerate(stripped):
+            if s == cand and (i + 1, lines[i]) not in hits:
+                hits.append((i + 1, lines[i]))
+                break
+    if not hits:
+        return "; no line of the file is close to its first line"
+    # one line: the World reports the error's last line only
+    return "; the closest lines of the file are " + "; ".join(f"line {n}: {ln[:200]!r}" for n, ln in sorted(hits))
+
+
 def _edit(a):
     path, old, new = a["path"], a["old"], a["new"]
     with open(path, encoding="utf-8") as f:
         text = f.read()
     n = text.count(old) if old else 0
     if n == 0:
-        raise ValueError("old_string not found")
+        raise ValueError("old_string not found" + _closest(text, old))
     if n > 1 and not a.get("all"):
         raise ValueError(f"old_string occurs {n} times; make it unique or set replace_all")
     text = text.replace(old, new) if a.get("all") else text.replace(old, new, 1)

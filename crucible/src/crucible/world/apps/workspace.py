@@ -14,11 +14,12 @@ so ``shell`` on the local backend requires ``params.allow_unsafe_local_shell``.
 
 from __future__ import annotations
 
+import re
 import shlex
 from typing import Any
 
 from crucible.core.schema.actions import ToolSpec
-from crucible.world.apps.base import App, ToolError, confine, push_seed_tree
+from crucible.world.apps.base import App, PolicyToolError, ToolError, confine, push_seed_tree
 from crucible.world.state.base import snippet
 
 WS_SNIPPET = snippet("ws")
@@ -31,6 +32,12 @@ _B = {"type": "boolean"}
 
 def _obj(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {"type": "object", "properties": props, "required": required, "additionalProperties": False}
+
+
+# errors a well-formed call of the policy caused: its old_string, its regex, its path (fault ``policy``, never the World's)
+POLICY_CAUSED = re.compile(r"old_string (not found|occurs \d+ times)|re\.error|re\._constants\.error|re\.PatternError|unterminated character set|"
+                           r"nothing to repeat|bad escape|missing \)|unbalanced parenthesis|unterminated subpattern|"
+                           r"FileNotFoundError|IsADirectoryError|NotADirectoryError|No such file or directory|is a directory|Not a directory")
 
 
 def _last_error_line(text: str) -> str:
@@ -94,7 +101,10 @@ class WorkspaceApp(App):
         try:
             return await self.policy_exec.run_python(WS_SNIPPET, {"op": op, **kw})
         except Exception as e:  # file errors are the policy's problem; the traceback (snippet paths) is not its business
-            raise ToolError(_last_error_line(str(e))) from e
+            msg = _last_error_line(str(e))
+            if POLICY_CAUSED.search(str(e)):
+                raise PolicyToolError(msg) from e
+            raise ToolError(msg) from e
 
     async def tool_list_dir(self, path: str = ".", depth: int = 1) -> Any:
         return "\n".join((await self._ws("list", path=confine(self.root, path), depth=min(max(depth, 1), 5)))["entries"]) or "(empty)"
@@ -119,7 +129,8 @@ class WorkspaceApp(App):
         try:
             r = await self.policy_exec.run_python(FS_SNIPPET, args)
         except Exception as e:
-            raise ToolError(f"search failed: {_last_error_line(str(e))}") from e
+            msg = f"search failed: {_last_error_line(str(e))}"
+            raise (PolicyToolError if POLICY_CAUSED.search(str(e)) else ToolError)(msg) from e
         lines = [f"{p}:{n}:{t}" for p, n, t in r["hits"]]
         return "\n".join(lines) + ("\n... (truncated)" if r["truncated"] else "") if lines else "no matches"
 

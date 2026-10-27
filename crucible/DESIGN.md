@@ -1416,6 +1416,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     k8sgpt tasks.
   - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
     seal ignore a record of another tree.
+  - **Agent-caused tool errors** (2026-10-26, from mvdan-sh dc951aeb-e1's budget stops, 13-14 failed calls each): an
+    `old_string` the file does not hold, a regex that does not compile and a path that does not exist are
+    `apps.base.PolicyToolError` (error `tool_error`, so no format penalty in credit shaping; fault `policy`, never read
+    as a World fault). The workspace edit's refusal lists the file's closest lines with their numbers, and an unknown
+    tool name (`shell`, `execcmd`) gets the nearest valid tool and the full list. Messages only: no alias, nothing runs.
 
 ## 8. Layer 4: verification and isolation
 

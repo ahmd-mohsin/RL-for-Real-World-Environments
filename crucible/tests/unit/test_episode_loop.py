@@ -67,7 +67,8 @@ async def test_choke_point_types_every_failure(world: World):
     r = await call(world, "mail.send_email", {"to": "bob@x", "subject": "s", "body": "b"})  # stored "b","o","b"... before
     assert r.error == "invalid_arguments" and "to" in r.content
     r = await call(world, "ws.read_file", {"path": "missing.txt"})
-    assert not r.ok and r.fault == "tool" and r.content.startswith("FileNotFoundError")  # a domain error: scored, not masked
+    # a path the policy named that does not exist: its own error (fault policy since 2026-10-26), scored, never masked
+    assert not r.ok and r.error == "tool_error" and r.fault == "policy" and r.content.startswith("FileNotFoundError")
     assert not world.failures
     # bounded output: one head+tail cut with a banner; the full text is in the store
     await call(world, "ws.write_file", {"path": "big.txt", "content": "".join(f"line {i}\n" for i in range(400))})

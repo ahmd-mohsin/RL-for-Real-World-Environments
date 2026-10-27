@@ -55,6 +55,12 @@ class ToolError(Exception):
     """Raised by App tool implementations; becomes ok=False with the message as content."""
 
 
+class PolicyToolError(ToolError):
+    """A ``ToolError`` the policy's own well-formed call caused (an ``old_string`` the file does not hold, a regex that does
+    not compile, a path that does not exist): it stays ``tool_error`` (not a malformed call, so no format penalty) with
+    fault ``policy``. It was labelled ``tool`` and read as a World fault (mvdan-sh dc951aeb-e1, 2026-10-26)."""
+
+
 class ArgumentError(ToolError):
     """A ``ToolError`` the caller's arguments caused (a path outside the workspace, an id that does not exist): the
     policy's malformed call, ``invalid_arguments`` with policy fault (M14 campaign B13)."""
@@ -170,6 +176,8 @@ class App(ABC):
             out = await fn(**args)
         except ArgumentError as e:  # the caller's arguments: the policy's error (M14 campaign B13)
             return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="invalid_arguments", fault="policy")
+        except PolicyToolError as e:
+            return ToolResult(tool_call_id=call_id, function_name=qualified, ok=False, content=str(e), error="tool_error", fault="policy")
         except ToolError as e:
             if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: the World's, not the policy's (M1 R-1)
                 raise EnvContainerLost(str(lost)) from e
