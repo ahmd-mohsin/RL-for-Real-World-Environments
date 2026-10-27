@@ -346,4 +346,7 @@ def profile(name: str | None = None, *, tests: Sequence[str] = (), targets: Mapp
 
 def of_spec(spec: Mapping) -> KernelHarness:
     tests = spec.get("harness_tests") or {}
-    return profile(spec.get("harness"), tests=list(tests), targets=tests if isinstance(tests, Mapping) else None)
+    h = spec.get("harness")
+    if isinstance(h, Mapping):  # ggml specs already used ``harness`` for the op test's descriptor ({"dialect", "file"}), long
+        h = h.get("profile")    # before profiles existed: such a spec is a ggml task (DeltaAI smoke 3462338: unhashable dict)
+    return profile(h, tests=list(tests), targets=tests if isinstance(tests, Mapping) else None)

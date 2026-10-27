@@ -163,3 +163,11 @@ def test_a_ggml_reference_keeps_its_identity():
     old = "harness " + hashlib.sha256(Path(kh.__file__).read_bytes()).hexdigest()[:16]
     assert g.harness_digest() == g.harness_digest(kp.GGML) == old
     assert g.harness_digest(kp.cccl(["cub/test/catch2_test_device_reduce_by_key.cu"])) != old
+
+
+def test_a_ggml_spec_whose_harness_is_the_op_test_descriptor_is_a_ggml_task():
+    """DeltaAI smoke 3462338: calibrated ggml specs carry ``harness: {"dialect", "file"}`` (the op test's descriptor, older
+    than profiles); ``of_spec`` read it as a profile name and failed every episode grade with an unhashable dict."""
+    spec = {"harness": {"dialect": "ggml-2025", "file": "tests/test-backend-ops.cpp"}}
+    assert kp.of_spec(spec) is kp.profile("ggml")
+    assert kp.of_spec({}) is kp.profile("ggml")
