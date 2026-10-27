@@ -61,6 +61,20 @@ def new_names(rec: Mapping[str, Any], base_dir: Path) -> set[str]:
     return {n for n in names if n.startswith("test") and n not in a_text}
 
 
+def rerun_verdict(ref: Mapping[str, str], tr: Any, ignored: set[str]) -> tuple[str, list[str]]:
+    """One S3 rerun against the first run: ``masked`` when the host ran out of time (the whole suite killed under load,
+    no result: k8sgpt 855ff255, 4 of 5 unclean reruns, 2026-10-26), never a verdict on the tree (V8); else ``clean`` or
+    ``unclean`` with the tests that differ. P5: an id built from the clock (marshmallow parametrizes on datetime.now())
+    exists in one run only; ids are compared where both runs have them, and the runs must collect the same number of
+    tests (a crashed module still changes the count)."""
+    if str(tr.why or "").startswith("timeout after") and not tr.results:
+        return "masked", []
+    common = (set(ref) & set(tr.results)) - ignored
+    if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
+        return "unclean", (sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted(set(ref) ^ set(tr.results)))[:10]
+    return "clean", []
+
+
 async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns: int = 60, concurrency: int = 4,
                    sandboxes: Callable[[str], Any] | None = None, max_flake: float = 0.05, name_prefix: str = f"{S3_PREFIX}s3-") -> dict[str, Any]:
     """S3 for ``image`` as the World of window ``rec`` (see the module doc). ``ok`` needs every check."""
@@ -96,20 +110,20 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
     ignored = set((rec.get("excluded") or {}).get("timing") or []) | set(timing_tests(ref, a_tests))
     out["ignored_timing"] = sorted(ignored)[:50]
     unclean: list[dict[str, Any]] = []
+    masked: list[str] = []
     done = 0
     half = reruns // 2
 
     async def one() -> None:
         nonlocal done
         tr = await run_tests(sb, base_dir, {}, {}, targets)
+        verdict, diff = rerun_verdict(ref, tr, ignored)
+        if verdict == "masked":
+            masked.append(str(tr.why))
+            return
         done += 1
-        # P5: an id built from the clock (marshmallow parametrizes on datetime.now()) exists in one run only; ids are
-        # compared where both runs have them, and the runs must collect the same number of tests (a crashed module still
-        # changes the count)
-        common = (set(ref) & set(tr.results)) - ignored
-        if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
-            diff = sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted(set(ref) ^ set(tr.results))
-            unclean.append({"infra": tr.infra, "why": tr.why, "differs": diff[:10]})
+        if verdict == "unclean":
+            unclean.append({"infra": tr.infra, "why": tr.why, "differs": diff})
 
     if ran:
         for _ in range(half):
@@ -121,9 +135,16 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
                 await one()
 
         await asyncio.gather(*(gated() for _ in range(reruns - half)))
+        while done < reruns and len(masked) <= reruns // 5:  # a masked rerun is replaced, alone, while masks stay rare
+            await one()
     bound = cp_upper(len(unclean), done) if done else 1.0
-    out["reruns"] = {"n": done, "clean": done - len(unclean), "unclean": unclean[:5], "cp_upper": round(bound, 4), "concurrency": [1, concurrency]}
-    out["checks"]["reruns_clean"] = bool(done) and bound <= max_flake
+    flips: dict[str, int] = {}
+    for u in unclean:
+        for t in u["differs"]:
+            flips[t] = flips.get(t, 0) + 1
+    out["reruns"] = {"n": done, "clean": done - len(unclean), "unclean": unclean[:5], "cp_upper": round(bound, 4), "concurrency": [1, concurrency],
+                     "masked": len(masked), "flips": dict(sorted(flips.items(), key=lambda x: -x[1])[:40])}
+    out["checks"]["reruns_clean"] = bool(done) and bound <= max_flake  # too many masks leave fewer reruns: the bound fails
     # the verifier does not move: the oracle passes every milestone test, the start state none
     tests, _ = grader_tests(rec, base_dir)
     ms = list(rec.get("milestones") or [])

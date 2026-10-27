@@ -1138,12 +1138,19 @@ class Debug(Rebreak):
                 self.store.save_window(rec)
                 self.lane()._made.clear()
                 return await self.gates(wid, cfg=cfg)
-        if failing == ["reruns_clean"] and flipped and len(flipped) <= 3 and not set(flipped) & checked and not rec.get("s3_flaky_excluded"):
+        # flips counted per test function (k8sgpt's TestInterplexCache and its 3 subtests are one test, 2026-10-26); every
+        # flipped test of the reruns (``reruns.flips``), not only the first five unclean runs'
+        flipped = sorted(set(flipped) | set(((s3.get("evidence") or {}).get("reruns") or {}).get("flips") or {}))
+        parents = {t.split("::", 1)[0] + "::" + t.split("::", 1)[-1].split("/", 1)[0] for t in flipped}
+        checked_parents = {t.split("::", 1)[0] + "::" + t.split("::", 1)[-1].split("/", 1)[0] for t in checked}
+        if failing == ["reruns_clean"] and flipped and len(parents) <= 3 and not parents & checked_parents and not rec.get("s3_flaky_excluded"):
             # benchmark v2's empirical rule (``windows_timing.load_dependent``) for the existing suite: a test that flips
             # between reruns of one unchanged tree is the host's load, never a check; excluded with its reason, gates re-run once
             from crucible.factory.lanes.windows_timing import drop_tests
 
-            drop_tests(rec, {t: "S3: flipped between reruns of the unchanged start tree" for t in flipped})
+            flips = ((s3.get("evidence") or {}).get("reruns") or {}).get("flips") or {}
+            drop_tests(rec, {t: f"S3: flipped between reruns of the unchanged start tree ({flips.get(t, '?')} of {((s3.get('evidence') or {}).get('reruns') or {}).get('n')})"
+                             for t in flipped})
             rec["s3_flaky_excluded"] = flipped
             self.store.save_window(rec)
             self.lane()._made.clear()

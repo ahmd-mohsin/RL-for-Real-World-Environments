@@ -403,3 +403,19 @@ def test_a_rust_string_spans_lines() -> None:
     src = ('#[test]\nfn construction() {\n    assert_format!(\n        "fn main() {\n  let a = 1\n}\n",\n    );\n}\n\n'
            '#[test]\nfn pattern() {\n    assert_format!("fn main() {\n}\n");\n}\n')
     assert sorted(k.rsplit("::", 1)[-1] for k in RUST.test_defs(src, "src/tests/bit_array.rs")) == ["construction", "pattern"]
+
+
+def test_an_s3_rerun_the_host_timed_out_is_masked_and_flips_are_per_test() -> None:
+    """k8sgpt (2026-10-26): S3 counted a whole suite killed at its time limit under load as an unclean rerun (every test
+    'differs'), and the flaky-test rule counted one flaky test's subtests as separate tests. A timed-out rerun with no
+    result is masked; a real flip is still unclean."""
+    from types import SimpleNamespace
+
+    from crucible.factory.lanes.windows_s3 import rerun_verdict
+
+    ref = {"a_test.go::TestA": "passed", "a_test.go::TestB": "passed"}
+    assert rerun_verdict(ref, SimpleNamespace(results={}, infra="ok", why="timeout after 900.0s"), set()) == ("masked", [])
+    assert rerun_verdict(ref, SimpleNamespace(results=dict(ref), infra="ok", why=""), set()) == ("clean", [])
+    flip = {**ref, "a_test.go::TestB": "failed"}
+    assert rerun_verdict(ref, SimpleNamespace(results=flip, infra="ok", why=""), set()) == ("unclean", ["a_test.go::TestB"])
+    assert rerun_verdict(ref, SimpleNamespace(results=flip, infra="ok", why=""), {"a_test.go::TestB"}) == ("clean", [])

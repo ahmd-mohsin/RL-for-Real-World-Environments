@@ -1408,6 +1408,14 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     balanced outside literals; mvdan-sh dc951aeb-e1 kept its then/do cases readable), recorded as
     `hidden.table_entries_stripped`. `golang._code_lines` blanks literals by character, because `code_mask` shifts on
     multi-byte runes (an open defect of `code_mask` itself).
+  - **S3 reruns under load** (2026-10-26, k8sgpt): a rerun the host killed at its time limit with no result is masked
+    (`windows_s3.rerun_verdict`; V8) and replaced while masks stay under a fifth; the record keeps every flipped test
+    (`reruns.flips`). The flaky-test rule counts flips per test function (subtests of one flaky test are one test), at
+    most 3 functions, none a milestone's, each excluded with its flip count. TestInterplexCache starts its gRPC server in
+    a goroutine without waiting for it (fails every cold single run, 4 of 20 warm), a non-milestone test in all four
+    k8sgpt tasks.
+  - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
+    seal ignore a record of another tree.
 
 ## 8. Layer 4: verification and isolation
 
