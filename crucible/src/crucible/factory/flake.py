@@ -62,6 +62,10 @@ class FlakeReport:
     upper: float
     attribution: dict
     config: FlakeConfig = field(default_factory=FlakeConfig)
+    # what failed in the false negatives: {"checks": {check: n}, "tests": {test: n}} (a test the grader reports failing),
+    # so a gate that fails on one flip says which test flipped (2026-10-27: S10 failed a held-out task on 1 of 59 and
+    # the record could not say which milestone or test)
+    false_negative_detail: dict = field(default_factory=dict)
 
     @property
     def verifier_nondeterministic(self) -> bool:
@@ -89,6 +93,7 @@ class FlakeReport:
 
     def to_dict(self) -> dict:
         return {"levels": self.levels, "n": self.n, "false_negatives": self.false_negatives, "masked": self.masked, "upper": round(self.upper, 5),
+                "false_negative_detail": self.false_negative_detail,
                 "attribution": self.attribution, "verifier_nondeterministic": self.verifier_nondeterministic,
                 "environment_nondeterministic": self.environment_nondeterministic, "ok": self.ok, "reasons": self.reasons()}
 
@@ -104,8 +109,14 @@ def summarize(by_level: dict[int, list[Graded]], *, config: FlakeConfig | None =
         all_g += gs
     n = sum(r["n"] for r in levels.values())
     fails = sum(r["fails"] for r in levels.values())
+    from collections import Counter
+
+    bad = [g for g in all_g if not g.masked and g.finite and not g.passed(cfg.pass_at)]
+    checks = Counter(c for g in bad for c in g.failing())
+    tests = Counter(t for g in bad for t in (g.detail or {}).get("failing_tests") or [])
+    detail = {"checks": dict(checks.most_common(20)), "tests": dict(tests.most_common(20))} if bad else {}
     return FlakeReport(levels, n, fails, sum(r["masked"] for r in levels.values()), clopper_pearson_upper(fails, n, cfg.alpha),
-                       separate(all_g, pass_at=cfg.pass_at), cfg)
+                       separate(all_g, pass_at=cfg.pass_at), cfg, detail)
 
 
 async def measure_flake(run: Callable[[int], Awaitable[Any]], *, config: FlakeConfig | None = None) -> FlakeReport:

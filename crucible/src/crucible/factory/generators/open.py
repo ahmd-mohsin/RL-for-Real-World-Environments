@@ -828,7 +828,7 @@ async def open_gates(task: OpenTask, *, flake_reruns: int = 30, s3_reruns: int =
         patch = task.oracle_patch()
         rep = await measure_flake(lambda i: _full(task, patch), config=FlakeConfig(reruns=flake_reruns, concurrency=levels))
         d = rep.to_dict()
-        return {"ok": rep.ok, "findings": d["reasons"], "evidence": {k: d[k] for k in ("levels", "n", "false_negatives", "masked", "upper")}}
+        return {"ok": rep.ok, "findings": d["reasons"], "evidence": {k: d[k] for k in ("levels", "n", "false_negatives", "masked", "upper", "false_negative_detail")}}
 
     for name, fn in (("S5", s5), ("S8", s8), ("S3", s3), ("S10", s10)):
         if name in gates_run:

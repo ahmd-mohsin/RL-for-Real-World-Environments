@@ -436,7 +436,7 @@ async def deterministic_gates(task: Any, *, cfg: GateConfig | None = None, s3_sa
         patch = task.oracle_patch()
         rep = await measure_flake(lambda i: task.grade_patch(patch, trail=[]), config=FlakeConfig(reruns=cfg.flake_reruns, concurrency=cfg.flake_levels))
         d = rep.to_dict()
-        return {"ok": rep.ok, "findings": d["reasons"], "evidence": {k: d[k] for k in ("levels", "n", "false_negatives", "masked", "upper")}}
+        return {"ok": rep.ok, "findings": d["reasons"], "evidence": {k: d[k] for k in ("levels", "n", "false_negatives", "masked", "upper", "false_negative_detail")}}
 
     fns = {"S6": s6, "S5": s5, "S8": s8, "S3": s3, "S10": s10}
     failed = False

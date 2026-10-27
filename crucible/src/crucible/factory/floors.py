@@ -73,7 +73,8 @@ def graded_from(x: Any) -> Graded:
     if hasattr(x, "gates") and hasattr(x, "checks") and hasattr(x, "reward"):  # verify.runtime.plan.GradeReport
         masked = (getattr(x, "infra", None) or {}).get("status") == "masked"
         checks = {c.id: c.status == "pass" for c in x.checks}
-        return Graded(None if masked else x.reward, checks, fp, {"gates": dict(x.gates)})
+        failing = sorted({str(t) for c in x.checks if c.status != "pass" for t in ((getattr(c, "detail", None) or {}).get("failing") or [])})
+        return Graded(None if masked else x.reward, checks, fp, {"gates": dict(x.gates), **({"failing_tests": failing[:30]} if failing else {})})
     if isinstance(x, Mapping):
         return Graded(x.get("reward"), dict(x.get("checks") or {}), x.get("fingerprint", fp), dict(x.get("detail") or {}))
     if isinstance(x, bool):

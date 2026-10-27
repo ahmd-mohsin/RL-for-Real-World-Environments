@@ -175,3 +175,24 @@ async def test_shortcut_probe_finds_a_one_call_bulk_path():
     card = horizon_card(milestones={"ok": True, "reasons": [], "milestones": ["a"] * 5}, concatenation={"ok": True, "reasons": []}, shortcut=bulk,
                         expert_minutes=12.0)
     assert not card["ok"] and card["oracle_steps"] == 6 and card["expert_minutes"] == 12.0 and card["shortcut"]["found"] == ["llm/bulk"]
+
+
+def test_a_flake_report_names_what_failed_in_its_false_negatives():
+    """S10 failed a held-out task on 1 oracle false negative in 59 and its record could not say which milestone or test
+    flipped. The report now counts the failing checks and the grader's failing tests over the false negatives."""
+    from types import SimpleNamespace
+
+    from crucible.factory.floors import graded_from
+
+    def report(ok: bool):
+        checks = [SimpleNamespace(id="c_m01", status="pass", detail={"failing": []}),
+                  SimpleNamespace(id="c_m02", status="pass" if ok else "fail", detail={"failing": [] if ok else ["pkg/a_test.go::TestSlow"]})]
+        return SimpleNamespace(gates={}, checks=checks, reward=1.0 if ok else 0.5, infra={"status": "ok"})
+
+    runs = [report(i != 3) for i in range(20)]
+    rep = asyncio.run(measure_flake(lambda i: graded_from(runs[i % 20]), config=FlakeConfig(reruns=10, concurrency=(1, 2))))
+    assert rep.false_negatives == 1
+    assert rep.false_negative_detail == {"checks": {"c_m02": 1}, "tests": {"pkg/a_test.go::TestSlow": 1}}
+    assert rep.to_dict()["false_negative_detail"] == rep.false_negative_detail
+    clean = asyncio.run(measure_flake(lambda i: graded_from(report(True)), config=FlakeConfig(reruns=10, concurrency=(1, 2))))
+    assert clean.false_negative_detail == {}

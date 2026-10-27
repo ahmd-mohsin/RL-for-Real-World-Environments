@@ -1414,6 +1414,10 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     most 3 functions, none a milestone's, each excluded with its flip count. TestInterplexCache starts its gRPC server in
     a goroutine without waiting for it (fails every cold single run, 4 of 20 warm), a non-milestone test in all four
     k8sgpt tasks.
+  - **S10 names what flipped** (2026-10-27): `FlakeReport.false_negative_detail` counts the failing checks and the
+    grader's failing tests over the false negatives (`graded_from` keeps a GradeReport's failing tests), and the S10
+    evidence carries it. A held-out task failed S10 on 1 false negative in 59, and its record could not say which
+    milestone or test flipped.
   - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
     seal ignore a record of another tree.
   - **Agent-caused tool errors** (2026-10-26, from mvdan-sh dc951aeb-e1's budget stops, 13-14 failed calls each): an
