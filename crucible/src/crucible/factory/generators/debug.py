@@ -378,25 +378,55 @@ MESSAGE_CHECKS = tuple(re.compile(p) for p in (
 _NOT_TEXT = re.compile(r"[\\^$*+?\[\](){}|%]")  # a pattern or a format, not the text the user sees
 
 
+# a loop over a literal list whose item a containment check uses (Go ``for _, want := range []string{...}`` then
+# ``strings.Contains(logs, want)``; Python ``for want in [...]``; JS ``for (const want of [...])``): the held-out case
+# checked five structured-log keys this way, none of which the report named
+_LOOP_LIST = re.compile(r"\bfor\s+(?:_\s*,\s*)?(\w+)\s*:=\s*range\s+\[\]string\s*\{|\bfor\s+(\w+)\s+in\s+[\[(]"
+                        r"|\bfor\s*\(\s*(?:const|let|var)\s+(\w+)\s+of\s+\[")
+
+
+def _checks_item(line: str, var: str) -> bool:
+    """``line`` checks that an output contains the loop's item ``var`` (it is the needle, not the haystack)."""
+    v = re.escape(var)
+    return bool(re.search(rf"Contains\(.*,\s*{v}\s*\)|\.includes\(\s*{v}\s*\)|toContain\(\s*{v}\s*\)|\bassertIn\(\s*{v}\s*,|\b{v}\s+in\s+\w", line))
+
+
 def asserted_messages(test_diff: str) -> list[str]:
-    """The exact output texts a fix's added test lines check for (``MESSAGE_CHECKS``), in order, without duplicates.
-    A literal with regex or format syntax, under 4 characters, or with no letter is left out."""
+    """The exact output texts a fix's added test lines check for (``MESSAGE_CHECKS``, and the items of a literal list a
+    loop checks by containment, ``_LOOP_LIST``), in order, without duplicates. A literal with regex or format syntax,
+    under 4 characters, or with no letter is left out."""
     out: list[str] = []
-    for ln in test_diff.splitlines():
-        if not ln.startswith("+") or ln.startswith("+++"):
-            continue
+
+    def add(s: str) -> None:
+        s = s.replace('\\"', '"').replace("\\'", "'")
+        if len(s.strip()) >= 4 and re.search(r"[A-Za-z]", s) and not _NOT_TEXT.search(s) and s not in out:
+            out.append(s)
+
+    added = [ln[1:] for ln in test_diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
+    for i, ln in enumerate(added):
         for rx in MESSAGE_CHECKS:
-            for m in rx.finditer(ln[1:]):
-                s = next((g for g in m.groups() if g is not None), "")
-                s = s.replace('\\"', '"').replace("\\'", "'")
-                if len(s.strip()) >= 4 and re.search(r"[A-Za-z]", s) and not _NOT_TEXT.search(s) and s not in out:
-                    out.append(s)
+            for m in rx.finditer(ln):
+                add(next((g for g in m.groups() if g is not None), ""))
+        if lm := _LOOP_LIST.search(ln):
+            var = next(g for g in lm.groups() if g)
+            j, items = i, []
+            while j < len(added):
+                body = added[j] if j > i else added[j][lm.end():]
+                items += [next((g for g in m.groups() if g is not None), "") for m in re.finditer(_LIT, body)]
+                if re.search(r"^\s*[}\])]", added[j]) or (j == i and re.search(r"[}\])]\s*[:{]?\s*$", body) and items):
+                    break
+                j += 1
+            if any(_checks_item(x, var) for x in added[j:j + 8]):
+                for it in items:
+                    add(it)
     return out
 
 
 def milestone_messages(rec: Mapping[str, Any], repo: RepoGit, *, forbidden: Iterable[str] = ()) -> dict[str, list[str]]:
     """``{milestone id: [text]}``: the output texts each milestone's hidden tests check for (``asserted_messages`` over
-    the unit's test-file diff), less any that holds a string the lint refuses (a faulty function or hidden test name)."""
+    the unit's test-file diff), less any that holds a string the lint refuses (a faulty function or hidden test name).
+    A text the start tree's source already holds still counts: the held-out case's two error texts were used by other
+    handlers, and still no model wrote them for the broken one."""
     import subprocess
 
     bad = [f for f in forbidden if f]

@@ -307,3 +307,32 @@ def test_a_fix_check_the_host_did_not_run_is_neither_cached_nor_a_verdict(tmp_pa
         with pytest.raises(ValueError, match="did not run .*host failure"):
             asyncio.run(gen.subset("calc", [neg, fmt], independent=True))
     assert len(calls) == 2 and not list((tmp_path / "dbg" / "work").rglob("evidence-*.json"))
+
+
+def test_a_checked_literal_list_is_a_set_of_texts_to_quote() -> None:
+    """A held-out milestone looped over five structured-log keys and checked each with strings.Contains; the report
+    named none of them and no model passed it. The items of a literal list count when the loop's item is the needle of a
+    containment check; a list of inputs whose output is checked for something else does not."""
+    from crucible.factory.generators.debug import asserted_messages
+
+    keys = "\n".join([  # noqa: FLY002 - one diff line per entry
+        "+\tfor _, want := range []string{",
+        '+\t\t`msg="cache: summary"`,',
+        "+\t\t`entry-mode=strict`,",
+        '+\t\t"hits=1",',
+        "+\t} {",
+        "+\t\tif !strings.Contains(logs.String(), want) {",
+        '+\t\t\tt.Errorf("missing %q", want)',
+        "+\t\t}",
+        "+\t}",
+    ])
+    assert asserted_messages(keys) == ['msg="cache: summary"', "entry-mode=strict", "hits=1"]
+    inputs = "\n".join([  # noqa: FLY002
+        '+\tfor _, in := range []string{"null", "~"} {',
+        "+\t\terr := Parse(in)",
+        '+\t\tassert.ErrorContains(t, err, "bad value")',
+        "+\t}",
+    ])
+    assert asserted_messages(inputs) == ["bad value"]
+    py = "+    for want in ['first line', 'second line']:\n+        assert want in out\n"
+    assert asserted_messages(py) == ["first line", "second line"]

@@ -1446,7 +1446,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     milestone's texts to the writer (`messages`), whose brief says to quote them word for word. Its lint adds
     `unstated_message` for a requirement that does not quote one. `author` is unchanged, so earlier reports keep
     their verdicts. The case: a held-out Go task's milestone asserts two error-body texts. The writer had been told
-    never to quote the notes, the report named only the status code, and no model passed that milestone.
+    never to quote the notes, the report named only the status code, and no model passed that milestone. The items of
+    a literal list count too when a loop checks each one by containment (`for _, want := range []string{...}` then
+    `strings.Contains(out, want)`; Python and JS loops alike). A second held-out milestone checked five structured-log
+    keys this way; its report named none, and the student and DeepSeek failed it in all six runs. A text the start
+    tree's source already holds still counts: the first case's texts were used by other handlers.
 
 ## 8. Layer 4: verification and isolation
 
