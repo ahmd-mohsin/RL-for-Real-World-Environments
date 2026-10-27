@@ -345,6 +345,84 @@ def hide_key(test_id: str, changed: Iterable[str], key_of: Callable[[str], tuple
     return (hit[0], "*") if hit else key_of(test_id)
 
 
+def stale_tests(rec: Mapping[str, Any], view: Mapping[str, str], oracle: Mapping[str, str], touched: Iterable[str]) -> list[str]:
+    """The agent's tests that assert a fault: they pass in A' (``view``) and fail on B's source under the same test files
+    (``oracle``). Every milestone test, and every other test of a test file the fixes touched that no check grades (not a
+    milestone test, not p2p): a fix that renames its test leaves the old copy in A' under the old name, so the milestone
+    rule alone missed it (a held-out Go task, 2026-10-27: the old copy asserted the fault's behaviour, the renamed
+    hidden test the fix's; a correct fix failed the agent's own test, and the only frontier full pass was lost to
+    path:protected for editing it). Hiding such a test changes nothing graded: the grader writes B's test files back."""
+    graded = {t for m in rec.get("milestones") or [] for t in m["tests"]}
+    files = {p for p in touched if is_test_path(p)}
+    ungraded = {t for t in view if t not in graded and t not in set(rec.get("p2p") or ()) and t.split("::", 1)[0] in files}
+    return sorted(t for t in graded | ungraded if view.get(t) == "passed" and oracle.get(t) in ("failed", "error"))
+
+
+# A hidden check that looks for an exact text in the program's output (an error message, a printed line) grades a fact
+# the user must state: a held-out Go task's milestone (2026-10-27) asserted two error-body texts, its report named only
+# the status code, and no model passed that milestone. The writer saw the strings in the hand-off's test diff but was
+# told never to quote the notes. Patterns per language: the string argument of a containment or error-text assertion,
+# on the fix's added test lines.
+_LIT = r"""(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`([^`\n]*)`)"""
+MESSAGE_CHECKS = tuple(re.compile(p) for p in (
+    rf"\b(?:assert|require)\.(?:Contains|ErrorContains|EqualError)f?\(\s*\w+\s*,[^\n]*?,\s*{_LIT}",  # Go testify
+    rf"\bstrings\.Contains\([^\n,]+,\s*{_LIT}\s*\)",
+    rf"\.(?:toContain|toThrow|toThrowError|toMatch)\(\s*{_LIT}\s*\)",  # JS / TS
+    rf"\bmatch\s*=\s*r?{_LIT}",  # pytest.raises(match=...)
+    rf"\bassert(?:In|RaisesRegex)\(\s*(?:[\w.]+\s*,\s*)?r?{_LIT}",
+    rf"\bassert\s+r?{_LIT}\s+in\b",
+    rf"\bexpected\s*=\s*{_LIT}",  # Rust #[should_panic(expected = ...)]
+    rf"\.contains\(\s*{_LIT}\s*\)",  # Rust / Java / Kotlin
+))
+_NOT_TEXT = re.compile(r"[\\^$*+?\[\](){}|%]")  # a pattern or a format, not the text the user sees
+
+
+def asserted_messages(test_diff: str) -> list[str]:
+    """The exact output texts a fix's added test lines check for (``MESSAGE_CHECKS``), in order, without duplicates.
+    A literal with regex or format syntax, under 4 characters, or with no letter is left out."""
+    out: list[str] = []
+    for ln in test_diff.splitlines():
+        if not ln.startswith("+") or ln.startswith("+++"):
+            continue
+        for rx in MESSAGE_CHECKS:
+            for m in rx.finditer(ln[1:]):
+                s = next((g for g in m.groups() if g is not None), "")
+                s = s.replace('\\"', '"').replace("\\'", "'")
+                if len(s.strip()) >= 4 and re.search(r"[A-Za-z]", s) and not _NOT_TEXT.search(s) and s not in out:
+                    out.append(s)
+    return out
+
+
+def milestone_messages(rec: Mapping[str, Any], repo: RepoGit, *, forbidden: Iterable[str] = ()) -> dict[str, list[str]]:
+    """``{milestone id: [text]}``: the output texts each milestone's hidden tests check for (``asserted_messages`` over
+    the unit's test-file diff), less any that holds a string the lint refuses (a faulty function or hidden test name)."""
+    import subprocess
+
+    bad = [f for f in forbidden if f]
+    units = {u["sha"]: Unit(**u) for u in rec.get("units") or []}
+    out: dict[str, list[str]] = {}
+    for m in rec.get("milestones") or []:
+        u = units.get(m["unit"])
+        rest = [p for p in (u.files if u else []) if p not in u.src_files] if u else []
+        if not rest:
+            continue
+        diff = subprocess.run(["git", "-C", str(repo.dir), "diff", u.parent, u.sha, "--", *rest], capture_output=True, text=True, check=False).stdout
+        msgs = [s for s in asserted_messages(diff) if not any(f in s for f in bad)]
+        if msgs:
+            out[m["id"]] = msgs
+    return out
+
+
+def unstated_messages(requirements: Mapping[str, Any], messages: Mapping[str, Sequence[str]]) -> list[str]:
+    """One finding per checked output text its milestone's requirement does not quote (whitespace folded)."""
+    fold = lambda s: " ".join(str(s).split())
+    out = []
+    for mid, msgs in messages.items():
+        text = fold(requirements.get(mid) or "")
+        out += [f"unstated_message: {mid} must quote {s!r} (a hidden check looks for this exact text in the output)" for s in msgs if fold(s) not in text]
+    return out
+
+
 def visible_test_changes(rec: Mapping[str, Any], repo: RepoGit) -> list[str]:
     """Strip mode's residue, re-derived from a stored window: test files the group's fixes changed that the start tree
     does not hide (not among the grader's files, not stripped as visible tests)."""
@@ -989,7 +1067,8 @@ class Debug(Rebreak):
         The agent's tests also run on B's source (``self.oracle_views``): a milestone test that passes in A' but fails
         there is an old copy of a hidden test that asserts the fault (revert mode restores black ae5830b7's
         ``test_lines_with_leading_tabs_expanded`` expecting 8-column tabs and its old ``docstring.py`` case), so a correct
-        fix makes the agent's own tests fail (``stale_checks``)."""
+        fix makes the agent's own tests fail (``stale_checks``); so does an ungraded test of a test file the fixes touched,
+        the old name of a renamed test (``stale_tests``)."""
         repo = RepoGit(Path(win.repo_dir))
         with tempfile.TemporaryDirectory(prefix="lhd-pre-") as td:
             a = Path(td) / "a"
@@ -1062,13 +1141,12 @@ class Debug(Rebreak):
                                             allow_independent=bool(cand.params.get("allow_independent")))
                 view, oracle = self.views.pop(win.id, {}), self.oracle_views.pop(win.id, {})
                 vis = sorted(t for m in rec.get("milestones") or [] for t in m["tests"] if view.get(t) in ("failed", "error"))
-                stale = sorted(t for m in rec.get("milestones") or [] for t in m["tests"]
-                               if view.get(t) == "passed" and oracle.get(t) in ("failed", "error"))
+                touched = {p for u in win.units for p in u.files}
+                stale = stale_tests(rec, view, oracle, touched)
                 info["visible_checks"], info["stale_checks"] = vis[:20], stale[:20]
                 if not (vis or stale) or rec.get("stage") == "windows":
                     break
                 with scope(lang) as prof:
-                    touched = {p for u in win.units for p in u.files}
                     for t in [*vis, *stale]:
                         f, k = hide_key(t, touched, prof.key_of_test)
                         extra.setdefault(f, set()).add(k)

@@ -1421,6 +1421,22 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     `apps.base.PolicyToolError` (error `tool_error`, so no format penalty in credit shaping; fault `policy`, never read
     as a World fault). The workspace edit's refusal lists the file's closest lines with their numbers, and an unknown
     tool name (`shell`, `execcmd`) gets the nearest valid tool and the full list. Messages only: no alias, nothing runs.
+  - **A renamed test's old copy is a stale visible test** (2026-10-27, `generators.debug.stale_tests`). The build's
+    stale check (A' tests that pass in A' and fail on B's source) looked only at milestone tests. A fix that renames
+    its test leaves the old copy in A' under the old name, graded by nothing. Now every ungraded test of a test file the
+    fixes touched (not a milestone test, not p2p) counts too, and is stripped from A'. Grading is unchanged: the grader
+    writes B's test files back. The case: a held-out Go task kept the old copy, which asserts the fault's behaviour,
+    while the renamed hidden test asserts the fix's. The only frontier full pass was lost to `path:protected` for
+    editing it, so the task read `unfair`.
+  - **Output texts a hidden check looks for go in the report** (2026-10-27, `generators.debug.asserted_messages`,
+    `milestone_messages`, `unstated_messages`). The string argument of a containment or error-text assertion on a
+    fix's added test lines is a fact the user must state. Patterns: Go testify `Contains`/`ErrorContains`/`EqualError`,
+    `strings.Contains`, JS `toContain`/`toThrow`/`toMatch`, pytest `match=`, `assertIn`, Rust `should_panic(expected=)`,
+    `.contains(...)`. A regex, a format or a text with a refused name is left out. `write-prompts` gives each
+    milestone's texts to the writer (`messages`), whose brief says to quote them word for word. Its lint adds
+    `unstated_message` for a requirement that does not quote one. `author` is unchanged, so earlier reports keep
+    their verdicts. The case: a held-out Go task's milestone asserts two error-body texts. The writer had been told
+    never to quote the notes, the report named only the status code, and no model passed that milestone.
 
 ## 8. Layer 4: verification and isolation
 

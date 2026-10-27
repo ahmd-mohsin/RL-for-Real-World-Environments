@@ -435,7 +435,7 @@ def cmd_brief(args: argparse.Namespace) -> None:
 def swarm_brief(w: str, split: str, rec: dict[str, Any], repo: Any, *, chars: int = 3000) -> dict[str, Any]:
     """The prompt writer's hand-off (``factory.swarm_prompts``): what ``brief`` prints, as data, plus the strings the lint
     refuses (so the writer knows them before the gate does) and the calibration block (training windows only)."""
-    from crucible.factory.generators.debug import faulty_names, hidden_names, scope
+    from crucible.factory.generators.debug import faulty_names, hidden_names, milestone_messages, scope
     from crucible.factory.lanes.windows_git import Unit
 
     units = {u["sha"]: Unit(**u) for u in rec["units"]}
@@ -449,6 +449,10 @@ def swarm_brief(w: str, split: str, rec: dict[str, Any], repo: Any, *, chars: in
             ms.append({"id": m["id"], "requires": m.get("requires") or [], "fix_message": f"{u.subject}\n{u.body[:600]}", "source_diff": src[:chars],
                        "test_diff": tst[:chars], "hidden_tests": len(m["tests"])})
     forbidden = sorted(n for n in faulty_names(rec, repo) if not (re.fullmatch(r"[a-z]+", n) and len(n) < 10)) + sorted(n for n in hidden_names(rec) if len(n) >= 6)
+    msgs = milestone_messages(rec, repo, forbidden=forbidden)
+    for m in ms:  # the exact output texts the hidden checks look for: the report must state them (debug.milestone_messages)
+        if msgs.get(m["id"]):
+            m["messages"] = msgs[m["id"]]
     return {"task": w, "lane": "debug", "language": rec["lang"], "repository": rec["repo"], "milestone_ids": [m["id"] for m in rec["milestones"]],
             "milestones": ms, "forbidden_strings": forbidden[:200], "calibration": calibration_text(w, split) if split == "train" else ""}
 
@@ -462,7 +466,7 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
     from crucible.train.bridges.tinker.sampler import ensure_cap
 
     ensure_cap(args.cap)  # the shared Tinker meter follows this run's cap (its default is 1 USD)
-    from crucible.factory.generators.debug import author_debug, faulty_names, hidden_names, lint_debug
+    from crucible.factory.generators.debug import author_debug, faulty_names, hidden_names, lint_debug, milestone_messages, unstated_messages
     from crucible.factory.lanes.windows import WindowStore
     from crucible.factory.lanes.windows_git import RepoGit
     from crucible.factory.models import ModelBook
@@ -492,8 +496,11 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
             faulty, hidden = faulty_names(rec, repo), hidden_names(rec)
             builder = book.spec("prompt_author").ref
 
-            def lint(draft: dict, rec: dict = rec, repo: Any = repo, sd: Path = sd, w: str = w, builder: str = builder) -> list[str]:
-                return author_debug(rec, {**draft, "builder": builder}, repo, base_dir=sd / "tasks" / w / "base")["findings"]
+            msgs = milestone_messages(rec, repo, forbidden=[n for n in faulty if not (re.fullmatch(r"[a-z]+", n) and len(n) < 10)] + [n for n in hidden if len(n) >= 6])
+
+            def lint(draft: dict, rec: dict = rec, repo: Any = repo, sd: Path = sd, w: str = w, builder: str = builder, msgs: dict = msgs) -> list[str]:
+                return (author_debug(rec, {**draft, "builder": builder}, repo, base_dir=sd / "tasks" / w / "base")["findings"]
+                        + unstated_messages(draft.get("requirements") or {}, msgs))
 
             job = PromptJob(w, [m["id"] for m in rec["milestones"]], swarm_brief(w, split, rec, repo), sd / "tasks" / w / "base", lint,
                             lambda t, f=faulty, h=hidden: lint_debug(t, faulty=f, hidden=h), out)

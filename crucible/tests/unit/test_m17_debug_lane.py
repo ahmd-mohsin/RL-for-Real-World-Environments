@@ -227,3 +227,49 @@ def test_subset_refuses_what_mine_would_not_build(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(debug_lane, "fix_check", _fake_fix_check({neg: ["calc_test.go::TestParseNegative"]}))
     with pytest.raises(ValueError, match=rf"not a real fix .*{fmt[:10]}"):
         asyncio.run(_gen(other, repo).subset("calc", [neg, fmt]))
+
+
+def test_a_renamed_tests_old_copy_that_asserts_the_fault_is_stale() -> None:
+    """A fix renamed its test, A' kept the old copy (asserting the fault's behaviour) while m01's hidden test asserts
+    the fix's. The old copy is in a touched test file, graded by nothing, passes in A' and fails on
+    B's source: stale. An untouched file's test, a p2p test and one that also passes on B's source are not."""
+    from crucible.factory.generators.debug import scope, stale_tests
+
+    rec = {"milestones": [{"id": "m01", "tests": ["app_test.go::TestRun_sends", "diff/parse_test.go::TestParseErr"]}],
+           "p2p": ["app_test.go::TestRun_p2p"]}
+    view = {"app_test.go::TestRun_sends": "failed", "diff/parse_test.go::TestParseErr": "passed",
+            "app_test.go::TestRun_old_name": "passed", "app_test.go::TestRun_p2p": "passed",
+            "app_test.go::TestRun_other": "passed", "cmd/main_test.go::TestRun_untouched": "passed"}
+    oracle = {"diff/parse_test.go::TestParseErr": "failed", "app_test.go::TestRun_old_name": "failed",
+              "app_test.go::TestRun_p2p": "failed", "app_test.go::TestRun_other": "passed",
+              "cmd/main_test.go::TestRun_untouched": "failed"}
+    touched = ["app.go", "app_test.go", "diff/parse.go", "diff/parse_test.go"]
+    with scope("go"):  # the lane's profile decides what a test file is (build runs under it)
+        assert stale_tests(rec, view, oracle, touched) == ["app_test.go::TestRun_old_name", "diff/parse_test.go::TestParseErr"]
+        assert stale_tests(rec, view, {}, touched) == []  # an unusable oracle run says nothing
+
+
+def test_the_output_texts_a_hidden_test_checks_must_be_quoted_in_the_report() -> None:
+    """A held-out task's m02 asserts two error-body texts; its report named only the status code and no model passed
+    m02. The texts go to the writer and the write-prompts
+    lint refuses a requirement that does not quote them. Patterns, formats and removed lines are not texts to quote."""
+    from crucible.factory.generators.debug import asserted_messages, unstated_messages
+
+    diff = "\n".join([  # noqa: FLY002 - one diff line per entry
+        "+++ b/api/items_test.go",
+        '+\tassert.Contains(t, w.Body.String(), "ids must match")',
+        '+\trequire.ErrorContains(t, err, "wrong owner")',
+        '-\tassert.Contains(t, w.Body.String(), "old text")',
+        '+\tassert.Contains(t, out, "%s failed")',
+        "+    with pytest.raises(ValueError, match=r\"invalid \\d+\"):",
+        "+    with pytest.raises(ValueError, match='bad header'):",
+        "+  expect(() => parse(x)).toThrow(`unexpected token`)",
+        '+    self.assertIn("no such key", str(e))',
+        '+#[should_panic(expected = "index out of range")]',
+        '+\tassert.Contains(t, out, "ids must match")',
+    ])
+    msgs = asserted_messages(diff)
+    assert msgs == ["ids must match", "wrong owner", "bad header", "unexpected token", "no such key", "index out of range"]
+    reqs = {"m02": "The API should reject it with HTTP 400 and the message  ids must match  instead of saving it."}
+    assert unstated_messages(reqs, {"m02": ["ids must match", "wrong owner"]}) == [
+        "unstated_message: m02 must quote 'wrong owner' (a hidden check looks for this exact text in the output)"]
