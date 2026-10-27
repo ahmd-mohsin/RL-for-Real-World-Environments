@@ -496,3 +496,23 @@ framework, 25 agent and 2 suspect.
 in `crucible/data/debug`, the 2026-10-22 public push. They name a repository that a current held-out draw holds out. A
 newly drawn held-out repo was already public in that commit's mining log.
 
+
+## 13. Kernel GPU measurement (2026-10-25/26): the swarm's K6 on GPU tasks, 0 kept
+
+All revisions came from the swarm (`lh_kernel_debug.py revise`, Kimi-K2.6 as prompt writer); every one passed lint, the
+ledger, S7k, the K6 claim check and `leakcheck` (deterministic location probe plus a blind Nemotron-3-Ultra checker that
+picks the files it would open for the original and the revised text).
+
+| task, milestone | why K6 | revised text states | before → after (student, that milestone) |
+|---|---|---|---|
+| 1b8b8fb1 m2 | S7k: "some K/V layouts", all cases head sizes 576/512 | head sizes 576/512, q4_0/q8_0 K/V, 4 query heads per K/V head | 0/8 → 2/8; full pass 0/8 → 1/8, but no frontier pass |
+| cef66d4a m3 | 6/8 never edited the fault's files | q4_0/q8_0 weights, m=16, n=70000, k=256 | 0/8 → 1/8; full pass stays 0/8 |
+| efe7d4b1 m2 | 6/8 never edited the fault's file | head sizes, KV lengths, f16/q8_0 caches, the barrier symptom | 0/8 → 0/8 |
+
+What it showed: K6 moves a milestone that the report under-specified (1b8b8fb1 m2), not one held by localisation alone
+(efe7d4b1 m2). The guard against naming the location held: none of the three revisions points at the fault's file; for
+efe7d4b1 the checker picked the fault's file from the original text and not from the revised one.
+
+Diagnose findings that became framework fixes: §9.6 of doc 10 lists them. Two for the swarm itself: the K6 claim check
+read a list value `bs=[1,1]` as the number 11 and refused four correct drafts; a writer session that wrote no draft
+("missing declared output 'prompt'") paused the machine, and a rerun succeeded.

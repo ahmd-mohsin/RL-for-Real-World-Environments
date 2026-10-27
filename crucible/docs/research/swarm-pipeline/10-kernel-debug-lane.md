@@ -602,6 +602,32 @@ The 8 tasks would also need their GH200 gates first (queued, jobs 3440735-38).
 | Wall time, 5090 alone | about 24 h | 2 Worlds at a time; grades serialised under the build lock, overlapping the episodes |
 | Wall time with DeltaAI | about 10–12 h once built (four GH200 per node, about 50–60 charged GPU-hours), plus the queue (about 26 h at last check) | needs §9.4 and the GH200 gates first |
 
+### 9.6 The first measurement (2026-10-25/26, RTX 5090, `--preset swarm`, cap $180): 0 kept
+
+Out dir `data/targeting/kernel-rtx5090-r1` (report.json). Student Qwen3.6-35B-A3B, k=8, 300 calls; frontier Qwen3.5-397B and
+Nemotron-3-Ultra; GLM-free audit (Nemotron auditor, gpt-oss judge). Kernel-bug students at `--max-tokens 8192`.
+
+| task | student | per milestone | frontier | verdict | notes |
+|---|---|---|---|---|---|
+| km-cuda13-hecbench-591f311-4 | 8/8 | all 1.0 | 397B 2/2 (pilot 1/1) | too easy | no hardening (stopped by the lead) |
+| km-cuda13-hecbench-ba3a30a-3 | 7/8 | all 0.88 | not run | too easy | |
+| km-cuda12-cudahandbook-b62f9ad-4 | 4/8 at 4096 tokens | r02 failed 4 | 397B 1/2, Nemotron 0/2 | **not kept** | 3 of the 4 failures were replies cut at 4096 tokens (limit stops); the 8192 re-measure was masked by a network outage (all 8 past the 9000 s attempt clock) and not repeated |
+| km-cuda13-hecbench-8fcc759-4 | — | — | — | dropped | fresh S10: 1 false negative in 60, CP upper 0.077 > 0.05 |
+| kd-bug-llamacpp-1b8b8fb1 (K6 on R2) | 1/8 (was 0/8) | m1 0.62, m2 0.25 (was 0), m3 0.5 | 397B 0/2, Nemotron 0/2 (1 masked) | unfair | the K6 report cleared leakcheck; no strong model passes |
+| kd-bug-llamacpp-ca21f3a1 | 0/8 | m1 0, m2 0 | not run | too hard | regraded by hand: builds, both milestones fail |
+| kd-bug-llamacpp-cef66d4a (re-authored, then K6 on m3) | 0/8, then 0/8 | m1 0.12, m3 0.12 | not run | too hard | 6/8 of the first runs never edited the fault's files |
+| kd-bug-llamacpp-efe7d4b1 (K6 on m2) | 0/8, then 0/8 | m1 1.0, m2 0 | not run | too hard | 6/8 of the first runs never edited the fault's file |
+
+Spend: $168.58 on the phase meter (student $129.94, 397B $13.65, Nemotron-Ultra $24.32, gpt-oss $0.67), plus the swarm's
+K6 writers and checkers (about $2) and two plumbing checks ($0.91): about $171.5. GPU grading about 25.5 GPU-hours on the 5090
+(1,532 grade-minutes over 23 arms). Masked and lost: $10.6 (1b8b8fb1, kit ImportError), $29.5 (b62f9ad-4, network outage).
+
+Framework fixes found by this run (each with a test): the episode kit's missing `kernel_profiles` and a runner preflight
+(`bfcc0b64`); `of_spec` reading a kdspec's harness table as a profile name (`bfcc0b64`); the targeting preflight grading
+each task's oracle and empty patch before paid episodes (`bfcc0b64`); `max_output_tokens` as a limit stop (`b4d7f1d1`); the
+ingest re-authoring after dropping milestones (`e1fb8e0b`); gate S7k (`bffdee4a`); the swarm's K6 reviser and its claim
+check (`2984b34b`); the location probe and blind checker (`92b57062`); the migration intent card (`e209f4ce`).
+
 ## 10. Open issues
 
 1. **Every GPU gate is pending** (`PENDING.json`): S1 executed (B passes, each single revert fails its milestone),
