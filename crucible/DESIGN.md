@@ -1431,7 +1431,8 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     fixes touched (not a milestone test, not p2p) counts too, and is stripped from A'. Grading is unchanged: the grader
     writes B's test files back. The case: a held-out Go task kept the old copy, which asserts the fault's behaviour,
     while the renamed hidden test asserts the fix's. The only frontier full pass was lost to `path:protected` for
-    editing it, so the task read `unfair`.
+    editing it, so the task read `unfair`. `_locate_defs` keeps a key B does not define (the old name lives only in
+    A'); it dropped it, and the second build round refused the window for the same stale test.
   - **Output texts a hidden check looks for go in the report** (2026-10-27, `generators.debug.asserted_messages`,
     `milestone_messages`, `unstated_messages`). The string argument of a containment or error-text assertion on a
     fix's added test lines is a fact the user must state. Patterns: Go testify `Contains`/`ErrorContains`/`EqualError`,

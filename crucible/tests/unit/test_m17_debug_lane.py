@@ -273,3 +273,16 @@ def test_the_output_texts_a_hidden_test_checks_must_be_quoted_in_the_report() ->
     reqs = {"m02": "The API should reject it with HTTP 400 and the message  ids must match  instead of saving it."}
     assert unstated_messages(reqs, {"m02": ["ids must match", "wrong owner"]}) == [
         "unstated_message: m02 must quote 'wrong owner' (a hidden check looks for this exact text in the output)"]
+
+
+def test_a_stale_test_defined_only_in_the_start_tree_is_still_stripped(tmp_path: Path) -> None:
+    """The old name of a renamed test is defined in A' only. ``_locate_defs`` looked its key up at B, found nothing and
+    dropped it, so the second build round met the same stale test and refused the window."""
+    from crucible.factory.generators.debug import Debug, scope
+    from crucible.factory.lanes.windows_git import RepoGit
+
+    repo, _ = make_repo(tmp_path)
+    b = out(git(repo, "rev-parse", "HEAD"))
+    with scope("go") as prof:
+        got = Debug._locate_defs(RepoGit(repo), b, prof, {"calc_test.go": {"TestParse", "TestOldName"}})
+    assert got == {"calc_test.go": {"TestParse", "TestOldName"}}

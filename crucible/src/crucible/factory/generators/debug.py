@@ -1058,6 +1058,8 @@ class Debug(Rebreak):
                     if hit:
                         out_.setdefault(f, set()).add(hit)
                         break
+                else:  # defined nowhere at B: the old name of a renamed test lives only in A' (``stale_tests``); strip it there
+                    out_.setdefault(p, set()).add(k)
         return out_
 
     async def precheck(self, win: Window, lang: str) -> str:
