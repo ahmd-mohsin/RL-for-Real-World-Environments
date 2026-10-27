@@ -1414,6 +1414,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     most 3 functions, none a milestone's, each excluded with its flip count. TestInterplexCache starts its gRPC server in
     a goroutine without waiting for it (fails every cold single run, 4 of 20 warm), a non-milestone test in all four
     k8sgpt tasks.
+  - **A fix check the host did not run is not evidence** (2026-10-27, `generators.debug.fix_check`, `Debug._executed`):
+    a suite at B that timed out or ran under a masked sandbox marks each fix's evidence `infra`. That evidence is never
+    cached, and `subset` says the check did not run (retry on a quieter host), not "not a real fix". Under load, a
+    held-out rebuild's suite at B timed out at 900 s for all eight fixes, five of which had built the task before. The
+    cached failure would have answered every retry.
   - **S10 names what flipped** (2026-10-27): `FlakeReport.false_negative_detail` counts the failing checks and the
     grader's failing tests over the false negatives (`graded_from` keeps a GradeReport's failing tests), and the S10
     evidence carries it. A held-out task failed S10 on 1 false negative in 59, and its record could not say which

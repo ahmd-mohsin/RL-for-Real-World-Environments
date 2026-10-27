@@ -286,3 +286,24 @@ def test_a_stale_test_defined_only_in_the_start_tree_is_still_stripped(tmp_path:
     with scope("go") as prof:
         got = Debug._locate_defs(RepoGit(repo), b, prof, {"calc_test.go": {"TestParse", "TestOldName"}})
     assert got == {"calc_test.go": {"TestParse", "TestOldName"}}
+
+
+def test_a_fix_check_the_host_did_not_run_is_neither_cached_nor_a_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under load the suite at B timed out (900 s) for every fix of a held-out rebuild: the evidence was cached, subset
+    said "not a real fix" for eight fixes that had built tasks before, and every retry read the cache. A host failure
+    is now reported as one and never cached; the next run checks again."""
+    repo, shas = make_repo(tmp_path)
+    neg, fmt = shas["fix_neg"], shas["fix_fmt"]
+    calls = []
+
+    async def timed_out(repo_, b, units, sandbox_for, images, repo_name, work, *, lang, full_suite=False):
+        calls.append(1)
+        why = "the suite does not run at B (timeout after 900.0s)"
+        return {u.sha: {"ok": False, "why": why, "infra": True} for u in units}, {"ok": True, "image": "img-b"}
+
+    monkeypatch.setattr(debug_lane, "fix_check", timed_out)
+    gen = _gen(tmp_path, repo)
+    for _ in range(2):
+        with pytest.raises(ValueError, match="did not run .*host failure"):
+            asyncio.run(gen.subset("calc", [neg, fmt], independent=True))
+    assert len(calls) == 2 and not list((tmp_path / "dbg" / "work").rglob("evidence-*.json"))

@@ -218,7 +218,8 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
     bad_states = ("failed",) if lang in COMPILED else ("failed", "error")
     if union and sum(1 for v in b_res.values() if v == "passed") == 0:  # a World mismatch, not a property of the fixes
         why = f"the suite does not run at B ({(at_b.why if at_b else '')[:160]})"
-        return {u.sha: {"ok": False, "why": why} for u in units}, card
+        transient = at_b is None or at_b.infra != "ok" or "timeout" in (at_b.why or "")  # the host, not the World: retry
+        return {u.sha: {"ok": False, "why": why, **({"infra": True} if transient else {})} for u in units}, card
 
     async def one(u: Unit) -> tuple[str, dict[str, Any]]:
         if not files[u.sha]:
@@ -230,7 +231,7 @@ async def fix_check(repo: RepoGit, b: str, units: Sequence[Unit], sandbox_for: C
                 return u.sha, {"ok": False, "why": "its source revert does not apply at B"}
             tr = await sb.run(tree, union)
         if tr.infra != "ok":
-            return u.sha, {"ok": False, "why": f"masked: {tr.why}"}
+            return u.sha, {"ok": False, "why": f"masked: {tr.why}", "infra": True}
         res = normalize_ids(tr.results, union)
         caught = sorted(t for t in res if b_res.get(t) == "passed" and res[t] in ("failed", "error"))
         own = owned_tests(repo, u, [t for t in caught if res[t] in bad_states])
@@ -730,6 +731,7 @@ class Debug(Rebreak):
         self.since, self.max_pool = since, max_pool
         self.views: dict[str, dict[str, str]] = {}
         self.oracle_views: dict[str, dict[str, str]] = {}  # A' tests on B's source (``precheck``)
+        self.fix_infra: dict[str, str] = {}  # fix sha -> why its check did not run (a host failure, ``_executed``)
 
     def images_for(self, lang: str) -> Any:
         if lang not in self.images_by_lang:
@@ -846,6 +848,8 @@ class Debug(Rebreak):
                 raise ValueError("a task needs at least two fixes")
             b_ref = "HEAD" if b_full == head else "pinned"
             kept, need, card = await self._executed(name, lang, b_full, b_ref, picked)
+            if infra := sorted({self.fix_infra[u.sha] for u in picked if u not in kept and u.sha in self.fix_infra}):
+                raise ValueError(f"the fix check did not run (host failure, retry on a quieter host): {infra[:3]}")
             if lost := [u.sha[:10] for u in picked if u not in kept]:
                 raise ValueError(f"not a real fix at B (no test of its own fails when it alone is reverted): {lost}")
             g = order_fixes(sorted(picked, key=pool.index), need)
@@ -870,9 +874,11 @@ class Debug(Rebreak):
             evid, card = json.loads(cache.read_text())
         else:
             evid, card = await fix_check(repo, b, fixes, self.sandboxes, self.images_for(lang), name, work, lang=lang, full_suite=self.full_suite)
-            cache.write_text(json.dumps([evid, {k: v for k, v in card.items() if k != "build_log"}], default=str))
+            if not any(ev.get("infra") for ev in evid.values()):  # a host failure (a suite timeout under load) is never evidence
+                cache.write_text(json.dumps([evid, {k: v for k, v in card.items() if k != "build_log"}], default=str))
         if not card.get("ok"):
             self.note(f"{lang}/{name}", "S1_executed", False, "the World image of B does not build", lang=lang, log=str(card.get("build_log", ""))[-600:])
+        self.fix_infra.update({s: str(ev.get("why") or "") for s, ev in evid.items() if ev.get("infra")})
         kept = []
         for u in fixes:
             ev = evid[u.sha]
