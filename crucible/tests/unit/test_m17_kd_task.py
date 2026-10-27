@@ -566,3 +566,13 @@ def test_a_revision_never_points_at_the_location(tmp_path, monkeypatch):
     assert g.location_probe(rec, "m2", "FLASH_ATTN_EXT with f16 caches and head size 128 hangs.") == []
     got = g.location_probe(rec, "m2", "FLASH_ATTN_EXT hangs on tile_barrier_rows; the dispatcher picks the wrong path.")
     assert any(x.startswith("location grep: 'tile_barrier_rows'") for x in got) and any("dispatcher" in x for x in got)
+
+
+def test_a_migration_window_has_an_intent_card():
+    """2026-10-26: the kernel targeting mine stage raised KeyError 'class' on a migration window (its milestones are
+    compile/run checks of programs, with no fault class)."""
+    from crucible.factory.lanes import kernel_debug as kd
+
+    own = {"intent": "migrate", "skills": ["toolkit_migration", "kernel_fault_localization"]}
+    card = kd.task_intent({"family": "kernel-migration", "intent": own, "milestones": [{"id": "c01"}, {"id": "r01"}]})
+    assert card == own

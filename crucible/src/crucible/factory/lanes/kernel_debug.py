@@ -732,7 +732,10 @@ SKILLS: dict[str, dict[str, str]] = {
 
 def task_intent(rec: Mapping[str, Any]) -> dict[str, Any]:
     """The task's intent card (``00`` §7), derived from the record (faults, classes, ops, claimed and executed edges),
-    never from the prompt."""
+    never from the prompt. A migration window carries its own card (``lh_kernel_debug_migrate``: programs, not faults;
+    2026-10-26 the kernel targeting mine stage raised KeyError 'class' on one)."""
+    if rec.get("family") == FAMILIES["migration"] and isinstance(rec.get("intent"), Mapping):
+        return dict(rec["intent"])
     ms = list(rec["milestones"])
     fam = rec["family"]
     classes = sorted({m["class"] for m in ms})
