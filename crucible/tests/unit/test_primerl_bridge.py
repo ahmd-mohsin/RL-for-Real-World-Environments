@@ -383,5 +383,9 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
         assert tomllib.loads((stage / name).read_text())["model"]["attn"] == "flash_attention_2"
     assert tomllib.loads((stage / "inference.toml").read_text())["router"] == "None"
     job = (stage / "job.sbatch").read_text()
-    assert job.index("uv run inference") < job.index("uv run trainer") < job.index("kernel_check") < job.index("phase 1") and "exit 8" in job
+    assert job.index("uv run inference") < job.index("uv run torchrun") < job.index("kernel_check") < job.index("phase 1") and "exit 8" in job
     assert "cd /n/prime-rl" in job and "exit 9" in job and "PYTHONPATH=/w/crucible/src" in job
+    # attempt 7 (job 3471445): the trainer console script sets no RANK; prime-rl's launcher runs it under torchrun
+    assert "uv run trainer" not in job and job.count("torchrun --role=trainer") == 2 and "-m prime_rl.trainer.rl.train @ /w/runs/smoke1/trainer_resume.toml" in job
+    assert "crucible-$SLURM_JOB_ID-resume" in job and "TRITON_CACHE_DIR=/tmp/triton-$UID" in job and "expandable_segments:True" in job
+    assert "torchrun --role=trainer" in job_real and f"--nproc-per-node={d.train_gpus}" in job_real

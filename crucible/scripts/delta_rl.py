@@ -146,11 +146,14 @@ echo BUILD_OK
 
 def setup_lines(d, *, version: str) -> str:
     """The GPU job's preamble: the environment ``build_script`` made on the login node, reused; never installed here."""
+    from crucible.train.bridges.primerl.deploy import common_env_line
+
     w, e = d.workdir, d.envdir
     return f"""{uv_env(d)}
 [ -f {e}/prime-rl/.crucible-installed-{version} ] || {{ echo "prime-rl environment not built: run build_env.sh on the login node first"; exit 4; }}
 cd {e}/prime-rl
 export PYTHONPATH={w}/crucible/src  # Crucible's source (rsynced); the trainer imports its loss from here
+{common_env_line()}
 """
 
 
@@ -193,7 +196,7 @@ def cmd_render(args) -> None:
 def cmd_render_smoke(args) -> None:
     import tomli_w
 
-    from crucible.train.bridges.primerl.deploy import PRIME_RL_VERSION, DeltaConfig, inference_toml, submit_command, trainer_toml
+    from crucible.train.bridges.primerl.deploy import PRIME_RL_VERSION, DeltaConfig, inference_toml, submit_command, trainer_command, trainer_toml
     from crucible.train.bridges.tinker.trainer import TrainConfig
 
     d = DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=1, train_gpus=1, infer_gpus=1, ep=1, cp=1, infer_tp=1, seq_len=4096,
@@ -232,7 +235,7 @@ MEM=$!
 # vLLM, the trainer and the kernel check start together: each import is paid once, in parallel
 CUDA_VISIBLE_DEVICES=1 uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
-CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
+CUDA_VISIBLE_DEVICES=0 {trainer_command(f"{out}/trainer.toml", gpus=1, port="$((29500 + SLURM_JOB_ID % 1000))")} > {out}/trainer.log 2>&1 &
 TRN=$!
 CUDA_VISIBLE_DEVICES=0 timeout 1500 uv run python -m crucible.train.bridges.primerl.kernel_check > {out}/kernel_check.json 2>{out}/kernel_check.err &
 KC=$!
@@ -242,9 +245,9 @@ curl -sf localhost:{d.port}/health > /dev/null || {{ echo "vLLM not healthy afte
 echo "vLLM healthy after $((SECONDS - T0)) s"
 echo "=== phase 1: two steps"
 {py} --steps 2 --report {out}/smoke1.json || {{ echo "phase 1 failed"; tail -30 {out}/trainer.log; tail -20 {out}/inference.log; kill $INF $TRN $MEM 2>/dev/null; exit 9; }}
-kill $TRN; wait $TRN 2>/dev/null
+kill $TRN; wait $TRN 2>/dev/null; pkill -u $USER -f prime_rl.trainer.rl.train; sleep 5  # torchrun's workers too: GPU 0 is free for the relaunch
 echo "=== phase 2: trainer relaunched from its step-1 checkpoint"
-CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer_resume.toml > {out}/trainer_resume.log 2>&1 &
+CUDA_VISIBLE_DEVICES=0 {trainer_command(f"{out}/trainer_resume.toml", gpus=1, port="$((30500 + SLURM_JOB_ID % 1000))", tag="resume")} > {out}/trainer_resume.log 2>&1 &
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
 RC=$?

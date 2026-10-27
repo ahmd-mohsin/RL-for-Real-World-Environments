@@ -924,6 +924,8 @@ launcher, filesystem transports and an import-path loss.
   its venv, uv's cache, CPython) sits on `/work/nvme` (`DeltaConfig.envdir`), because a cold GPU node took over 13 min to
   import from `/work/hdd`. Extras: `gpu`, `flash-attn`, `kernels` (the trainer imports `prime_kernels`). The build imports
   every module the job imports, so a missing package fails on the login node.
+  The trainer runs under torchrun as prime-rl's `rl` launcher starts it (`deploy.trainer_command`), with prime-rl's
+  default trainer and common environment; its `trainer` console script sets up no distributed rank.
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

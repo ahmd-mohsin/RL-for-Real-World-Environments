@@ -134,6 +134,28 @@ def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
             "weight_broadcast": {"type": "filesystem"}}
 
 
+# prime-rl's own defaults for every component and for the trainer (``prime_rl/utils/process.py``, v0.10.0); its ``rl``
+# launcher sets them, and so does the job. Triton's cache is per user on node-local /tmp (shared caches hang)
+COMMON_ENV = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "1", "GIT_LFS_SKIP_SMUDGE": "1",
+              "TRITON_CACHE_DIR": "/tmp/triton-$UID"}
+TRAINER_ENV = {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "TORCH_FR_BUFFER_SIZE": "2000", "TORCH_NCCL_DUMP_ON_TIMEOUT": "1",
+               "TORCH_FR_DUMP_TEMP_FILE": "/tmp/nccl_trace_${UID}_rank_"}
+
+
+def common_env_line() -> str:
+    return "export " + " ".join(f"{k}={v}" for k, v in COMMON_ENV.items())
+
+
+def trainer_command(config: str, *, gpus: int, port: str, tag: str = "train") -> str:
+    """The trainer as prime-rl's ``rl`` launcher starts it (``utils/process.torchrun_cmd``): torchrun over
+    ``prime_rl.trainer.rl.train``, which reads ``RANK`` / ``WORLD_SIZE`` from torchrun. The ``trainer`` console script
+    does not set them, so it fails at ``init_process_group`` (smoke attempt 7, job 3471445). ``port``: a shell expression,
+    one per launch, as is ``tag``."""
+    env = " ".join(f"{k}={v}" for k, v in TRAINER_ENV.items())
+    return (f"{env} uv run torchrun --role=trainer --rdzv-endpoint=localhost:{port} --rdzv-id=crucible-$SLURM_JOB_ID-{tag} "
+            f"--nproc-per-node={gpus} -m prime_rl.trainer.rl.train @ {config}")
+
+
 def submit_command(script: Path, d: DeltaConfig) -> list[str]:
     """``sbatch`` with the account on the command line and the login environment's override removed (module doc)."""
     return ["env", "-u", "SBATCH_ACCOUNT", "-u", "SLURM_ACCOUNT", "sbatch", f"--account={d.account}", str(script)]
@@ -160,7 +182,7 @@ unset SBATCH_ACCOUNT SLURM_ACCOUNT
 mkdir -p {out}
 CUDA_VISIBLE_DEVICES={inf} uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
-CUDA_VISIBLE_DEVICES={tr} uv run trainer @ {out}/trainer.toml > {out}/trainer.log 2>&1 &
+CUDA_VISIBLE_DEVICES={tr} {trainer_command(f"{out}/trainer.toml", gpus=d.train_gpus, port="$((29500 + SLURM_JOB_ID % 1000))")} > {out}/trainer.log 2>&1 &
 TRN=$!
 until curl -sf localhost:{d.port}/health > /dev/null; do sleep 10; kill -0 $INF || exit 3; done
 {crucible_cmd} > {out}/crucible.log 2>&1

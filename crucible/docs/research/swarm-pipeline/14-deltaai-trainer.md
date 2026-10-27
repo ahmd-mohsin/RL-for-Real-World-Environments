@@ -222,6 +222,14 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
       logs if phase 1 fails.
   - Also fixed: the real run's `job.sbatch` ran `cd {workdir}` before `uv run`, outside prime-rl's project, so `uv` would
     not have found prime-rl's venv. It now stays in `{envdir}/prime-rl`.
+- **Attempt 7** (job 3471445, 2026-10-27): it failed after 2:17, 0.08 GPU-hours. The NVMe environment fixed the
+  imports: vLLM and the trainer were through them in about 1.5 min (13+ min before), and the kernel check was compiling
+  flash-linear-attention's Triton kernels on the GPU when the job ended. The trainer then stopped at
+  `init_process_group`: `RANK expected, but not set`. prime-rl's `trainer` console script does not set up distributed;
+  its `rl` launcher runs `torchrun --role=trainer ... -m prime_rl.trainer.rl.train @ config` (`utils/process.torchrun_cmd`)
+  with its default trainer environment. Fixed: `deploy.trainer_command` builds that command, with a rendezvous port and
+  id per launch, for the real job and both smoke launches. The job sets prime-rl's common environment (`COMMON_ENV`, a
+  per-user Triton cache on node-local /tmp), and torchrun's workers are stopped before the trainer is relaunched.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers
