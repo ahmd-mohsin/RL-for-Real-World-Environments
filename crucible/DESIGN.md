@@ -911,7 +911,8 @@ launcher, filesystem transports and an import-path loss.
   than the price table's: `local_model`, zero priced, since GPU hours are the cost.
 - **The loss** (`primerl/loss.crucible_loss`, prime-rl's custom loss): Tinker's `importance_sampling` / `ppo` / `cispo`
   plus a stable_reinforce-style sampler anchor β·Σ(log q − log p_θ) (`--kl-coeff`). Advantages leave multiplied by the
-  step's trainable-token count (`wire.undo_token_mean`), cancelling prime-rl's division, so `loss_scale` is exact.
+  step's trainable-token count (`wire.undo_token_mean`), cancelling prime-rl's division, so `loss_scale` is exact. The
+  off-policy correction `--pg-correction` ∈ {none, tis, mis, sc, sc+tis, sc+mis} defaults to `sc+mis` (below).
 - **Deployment** (`primerl/deploy.py`): `DeltaConfig` accepts account `bjhg-dtai-gh` only. The submit unsets the login
   environment's `SBATCH_ACCOUNT`, and memory is requested per GPU. One node runs 2 trainer GPUs (`ep = 2`, `cp = 2`,
   262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes). vLLM runs as one engine with no router
@@ -931,6 +932,34 @@ launcher, filesystem transports and an import-path loss.
     (`enable_router_replay`);
   - all or none per step, with incomplete coverage refused, as the torch trainer's R3 replay does;
   - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off.
+  - The broadcast directory is no longer shadowed by the datum loop that drops trained routes (with replay on,
+    `save_for_sampler` had returned a datum instead of the adapter path).
+- **Score centering with MIS** (`primerl/topk.py`, `topk_server.py`, `sc_head.py`; doc 14 §7; on by default,
+  `--pg-correction sc+mis`, k = 32 by `--sc-topk`). arXiv 2609.20807 (reference code martin-marek/score-centering, MIT):
+  the per-token loss is −A·(sg(w_y)·log p_y − Σ_{v∈H} sg(q_v·w(p_v/q_v) − α·p_v)·log p_v), where H is the sampler's
+  top-k head, the tail is ρ·p (ρ = (1 − Σ_H q)/(1 − Σ_H p), α = ρ·w(1/ρ)), and w is MIS r·𝟙[0.5 ≤ r ≤ 5]. It removes
+  the drift E_q[R]·s̄ that a train/inference mismatch adds.
+  - **The sampler:** `/inference/v1/generate` with `logprobs = k`. prime-rl's packed handler kept only the sampled
+    entry. `topk_server` (a vLLM `--middleware` import path) also packs entries 1..k as `topk_ids` / `topk_logprobs`
+    arrays. `vllm.max_logprobs = k`.
+  - **Kept and stitched like routes:** per call in a `TopKStore` (int32 + float32), stitched per training sequence (the
+    call that sampled a position gives its head).
+  - **On the wire:** in prime-rl's `sampling_mask` stream, as `[SC_MAGIC, ids, bits(logprobs)]` rows at trained
+    positions.
+  - **In the trainer:** prime-rl's custom loss gets only the sampled token's logprobs, so `sc_head.install` patches the
+    fused LM head. `HeadLogProbFn` is its chunked logprob function plus k gathers per vocab chunk, never [T, V], and
+    never renormalized over the head. `compute_loss` in the train module gathers the head over context parallel, shifts
+    it, splits it per sequence and keys it by `trainer_logprobs`; the vanilla head refuses a payload.
+  - **No PPO clip with SC or TIS/MIS** (the paper's evidence; TRL's async GRPO default is the same SC+MIS): they require
+    `--loss importance_sampling`, and `--pg-correction none` keeps ppo / cispo. The anchor composes with every mode
+    (default 0).
+  - **All or none per step:** a step where any sequence lacks a head at a trained position sends none, and the loss uses
+    MIS (TIS for `sc+tis`) for the whole step, with a warning. A partial head is refused.
+  - **Logged:** `sc/coverage_*`, `sc/centered_share`, `sc/fallback(_steps_share)`, `sc/head_mass(_min)`, `sc/rho*`,
+    `sc/score_mean_l1` (the drift proxy), `sc/kl_head`, `sc/tail_dropped`, `is/masked_frac`, `sc/align_err`.
+  - **Cost:** `delta_rl.py topk-bench` times the server at k = 0, 8 and 32; the smoke runs it. Unit-tested on the CPU
+    (k = V equals full centering, the reference code's gradient and drift test, the prime-rl micro-batch path
+    emulated); not yet run live.
 - **CLI**: `delta_rl.py` takes `tinker_rl.py train`'s flags unchanged, through the shared builders `add_common` /
   `add_train_flags` / `train_config`, plus the deployment's. The smoke runs on `ghx4-interactive`, since `test` is closed
   to the account.

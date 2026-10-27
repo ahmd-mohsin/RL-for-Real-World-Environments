@@ -12,11 +12,15 @@ unchanged); prime-rl replaces the two remote calls:
 
 | module | what |
 |---|---|
-| ``backend`` | ``PrimeRLBackend``: the Tinker bridge's ``Backend`` protocol over vLLM ``/v1/completions`` (token ids in and out) and prime-rl's batch / broadcast handshake; ``local_model`` (zero prices) |
+| ``backend`` | ``PrimeRLBackend``: the Tinker bridge's ``Backend`` protocol over vLLM ``/v1/completions`` or ``/inference/v1/generate`` (token ids in and out; routes and heads with it) and prime-rl's batch / broadcast handshake; ``local_model`` (zero prices) |
 | ``wire`` | ``TokenDatum`` -> ``TrainingSample`` (full-length per-token streams), the token-count factor that keeps ``loss_scale`` exact, prime-rl's packer |
-| ``loss`` | ``crucible_loss``: prime-rl custom loss with the Tinker objectives (``importance_sampling`` / ``ppo`` / ``cispo``) plus the stable_reinforce-style sampler anchor β·Σ(log q − log p_θ) |
+| ``loss`` | ``crucible_loss``: prime-rl custom loss with the Tinker objectives (``importance_sampling`` / ``ppo`` / ``cispo``), the off-policy correction ``pg_correction`` (default ``sc+mis``: score centering with masked importance sampling) and the stable_reinforce-style sampler anchor β·Σ(log q − log p_θ) |
+| ``routing`` | MoE routing replay: the routes vLLM returns, kept per call and stitched per training sequence |
+| ``topk`` | the sampler's top-k head per token for score centering: ``TopKStore``, stitching, the ``sampling_mask`` payload, all or none per step |
+| ``topk_server`` | the vLLM API-server patch (a ``--middleware`` import path) that adds the head to prime-rl's generate endpoint |
+| ``sc_head`` | the trainer-side hook: the learner's head logprobs from prime-rl's chunked fused LM head, delivered to ``crucible_loss`` |
 | ``deploy`` | ``DeltaConfig`` (account ``bjhg-dtai-gh`` only), the trainer / inference TOMLs, the Slurm job, ``plan`` (GPU-hours) |
 
 The CLI is ``scripts/delta_rl.py`` (the flags of ``tinker_rl.py train``, plus the deployment's). This package imports no
-framework at module level (the trainer process imports ``loss`` alone).
+framework at module level (the trainer process imports ``loss`` alone, which installs ``sc_head`` there).
 """

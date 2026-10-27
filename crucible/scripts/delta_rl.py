@@ -3,7 +3,9 @@
 
 Every training flag is ``tinker_rl.py train``'s (shared builders ``add_common`` / ``add_train_flags`` / ``train_config``),
 so a run means the same on both backends; the deployment adds its own (``--train-gpus --infer-gpus --ep --cp --seq-len
---kl-coeff --time``). The account is ``bjhg-dtai-gh`` (CIS262200) and nothing else (``deploy.DeltaConfig``).
+--kl-coeff --pg-correction --sc-topk --time``). ``--pg-correction`` (default ``sc+mis``: score centering with masked
+importance sampling, swarm-pipeline/14 §7) is the off-policy correction of the prime-rl loss; it needs ``--loss
+importance_sampling`` (the default), and ``--pg-correction none`` keeps the plain ``--loss`` objective (ppo, cispo). The account is ``bjhg-dtai-gh`` (CIS262200) and nothing else (``deploy.DeltaConfig``).
 
 Commands:
 
@@ -17,6 +19,7 @@ Commands:
   relaunched from its checkpoint, one more step (``smoke``).
 - ``train ...`` (on the compute node, inside the job): the Tinker loop over ``PrimeRLBackend``.
 - ``smoke --out OUT [--resume REF]`` (on the compute node): ``train.bridges.primerl.smoke.run``.
+- ``topk-bench --report R.json [--ks 0,8,32]`` (on the compute node, next to vLLM): what returning the top-k head costs.
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ MAX_TOKENS = 8192
 
 def add_deploy_flags(p) -> None:
     from crucible.train.bridges.primerl.deploy import DeltaConfig
+    from crucible.train.bridges.primerl.loss import CORRECTIONS
 
     p.set_defaults(max_tokens=MAX_TOKENS)  # a reply cut there is a limit stop (max_output_tokens), never a skill failure
     d = DeltaConfig()
@@ -59,6 +63,9 @@ def add_deploy_flags(p) -> None:
     p.add_argument("--infer-tp", type=int, default=d.infer_tp)
     p.add_argument("--seq-len", type=int, default=d.seq_len)
     p.add_argument("--kl-coeff", type=float, default=d.kl_coeff, help="sampler-learner anchor β (0: off)")
+    p.add_argument("--pg-correction", default=d.pg_correction, choices=list(CORRECTIONS),
+                   help="off-policy correction: score centering (sc) alone or with TIS / MIS, TIS / MIS alone, or none (the --loss objective)")
+    p.add_argument("--sc-topk", type=int, default=d.sc_topk, help="the sampler's top-k logprobs per token kept for score centering")
     p.add_argument("--time", default=d.time)
     p.add_argument("--workdir", default=d.workdir)
     p.add_argument("--no-router-replay", action="store_true", help="sample over /v1/completions and let the trainer recompute MoE routing")
@@ -69,7 +76,7 @@ def delta_config(args):
 
     return DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=args.nodes, train_gpus=args.train_gpus, infer_gpus=args.infer_gpus,
                        ep=args.ep, cp=args.cp, infer_tp=args.infer_tp, seq_len=args.seq_len, lora_rank=args.rank, kl_coeff=args.kl_coeff, time=args.time,
-                       workdir=args.workdir, router_replay=not args.no_router_replay)
+                       workdir=args.workdir, router_replay=not args.no_router_replay, pg_correction=args.pg_correction, sc_topk=args.sc_topk)
 
 
 def cmd_plan(args) -> None:
@@ -124,7 +131,7 @@ nice -n 19 uv sync --frozen --python "$PY" --extra gpu --extra flash-attn --no-i
 nice -n 19 uv pip install 'pydantic>=2.12' pyyaml tomli-w httpx rich click dill || exit 13
 uv run --frozen python -c "{HAS_HEADERS}" || exit 17
 uv run --frozen python -c "import sys, prime_rl, verifiers, torch, vllm, triton, fla; print('python', sys.version.split()[0], 'verifiers', verifiers.__version__, 'torch', torch.__version__, torch.version.cuda, 'vllm', vllm.__version__, 'triton', triton.__version__)" || exit 14
-PYTHONPATH={w}/crucible/src uv run --frozen python -c "import crucible.train.bridges.primerl.loss, crucible.train.bridges.primerl.backend; print('crucible bridge ok')" || exit 15
+PYTHONPATH={w}/crucible/src uv run --frozen python -c "import crucible.train.bridges.primerl.loss, crucible.train.bridges.primerl.backend, crucible.train.bridges.primerl.sc_head, crucible.train.bridges.primerl.topk_server; print('crucible bridge ok')" || exit 15
 touch {w}/prime-rl/.crucible-installed-{version}
 echo BUILD_OK
 """
@@ -158,10 +165,15 @@ def passthrough(argv: list[str]) -> list[str]:
 
 def cmd_render(args) -> None:
     from crucible.train.bridges.primerl.deploy import PRIME_RL_VERSION, refuse_tasks, render, submit_command
+    from crucible.train.bridges.primerl.loss import check_combination
 
     tl = _tinker_cli()
     cfg = tl.train_config(args)
     d = delta_config(args)
+    try:
+        check_combination(cfg.loss_fn, d.pg_correction)
+    except ValueError as e:
+        sys.exit(f"refused: {e}")
     if args.rows:
         tasks = tl._tasks_from_rows(args)
         targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
@@ -183,7 +195,8 @@ def cmd_render_smoke(args) -> None:
     from crucible.train.bridges.tinker.trainer import TrainConfig
 
     d = DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=1, train_gpus=1, infer_gpus=1, ep=1, cp=1, infer_tp=1, seq_len=4096,
-                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100, router_replay=False)  # a dense model: no experts
+                    lora_rank=16, time=args.time, workdir=args.workdir, mem_gb_per_gpu=100, router_replay=False,  # a dense model: no experts
+                    pg_correction=args.pg_correction, sc_topk=args.sc_topk)
     cfg = TrainConfig(model="Qwen/Qwen3.6-35B-A3B", lora_rank=16, steps=3, learning_rate=args.lr, loss_fn="importance_sampling", require_band=False)
     out = Path(d.workdir) / "runs" / args.run_name
     stage = Path(args.stage)
@@ -197,7 +210,8 @@ def cmd_render_smoke(args) -> None:
     (stage / "trainer.toml").write_text(tomli_w.dumps(t0))
     (stage / "trainer_resume.toml").write_text(tomli_w.dumps(t1))
     (stage / "inference.toml").write_text(tomli_w.dumps(inf))
-    py = f"uv run python {d.workdir}/crucible/scripts/delta_rl.py smoke --base-model {d.base_model} --lr {args.lr} --primerl-out {out}"
+    py = (f"uv run python {d.workdir}/crucible/scripts/delta_rl.py smoke --base-model {d.base_model} --lr {args.lr} --primerl-out {out} "
+          f"--sc-topk {d.sc_topk if d.centered else 0}")
     job = f"""#!/bin/bash
 #SBATCH --job-name=crucible-rl-smoke
 #SBATCH --account={d.account}
@@ -231,6 +245,8 @@ CUDA_VISIBLE_DEVICES=0 uv run trainer @ {out}/trainer_resume.toml > {out}/traine
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
 RC=$?
+echo "=== the top-k head's cost on the generate endpoint (advisory)"
+uv run python {d.workdir}/crucible/scripts/delta_rl.py topk-bench --base-model {d.base_model} --port {d.port} --report {out}/topk_bench.json || true
 kill $INF $TRN $MEM 2>/dev/null || true
 echo "=== peak GPU memory (MiB) per GPU"; awk -F', ' '{{g=$2; m=$3+0; if(m>p[g])p[g]=m}} END{{for(g in p) print "gpu", g, p[g]}}' {out}/gpu_mem.csv
 echo "=== done rc=$RC"
@@ -241,13 +257,14 @@ exit $RC
     print(json.dumps({"stage": str(stage), "cluster_out": str(out), "submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
 
 
-def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False):
+def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False, sc_topk: int = 0):
     from crucible.train.bridges.primerl.backend import FileIO, HttpClient, PrimeRLBackend
     from crucible.train.bridges.primerl.routing import RoutingStore
+    from crucible.train.bridges.primerl.topk import TopKStore
 
     return PrimeRLBackend(io=FileIO(Path(args.primerl_out), ranks=ranks, seq_len=seq_len, model=args.base_model),
                           http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss,
-                          routing=RoutingStore() if router_replay else None)
+                          routing=RoutingStore() if router_replay else None, topk=TopKStore(k=sc_topk) if sc_topk > 0 else None)
 
 
 def cmd_smoke(args) -> None:
@@ -268,11 +285,26 @@ def cmd_smoke(args) -> None:
     if args.resume_from:
         prev = json.loads(Path(args.resume_from).read_text())
         resume, sampler_path = prev["last_checkpoint"], prev["last_adapter"]
-    b = _backend(args, lr=args.lr, loss="importance_sampling", ranks=1, seq_len=4096)
+    b = _backend(args, lr=args.lr, loss="importance_sampling", ranks=1, seq_len=4096, sc_topk=args.sc_topk)
     out = asyncio.run(run(b, encode=encode, decode=lambda ids: tok.decode(list(ids), skip_special_tokens=True), model="Qwen/Qwen3.6-35B-A3B",
                           steps=args.steps, learning_rate=args.lr, resume=resume, sampler_path=sampler_path, rank=16))
     Path(args.report).write_text(json.dumps(out, indent=1, default=str))
     print(json.dumps(out, indent=1, default=str)[:6000])
+
+
+def cmd_topk_bench(args) -> None:
+    """The top-k head's cost on the running vLLM server (``backend.topk_cost``): wall time, tokens/s and response bytes
+    per token at each k, k = 0 the baseline. Run inside a job, next to the server."""
+    from transformers import AutoTokenizer
+
+    from crucible.train.bridges.primerl.backend import HttpClient, topk_cost
+
+    tok = AutoTokenizer.from_pretrained(args.base_model)
+    ids = list(tok.apply_chat_template([{"role": "user", "content": "Write a long story about a lighthouse keeper."}], add_generation_prompt=True))
+    rows = asyncio.run(topk_cost(HttpClient(f"http://localhost:{args.port}"), args.base_model, ids, ks=[int(k) for k in args.ks.split(",")],
+                                 n=args.n, max_tokens=args.max_tokens))
+    Path(args.report).write_text(json.dumps(rows, indent=1))
+    print(json.dumps(rows, indent=1))
 
 
 def cmd_train(args) -> None:
@@ -284,7 +316,8 @@ def cmd_train(args) -> None:
     d = delta_config(args)
     tasks = tl._tasks_from_rows(args)
     targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
-    b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len, router_replay=d.router_replay)
+    b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len, router_replay=d.router_replay,
+                 sc_topk=d.sc_topk if d.centered else 0)
     out = asyncio.run(train(tasks, config=cfg, run_dir=Path(args.run_dir), targeting=targeting, observe=tl._observe(args), backend=b,
                             model=local_model(cfg.model, context=d.seq_len), **tl._envs_kw(args)))
     tl.write(Path(args.run_dir) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})
@@ -318,6 +351,8 @@ def main() -> None:
     p.add_argument("--mem-gb", type=int, default=200, help="memory request; keep it proportional to the GPUs (charging follows the largest share)")
     p.add_argument("--run-name", default="smoke")
     p.add_argument("--stage", required=True)
+    p.add_argument("--pg-correction", default="sc+mis", help="the smoke's loss correction (sc+mis exercises the top-k path end to end)")
+    p.add_argument("--sc-topk", type=int, default=32)
     p.set_defaults(fn=cmd_render_smoke)
     for name, fn in (("train", cmd_train), ("smoke", cmd_smoke)):
         p = sub.add_parser(name)
@@ -335,7 +370,16 @@ def main() -> None:
             p.add_argument("--steps", type=int, default=2)
             p.add_argument("--resume-from")
             p.add_argument("--report", required=True)
+            p.add_argument("--sc-topk", type=int, default=0, help="keep the sampler's top-k head (score centering); 0: off")
         p.set_defaults(fn=fn)
+    p = sub.add_parser("topk-bench")
+    p.add_argument("--base-model", default="Qwen/Qwen3-0.6B")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--ks", default="0,8,32")
+    p.add_argument("--n", type=int, default=8, help="concurrent calls per k")
+    p.add_argument("--max-tokens", type=int, default=1024)
+    p.add_argument("--report", required=True)
+    p.set_defaults(fn=cmd_topk_bench)
     args = ap.parse_args()
     args.fn(args)
 

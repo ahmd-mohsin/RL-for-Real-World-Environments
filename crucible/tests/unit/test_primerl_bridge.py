@@ -281,7 +281,7 @@ def test_the_account_is_cis262200_only_and_shapes_are_checked() -> None:
 
 def test_the_trainer_config_uses_crucibles_loss_and_checkpoints_every_step(tmp_path: Path) -> None:
     cfg = TrainConfig(model=MODEL, steps=30, loss_fn="cispo", learning_rate=2e-5, lora_rank=16, require_band=False)
-    t = deploy.trainer_toml(cfg, deploy.DeltaConfig(kl_coeff=0.01), Path("/w/runs/x"), resume_step=4)
+    t = deploy.trainer_toml(cfg, deploy.DeltaConfig(kl_coeff=0.01, pg_correction="none"), Path("/w/runs/x"), resume_step=4)  # cispo: no centering
     assert t["loss"]["import_path"] == deploy.LOSS_IMPORT and t["loss"]["kwargs"]["kind"] == "cispo" and t["loss"]["kwargs"]["kl_coeff"] == 0.01
     assert t["ckpt"]["interval"] == 1 and t["resume"] == {"step": 4} and t["optim"]["lr"] == 2e-5 and t["model"]["lora"]["rank"] == 16
     assert t["rollout_transport"]["type"] == t["weight_broadcast"]["type"] == "filesystem" and t["max_steps"] == 30
@@ -289,7 +289,7 @@ def test_the_trainer_config_uses_crucibles_loss_and_checkpoints_every_step(tmp_p
     assert getattr(importlib.import_module(mod), fn) is crucible_loss
     inf = deploy.inference_toml(cfg, deploy.DeltaConfig())
     assert inf["vllm"]["enable_lora"] and inf["vllm"]["max_lora_rank"] == 16 and inf["vllm"]["max_model_len"] == 262_144
-    paths = deploy.render(cfg, deploy.DeltaConfig(), tmp_path / "stage", run_name="x", crucible_cmd="true")
+    paths = deploy.render(cfg, deploy.DeltaConfig(pg_correction="none"), tmp_path / "stage", run_name="x", crucible_cmd="true")
     assert all(p.exists() for p in paths.values()) and json.loads(paths["deploy"].read_text())["prime_rl"] == deploy.PRIME_RL_VERSION
 
 
@@ -370,9 +370,11 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
     assert deploy.trainer_toml(cfg, d, Path("/w"))["model"]["attn"] == deploy.ATTN == "flash_attention_2"
     stage = tmp_path / "smoke"
     dr.cmd_render_smoke(SimpleNamespace(base_model="Qwen/Qwen3-0.6B", partition="ghx4-interactive", time="01:55:00", workdir="/w", lr=1e-4, gpus=2, mem_gb=120,
-                                        run_name="smoke1", stage=str(stage)))
+                                        run_name="smoke1", stage=str(stage), pg_correction="sc+mis", sc_topk=32))
     for name in ("trainer.toml", "trainer_resume.toml"):
         assert tomllib.loads((stage / name).read_text())["model"]["attn"] == "flash_attention_2"
-    assert tomllib.loads((stage / "inference.toml").read_text())["router"] == "None"
+    smoke_inf = tomllib.loads((stage / "inference.toml").read_text())
+    assert smoke_inf["router"] == "None" and smoke_inf["vllm"]["middleware"] == [deploy.MIDDLEWARE]  # the smoke exercises the top-k path
     job = (stage / "job.sbatch").read_text()
+    assert "--sc-topk 32" in job and "topk-bench" in job.split("=== done")[0]
     assert job.index("uv run inference") < job.index("kernel_check") < job.index("uv run trainer") and "exit 8" in job
