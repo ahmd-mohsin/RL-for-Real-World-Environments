@@ -175,10 +175,31 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 
   `BUILD_OK` on 2026-10-26 in 13 min: torch 2.13.0+cu130, vLLM 0.31.0, verifiers (lock-pinned), and Crucible's bridge
   importable. The GPU job only checks the build marker; it never installs.
-- **Attempt 5** (ready on the cluster in `runs/smoke1`, reusing the built environment, with the GPU kernel check
-  `primerl.kernel_check`): not submitted. The one-per-user `ghx4-interactive` slot stayed with the inference worker's
-  job, and then the Mac lost DNS and the SSH control socket closed (2026-10-26 13:08). It goes in once the user runs
-  `ssh -fN deltaai` again.
+- **Attempt 5** (job 3467688, `ghx4-interactive`, 2 GPUs, 120 GB, 2026-10-27; job 3464731 on `ghx4` was cancelled
+  before it started): it failed after 20:52 (`AllocTRES gres/gpu=2`, `billing=4000`), 0.70 GPU-hours at 2 GPUs. The
+  versions came up (aarch64, GH200 120GB, driver 595.71.05, torch 2.13.0+cu130 with CUDA 13.0, vLLM 0.31.0). No RL step
+  ran. Three blockers:
+  - **No Python headers.** The venv was built on the system python (`/usr/lib64/python3.12`), which has no `Python.h`.
+    Triton compiles a small C launcher (`cuda_utils.c`) on the GPU node, so every Triton kernel failed, and
+    flash-linear-attention reported "Triton is not supported on current platform, roll back to CPU". The kernel check
+    hung on the CPU path and hit its 600 s limit with no JSON. The student's Gated DeltaNet kernels and vLLM's own Triton
+    kernels would all have failed the same way. Fixed: the venv is rebuilt on a uv-managed CPython 3.12
+    (`uv python install 3.12`, `UV_PYTHON_PREFERENCE=only-managed`, installed under the work directory), whose headers
+    ship with it. `build_env.sh` fails unless `sysconfig.get_paths()['include']/Python.h` exists, before and after
+    `uv sync`. A venv on another interpreter is removed and rebuilt from the uv cache. The job checks it again at start.
+  - **No `vllm-router`.** prime-rl's `inference` entrypoint starts a router in front of the engine by default
+    (`InferenceConfig.router = VllmRouterConfig()`). The router binary sits in the `disagg` extra, with deep-ep, deep-gemm
+    and nixl, and the build does not install it, so vLLM exited with `FileNotFoundError: 'vllm-router'`. Fixed without new
+    packages: the inference config sets `router = "None"` (pydantic-config's null for TOML). prime-rl documents this mode
+    and uses it for its own per-rank engines: the engine then serves `server.port` itself. The router only adds
+    session-affine routing across data-parallel engines, and the run has one engine (TP 2), so `inference_toml` refuses
+    more than one.
+  - **`attn = "sdpa"` is not a v0.10.0 option** (`flash_attention_2|3|4|auto`), so the trainer's config failed
+    validation. `auto` picks FA3 on Hopper (SM90), and the build installs only the prebuilt FA2 wheel. Fixed: both the
+    smoke and the real run use `flash_attention_2` (`deploy.ATTN`). The real run's config had asked for FA3, which would
+    have failed in the same way.
+
+  The smoke job now also starts vLLM before the kernel check, so the check overlaps vLLM's load.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

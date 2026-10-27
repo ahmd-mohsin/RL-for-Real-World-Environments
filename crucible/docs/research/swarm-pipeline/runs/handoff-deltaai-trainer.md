@@ -16,12 +16,15 @@ This is for the worker who continues the DeltaAI trainer for Qwen/Qwen3.6-35B-A3
   - Crucible's source is rsynced to `/work/hdd/bjhg/mahmedmohsin/crucible-train/crucible/{src,scripts,pyproject.toml}`.
 - **No RL step has run on a GPU yet.**
   - Attempts 1, 3 and 4 failed in the install. All three causes are fixed (doc 14 §5.1). Attempt 2 was cancelled.
-  - Attempt 5 is job **3464731**: `runs/smoke1`, partition ghx4, 2 GPUs, 120 GB, account bjhg-dtai-gh. It was PENDING
-    at 17:31 PDT on 2026-10-26.
-  - Then the SSH control socket closed: at 18:32 the login node closed the connection, and it was still down at 21:40,
-    which ended the watcher. **The job's state is unknown.** It may have run, or still be queued.
-- **GPU-hours used**: about 2 on bjhg-dtai-gh (attempt 1; the interactive partition billed a whole node). The last
-  balance seen was 974.
+  - Attempt 5 ran as job **3467688** (`ghx4-interactive`) and failed after 20:52 (0.70 GPU-hours at 2 GPUs): no
+    `Python.h` for Triton, no `vllm-router`, and `attn = "sdpa"` invalid (doc 14 §5.1). All three are fixed in the
+    code (2026-10-27), but **not yet on the cluster**: the SSH control socket closed again before the rsync, the
+    rebuild (`build_env.sh`, which now moves the venv to a uv-managed CPython 3.12) and attempt 6.
+  - Next: `ssh -fN deltaai` (the user), rsync `crucible/{src,scripts,pyproject.toml}`, re-render the smoke
+    (`render-smoke` below) and rsync it to `runs/smoke1`, run `build_env.sh` on the login node until `BUILD_OK`, then
+    submit from `runs/smoke1`.
+- **GPU-hours used**: about 2 on bjhg-dtai-gh for attempt 1 (the interactive partition billed a whole node) and 0.70 for
+  attempt 5. The last balance seen was 974.
 
 ## Next steps
 

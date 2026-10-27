@@ -6,8 +6,8 @@ One Slurm job on ``ghx4`` (4 GH200 per node) runs three things that share ``out`
   included), FSDP2, expert parallel ``ep``, context parallel ``cp`` (ring) for the long sequences, activation checkpointing
   with offload to Grace memory, Crucible's loss (``loss.crucible_loss``), the filesystem rollout transport and weight
   broadcast, a checkpoint every step (``ckpt.interval = 1``: every step is resumable);
-- the **vLLM server** (``inference @ inference.toml``, ``infer_gpus``): the base model with LoRA hot-loading and prefix
-  caching;
+- the **vLLM server** (``inference @ inference.toml``, ``infer_gpus``): one engine, no router, the base model with LoRA
+  hot-loading and prefix caching;
 - **Crucible's loop** (``scripts/delta_rl.py train``): the Tinker loop over ``backend.PrimeRLBackend``, the Worlds in
   Apptainer on the node's CPUs.
 
@@ -33,6 +33,9 @@ ACCOUNT = "bjhg-dtai-gh"  # CIS262200; never bfgp-dtai-gh (another project)
 WORK = "/work/hdd/bjhg/mahmedmohsin"
 PRIME_RL_VERSION = "v0.10.0"  # PrimeIntellect-ai/prime-rl, Apache-2.0 (2026-10-13)
 LOSS_IMPORT = "crucible.train.bridges.primerl.loss.crucible_loss"
+# the trainer's attention: the build installs only the prebuilt FA2 wheel (``--extra flash-attn``); prime-rl's ``auto`` picks
+# FA3 on Hopper (SM90, the GH200) and FA3 is not installed; ``sdpa`` is not an option in v0.10.0 (smoke attempt 5)
+ATTN = "flash_attention_2"
 
 
 @dataclass
@@ -94,7 +97,7 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
     doc: dict[str, Any] = {
         "output_dir": str(out),
         "max_steps": int(train.steps),
-        "model": {"name": d.base_model, "seq_len": d.seq_len, "ep": d.ep, "cp": d.cp, "attn": "flash_attention_3", "offload": "optimizer",
+        "model": {"name": d.base_model, "seq_len": d.seq_len, "ep": d.ep, "cp": d.cp, "attn": ATTN, "offload": "optimizer",
                   "ac": {"freq": 1}, "ac_offloading": {"max_inflight_activations": 5},
                   "lora": {"rank": int(train.lora_rank), "alpha": float(d.lora_alpha), "dropout": 0.0}},
         "loss": {"type": "custom", "import_path": LOSS_IMPORT,
@@ -114,8 +117,15 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
 
 
 def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
-    """The prime-rl ``InferenceConfig`` (``prime_rl/configs/inference.py``, v0.10.0): vLLM with LoRA hot-loading."""
-    return {"server": {"port": d.port},
+    """The prime-rl ``InferenceConfig`` (``prime_rl/configs/inference.py``, v0.10.0): vLLM with LoRA hot-loading.
+
+    One engine, no router (``router = "None"``, prime-rl's own null for TOML): the engine serves ``server.port`` itself, as
+    prime-rl's per-rank engines do. The default ``vllm-router`` lives in prime-rl's ``disagg`` extra with deep-ep, deep-gemm
+    and nixl, which the build does not install (smoke attempt 5, job 3467688: ``FileNotFoundError: 'vllm-router'``); it only
+    adds session-affine routing across data-parallel engines, so more than one engine is refused here."""
+    if d.infer_gpus // d.infer_tp != 1:
+        raise ValueError("one vLLM engine per job (infer_gpus == infer_tp): data-parallel engines need prime-rl's vllm-router (disagg extra)")
+    return {"server": {"port": d.port}, "router": "None",
             "vllm": {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
                      "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
                      "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),

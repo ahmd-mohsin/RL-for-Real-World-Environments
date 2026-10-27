@@ -914,7 +914,13 @@ launcher, filesystem transports and an import-path loss.
   step's trainable-token count (`wire.undo_token_mean`), cancelling prime-rl's division, so `loss_scale` is exact.
 - **Deployment** (`primerl/deploy.py`): `DeltaConfig` accepts account `bjhg-dtai-gh` only. The submit unsets the login
   environment's `SBATCH_ACCOUNT`, and memory is requested per GPU. One node runs 2 trainer GPUs (`ep = 2`, `cp = 2`,
-  262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes).
+  262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes). vLLM runs as one engine with no router
+  (`router = "None"`; the default `vllm-router` sits in prime-rl's `disagg` extra, which the build skips), so data-parallel
+  engines are refused. The trainer uses `attn = "flash_attention_2"`, the one prebuilt wheel installed (prime-rl's `auto`
+  picks FA3 on the GH200).
+- **The build** (`build_env.sh`, on the login node): the venv sits on a uv-managed CPython 3.12
+  (`UV_PYTHON_PREFERENCE=only-managed`), because Triton compiles its launcher against `Python.h` on the GPU node and the
+  system python has no headers. The build and the job both fail when `Python.h` is missing.
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

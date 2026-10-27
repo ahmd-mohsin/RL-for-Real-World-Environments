@@ -344,3 +344,35 @@ def test_delta_rl_takes_every_tinker_train_flag_unchanged() -> None:
     assert dr.passthrough(["--rows", "r", "--stage", "s", "--run-name", "n", "--resume-step=3"]) == ["--rows", "r", "--run-name", "n"]
     cfg = tl.train_config(argparse.Namespace(**{k: v[0] for k, v in tinker.items()}))
     assert isinstance(cfg, TrainConfig) and cfg.loss_fn == "importance_sampling" and statistics.fmean([cfg.band_lo, cfg.band_hi]) == pytest.approx(0.4)
+
+
+def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engine_without_a_router(tmp_path: Path) -> None:
+    # smoke attempt 5 (job 3467688): the system python had no Python.h, so Triton could not build its launcher and
+    # flash-linear-attention fell back to CPU; prime-rl's default vllm-router is in the disagg extra the build skips;
+    # prime-rl v0.10.0 has no sdpa attention, and auto picks FA3 on the GH200, which is not installed
+    import subprocess
+    import sys
+    import tomllib
+
+    dr = _load("delta_rl")
+    d = deploy.DeltaConfig()
+    build = dr.build_script(d, version=deploy.PRIME_RL_VERSION)
+    assert "UV_PYTHON_PREFERENCE=only-managed" in build and f"uv python install {dr.PYTHON}" in build and '--python "$PY"' in build
+    assert build.index("Python.h") < build.index("uv sync") and build.index(f'-c "{dr.HAS_HEADERS}" || exit 17', build.index("uv sync")) < build.index("touch ")
+    assert "rm -rf .venv" in build and "--extra disagg" not in build
+    assert "UV_PYTHON_PREFERENCE=only-managed" in dr.setup_lines(d, version=deploy.PRIME_RL_VERSION)
+    assert subprocess.run([sys.executable, "-c", dr.HAS_HEADERS], capture_output=True, check=False).returncode == 0  # this python has its headers
+    cfg = TrainConfig(model=MODEL, steps=2, require_band=False)
+    inf = deploy.inference_toml(cfg, d)
+    assert inf["router"] == "None" and inf["vllm"]["data_parallel_size"] == 1
+    with pytest.raises(ValueError, match="vllm-router"):
+        deploy.inference_toml(cfg, deploy.DeltaConfig(infer_gpus=2, infer_tp=1))
+    assert deploy.trainer_toml(cfg, d, Path("/w"))["model"]["attn"] == deploy.ATTN == "flash_attention_2"
+    stage = tmp_path / "smoke"
+    dr.cmd_render_smoke(SimpleNamespace(base_model="Qwen/Qwen3-0.6B", partition="ghx4-interactive", time="01:55:00", workdir="/w", lr=1e-4, gpus=2, mem_gb=120,
+                                        run_name="smoke1", stage=str(stage)))
+    for name in ("trainer.toml", "trainer_resume.toml"):
+        assert tomllib.loads((stage / name).read_text())["model"]["attn"] == "flash_attention_2"
+    assert tomllib.loads((stage / "inference.toml").read_text())["router"] == "None"
+    job = (stage / "job.sbatch").read_text()
+    assert job.index("uv run inference") < job.index("kernel_check") < job.index("uv run trainer") and "exit 8" in job
