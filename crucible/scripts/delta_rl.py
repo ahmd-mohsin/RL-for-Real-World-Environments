@@ -281,6 +281,17 @@ def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_rep
                           routing=RoutingStore() if router_replay else None, **t)
 
 
+def smoke_encode(tok, text: str) -> list[int]:
+    """The chat prompt's token ids: the template rendered as text, then encoded. ``apply_chat_template(tokenize=True)``
+    returns a ``BatchEncoding`` in transformers 5, and ``list()`` of it is its keys (smoke attempt 9, job 3474394)."""
+    msgs = [{"role": "user", "content": text}]
+    try:
+        rendered = tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False, tokenize=False)
+    except TypeError:
+        rendered = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+    return [int(t) for t in tok.encode(rendered, add_special_tokens=False)]
+
+
 def cmd_smoke(args) -> None:
     from transformers import AutoTokenizer
 
@@ -289,11 +300,7 @@ def cmd_smoke(args) -> None:
     tok = AutoTokenizer.from_pretrained(args.base_model)
 
     def encode(text: str) -> list[int]:
-        msgs = [{"role": "user", "content": text}]
-        try:
-            return list(tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False))
-        except TypeError:
-            return list(tok.apply_chat_template(msgs, add_generation_prompt=True))
+        return smoke_encode(tok, text)
 
     resume = sampler_path = None
     if args.resume_from:

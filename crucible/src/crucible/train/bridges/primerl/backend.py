@@ -167,6 +167,10 @@ class _Sampler:
     routing: RoutingStore | None = None  # router replay: the generate endpoint, its routes kept per call (``routing``)
 
     async def sample(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
+        # vLLM reads a list of strings as a batch of text prompts and answers 200, so a mis-tokenised prompt would only
+        # fail later, in the trainer's batch decode (smoke attempt 9: transformers 5 returned BatchEncoding keys)
+        if not all(isinstance(t, int) and not isinstance(t, bool) for t in prompt_ids):
+            raise TypeError(f"prompt token ids must be ints, got {list(prompt_ids)[:3]}")
         if self.routing is not None:
             return await self._generate(prompt_ids, max_tokens=max_tokens, temperature=temperature, stop=stop, seed=seed)
         body: dict[str, Any] = {"model": self.name, "prompt": list(prompt_ids), "max_tokens": int(max_tokens), "temperature": float(temperature),
@@ -323,7 +327,7 @@ class PrimeRLBackend:
         return _Sampler(self.http, name, str(path), self.stats, routing=self.routing)
 
     async def trainer(self, model: str, *, rank: int, resume: str | None = None, seed: int | None = None) -> _Trainer:
-        """The trainer process is already running (``deploy``); its first step is 0, or the checkpoint step + 1 for
+        """The trainer process is already running (``deploy``); its first step is 1 (``FIRST_STEP``), or the checkpoint step + 1 for
         ``resume`` (``primerl-ckpt:<s>:<dir>``, written by ``save_state``). Its startup broadcast (policy v{first-1}) is
         acknowledged here, or the trainer would wait for a consumer forever."""
         first = FIRST_STEP if resume is None else parse_ckpt(resume)[0] + 1

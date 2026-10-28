@@ -251,6 +251,15 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
     leave a half-written checkpoint;
   - two problems that had not surfaced yet, found by reading prime-rl: the base model is sampled as `<model>-base`, the
     name prime-rl serves under LoRA, and the metrics reader skips undecodable chunks.
+- **Attempt 9** (job 3474394, 2026-10-27, 1:00 limit): it failed in 20:21 (exit 9, phase 1), 0.68 GPU-hours. The bounded
+  waits did their job. vLLM was healthy after 280 s, the startup handshake at `broadcasts/step_0` completed, 16 samples
+  came back, and the batch went to `batches/step_1`. The trainer then failed to decode it: `msgspec.ValidationError:
+  Expected int, got str - at $[0][0][0]`, the first token of `input_ids`. The smoke's prompt encoder had called
+  `list(tok.apply_chat_template(..., tokenize=True))`, and in transformers 5.6.2 that call returns a `BatchEncoding`,
+  so the "prompt" was its keys, `['input_ids', 'attention_mask']`. vLLM read a list of strings as two text prompts and
+  answered 200. Crucible's own chat codec already passes `return_dict=False` and was not affected. Fixed: the smoke renders
+  the template as text and encodes it (`delta_rl.smoke_encode`). The bridge now refuses non-integer token ids when it
+  samples and on the wire (`wire.to_sample`), so this class of bug fails where it starts.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

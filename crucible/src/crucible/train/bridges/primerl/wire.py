@@ -43,6 +43,8 @@ def to_sample(d: TokenDatum, *, temperature: float, env_name: str = "crucible", 
     if not d.input_ids:
         raise ValueError("an empty datum")
     token_ids = list(d.input_ids) + [d.target_ids[-1]]
+    if not all(isinstance(t, int) and not isinstance(t, bool) for t in token_ids):
+        raise TypeError(f"token ids must be ints, got {sorted({type(t).__name__ for t in token_ids})} (e.g. {token_ids[:2]})")
     if token_ids[1:] != list(d.target_ids):
         raise ValueError("target_ids must be input_ids shifted by one")
     mask = [False] + [bool(m) for m in d.mask]

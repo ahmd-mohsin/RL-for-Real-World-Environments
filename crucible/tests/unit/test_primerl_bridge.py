@@ -439,3 +439,25 @@ def test_a_checkpoint_counts_only_once_dcp_wrote_its_metadata(tmp_path: Path) ->
     assert io.checkpoint(2) is None  # prime-rl made the directory; DCP is still writing
     (d / ".metadata").write_bytes(b"m")
     assert io.checkpoint(2) == tmp_path / "checkpoints" / "step_2"
+
+
+def test_the_smoke_prompt_is_token_ids_and_the_bridge_refuses_anything_else(tmp_path: Path) -> None:
+    # attempt 9 (job 3474394): list(BatchEncoding) gave ['input_ids', 'attention_mask'] as the prompt; vLLM answered 200 and
+    # the trainer failed decoding the batch (msgspec: Expected int, got str)
+    class Tok:  # transformers 5: tokenize=True returns a dict; the smoke never asks for it
+        def apply_chat_template(self, msgs, *, add_generation_prompt, tokenize, enable_thinking=False):
+            assert tokenize is False
+            return "<user>" + msgs[0]["content"] + "<assistant>"
+
+        def encode(self, text, *, add_special_tokens):
+            assert add_special_tokens is False
+            return [ord(c) for c in text]
+
+    ids = _load("delta_rl").smoke_encode(Tok(), "ab")
+    assert ids[:6] == [ord(c) for c in "<user>"] and all(type(t) is int for t in ids)
+    b = _backend(tmp_path)
+    s = asyncio.run(b.sampler(MODEL, None))
+    with pytest.raises(TypeError, match="must be ints"):
+        asyncio.run(s.sample(["input_ids", "attention_mask"], max_tokens=4, temperature=1.0, stop=None, seed=None))
+    with pytest.raises(TypeError, match="must be ints"):
+        wire.to_sample(TokenDatum(["input_ids"], ["attention_mask"], [0.0], [0.0], [1]), temperature=1.0)
