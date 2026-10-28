@@ -39,7 +39,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from crucible.factory.lanes.executable import TestRun
+from crucible.factory.lanes.executable import TestRun, killed
 from crucible.factory.lanes.windows import NamedSandbox
 from crucible.factory.lanes.windows_world import docker, image_id, judge_leak, parse_leak, seed_workspace
 
@@ -190,10 +190,14 @@ class LangSandbox(NamedSandbox):
         if proc.returncode in (125, 126, 127) or (not blocks and "docker:" in text[:400].lower()):
             return TestRun({}, "masked", proc.returncode, secs, text[-3000:], why=f"sandbox did not start (exit {proc.returncode})")
         tail = _BLOCK.sub("", text)
+        if k := killed(tail):  # killed from outside the tests (executable.KILLED): unmeasured, never the unreached tests failing
+            return TestRun({}, "masked", proc.returncode, secs, tail[-3000:], why=f"the test run was killed ({k})")
         if not blocks:
             return TestRun({}, "ok", proc.returncode, secs, tail[-4000:], why="no report (the run ended early)")
         res, notes = self.profile.parse_report(blocks[-1], tree, list(targets), tail)
         why = "; ".join(notes)[:500]
+        if any(n.startswith("killed:") for n in notes):  # the profile saw a test binary killed from outside: unmeasured
+            return TestRun({}, "masked", proc.returncode, secs, tail[-3000:], why=f"the test run was killed ({why})")
         return TestRun(res, "ok", proc.returncode, secs, tail[-4000:], why=why)
 
 

@@ -25,6 +25,12 @@ file is written only after the agent loop has ended.
   ``Turn.advantage``; ``train.credit.turn_credit_map`` -> ``token_credit`` then apply unchanged (centred, bounded by the
   outcome advantage, none on gate-failed or hacked episodes, RLM children take the root turn's credit, compaction calls the
   episode's). Lost milestones give negative ΔΦ at the step where they were lost.
+- **One verdict on the end state** (``reconcile``). The harness grades the collected patch after the episode; when that
+  patch is a checkpoint's patch, the final grade's milestone vector replaces the sidecar's own for it, and the series, the
+  rows and the summary are rebuilt, so Φ, per-turn credit and the outcome reward read the same verdict by construction. A
+  sidecar grading of that patch that ran under the episode's load (2026-10-25: an excelize run whose own ``go test`` was
+  killed in the World graded one milestone failed that the final grade passed) can no longer leave the credit short of the
+  outcome. Each replacement is recorded (``summary["reconciled"]``, ``checkpoints.jsonl`` ``source``).
 - **Evidence** (next to the episode, environment facts only): ``checkpoints.jsonl`` (turn, triggers, patch sha256 and size,
   milestone vector, Φ, gained, lost, grading time), ``checkpoints/<sha>.patch`` and the summary in ``res.grade["progress"]``
   (``kind="checkpoint"``), which also carries the give-up and the STATUS.json honesty score (``factory.honesty``).
@@ -304,6 +310,7 @@ class _Slot:
     status: dict[str, bool] | None = None
     reason: str = ""
     graded_s: float | None = None
+    source: str = "sidecar"  # sidecar | final_grade (``CheckpointSidecar.reconcile``)
 
 
 @dataclass
@@ -357,6 +364,9 @@ class CheckpointSidecar:
         self._start_reason = ""
         self.summary: dict[str, Any] = {}
         self.points: list[Point] = []
+        self.reconciled: list[dict[str, Any]] = []
+        self._claims: Any = None  # STATUS.json as read at the end (the World is gone by the time the final grade exists)
+        self._req_verified: dict[str, bool | None] | None = None  # task.requirement_status's verdicts, when the task has one
 
     # -- the observer protocol (run_episode) -------------------------------------------------------------------------------
 
@@ -522,19 +532,62 @@ class CheckpointSidecar:
         if not (self.cfg.honesty and reqs and end is not None and end.sha is not None):
             return None
         patch = self.slots[end.sha].patch
-        claims = _hon.status_from_tree(self._root) if self._root is not None else _hon.status_from_patch(patch)
-        verified: dict[str, bool | None] = {}
+        self._claims = _hon.status_from_tree(self._root) if self._root is not None else _hon.status_from_patch(patch)
         if hasattr(self.task, "requirement_status"):
+            self._req_verified = {}
             try:
                 got = await asyncio.wait_for(self.task.requirement_status(patch), self.cfg.grade_timeout_s)
-                verified = {r: (bool(got[r]) if isinstance(got.get(r), bool) else None) for r in reqs}
+                self._req_verified = {r: (bool(got[r]) if isinstance(got.get(r), bool) else None) for r in reqs}
             except Exception as e:  # noqa: BLE001 -- unverified: nothing is scored
                 self.run.faults.append(f"requirement_status: {type(e).__name__}: {e}"[:300])
-        else:  # requirements graded through milestones: ``requirement_milestones`` {req: [milestone ids]}, else same-named ones
-            st = self.slots[end.sha].status
+        return self._honesty_score()
+
+    def _honesty_score(self) -> _hon.HonestyScore | None:
+        """The honesty score from the claims read at the end, verified by ``requirement_status`` or, for requirements graded
+        through milestones (``requirement_milestones`` {req: [milestone ids]}, else same-named ones), by the end slot's vector
+        as it stands (after ``reconcile``, the final grade's)."""
+        reqs = list(getattr(self.task, "requirement_ids", None) or [])
+        end = self.cps[-1] if self.cps else None
+        if not (self.cfg.honesty and reqs and end is not None and end.sha is not None):
+            return None
+        if self._req_verified is not None:
+            verified = dict(self._req_verified)
+        else:
+            st = self.slots[end.sha].status if self.slots[end.sha].state != "start" else self._start
             by = getattr(self.task, "requirement_milestones", None) or {r: [r] for r in reqs}
             verified = {r: (all(st.get(m) for m in by[r]) if st is not None and by.get(r) and all(m in st for m in by[r]) else None) for r in reqs}
-        return _hon.score(claims, verified, requirement_ids=reqs, lam=self.cfg.honesty_lambda, give_up=self.run.give_up)
+        return _hon.score(self._claims, verified, requirement_ids=reqs, lam=self.cfg.honesty_lambda, give_up=self.run.give_up)
+
+    def reconcile(self, patch: str | bytes | None, final: Mapping[str, Any] | None) -> dict[str, Any] | None:
+        """After the harness graded the collected ``patch``: its milestone vector ``final`` (``GradeReport.meta['milestones']``
+        of an unmasked grade) becomes the vector of every checkpoint with that patch, and the series, ``progress.jsonl``,
+        ``checkpoints.jsonl`` and the summary are rebuilt (module doc, "One verdict on the end state"). ``patch=None``: the
+        harness graded the World's end state itself (``NativeHarness``), which is the end checkpoint's. Returns the new
+        summary, or None when nothing changes: the episode has not ended, ``final`` lacks a verdict for some milestone (a
+        masked final grade is never a vector of zeros), no checkpoint holds this patch, or the vectors already agree."""
+        if not self._ended or not isinstance(final, Mapping) or not all(isinstance(final.get(i), bool) for i in self.ids):
+            return None
+        if patch is None:
+            sha = self.cps[-1].sha if self.cps and "end" in self.cps[-1].triggers else None
+        else:
+            sha = hashlib.sha256(patch if isinstance(patch, bytes) else patch.encode()).hexdigest()
+        slot = self.slots.get(sha) if sha else None
+        if slot is None:
+            return None
+        new = {i: bool(final[i]) for i in self.ids}
+        if slot.state == "start":
+            if self._start == new:
+                return None
+            self.reconciled.append({"patch_sha256": sha, "state": "start", "from": self._start, "to": new, "reason": self._start_reason})
+            self._start, self._start_reason = new, ""
+        else:
+            if slot.state == "done" and slot.status == new:
+                return None
+            self.reconciled.append({"patch_sha256": sha, "state": slot.state, "from": slot.status, "to": new, "reason": slot.reason})
+            slot.status, slot.state, slot.reason = new, "done", ""
+        slot.source = "final_grade"
+        self.summary = self._finish(self._honesty_score())
+        return self.summary
 
     def _finish(self, hon: _hon.HonestyScore | None) -> dict[str, Any]:
         rows_in = []
@@ -571,6 +624,8 @@ class CheckpointSidecar:
             out["honesty"] = hon.to_dict()
         if self.run.faults:
             out["faults"] = self.run.faults[:20]
+        if self.reconciled:
+            out["reconciled"] = list(self.reconciled)
         return out
 
     def _final_sha(self) -> str | None:
@@ -592,7 +647,7 @@ class CheckpointSidecar:
             lines.append({"index": cp.index, "turn": cp.turn, "triggers": cp.triggers, "patch_sha256": cp.sha, "patch_bytes": cp.nbytes, "state": state,
                           "milestones": (self._start if state == "start" else (slot.status if slot else None)), "reason": cp.reason or (slot.reason if slot else ""),
                           "phi": None if p is None else round(p.phi, 9), "measured": bool(p and p.measured), "gained": p.new if p else [],
-                          "lost": p.lost if p else [], "graded_s": slot.graded_s if slot else None})
+                          "lost": p.lost if p else [], "graded_s": slot.graded_s if slot else None, "source": slot.source if slot else None})
         (self.out / "checkpoints.jsonl").write_text("".join(json.dumps(x, default=str) + "\n" for x in lines))
         if self.cfg.keep_patches:
             d = self.out / "checkpoints"

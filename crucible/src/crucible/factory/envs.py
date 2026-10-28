@@ -132,6 +132,11 @@ class InfraWatch:
             out = {**out, "infra_dead": self.dead}
         return out
 
+    def reconcile(self, patch: Any, final: Any) -> dict[str, Any] | None:
+        """The inner sidecar's ``reconcile`` (``factory.checkpoint``), the dead-World mark kept."""
+        got = self.inner.reconcile(patch, final) if self.inner is not None and hasattr(self.inner, "reconcile") else None
+        return {**got, "infra_dead": self.dead} if got is not None and self.dead else got
+
 
 # ---- native ------------------------------------------------------------------------------------------------------------------
 def objective_of(tasks: Iterable[Any]) -> str:
