@@ -283,7 +283,8 @@ its fix (checked by reverting the source).
   producer, and a masked grade writes no reward file and raises. V8 holds on every live path, except the row score that
   B7 fixed.
 - **Real bugs, recommended fixes.** These touch agentenv lifecycle and timeline code that has no training-path user
-  today. The first is fixed (2026-10-28); the other two are not.
+  today. All three are fixed (2026-10-28: the World leak in the open-risks pass, the other two in the follow-up pass,
+  tests in `tests/unit/test_open_risks_followup.py`).
   - **A failed agentenv run leaked the World** (`interop/agentenv/plugin/steps.py:85-106`). **Fixed (2026-10-28).**
     - The World was closed only in `CrucibleVerifyStep`'s `finally`, so a failed deploy or prompt step leaked the
       gateway, the App servers and any paid sandbox, and the `mkdtemp` directory was never removed.
@@ -297,12 +298,33 @@ its fix (checked by reverting the source).
       directory goes whole unless a verify step wrote outputs there.
     - Tests: `tests/unit/test_open_risks_agentenv.py`.
   - **`export_agentenv` publishes Tasks that cannot run** (`factory/envs.py:575-597`). `RowTask` refuses every backend
-    but `local`, and the World step passes `backend="agentenv"`. Fix: refuse at publish time.
-  - **`_restore_triggers` breaks wall-clock triggers** (`interop/agentenv/world_backend.py:571-596`).
+    but `local`, and the World step passes `backend="agentenv"`. **Fixed (2026-10-28): refused at publish time.**
+    - Reading the code found two more reasons a published row could not run. A window task is graded from its
+      collected patch (`grade_patch`), but `crucible_verify` grades the World in place (`task.grade(world, dir)`). And
+      a window ref resolves only with its prompts directory, which the row's step arguments do not carry.
+    - `factory.envs.agentenv_blockers(row)` names every reason, and `export_agentenv` raises `PublishError` before
+      anything is published. Today every row is refused.
+    - Making rows run would need three things: a window World behind the gateway (its tools on Docker exec, the
+      gateway's card and MCP URL), a collect-and-`grade_patch` verify step, and the prompts directory in the step
+      arguments. That is not built: nothing on the training or eval path publishes rows.
+  - **`_restore_triggers` breaks wall-clock triggers** (`interop/agentenv/world_backend.py:571-596`). **Fixed
+    (2026-10-28).**
     - An `after_event` dependent of a fired anchor is lost.
     - An unfired `every` is shifted to restore time + interval.
     - A stochastic `every` restarts its draws.
-    - Fix: re-register at `next_mark`, and expand stochastic arrivals with `core/triggers.exp_interval`.
+    - Found on the way: a restore of a restore re-fired one-shots and recounted `count`. The second snapshot saw only
+      the restored registration, which dropped the fired one-shots and started its fire counts at 0.
+    - The fix: `trigger_progress` reads each trigger's progress across every registration so far. A snapshot records it
+      as `trigger_progress`, and the backend keeps which gateway triggers stand in for each one. `plan_restore`
+      re-registers from that progress. A trigger waiting on a mark, an anchored one included, goes at that mark. A fixed
+      recurrence goes at its next mark with the rest of its `count`.
+    - A seeded exponential recurrence is expanded into one-shot arrivals at the marks its stream gives from its current
+      draw (`core.triggers.exp_stream`, agentenv's own `expovariate` sequence). After 512 arrivals (`MAX_EXPAND`) it
+      continues as a seeded recurrence on a derived seed, so a very long stream keeps its distribution but not its exact
+      draws.
+    - A live-gateway test checks that the arrivals after a restore land on the marks of the run without one.
+    - Open: a sandbox pause and resume re-arms the gateway clock, and agentenv restarts its recurrences then (a fresh RNG
+      from the new t0). A later restore continues the original stream, not the restarted one.
 - **Risks.**
   - **agentenv's stock unit-test verifier scores a missing reward file as 0.0**
     (`agentenv-framework/.../run_container_unit_tests_verifier.py:334-342`). Never wire a Crucible verifier through it.
@@ -393,20 +415,22 @@ Bugs seen in the references, which Crucible avoids:
 The open-risks pass (2026-10-28, branch `worktree-agent-a6734480fd8877554`) fixed or decided every item below. Each fix
 has a unit test that fails on the code before it: `tests/unit/test_open_risks_loop.py` (R1, R2, R5, R8, R9, the
 masked-share stop, the host checkpoint snapshot of R6), `test_open_risks_integrity.py` (R3, R6) and
-`test_open_risks_agentenv.py` (R10).
+`test_open_risks_agentenv.py` (R10). A follow-up pass (2026-10-28) closed the gaps the first left open: the RLM's model
+calls under R2, the verifier's git view under R6, and the export and trigger restore under R10 (§5). Its tests are in
+`tests/unit/test_open_risks_followup.py`.
 
 | Item | Status | Where |
 |---|---|---|
 | R1 harness exceptions scored 0 | fixed | `actors/policy.py` `run_episode`, `Policy.harness_owned`, `PolicyOutputError` |
-| R2 the agent clock counts sampler time | fixed (training default) | `EpisodeLimits.agent_clock`, `model_time`, `make_env(training=True)` |
+| R2 the agent clock counts sampler time | fixed (training default; the RLM's calls too, follow-up) | `EpisodeLimits.agent_clock`, `model_time`, `make_env(training=True)`, `actors/rlm/agent.py`, `context.py` |
 | R3 a policy masks its own episode by killing its World | fixed | `factory/envs.py` `InfraWatch`, `death_evidence`, `native.broke_world` |
 | R4 an answered history probe is masked | unchanged (correct per P21) | |
 | R5 format penalty in the torch trainer only | fixed (one rule on every backend, off by default) | `datums.build_datums`, `TrainConfig.tool_format_penalty` |
-| R6 snapshots and grades that trust the agent's tree | fixed | `verify/collect.py`, `windows.snapshot_patch`, `pathcheck.runner_plumbing` |
+| R6 snapshots and grades that trust the agent's tree | fixed (the verifier's git view too, follow-up) | `verify/collect.py`, `windows.snapshot_patch`, `pathcheck.runner_plumbing`, `fs.repo_guard_sh`, `fs.filter_overrides_sh` |
 | R7 compaction in training | unchanged (out of scope: not used in training) | |
 | R8 honesty in flat groups | decided: keep groups whose composed advantages differ | `TinkerTrainer._has_signal` |
 | R9 `loss_scale="sum"` | decided: default `token_mean` | `TrainConfig.loss_scale` |
-| R10 agentenv | fixed (World leak, THIRD_PARTY rows) | see R10 |
+| R10 agentenv | fixed (World leak, THIRD_PARTY rows; the export and the trigger restore, follow-up) | see R10 and §5 |
 | masked-fraction abort (§7) | fixed | `TrainConfig.max_masked_frac`, `masked_window` |
 
 - **R1. Policy exceptions were scored 0** (`actors/policy.py:776-778`). **Fixed.**
@@ -429,7 +453,11 @@ masked-share stop, the host checkpoint snapshot of R6), `test_open_risks_integri
     (`orchestrator/dispatcher.py:668-674`).
   - Evals and benchmarks are unchanged: the wall clock and a scored `timeout`. `EpisodeLimits` leaves `agent_clock` out
     of a harness id at its default, so existing ids are unchanged.
-  - Not covered: the RLM's model calls do not go through `model_time` (the RLM is not on the training path).
+  - The RLM's model calls now go through `model_time` too (follow-up, 2026-10-28): root and child turns
+    (`agent._call_model`), sub-calls (`_sub`) and compaction summaries (`context.compact`). Concurrent calls (a batch of
+    sub-calls, child agents) share one hold, so the clock runs only while no model call is in flight. The attempt clock
+    keeps running. `RLMConfig.wall_s` (the container's lifetime and the `budget:wall_s` stop) stays real time. RLM harness
+    ids at the default clock are unchanged (pinned in `test_open_risks_followup.py`).
 - **R3. A policy could mask its own episode by killing its container** (`env_container_lost`). **Fixed.**
   - `InfraWatch` now asks the daemon why a dead World died (`envs.death_evidence`: `DockerExec.lost` and the container's
     `.State`) and records the last shell command the policy ran.
@@ -480,9 +508,15 @@ masked-share stop, the host checkpoint snapshot of R6), `test_open_risks_integri
     `checkpoint.start_commit`), protected test files and the conftest (protected, restored, plumbing). Other
     gitattributes (eol, `-diff`, `export-ignore`) only change content the agent chose and never reach the pristine grade
     tree.
-  - Not hardened: `world/state/fs.FsAdapter.q_git_diff` (the native harness's verifier view) still honours repo-local
-    filter drivers when it runs without a `trusted_git_dir`. It is off the training path, and the layering keeps the
-    helpers in `verify` out of `world`.
+  - **Hardened in the follow-up (2026-10-28):** `world/state/fs.FsGitAdapter.q_git_diff` (the native harness's verifier
+    view) honoured repo-local filter drivers and followed a redirected repository when it ran without a
+    `trusted_git_dir`. The layering keeps `verify`'s helpers out of `world`, so the shell versions now live in
+    `world.state.fs`, and they run inside the exec, where the repository may be a container's:
+    - `filter_overrides_sh`, the one copy `verify.collect.snapshot_command` now uses too (its output is byte-identical);
+    - `repo_guard_sh`, `repo_hazards`' rules.
+    A refusal is a query error, never a diff. `q_block_changed` gets the guard and `git show --no-textconv`. The host
+    checkpoint snapshot (`checkpoint.workspace_snapshot`) also refuses a redirected repository, as an unmeasured
+    checkpoint. With a trusted copy, and for the policy's own `git_diff` tool, the commands are unchanged.
 - **R7. Compaction is untested in training, and its accounting is approximate.** Out of scope for this pass (training
   runs without compaction).
   - Before any run turns compaction on:
@@ -516,7 +550,9 @@ masked-share stop, the host checkpoint snapshot of R6), `test_open_risks_integri
   - **Resume, flagged:** a run directory created with the old default records `loss_scale = "sum"`; resuming it needs
     `--loss-scale sum`, since the trained objective must not change mid-run.
 - **R10. The agentenv items in §5.** See §5: the World leak on a failed run is fixed and the THIRD_PARTY rows are added
-  (`interop/agentenv/plugin/steps.py`, `CrucibleWorldProvider`; tests in `test_open_risks_agentenv.py`). The unusable export and the trigger restore are unchanged (no training-path user).
+  (`interop/agentenv/plugin/steps.py`, `CrucibleWorldProvider`; tests in `test_open_risks_agentenv.py`). The follow-up
+  pass (2026-10-28) fixed the other two: the export refuses rows whose Task could not run, and the trigger restore
+  continues each trigger from its progress (§5; tests in `test_open_risks_followup.py`).
 - **The masked-fraction abort** (§7, NeMo-Gym `rollout_collection.py:2666-2674`). **Fixed.**
   - Over the last `masked_window` landed samples (default 64), more than `max_masked_frac` masked (default 0.5) stops
     the run with `stop = "masked_frac"`. The state is saved, and the mask kinds go to `summary.json` and a `stop` record.

@@ -251,10 +251,14 @@ def workspace_snapshot(root: Path | str, base: str) -> Callable[[Any], Awaitable
     """The working tree (untracked included, ignored excluded) against ``base`` through a throwaway index, with git's hooks,
     fsmonitor and global config off (``world.state.fs.git_diff_command``): the agent's index and repository are untouched,
     and nothing enters the World's trace."""
-    from crucible.verify.collect import filter_drivers, filter_flags
+    from crucible.verify.collect import filter_drivers, filter_flags, repo_hazards
     from crucible.world.state.fs import git_diff_command
 
     async def snap(_world: Any) -> str:
+        # a redirected repository (gitdir file or symlink, commondir, core.worktree, core.bare) would make host git read another
+        # repository or tree: refused as the final collect refuses it, an unmeasured checkpoint (2026-10-28, the R6 follow-up)
+        if hazards := await repo_hazards(Path(root)):
+            raise RuntimeError(f"snapshot refused: {hazards[0]}")
         # harness-reward audit R6 (2026-10-28): a filter driver the policy wrote into its repository's config would run on the
         # host at ``git add`` and could put any content in the snapshot: each one is a pass-through at command scope
         fl = filter_flags(await filter_drivers(Path(root)))

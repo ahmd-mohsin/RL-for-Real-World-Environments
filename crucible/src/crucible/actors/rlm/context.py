@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from crucible.actors.llm import ContextOverflow, is_overflow_text
-from crucible.actors.policy import approx_tokens
+from crucible.actors.policy import approx_tokens, model_time
 
 __all__ = [
     "BOUNDARY_PREFIX", "STATE_PREFIX", "SUMMARY_PREFIX", "SUMMARY_PROMPT", "UPDATE_PROMPT", "CompactionOutcome", "Compactor", "ContextMeter",
@@ -694,7 +694,8 @@ class Compactor:
             est_in = int(approx_tokens(req) * ratio)
             seed = (0 if temperature == 0 else None) if attempt == 1 else attempt - 1
             try:
-                r = await llm.complete(req, tools=None, max_tokens=out_tokens, temperature=temperature, sample_key=sample_key, seed=seed)
+                with model_time():  # harness-reward audit R2 (the RLM follow-up): a summary call holds the agent clock under "own"
+                    r = await llm.complete(req, tools=None, max_tokens=out_tokens, temperature=temperature, sample_key=sample_key, seed=seed)
             except Exception as e:
                 report(e, attempt, None, est_in)
                 if not is_overflow(e):

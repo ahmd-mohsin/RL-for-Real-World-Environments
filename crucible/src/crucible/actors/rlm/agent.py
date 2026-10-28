@@ -61,7 +61,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.actors.llm import BudgetExceeded, LLMError
-from crucible.actors.policy import approx_tokens
+from crucible.actors.policy import approx_tokens, model_time
 from crucible.actors.rlm.context import (
     Compactor,
     ContextMeter,
@@ -1111,8 +1111,9 @@ class AgentLoop:
                 "window": self._window(), "trainable": self.sub_trainable, "actions": []}
         async with self._sub_sem:
             try:
-                r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=mt, temperature=self.temperature,
-                                                sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+                with model_time():  # harness-reward audit R2 (the RLM follow-up): sampler time is not the agent's (agent_clock="own")
+                    r = await self.sub_llm.complete([{"role": "user", "content": content}], tools=None, max_tokens=mt, temperature=self.temperature,
+                                                    sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
             except (LLMError, BudgetExceeded) as e:
                 if is_overflow(e):
                     raise ValueError(f"the sub-LLM prompt does not fit its context window: {e}") from None  # the policy's own prompt: the cell's error
@@ -1627,8 +1628,9 @@ class AgentLoop:
                 return None
             self._turn_paid = True  # an overflow retry is the same turn (no turn charged twice)
         try:
-            r = await self.llm.complete(self.messages, tools=[PYTHON_TOOL], max_tokens=self.max_out, temperature=self.temperature,
-                                        sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+            with model_time():  # harness-reward audit R2 (the RLM follow-up): a root or child turn holds the agent clock under "own"
+                r = await self.llm.complete(self.messages, tools=[PYTHON_TOOL], max_tokens=self.max_out, temperature=self.temperature,
+                                            sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         except asyncio.CancelledError:
             raise
         except (LLMError, BudgetExceeded) as e:

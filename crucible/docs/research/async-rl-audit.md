@@ -254,6 +254,13 @@ that fails on the code before it: `tests/unit/test_open_risks_loop.py` (R2, R3, 
 | R8 `publish_every > 1` in the torch loop | decided: documented, not a bug |
 | R9 Dr.GRPO's constant normaliser | decided: `token_mean` is the default; a constant normaliser is not adopted |
 
+Follow-up pass (2026-10-28, `tests/unit/test_open_risks_followup.py`). It closed the gaps that the second pass left open
+in the harness-reward audit (R2, R6, R10). One of them bears on asynchronous sampling: an RLM rollout's model calls (turns,
+child agents, sub-calls, compaction summaries) now hold the agent clock under `agent_clock="own"`, as the transcript
+policy's calls already did. A shared sampler's queue under async load no longer decides an RLM rollout's `timeout`
+either; the Runner's attempt clock (`rollout_s`, masked) still bounds the rollout. No item in the table above changed
+status.
+
 - **R1. Overlap sampling and training before going asynchronous in earnest** (`--async-groups 4 --max-staleness 1`).
   Open, by design.
   - Sampling dominates (doc 14 §3: about 1 h per 4 × 8 step, of which training is about 0.2 h). In synchronous mode the

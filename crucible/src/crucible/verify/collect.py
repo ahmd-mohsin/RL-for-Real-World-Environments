@@ -35,6 +35,7 @@ from pathlib import Path
 
 from crucible.verify.patchio import decode
 from crucible.world.exec import ExecOut, _run_subprocess, _run_subprocess_raw
+from crucible.world.state.fs import filter_overrides_sh
 
 # M10 lab audit R-5 item 4 (audit R-5 (b): verify/collect.py:54): the longest one git call of the hook may take. A module
 # global read at call time (a test patches it); the legacy hook chain of runtime.collect is held to the same bound.
@@ -133,12 +134,7 @@ def snapshot_command(base: str, *, require_sha: bool = True) -> str:
            "-c color.ui=never -c diff.noprefix=false -c diff.mnemonicPrefix=false -c diff.relative=false -c submodule.recurse=false")
     return ("set -e; if [ ! -d .git ] || [ -L .git ]; then echo 'the workspace .git is not a directory' >&2; exit 3; fi; "
             "W=$(mktemp -d); trap 'rm -rf \"$W\"' EXIT; export HOME=\"$W\" XDG_CONFIG_HOME=\"$W\" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null; "
-            f"printf '%s\\n' {pats} > \"$W/x\"; : > \"$W/f\"; "
-            "for c in .git/config .git/config.worktree; do if [ -f \"$c\" ]; then git config --file \"$c\" --includes --name-only "
-            "--get-regexp '^filter[.]' >> \"$W/f\" 2>/dev/null || true; fi; done; set --; "
-            "while IFS= read -r k; do n=$(printf '%s' \"$k\" | sed 's/^filter[.]//; s/[.][^.]*$//'); "
-            "case \"$n\" in ''|*[!A-Za-z0-9._+-]*) echo \"a filter driver git cannot override: $n\" >&2; exit 3;; esac; "
-            "set -- \"$@\" -c \"filter.$n.clean=\" -c \"filter.$n.smudge=\" -c \"filter.$n.process=\" -c \"filter.$n.required=false\"; done < \"$W/f\"; "
+            f"printf '%s\\n' {pats} > \"$W/x\"; {filter_overrides_sh()}"
             "cp .git/index \"$W/i\" 2>/dev/null || true; set -f; "
             f"GIT_INDEX_FILE=\"$W/i\" git --git-dir=.git --work-tree=. {cfg} \"$@\" add -A --ignore-errors . >/dev/null 2>&1 || true; "
             f"GIT_INDEX_FILE=\"$W/i\" git --git-dir=.git --work-tree=. {cfg} \"$@\" diff --cached --binary {' '.join(DIFF_FORMAT)} {base}")

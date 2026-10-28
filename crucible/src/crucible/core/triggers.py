@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from collections.abc import Iterator
 from typing import Any
 
 PREDICATE_KEYS = ("regex", "equals", "exists")
@@ -183,3 +184,13 @@ def exp_interval(seed: int, mean_s: float, k: int) -> float:
     for _ in range(k + 1):
         v = rng.expovariate(1.0 / mean_s)
     return v
+
+
+def exp_stream(seed: int, mean_s: float, start: int = 0) -> Iterator[float]:
+    """The draws ``start``, ``start + 1``, ... of the stream ``exp_interval`` reads one at a time, in one pass: what a
+    restored seeded recurrence needs to continue where it stood (``interop.agentenv.world_backend.plan_restore``)."""
+    rng = random.Random(seed)
+    for _ in range(start):
+        rng.expovariate(1.0 / mean_s)
+    while True:
+        yield rng.expovariate(1.0 / mean_s)

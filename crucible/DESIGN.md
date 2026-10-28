@@ -867,6 +867,9 @@ non-Claude model (difficulty ladder, cross-family roles):
   - **Environment.** `factory.tinker.train` builds its envs with `make_env(training=True)`. The agent timeout counts
     only the agent's own time (`EpisodeLimits.agent_clock="own"`: a model call holds the clock), and a `timeout` stop
     is masked, as prime-rl drops timed-out rollouts. Benchmarks and evals keep the wall clock and a scored `timeout`.
+    The RLM's model calls hold the clock the same way (root and child turns, sub-calls, compaction summaries; R2
+    follow-up). Concurrent calls share one hold. `RLMConfig.wall_s`, the container's lifetime budget, stays real time.
+    Eval harness ids do not change.
   - **Loss scale.** `loss_scale = "token_mean"` (was `sum`): a global token mean, as prime-rl, AReaL, SkyRL, verl,
     NeMo-RL and TRL normalise, so the step's scale does not swing with the batch's token count. A run directory made
     with `sum` resumes only with `--loss-scale sum`.
@@ -1651,8 +1654,13 @@ Nothing the policy can write decides a grade or a credit:
   path violation (`pathcheck.runner_plumbing`; `RULES_VERSION = path-2026-10-28`).
 - **A dead World** is masked as infrastructure unless the daemon's evidence names the policy (its own memory limit, or a
   kill command, with no stop from outside). Then it is a scored 0 and is never graded (`InfraWatch`, `native.broke_world`).
-- **Not hardened:** the native harness's verifier view (`FsAdapter.q_git_diff`) without a `trusted_git_dir` still honours
-  repo-local filter drivers. It is off the training path.
+- **The verifier's git view** (`FsGitAdapter.q_git_diff`, `q_block_changed`; 2026-10-28, the R6 follow-up). Without a
+  `trusted_git_dir` the repository is the agent's own. The command now refuses a redirected repository
+  (`fs.repo_guard_sh`, the rules of `repo_hazards` read inside the exec) and makes the repository's own filter drivers
+  pass-throughs (`fs.filter_overrides_sh`, the one copy the in-container snapshot uses too). `git show` runs without
+  textconv. A refusal is a query error, never a diff. The host checkpoint snapshot (`checkpoint.workspace_snapshot`)
+  refuses a redirected repository as an unmeasured checkpoint. Before, the view ran the policy's `clean` command and
+  could diff another repository or tree.
 
 ---
 
@@ -1806,6 +1814,25 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
     `CrucibleWorldProvider` (entry point `agent_env.sandbox_providers`). The step closes its World at once when its own
     setup fails. `release` removes the World's work tree and keeps any verify outputs. Before, a failed deploy or prompt
     step leaked the World and its directory.
+  - Published rows (`factory.envs.export_agentenv`, harness-reward audit §5). A row whose Task could not run is refused
+    before anything is published (`agentenv_blockers`). Today that is every row: `RowTask` opens window Worlds on Docker
+    exec, not behind the gateway. A window task is graded from its collected patch, but `crucible_verify` grades in
+    place. The row also does not carry the prompts directory. Before, such Tasks were published and then failed in the
+    World step of every run.
+- **Restoring delegated triggers** (`interop/agentenv/world_backend.py` `trigger_progress`, `plan_restore`; harness-reward
+  audit §5). agentenv cannot import trigger state, so a restore clears the engine and registers the triggers again. Each
+  trigger is re-planned from its progress, and the progress counts every registration so far (a snapshot records it as
+  `trigger_progress`):
+  - an anchored trigger whose anchor fired is registered at its mark;
+  - an unfired or fixed recurrence restarts at its next mark with the rest of its `count`;
+  - a seeded exponential recurrence is expanded into its next arrivals, each at the mark its own stream gives
+    (`core.triggers.exp_stream`). After `MAX_EXPAND` (512) arrivals it continues on a derived seed;
+  - what fired for the last time or failed stays retired, across a restore of a restore.
+  Before, an anchored dependent was lost, an unfired `every` restarted one interval after the restore, a seeded stream
+  drew from its start again, and a second restore re-fired one-shots. Open limit: a sandbox pause and resume re-arms the
+  gateway clock, and agentenv then restarts its own recurrences from the new t0 with a fresh RNG (its semantics). A
+  restore after that still counts a seeded stream's position from every fire since registration, so it continues the
+  original stream, not the restarted one.
 - **MiMo round trip** (`interop/mimo/{verify,export}.py`):
   - The import records a sha256 manifest of the source env.
   - Each env's own `verify()` grades a World run in a fresh grading root: the source's verifier files plus the run's `system/*.db` and `workspace/`.
