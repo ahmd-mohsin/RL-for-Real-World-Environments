@@ -86,8 +86,8 @@ async def container_running(name: str, env: Mapping[str, str] | None = None, *, 
 
 async def world_alive(world: Any) -> bool:
     """A World is alive when its container runs (Docker World) and no host probe says otherwise (``_crucible_alive``). The
-    container is asked of the daemon it runs on (``_crucible_env``: a GPU World on a remote host, kernel_episode); asking
-    the local daemon about a remote container read every GPU episode as a dead World after its first step.
+    container is asked of the daemon it runs on (``_crucible_env``: a World on a remote host); asking the local daemon
+    about a remote container read every remote episode as a dead World after its first step.
 
     A remote World (``_crucible_reach``, a ``hostreach.HostReach``) whose container does not answer while its host does not
     answer a probe either is an outage, not a dead World: the episode pauses for the host and asks again once it is back;
@@ -221,7 +221,7 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
     cache: dict[str, Any] = {}
 
     def sidecar(attempt: Any) -> Any:
-        # a task may adjust its own checkpoints (``episode_checkpoint``: a kernel perf task defers them to the end, 10 §9)
+        # a task may adjust its own checkpoints (``episode_checkpoint``, e.g. defer them to the end)
         tcfg = attempt.task.episode_checkpoint(cfg) if callable(getattr(attempt.task, "episode_checkpoint", None)) else cfg
         inner = CheckpointSidecar(attempt.task, attempt.dir, tcfg, baseline=cache) if isinstance(attempt.task, MilestoneTask) else None
         return InfraWatch(inner) if infra_watch else inner

@@ -1,4 +1,4 @@
-"""The swarm's prompt writer for the rebreak lanes (debug, kernel bug, kernel migration): the S7 report, written by the
+"""The swarm's prompt writer for the rebreak lane (debug): the S7 report, written by the
 ``prompt_author`` role on the RLM harness and checked by the lane's own gates (swarm-pipeline/13 §4).
 
 Until 2026-10-23 the bug reports of these lanes were written by the Claude builder into ``prompts/<id>.json`` by hand.
@@ -7,7 +7,7 @@ Now one small machine per window writes them, with no Claude in any role:
 | state | owner | what decides |
 |---|---|---|
 | ``write`` | ``prompt_author`` (an M16 RLM session in a private clone of the start tree A', offline sandbox) | it writes ``prompt.json`` (``{opening, requirements: {mid: text}, closing, repro?}``) and ``STATUS.json``; the checkpoint sidecar grades the draft out of band (potential ``prompt_draft``: the lane's lint per requirement), so the session's Φ and per-call ΔΦ are journaled like a student's |
-| ``lint`` | deterministic: the lane's check (``lint_debug`` + ledger, ``kernel_debug.author``, the migration author) | findings go back to ``write`` (up to ``max_writes``), then ``dropped`` |
+| ``lint`` | deterministic: the lane's check (``lint_debug`` + ledger) | findings go back to ``write`` (up to ``max_writes``), then ``dropped`` |
 | ``review`` | ``reviewer`` (a call, a family nothing built: provenance-checked) | blocking findings go back to ``write`` once; after that they are advisory (V6) and recorded next to the prompt |
 
 The lane's ``author`` step then runs unchanged on the written file (V6: executed gates decide). Every row (sessions,

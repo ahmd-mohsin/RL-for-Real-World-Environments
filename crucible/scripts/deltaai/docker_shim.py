@@ -362,7 +362,7 @@ def cmd_run(argv: list[str]) -> int:
         shutil.rmtree(overlay, ignore_errors=True)
         raise ShimError(f"apptainer instance start failed: {(r.stderr or r.stdout)[-800:]}")
     save(name, rec)
-    if rec["workdir"]:  # Docker creates a missing -w directory; Apptainer would refuse to chdir into it (kernel World, smoke 3459051)
+    if rec["workdir"]:  # Docker creates a missing -w directory; Apptainer would refuse to chdir into it (smoke 3459051)
         subprocess.run([APPTAINER, "exec", "--cleanenv", "--pwd", "/", f"instance://{name}", "mkdir", "-p", rec["workdir"]], capture_output=True,
                        env=host_env(), check=False)
     cmd = list(o["cmd"]) or [*(cfg.get("Entrypoint") or []), *(cfg.get("Cmd") or [])]

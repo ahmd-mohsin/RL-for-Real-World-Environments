@@ -282,7 +282,7 @@ class WorkspaceHarness(NativeHarness):
 
 async def _workspace(task: Any, world: Any, stage: str) -> Any:
     """The task's workspace directory for ``world``: ``await task.aworkspace(world)`` when the task has one (a remote World
-    mirrors its repository here off the event loop and pauses for its host: ``kernel_episode``), else ``task.workspace(world)``.
+    mirrors its repository here off the event loop and pauses for its host), else ``task.workspace(world)``.
     A host that did not come back is the typed infrastructure failure of ``stage`` (``world.hostreach``), not a harness crash."""
     try:
         return await task.aworkspace(world) if callable(getattr(task, "aworkspace", None)) else task.workspace(world)

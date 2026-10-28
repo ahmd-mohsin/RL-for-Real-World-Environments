@@ -1,5 +1,8 @@
 # Handoff: the DeltaAI inference path (2026-10-26)
 
+> 2026-10-28: the GPU kernel lane (kernel debug and migration) was removed by the lead's decision; history in git before
+> c26f069a. The kernel rows and steps below are obsolete.
+
 For the worker who takes over the baseline benchmark harness on DeltaAI. Design and measured numbers are in
 `docs/research/swarm-pipeline/14-deltaai.md`. This note is the state, the commands and what is left.
 

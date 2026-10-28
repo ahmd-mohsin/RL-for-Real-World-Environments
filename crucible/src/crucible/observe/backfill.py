@@ -8,7 +8,7 @@
 | a benchmark arm | ``metrics.json`` + ``episodes.jsonl`` | a ``crucible-bench`` run (``bench.log_benchmark``) with its episodes as traces |
 | a comparison | ``compare.json`` | ``bench.log_compare`` |
 | a funnel log | ``funnel.jsonl`` (``generators.base.Funnel`` rows) | a ``crucible-factory`` funnel view |
-| a run report (``*.json``) | its keys | ``crucible-factory`` (or ``crucible-train`` for the Tinker smoke) views: funnels (``heldout_funnel``, ``summary.funnel``, kernel lane counts, swarm funnel), verifier cards (``families``), targeting (``target`` / ``windows`` with bands), the trace audit (``facts`` + ``first_wrong_step``), spend (``spend_by_role``), the benchmark manifest, and the file itself as an artifact |
+| a run report (``*.json``) | its keys | ``crucible-factory`` (or ``crucible-train`` for the Tinker smoke) views: funnels (``heldout_funnel``, ``summary.funnel``, swarm funnel), verifier cards (``families``), targeting (``target`` / ``windows`` with bands), the trace audit (``facts`` + ``first_wrong_step``), spend (``spend_by_role``), the benchmark manifest, and the file itself as an artifact |
 
 A source already backfilled (the ledger ``<root>/backfill.json``, keyed by path and content hash) is skipped unless
 ``force``. Everything is offline: ``scripts/observe.py sync`` uploads it later.
@@ -189,14 +189,6 @@ def _report_views(run: ObsRun, doc: Mapping[str, Any], name: str) -> list[str]:
         for split, v in fun.items():
             if isinstance(v, Mapping) and isinstance(v.get("total"), Mapping):
                 lanes[f"window-{split}"] = v["total"]
-    if all(k in doc for k in ("windows", "gated", "cpu_pass")):  # the kernel lane's counts
-        lanes["kernel"] = {k: doc[k] for k in ("commits", "windows", "gated", "lint_clean", "cpu_pass", "authored") if isinstance(doc.get(k), int)}
-        if isinstance(doc.get("drops"), list):
-            run.table("funnel/kernel_drops", ["reason", "count"], [list(x) for x in doc["drops"] if isinstance(x, list | tuple) and len(x) == 2])
-        if isinstance(doc.get("tasks"), list):
-            run.table("kernel/tasks", ["id", "repo", "rung", "milestones", "authored", "l4_candidate", "gpu"],
-                      [[t.get("id"), t.get("repo"), t.get("rung"), t.get("milestones"), t.get("authored"), t.get("l4_candidate"), t.get("gpu")]
-                       for t in doc["tasks"] if isinstance(t, Mapping)])
     sw = doc.get("swarm") if isinstance(doc.get("swarm"), Mapping) else None
     if sw and isinstance(sw.get("funnel"), Mapping):
         lanes["swarm"] = sw["funnel"]

@@ -41,7 +41,7 @@ def _sha(x: Any) -> str:
 
 
 def task_hashes(wdir: Path, prompt: Path | None) -> dict[str, str]:
-    """Hashes of a held-out debug window (``tasks/<id>/window.json``) or kernel record (``<id>/record.json``)."""
+    """Hashes of a held-out debug window (``tasks/<id>/window.json``; a directory without one: its ``record.json``)."""
     wf = wdir / "window.json" if (wdir / "window.json").is_file() else wdir / "record.json"
     rec = json.loads(wf.read_text())
     tests = sorted(t for m in rec.get("milestones") or [] for t in (m.get("tests") or m.get("owned") or m.get("cases") or []))
@@ -136,7 +136,7 @@ def seal(name: str, ids: Sequence[str], audit: Mapping[str, Any], *, out_root: P
                                      "commits": commits, "reason": reason, "by": "lead"}, sort_keys=True) + "\n")
     dates = sorted(d for i in ids for d in fix_dates.get(i, []) if d)
     slugs = sorted({repos[i].lower() for i in ids if repos.get(i)})
-    # the debug and kernel lanes split by owner, not by time (both sides' fixes are after the student's cutoff), so the
+    # the debug lane splits by owner, not by time (both sides' fixes are after the student's cutoff), so the
     # lease's time cut stays off unless asked for: it would refuse every training source dated after the first fix
     lease = {"repos": slugs, "orgs": sorted({s.split("/")[0] for s in slugs if "/" in s}), "after": time_cut,
              "fix_dates": [dates[0], dates[-1]] if dates else []}

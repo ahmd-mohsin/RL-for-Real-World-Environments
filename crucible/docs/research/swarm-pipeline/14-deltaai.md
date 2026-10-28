@@ -112,7 +112,7 @@ episode (no lockdown, no episodes).
   network (`WindowTask.world_network = "none"`), and the shim refuses any network at the container level.
 - **8192 output tokens per model call** on the vllm backend (`train/bridges/vllm.DEFAULT_MAX_TOKENS`, the coordinator's
   setting of 2026-10-25: replies cut at 4096 in about 90 stored episodes across most debug tasks, and on a migration
-  task the cut ended episodes). It is the default of `lh_debug_target.py` / `lh_kernel_target.py` / `tinker_rl.py` on
+  task the cut ended episodes). It is the default of `lh_debug_target.py` / `tinker_rl.py` on
   `--backend vllm` and lands in every arm's `settings.max_tokens`, so the before and after arms are identical.
 
 ## 5. Smoke and throughput
@@ -145,7 +145,7 @@ turn's cost is closer to its new tokens plus the reply.
 - vLLM's FlashInfer JIT workspace failed under `--no-home` (read-only `/u`; 3458633): `ServeSpec.cache_dir` gives the
   server a writable HOME and caches;
 - `crucible.train.engine` imports torch (3458633): the environment installs the CPU build;
-- a container's `-w` directory must exist before Apptainer will chdir into it (the kernel World's seed copy, 3459051):
+- a container's `-w` directory must exist before Apptainer will chdir into it (a World's seed copy, 3459051):
   the shim creates it, as Docker does;
 - the debug lane's generator reads every training repository's clone: the job's data dir needs them (training clones
   only; held-out stores and clones are never copied for a smoke).

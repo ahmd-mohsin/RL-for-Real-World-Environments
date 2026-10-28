@@ -1,5 +1,5 @@
 """A remote World or grader host that stops answering (``world.hostreach``, 2026-10-26): when this Mac lost its network, every
-in-flight kernel episode's tool calls hung until the 9,000 s attempt clock and all 8 episodes of a measurement were masked
+in-flight GPU episode's tool calls hung until the 9,000 s attempt clock and all 8 episodes of a measurement were masked
 after $29.5 of sampling. Here: a hung call is cut fast with a typed error, the episode pauses with its clocks held and
 resumes the same episode when the host is back (a replayable call runs again, a policy's cut write comes back as
 interrupted), a host that stays down masks the attempt as ``host_unreachable``, a launcher holds new episodes, and the
@@ -70,10 +70,6 @@ class FakeDocker(DockerExec):
 def test_the_default_rule_cuts_a_hung_call_within_about_a_minute_and_pauses_at_most_30_minutes():
     r = ReachRule()
     assert r.detect_s <= 60 and r.pause_s == 1800
-    from crucible.factory.lanes import kernel_episode as ke
-
-    argv = " ".join(ke.host_of("rtx5090").ssh_argv("true"))
-    assert "ConnectTimeout=15" in argv and "ServerAliveInterval=15" in argv and "ServerAliveCountMax=4" in argv  # a dead session: 60 s
 
 
 async def test_a_hung_call_is_cut_with_a_typed_error_once_the_host_stops_answering():
@@ -297,41 +293,16 @@ async def test_the_runner_pauses_its_attempt_clock_and_records_the_outage(tmp_pa
     assert rec["meta"][OUTAGE_META]["gave_up"] >= 1
 
 
-# ---- fleet stop, the kernel lane, the journals ---------------------------------------------------------------------------------
-async def test_a_launcher_holds_new_episodes_while_the_host_is_down(monkeypatch):
-    from crucible.factory.lanes import kernel_episode as ke
-
-    h = ke.host_of("rtx5090")
+# ---- fleet stop, the journals ---------------------------------------------------------------------------------
+async def test_a_launcher_holds_new_episodes_while_the_host_is_down():
     net = Net(down_for=0.3)
-    reach = host(net, key=f"docker:{h.docker_host}", name="rtx5090")
-    assert ke.host_reach(h) is reach and await ke.launch_gate(h)  # not known down: at once
+    reach = host(net, name="rtx5090")
+    assert await reach.wait_up()  # not known down: at once
     reach._mark_down("lost")
-    assert await ke.launch_gate(h, max_s=5)  # back within the wait
+    assert await reach.wait_up(max_s=5)  # back within the wait
     net.drop(float("inf"))
     reach._mark_down("lost")
-    assert not await ke.launch_gate(h, max_s=0.2)  # still down: launch nothing
-
-
-async def test_a_kernel_grade_on_an_unreachable_host_is_masked_host_unreachable_and_the_name_is_the_host_s(monkeypatch):
-    from crucible.factory.lanes import kernel_episode as ke
-    from crucible.runtime.infra import classify_verifier
-
-    h = ke.host_of("rtx5090")
-    net = Net(down_for=float("inf"))
-    host(net, ReachRule(**{**FAST.__dict__, "pause_s": 0.2}), key=f"docker:{h.docker_host}", name="rtx5090")
-
-    async def fake_bundle(host, *, migration=False):
-        return f"{host.work}/bundle"
-
-    async def dead_ssh(host, script, stdin, timeout):
-        return ke.Remote(255, "", "ssh: connect to host 100.100.101.36 port 22: Operation timed out", 15.0)
-
-    monkeypatch.setattr(ke, "ensure_episode_bundle", fake_bundle)
-    monkeypatch.setattr(ke, "_ssh_once", dead_ssh)
-    doc = await ke.HostGrader(h).grade({"id": "kd-bug-x-1", "milestones": []}, "p")
-    assert doc["infra"]["status"] == "masked" and doc["infra"]["failure_kind"] == HOST_UNREACHABLE and "rtx5090" in doc["infra"]["reason"]
-    f = classify_verifier(doc["infra"])
-    assert f.kind == "transport_unreachable" and f.detail == HOST_UNREACHABLE and f.who == "infra"  # regradable later, never the policy's 0
+    assert not await reach.wait_up(max_s=0.2)  # still down: launch nothing
 
 
 def test_the_swarm_journal_counts_outages_per_host(tmp_path: Path):
@@ -345,7 +316,7 @@ def test_the_swarm_journal_counts_outages_per_host(tmp_path: Path):
         hostreach._emit({"event": "outage", "host": "rtx5090", "what": "ssh", "paused_s": 1800.0, "resumed": False})
     finally:
         stop()
-    j.host({"event": "launch_held", "host": "rtx5090", "task": "kd-1", "arm": "student"})
+    j.host({"event": "launch_held", "host": "rtx5090", "task": "db-1", "arm": "student"})
     t = tables(tmp_path / "journal")["hosts"]["rtx5090"]
     assert t == {"reason": HOST_UNREACHABLE, "down": 1, "outages": 2, "resumed": 1, "gave_up": 1, "paused_s": 1812.5, "launches_held": 1}
     d = {"tables": tables(tmp_path / "journal"), "bottlenecks": [], "models_with_failures": [], "builder_credit": {"attempts": 0, "with_progress": 0,
@@ -359,10 +330,10 @@ def test_framework_health_groups_host_outages_per_host():
     from crucible.factory.traceaudit import EpisodeBundle, ToolStep
 
     def view(i: int, rec: dict, *, masked: bool, steps=()):
-        b = EpisodeBundle(id=f"r/s{i}/a1", dir="/x", run="r", task="kd-bug-x-1", window="kd-bug-x-1", policy="p", model="m", family="qwen", patch="",
+        b = EpisodeBundle(id=f"r/s{i}/a1", dir="/x", run="r", task="db-go-x-00000001", window="db-go-x-00000001", policy="p", model="m", family="qwen", patch="",
                           steps=list(steps), milestones={}, masked=masked, reward=None if masked else 0.0, stop="agent_done")
-        lane, lang, _ = tm.task_meta("kd-bug-x-1")
-        e = tm.Episode(id=b.id, dir=f"/nonexistent/{i}", task="kd-bug-x-1", lane=lane, lang=lang, split="train", cohort="c", step=None, policy="p",
+        lane, lang, _ = tm.task_meta("db-go-x-00000001")
+        e = tm.Episode(id=b.id, dir=f"/nonexistent/{i}", task="db-go-x-00000001", lane=lane, lang=lang, split="train", cohort="c", step=None, policy="p",
                        family="qwen", masked=masked, passed=False, reward=b.reward, phi0=0.0, phi_final=0.0, stop="agent_done", tool_calls=len(steps),
                        compactions=0, milestones={}, model="m")
         return fh.View(e, b, rec, {}, [], [], None, "g")

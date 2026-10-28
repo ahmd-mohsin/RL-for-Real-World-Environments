@@ -91,7 +91,7 @@ def test_the_unquoted_workspace_path_masks_at_seed_as_a_world_defect():
 
 
 def test_flock_masked_grades_show_as_a_lock_defect_and_unmeasured_checkpoints():
-    reason = "Traceback (most recent call last):\n  File \"run_gpu.py\", line 58\nflock: failed to execute cd: No such file or directory"
+    reason = "Traceback (most recent call last):\n  File \"grade.py\", line 58\nflock: failed to execute cd: No such file or directory"
     cps = [{"index": 1, "turn": 20, "triggers": ["periodic"], "measured": False, "reason": f"RuntimeError: milestones unmeasured: {reason}"}]
     vs = [view(k, masked=True, reward=None, rec={"failure": {"kind": "agent_run_error", "stage": "verification", "reason": reason}}, cps=cps) for k in range(2)]
     ds = kinds(vs)
@@ -102,9 +102,9 @@ def test_flock_masked_grades_show_as_a_lock_defect_and_unmeasured_checkpoints():
 
 def test_a_job_log_error_outside_any_episode_is_found(tmp_path):
     (tmp_path / "plumbing.jsonl").write_text('{"step": "grade", "reason": "flock: failed to execute cd: No such file or directory"}\n'
-                                             "Traceback (most recent call last):\n  File \"x.py\", line 1\nImportError: cannot import name 'kernel_profiles'\n")
+                                             "Traceback (most recent call last):\n  File \"x.py\", line 1\nImportError: cannot import name 'lang_profiles'\n")
     hs = fh.log_hits([tmp_path])
-    assert {h.kind for h in hs} == {"host_resource", "job_log_error"} and any("kernel_profiles" in h.signature for h in hs)
+    assert {h.kind for h in hs} == {"host_resource", "job_log_error"} and any("lang_profiles" in h.signature for h in hs)
 
 
 # ---- grader defects that corrupt reward ----

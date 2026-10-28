@@ -91,7 +91,7 @@ Per comparison (`log_compare`, called by `factory.tinker.compare`):
 - the artifact `compare-report-*` with `compare.json` and `report_template.json`.
 
 Language, family and skill come from `factory.tinker.task_meta` (a task's own `language` / `family` / `intent`, else
-its lane: a kernel-lane task is CUDA, a window task Python, the family is the repository) or the `meta=` argument.
+its lane: a window task is Python, the family is the repository) or the `meta=` argument.
 
 **The W&B Report** (`observe/report.py`). `LAYOUT` is the panel layout as data, written beside every comparison as
 `report_template.json`: the headline media panel, the arms table, the paired difference and protocol scalars, per-task,
@@ -311,7 +311,7 @@ logs straight to W&B when the key is set (without it: offline, one warning). `CR
 `scripts/observe.py backfill` over `docs/research/swarm-pipeline/runs` and the Tinker smoke directories
 (`data/tinker` of the Tinker-bridge worktree) wrote 36 offline runs to `data/observe` (4.4 MB): factory views for
 P2 (verifier cards of every family, the train and held-out funnels), P3 (the trace audit), P4 / P5b / Phase A
-retarget (targeting, spend), the kernel lane (funnel, drops, tasks, spend), the held-out benchmark manifest; the
+retarget (targeting, spend), the kernel lane (funnel, drops, tasks, spend; that view went with the lane on 2026-10-28), the held-out benchmark manifest; the
 Qwen3.6-35B-A3B RL smoke as a `crucible-train` run (2 steps, its 8 episodes as traces, the adapter path); the five
 one-episode tool smokes and the 4B probe as `crucible-bench` runs (5 traces); the probes, template checks and smoke
 summaries as `crucible-train` smoke runs. One source is skipped as malformed (`tools-4b/smoke_tools.json`, a truncated

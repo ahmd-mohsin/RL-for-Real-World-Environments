@@ -8,8 +8,8 @@ commit range), and refuses:
 - **Sealed paths**, whatever they hold: ``crucible/data/sealed/`` (``SEALED_ROOT``: the home of held-out stores,
   reports, the held-out supply list, the local held-out draw and the guard's own fingerprints), any ``heldout`` /
   ``held-out`` / ``held_out`` directory, ``bench.key``, a benchmark ``sealed.json``.
-- **Held-out names** in added lines: a held-out task id (``db-<lang>-<repo>-<8 hex>``, ``kd-``/``km-`` ids, the ids of
-  every held-out store window), and a held-out repository as ``owner/repo``. The registries that must name the held-out
+- **Held-out names** in added lines: a held-out task id (``db-<lang>-<repo>-<8 hex>``, the ids of every held-out store
+  window), and a held-out repository as ``owner/repo``. The registries that must name the held-out
   repositories (``REGISTRY``) are exempt from this rule only.
 - **Hidden content** in added lines: the sha256 of every fix line, hidden-test line and hidden test name of every
   held-out task (``refresh`` builds them from the stores; the fingerprint file holds hashes, never text).
@@ -103,7 +103,7 @@ class Seal:
 
     def id_pattern(self) -> re.Pattern[str] | None:
         names = sorted({re.escape(r) for r in self.repos} | {re.escape(r.replace("_", "").replace(".", "")) for r in self.repos}, key=len, reverse=True)
-        return re.compile(rf"\b(?:db|kd|km)-[a-z]+-(?:{'|'.join(names)})-[0-9a-f]{{6,}}") if names else None
+        return re.compile(rf"\bdb-[a-z]+-(?:{'|'.join(names)})-[0-9a-f]{{6,}}") if names else None
 
     @classmethod
     def load(cls, root: Path, *, held_out: Mapping[str, str] | None = None, urls: Mapping[str, str] | None = None) -> Seal:

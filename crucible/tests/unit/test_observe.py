@@ -447,18 +447,18 @@ def test_backfill_turns_repo_reports_into_views_once(obs, tmp_path) -> None:
 
     src = tmp_path / "runs"
     src.mkdir()
-    for n in ("kernel_funnel.json", "p2_report.json", "p4_report.json", "p3_seeded_report.json"):
+    for n in ("p2_report.json", "p4_report.json", "p3_seeded_report.json"):
         shutil.copy(RUNS / n, src / n)
     (src / "gen").mkdir()
     (src / "gen" / "funnel.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [
         {"generator": "swarm", "candidate": "c1", "stage": "S1_source", "ok": True, "reason": ""},
         {"generator": "swarm", "candidate": "c2", "stage": "S1_source", "ok": False, "reason": "1 usable request(s)"},
         {"generator": "swarm", "candidate": "c1", "stage": "S3_world", "ok": True, "reason": ""}]))
-    assert sorted(k for k, _ in discover([src])) == ["funnel", "report", "report", "report", "report"]
+    assert sorted(k for k, _ in discover([src])) == ["funnel", "report", "report", "report"]
     cfg = ObserveConfig(root=obs.root, use_wandb=False)
     rows = backfill([src], cfg=cfg)
     views = {Path(r["source"]).name: r.get("views") for r in rows}
-    assert "funnel" in views["kernel_funnel.json"] and "spend" in views["kernel_funnel.json"]
+    assert "spend" in views["p4_report.json"]
     assert "verifier_cards" in views["p2_report.json"] and "funnel" in views["p2_report.json"]
     assert "targeting" in views["p4_report.json"] and "audit" in views["p3_seeded_report.json"]
     assert not any(r.get("error") for r in rows)

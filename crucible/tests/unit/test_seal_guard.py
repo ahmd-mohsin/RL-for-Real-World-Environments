@@ -193,7 +193,7 @@ def test_audit_counts_training_overlap_and_skips_template_and_a_moved_repository
 
 
 def test_weak_template_like_13_grams_do_not_contaminate() -> None:
-    hits = [{"kind": "13-gram", "overlap": 9, "source": f"kd-perf-{i}:prompt"} for i in range(4)] + [{"kind": "13-gram", "overlap": 2, "source": "x"}]
+    hits = [{"kind": "13-gram", "overlap": 9, "source": f"db-go-x-{i}:prompt"} for i in range(4)] + [{"kind": "13-gram", "overlap": 2, "source": "x"}]
     strong, weak = ba.split_hits(hits)
     assert strong == [] and len(weak) == 5
     assert ba.split_hits([{"kind": "13-gram", "overlap": 6, "source": "a"}])[0]
