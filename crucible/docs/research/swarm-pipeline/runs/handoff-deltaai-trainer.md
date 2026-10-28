@@ -14,18 +14,23 @@ This is for the worker who continues the DeltaAI trainer for Qwen/Qwen3.6-35B-A3
     `.crucible-installed-v0.10.0`.
   - torch 2.13.0+cu130, vLLM 0.31.0. The compute nodes run driver 595.71.05.
   - Crucible's source is rsynced to `/work/hdd/bjhg/mahmedmohsin/crucible-train/crucible/{src,scripts,pyproject.toml}`.
-- **No RL step has run on a GPU yet.**
-  - Attempts 1, 3 and 4 failed in the install. All three causes are fixed (doc 14 §5.1). Attempt 2 was cancelled.
-  - Attempt 5 ran as job **3467688** (`ghx4-interactive`) and failed after 20:52 (0.70 GPU-hours at 2 GPUs): no
-    `Python.h` for Triton, no `vllm-router`, and `attn = "sdpa"` invalid (doc 14 §5.1). All three are fixed in the
-    code (2026-10-27), but **not yet on the cluster**: the SSH control socket closed again before the rsync, the
-    rebuild (`build_env.sh`, which now moves the venv to a uv-managed CPython 3.12) and attempt 6.
-  - 2026-10-27: the code and the smoke stage were rsynced, `build_env.sh` printed `BUILD_OK` (CPython 3.12.15 with
-    headers, Triton 3.7.1), and **attempt 6 was submitted as job 3468656** (`ghx4-interactive`, bjhg-dtai-gh). It was
-    PENDING when the SSH socket closed again. Next: `sacct -X -j 3468656 -o JobID,State,Elapsed,AllocTRES%70`, then
-    read `runs/smoke1/slurm-3468656.out`.
-- **GPU-hours used**: about 2 on bjhg-dtai-gh for attempt 1 (the interactive partition billed a whole node) and 0.70 for
-  attempt 5. The last balance seen was 974.
+- **The GPU smoke passed** on attempt 12 (job 3474848, 2026-10-28, `ghx4-interactive`, 2 GPUs, 6:25). Doc 14 §5.1 has
+  the table and attempts 5 to 11 with their causes and fixes:
+  - no Python headers;
+  - no `vllm-router`;
+  - `sdpa` and FA3;
+  - `prime_kernels`;
+  - imports from /work/hdd;
+  - the trainer outside torchrun;
+  - steps counting from 1;
+  - the transformers 5 prompt;
+  - a CPU tensor in the loss;
+  - the stale-marker race on resume.
+
+  The environment now sits on `/work/nvme/bjhg/mahmedmohsin/crucible-train` (prime-rl, venv, uv cache, CPython 3.12.15).
+  Runs, Crucible's source and the HF cache stay on `/work/hdd`.
+- **GPU-hours used on smoke attempts**: 8.7 by AllocTRES × Elapsed (about 9.5 counting attempt 1 as a whole node), of a
+  12 GPU-hour cap.
 
 ## Next steps
 

@@ -936,6 +936,8 @@ launcher, filesystem transports and an import-path loss.
   The loss is tested forward and backward on an accelerator device as well as the CPU.
   The bridge answers only an unanswered broadcast offer (`.sender_ready` without `.receiver_ready`), so a relaunched
   trainer's re-offer of its resume step is never confused with the previous trainer's answered markers.
+- **The GPU smoke passed** (2026-10-28, job 3474848, 6:25 on 2 GH200): two RL steps, a relaunch from checkpoint 2, and a
+  third step, all through the bridge on Qwen3-0.6B, plus the student's Gated DeltaNet kernels on the GPU (doc 14 §5.1).
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

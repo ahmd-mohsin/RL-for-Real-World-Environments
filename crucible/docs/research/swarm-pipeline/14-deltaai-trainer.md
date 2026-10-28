@@ -280,6 +280,30 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   `FileIO.wait_broadcast` answers only an unanswered offer (`.sender_ready` without `.receiver_ready`). A test replays
   the race and fails on the old code. The kernel check passed again. Peak GPU memory: 5,050 MiB on the trainer GPU and
   88,671 MiB on the vLLM GPU (`gpu_memory_utilization = 0.9`).
+- **Attempt 12** (job 3474848, 2026-10-28, 0:40 limit): **the smoke passed** (COMPLETED, rc 0) in 6:25, 0.21 GPU-hours.
+  vLLM was healthy after 231 s.
+
+  | phase | trainer step | wall (trainer log) | loss | grad norm | entropy | mismatch KL | reward mean | probe logprob |
+  |---|---|---|---|---|---|---|---|---|
+  | 1 | 1 | 3 min 55 s (first step: compile, cold start) | 1.532 | 107.1 | 0.64 | 0.0019 | 0.168 | -8.68 -> -1.03 |
+  | 1 | 2 | 11.9 s | 0.264 | 72.4 | 1.32 | 0.0085 | 0.298 | -1.03 -> -0.020 |
+  | 2 (resumed from checkpoint 2) | 3 | 14.5 s | 0.000 | 0.0 | 0.07 | 0.0004 | 0.185 | -0.020 -> -0.013 |
+
+  - **The plumbing**: every step went batch -> prime-rl trainer -> adapter broadcast -> vLLM hot-load
+    (`crucible-s00000{1,2,3}`), and the next samples were served under the new adapter. Checkpoints were written at
+    steps 1 to 3. The relaunched trainer logged "Resuming from step 2" and trained step 3. The bridge acknowledged its
+    fresh re-offer, not the stale markers.
+  - **Step 3 had no gradient**: by then the policy was nearly deterministic (entropy 0.07), so every group's samples
+    scored the same and every advantage was 0. Its probe still moved. With weight decay 0 and a zero gradient, only Adam's
+    moments restored from checkpoint 2 can move the weights, and a fresh optimizer would not. So this is indirect evidence
+    that the optimizer state resumed. It does not show a nonzero gradient after a resume.
+  - **Kernel check** (the student's kernels, on the GH200): fla 0.5.2 `chunk_gated_delta_rule` and `causal_conv1d`
+    forward and backward with gradients, and vLLM 0.31.0 supports `Qwen3_5MoeForConditionalGeneration`.
+  - **Peak GPU memory** (`gpu_mem.csv`, 10 s samples): trainer GPU 5,052 MiB (prime-rl reports a 3.3 GiB peak), vLLM GPU
+    88,673 MiB (its reservation at `gpu_memory_utilization = 0.9`).
+  - **GPU-hours**: 0.21 for the passing job, or 0.071 per step with startup included. A warm step is about 12 to 15 s on
+    2 GPUs, about 0.008 GPU-hours. All smoke attempts on bjhg-dtai-gh: 8.7 GPU-hours by AllocTRES (gres/gpu=2) ×
+    Elapsed, or about 9.5 if attempt 1 is counted as the whole node it was billed as.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers
@@ -289,6 +313,13 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   skipped: those serve only `nemotron_h`.
 
 ## 6. Open items
+
+- **Trainer metrics arrive late at the bridge.** prime-rl logs a step's metrics after its checkpoint, and the bridge reads
+  them right after the broadcast, so in the passing smoke steps 1 and 2 carried no trainer loss or grad norm (step 3 did).
+  The Tinker loop's `steps.jsonl` and W&B would miss them the same way. A fix reads them after `save_state`, or attaches
+  step s's to step s + 1.
+- **A gradient after a resume is not yet shown live**: step 3 of the smoke had zero-spread groups (§5.1). The 2-step real
+  run, or a smoke with higher temperature, shows it.
 
 - **MoE routing replay is built but not yet run live** (§2): it is first checked on the 2-step real-model run.
 - **Model-written code is graded as the user on DeltaAI** (Apptainer user mode, `trusted: false`): acceptable for our own
