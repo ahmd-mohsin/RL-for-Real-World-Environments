@@ -7,7 +7,7 @@ progress, and the per-call ΔΦ is the same credit format a student episode has 
 
 | potential | the builder | a milestone passes when | the gate it mirrors |
 |---|---|---|---|
-| ``prompt_draft`` | prompt writer | its requirement line exists in the draft JSON, says enough (``min_chars``) and passes the lane's lint (no faulty names, hidden case names, hashes or versions) | S7 (``generators.debug.lint_debug``, ``lanes.kernel_debug.lint_prompt``) |
+| ``prompt_draft`` | prompt writer | its requirement line exists in the draft JSON, says enough (``min_chars``) and passes the lane's lint (no faulty names, hidden case names, hashes or versions) | S7 (``generators.debug.lint_debug``) |
 | ``hidden_tests`` | verifier writer | its ``crucible_hidden/test_<mid>.py`` exists, parses, defines a test and reads no source structure | S5's static half (``generators.swarm.test_problems``) |
 | ``oracle_commits`` | oracle builder | the commit for it exists, in plan order, subject ``mK: ...`` | S4's structural half (``generators.swarm.oracle_problems``) |
 
@@ -72,7 +72,7 @@ def prompt_draft(task_id: str, workspace: Path | str, milestone_ids: Sequence[st
                  path: str = "prompt.json", min_chars: int = 40) -> ArtifactPotential:
     """The prompt writer's draft ``{opening, requirements: {mid: text}, closing}``: a milestone passes when its requirement
     line is there, at least ``min_chars`` long, and the lint of it (with the opening and closing) has no finding. A
-    milestone id that is a top-level field of the draft (the migration lane's single ``opening``) is that field."""
+    milestone id that is a top-level field of the draft (a single ``opening``) is that field."""
 
     def status(tree: Path, patch: str) -> dict[str, bool]:
         f = tree / path

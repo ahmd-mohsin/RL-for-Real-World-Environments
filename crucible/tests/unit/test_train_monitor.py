@@ -91,12 +91,9 @@ def test_task_ids_give_lane_language_and_repo_and_held_out_repos_split_out(monke
     from crucible.factory.lanes import windows
 
     monkeypatch.setitem(windows.HELD_OUT_REPOS, "zzheld", "D")  # a made-up held-out repository (no real held-out id in git)
-    monkeypatch.setattr(tm, "KERNEL_HELDOUT", ("zzkernel",))
     assert tm.task_meta("db-go-mvdan-sh-04056a74-k1-1c2768") == ("debug", "go", "mvdan-sh")
-    assert tm.task_meta("km-cuda13-hecbench-591f311-4")[:2] == ("migration", "cuda")
     assert tm.split_of_task("db-go-zzheld-0000aaaa-d1") == "heldout"
     assert tm.split_of_task("db-go-go-toml-a02114e3-e1b") == "train"
-    assert tm.split_of_task("kd-bug-zzkernel-0000aaaa") == "heldout" and tm.split_of_task("kd-bug-llamacpp-0000aaaa") == "train"
     assert tm.placeholder("db-go-zzheld-0000aaaa").startswith("heldout-") and "zzheld" not in tm.placeholder("db-go-zzheld-0000aaaa")
 
 

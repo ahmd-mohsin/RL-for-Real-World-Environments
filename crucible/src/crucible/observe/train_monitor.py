@@ -122,11 +122,11 @@ def health_markdown(h: Mapping[str, Any], *, title: str = "Framework health") ->
     for t in h.get("tuning") or []:
         out.append(f"- [{t['lever']}] {t['lane']}: {t['text']}. Expected: {t['expected']}. Evidence: {json.dumps(t['evidence'], default=str)[:200]}")
     out += ["", "## Versions per step or cohort", ""] + [f"- {at}: path {json.dumps(r['path_rules'])}; reward {json.dumps(r['reward_rule'])}" for at, r in (h.get("versions") or {}).items()]
-    out += ["", "## Metadata by lane", "", "| lane | episodes | mask | tool fail | s/tool | tokens/turn in | context max | compactions | ckpt share | GPU min | budget stops | first edit | useful | $/useful |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    out += ["", "## Metadata by lane", "", "| lane | episodes | mask | tool fail | s/tool | tokens/turn in | context max | compactions | ckpt share | budget stops | first edit | useful | $/useful |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for lane, m in ((h.get("metadata") or {}).get("lanes") or {}).items():
         out.append(f"| {lane} | {m['episodes']} | {_f(m['mask_rate'])} | {_f(m['tool_fail_rate'])} | {_f(m['world_s_per_tool_call'], 1)} | {_f(m['input_tokens_per_turn'], 0)} | "
-                   f"{_f(m['context_use_max'])} | {_f(m['compactions_per_episode'])} | {_f(m['checkpoint_share_of_agent_time'])} | {_f(m['gpu_min_per_episode'], 1)} | "
+                   f"{_f(m['context_use_max'])} | {_f(m['compactions_per_episode'])} | {_f(m['checkpoint_share_of_agent_time'])} | "
                    f"{_f(m['budget_stop_share'])} | {_f(m['first_edit_call'], 0)} | {m['useful_samples']} ({_f(m['useful_share'])}) | {_f(m['usd_per_useful_sample'])} |")
     return "\n".join(out) + "\n"
 

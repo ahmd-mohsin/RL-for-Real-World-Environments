@@ -1,9 +1,9 @@
 """Remote hosts that stop answering: fail fast, pause the episode, then resume it or mask it (2026-10-26).
 
-The kernel lanes' GPU World runs on a remote host (the lab RTX 5090) over SSH: ``container_exec`` routes every App into a
-container there (``DockerExec`` through the shared tunnel ``world.docker_tunnel``), and every grade runs there
-(``factory.lanes.kernel_episode.remote``). When this machine lost its network, every in-flight episode's tool calls hung
-until the 9,000 s attempt clock, and all 8 episodes of a measurement were masked as infrastructure (correct per V8) after
+A remote World runs on a remote host (e.g. the lab RTX 5090) over SSH: ``container_exec`` routes every App into a
+container there (``DockerExec`` through the shared tunnel ``world.docker_tunnel``), and a remote grader runs there too.
+When this machine lost its network (2026-10-26, on the since-removed GPU kernel lane), every in-flight episode's tool
+calls hung until the 9,000 s attempt clock, and all 8 episodes of a measurement were masked as infrastructure (correct per V8) after
 $29.5 of model sampling. Here every remote operation runs under its host's ``HostReach``:
 
 - **Fail fast.** ``guard``: an operation still running after ``heartbeat_s`` has the host probed every ``heartbeat_s``, and

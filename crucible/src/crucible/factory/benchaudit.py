@@ -55,7 +55,7 @@ TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|testdata|spec)(/|$)|(^|/)(test_[
 class HeldTask:
     id: str
     repo: str
-    kind: str  # debug | kernel | variant
+    kind: str  # debug | variant
     prompt: str = ""
     hidden_tests: list[str] = field(default_factory=list)
     fix_lines: list[str] = field(default_factory=list)
@@ -103,24 +103,6 @@ def load_debug(store: Path, prompts: Sequence[Path] = ()) -> list[HeldTask]:
         prompt = next((s for s in (_prompt_of(Path(d) / f"{w['id']}.json") for d in prompts) if s), "")
         out.append(HeldTask(w["id"], str(w.get("repo")), "debug", prompt, tests, fix, tst, sorted(map(str, (rb.get("fix_dates") or {}).values()))
                             if isinstance(rb.get("fix_dates"), Mapping) else [str(x) for x in rb.get("fix_dates") or []], rb.get("cutoff")))
-    return out
-
-
-def load_kernel(store: Path, prompts: Path | None = None) -> list[HeldTask]:
-    """Held-out kernel records (``<store>/<id>/record.json``): the oracle patch's added lines, the case pool as test names."""
-    out = []
-    for rf in sorted(Path(store).glob("*/record.json")):
-        r = json.loads(rf.read_text())
-        patch = str(r.get("oracle_patch") or "")
-        fix, tst, cur = [], [], ""
-        for ln in patch.splitlines():
-            if ln.startswith("+++ "):
-                cur = ln[6:] if ln.startswith("+++ b/") else ln[4:]
-            elif ln.startswith("+") and ln[1:].strip():
-                (tst if TEST_PATH.search(cur) else fix).append(ln[1:])
-        cases = [c for m in r.get("milestones") or [] for c in (m.get("owned") or m.get("cases") or [])]
-        prompt = str(r.get("prompt") or "") or (_prompt_of(Path(prompts) / f"{r['id']}.json") if prompts else "")
-        out.append(HeldTask(r["id"], str(r.get("repo")), "kernel", prompt, cases, fix, tst, [str(x) for x in r.get("fault_dates") or []], r.get("cutoff")))
     return out
 
 
@@ -242,10 +224,10 @@ def train_overlap(held: Sequence[HeldTask], corpus: Iterable[tuple[str, str]], t
     return out
 
 
-def training_corpus(train_store: Path | None = None, prompt_dirs: Sequence[Path] = (), kernel_train: Path | None = None,
+def training_corpus(train_store: Path | None = None, prompt_dirs: Sequence[Path] = (),
                     skip: Callable[[str], bool] = lambda _id: False) -> list[tuple[str, str]]:
-    """(source id, text) for every training source on this machine: training windows' fix lines, training reports
-    (``prompt_dirs``; a held-out id there is skipped by ``skip``) and training kernel records."""
+    """(source id, text) for every training source on this machine: training windows' fix lines and training reports
+    (``prompt_dirs``; a held-out id there is skipped by ``skip``)."""
     docs: list[tuple[str, str]] = []
     for t in (load_debug(train_store) if train_store and Path(train_store).is_dir() else []):
         docs.append((f"{t.id}:diff", "\n".join(t.fix_lines)))
@@ -253,9 +235,6 @@ def training_corpus(train_store: Path | None = None, prompt_dirs: Sequence[Path]
         for p in sorted(Path(d).glob("*.json")):
             if not skip(p.stem):
                 docs.append((f"{p.stem}:prompt", _prompt_of(p)))
-    for t in (load_kernel(kernel_train) if kernel_train and Path(kernel_train).is_dir() else []):
-        docs.append((f"{t.id}:prompt", t.prompt))
-        docs.append((f"{t.id}:diff", "\n".join(t.fix_lines)))
     return [(s, x) for s, x in docs if x.strip()]
 
 
@@ -263,7 +242,7 @@ def training_corpus(train_store: Path | None = None, prompt_dirs: Sequence[Path]
 def split_hits(hits: Sequence[Mapping[str, Any]]) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     """(strong, weak): code substrings, near duplicates and containment are strong; a 13-gram hit is weak below
     ``MIN_GRAMS`` shared n-grams, or when the task's 13-gram hits spread over ``SPREAD`` or more sources (a lane's shared
-    phrasing that the template did not catch, e.g. every perf report's measurement sentence)."""
+    phrasing that the template did not catch)."""
     grams = [h for h in hits if h.get("kind") == "13-gram"]
     spread = len({h.get("source") for h in grams}) >= SPREAD
     strong = [h for h in hits if h.get("kind") != "13-gram" or (not spread and int(h.get("overlap") or 0) >= MIN_GRAMS)]

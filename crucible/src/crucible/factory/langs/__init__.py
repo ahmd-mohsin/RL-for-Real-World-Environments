@@ -3,7 +3,7 @@ one language, how a set of test files runs and reports per-test results, how a W
 how test functions are found, compared and hidden. ``base`` holds the ``LangProfile`` protocol, the active-profile
 context the window machinery consults (``active``, ``use``) and what every compiled-language profile shares; ``python``
 adapts the existing behaviour (no change), ``golang``, ``rust``, ``node`` (TypeScript / JavaScript under vitest or jest)
-and ``java`` (maven) are new; ``cuda`` is the kernel debug lane's (swarm-pipeline/10), chosen by that lane, never detected.
+and ``java`` (maven) are new.
 
 This package init stays import-free: the low lanes (``lanes.executable``, ``lanes.windows_git``) import ``langs.base``,
 and a profile module imports the lanes, so profiles load lazily through ``get``."""
@@ -13,8 +13,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-NAMES = ("python", "go", "rust", "node", "java", "cuda")
-_MODULES = {"python": "python", "go": "golang", "rust": "rust", "node": "node", "java": "java", "cuda": "cuda"}
+NAMES = ("python", "go", "rust", "node", "java")
+_MODULES = {"python": "python", "go": "golang", "rust": "rust", "node": "node", "java": "java"}
 _MADE: dict[str, Any] = {}
 
 

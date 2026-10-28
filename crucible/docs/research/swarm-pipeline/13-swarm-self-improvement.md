@@ -1,5 +1,8 @@
 # 13 The Tinker swarm: no Claude, the whole framework, and a swarm that debugs itself
 
+> The GPU kernel lane (kernel debug and migration) was removed on 2026-10-28 by the lead's decision; history in git before c26f069a. Its parts of this
+> record (step 2 of §9, §10.2, §13) are removed; §12 keeps the numbers it measured then.
+
 **Status (2026-10-23).**
 - **Built:** the framework code, with tests.
 - **Smoke:** $1.07 of Tinker, inside the $5 cap.
@@ -21,7 +24,7 @@
 | builder Φ | `factory/builder_potential.py`, `factory/sessions.py` (`session.potential`) | the checkpoint sidecar grades a builder's worktree out of band against the static half of the gate its artifact faces |
 | session plumbing | `factory/sessions.py` | window from the model's context, a window floor, a mid-session state USD cap, settle-on-budget, the producer's family on every session record, a journal hook |
 | journal, blame, credit, diagnosis | `factory/swarm_journal.py`, `scripts/swarm.py` | per-role and per-model yield and cost, blame by provenance, per-turn builder credit, ranked bottlenecks and proposals (never applied) |
-| the lanes on the swarm | `factory/swarm_prompts.py`; `write-prompts` in `lh_debug.py`, `lh_kernel_debug.py`, `lh_kernel_debug_migrate.py`; `lh_swarm.py --preset swarm`; `lh_debug_target.py --preset swarm` | the S7 report is written by a `prompt_author` session, decided by the lane's own lint and ledger, read once by the reviewer; the swarm-built windows run on the preset and are journaled |
+| the lanes on the swarm | `factory/swarm_prompts.py`; `write-prompts` in `lh_debug.py`; `lh_swarm.py --preset swarm`; `lh_debug_target.py --preset swarm` | the S7 report is written by a `prompt_author` session, decided by the lane's own lint and ledger, read once by the reviewer; the swarm-built windows run on the preset and are journaled |
 | difficulty interface | `factory/difficulty_hooks.py` | a typed knob action in, a gated revised task out (the difficulty subsystem implements the policy) |
 
 ## 2. Provenance: the family rule on artifacts, not only roles
@@ -82,7 +85,7 @@ The S7 reports of the rebreak lanes were the one step a person (the Claude build
    `prompt_draft`. The hand-off holds the maintainers' notes per milestone, the strings the lint refuses, and the
    calibration block (training windows only). `settle_on_budget` is on: a writer that runs out of turns still hands its
    file to the gate.
-2. **`lint`**: deterministic: the lane's own check (`author_debug`, `kernel_debug.author`, `migration_lint`). Its
+2. **`lint`**: deterministic: the lane's own check (`author_debug`). Its
    findings go back to `write`, then the window is `dropped`.
 3. **`review`**: the reviewer, a family nothing built, provenance-checked. It blocks once; after that its verdict is
    recorded next to the prompt but no longer gates (V6).
@@ -175,7 +178,8 @@ On the smoke's failing journal it ranked the Kimi budget stop first, with the tu
 
   The first pilot batch should be small.
 - **DeltaAI grading of builder code:** the Apptainer grader there runs as the user (`trusted: false`). That is fine for
-  gates on our own patches, but not for grading model-written code at scale. See `10` §8.3.
+  gates on our own patches, but not for grading model-written code at scale (doc 10 §8.3, removed with the GPU kernel lane;
+  in git before c26f069a).
 
 ## 9. The first pilot (2026-10-23, $300 approved): no Claude wrote any task content
 
@@ -225,19 +229,6 @@ The student passed it 1/8. DeepSeek passed neither of its first 2 attempts; it d
 install-rule regrade. Two fresh attempts were run separately (`data/targeting/swarm-pilot/r3f`; the phase's identity
 guard refuses changing k on an existing run), with the result 1/2. So a frontier solver passes it (1/4 in all), and it is fair. Its failures are 4 budget stops and 3 skill
 gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
-
-**Step 2: kernel tasks by the swarm, for our GPUs** (no Tinker spent, no GPU used)
-- **Mining** with the hardware-reachability filter: llama.cpp kept 60 changes (42 bug, 18 speed-up) and dropped 442.
-  Of the 60, 20 are used by no stored record; 11 of those are after the cut.
-- **Building:** the 4 groups they form all fail synthesis ("fewer than two faults revert together"): each group's
-  reverts conflict at its B.
-- **The other sources have nothing new.** HeCBench has no new commits since 2026-10-13, so the CUDA migration family
-  has no new supply. ik_llama.cpp has no second held-out owner (10 §3.1).
-- **New tasks: 0.** No GPU gates or student runs were needed.
-- **What it needs:** the kernel lane's harness (`test-backend-ops`) is llama.cpp's own. The other cloned CUDA
-  repositories (flash-attention, flashinfer, cutlass, cccl, cuCollections, TransformerEngine, CTranslate2, faiss,
-  xformers, vllm) need a harness per repository before the swarm can mine them. That is a framework task; it is
-  recorded here as the main blocker for more GPU tasks.
 
 ### 9.2 What `diagnose` and the runs found, and the fixes (each with a test)
 
@@ -305,46 +296,7 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 
 ### 10.2 B: GPU tasks
 
-| source | result |
-|---|---|
-| 1. 5090 rerun (the kernel-grader worker) and the GH200 run (3440735–38) | **not finished**: the 5090 is running the worker's `pipeline3` (ik held-out and the near misses); the GH200 jobs are still queued (estimated start 2026-10-24 13:14 CT) |
-| 2. llama.cpp at HEAD f5027fb21 with the hardware filter, re-grouped (`build --subsets`: every connected pair and triple) | **1 new record**, `kd-bug-llamacpp-12fa0914` (2 faults: FLASH_ATTN_EXT and ARGSORT/FLASH_ATTN_EXT). It passed the CPU gates and the hardware reach (2/2). The report is the swarm's (Kimi), rewritten once after the new cause lint; lint is clean. GPU gates queued on DeltaAI (job 3443829, 1 GPU, 3 h, `bjhg-dtai-gh`, own directory `crucible-pilot2`) |
-| ik_llama.cpp at HEAD 0cd49c59, re-grouped | **0**: its only new group does not revert together |
-| 3. CUDA 12→13 migrations from more repositories | **0**: HeCBench has no commits since 2026-10-13. A GitHub commit search (CUDA 13, after 2026-05-01) found no suite with HeCBench's Makefile-per-program layout. The migration lane's builder reads that layout only, so another repository (for example NVIDIA's CUDA samples, which use CMake) needs a layout adapter first |
-| 4. a swarm-written harness for a second CUDA repository | **not started**. It needs a test-driver role, a GPU reference and a tolerance per op, and the lane must take a harness other than `test-backend-ops`. Estimated at 2-3 days of framework work before the swarm can mine such a repository |
-
-**`kd-bug-llamacpp-12fa0914` on the 5090** (run after the kernel-grader worker's rerun ended, own directory
-`~/crucible-lh-k-p2`, about 1 GPU-hour): **not gradable on sm_120.**
-- **m1:** the full sweep found 75 of 7,284 cases failing at the start, but none entered the pool. At the start, every
-  pool case and every sanitizer check passes.
-- **m2** (the large-size overflow) failed no case.
-- **Next:** the same task is queued on the GH200 (96 GB, job 3443829), where m2's sizes may fit. Results are in
-  `data/kernel_debug/gpu_results_5090_p2`.
-
-**GPU tasks passing every CPU and GPU gate: still 5, all training.**
-
-| task | source |
-|---|---|
-| `kd-bug-llamacpp-1b8b8fb1`, `-ca21f3a1`, `-efe7d4b1` | earlier rounds |
-| `km-cuda13-hecbench-591f311-4`, `-ba3a30a-3` | earlier rounds |
-
-**Pending GPU:**
-- 1 new training task, `kd-bug-llamacpp-12fa0914`;
-- the worker's rescues: near misses cef66d4a and a45699aa (training), its migration fixes, and 6 held-out ik tasks (000b1a1e, 1ef4f2f7, 35d83401, 44b81230, 5b8c07ff, 89213aa6) in its `pipeline3`;
-- the 30-task GH200 run.
-
-**Student difficulty runs:**
-- No kernel task has been through one.
-- The kernel lane's episode World (`kernel_debug_world`) is a CPU-only Docker container. Its GPU grading
-  (`GpuBackend`) runs on a CUDA host out of band, and `lh_debug_target` drives the debug lane only.
-- Measuring the student needs:
-  - episodes run on the GPU host (World and grader side by side);
-  - the checkpoint sidecar's grades sent to the GPU backend;
-  - a kernel targeting stage.
-- **Estimate:** 1-2 days of framework work. Each episode would then cost about one GPU grade per checkpoint (up to
-  15) on top of the student's Tinker tokens.
-- **The agent cannot run CUDA in its World.** Today it can only compile and run the CPU harness. A GPU in the World
-  would be more realistic, but it needs the sandbox rules for an untrusted agent on a GPU host.
+Removed with the GPU kernel lane (2026-10-28).
 
 ### 10.3 What round 2 fixed (each with a test)
 
@@ -352,11 +304,9 @@ gaps, so the on-intent share (0.43) misses 0.7 either way. It is not kept.
 |---|---|
 | K6 quoted an "observed" output the program does not print | K6's sharpened requirement must carry a repro whose S7r verdict for that milestone is `verified` |
 | A pre-applied fix broke a regression test, so every agent lost its full pass | a checkpoint start's pass-to-pass tests are graded at the new start; a failing one leaves the regression check, recorded |
-| The first swarm kernel report diagnosed the faults ("incorrectly includes out-of-bounds values", "integer overflow in ...") and passed lint and review | kernel lint `CAUSE`; the writer brief forbids diagnosing |
 | A `--redo` after a framework change crashed (`MachineError`: the journal belongs to another machine) | a stale run is moved aside and written fresh |
 | A revision under an old id was handed its old `prompt.json` back (the run, its session state and its hand-off branch were resumed) | a new hand-off under the same id is stale as well; all three are moved aside together (sessions live under `sessions/runs/<id>`) |
 | Two K6 writers ran out of turns verifying their claims | K4/K6 sessions get 120 turns and $2.5 |
-| The greedy kernel groups use each change once, so a group with one conflicting fault lost its other faults too | `build --subsets` (`kdm.connected_subsets`) |
 | A knob the diagnosis picks, not the controller's ranking | `revise --override task=KNOB[:milestone]@why`, journaled; C1 takes an explicit prerequisite-closed set |
 
 ## 11. The training monitor: general failures, before the baseline and the RL run (2026-10-25)
@@ -497,22 +447,6 @@ in `crucible/data/debug`, the 2026-10-22 public push. They name a repository tha
 newly drawn held-out repo was already public in that commit's mining log.
 
 
-## 13. Kernel GPU measurement (2026-10-25/26): the swarm's K6 on GPU tasks, 0 kept
+## 13. Kernel GPU measurement (2026-10-25/26)
 
-All revisions came from the swarm (`lh_kernel_debug.py revise`, Kimi-K2.6 as prompt writer); every one passed lint, the
-ledger, S7k, the K6 claim check and `leakcheck` (deterministic location probe plus a blind Nemotron-3-Ultra checker that
-picks the files it would open for the original and the revised text).
-
-| task, milestone | why K6 | revised text states | before → after (student, that milestone) |
-|---|---|---|---|
-| 1b8b8fb1 m2 | S7k: "some K/V layouts", all cases head sizes 576/512 | head sizes 576/512, q4_0/q8_0 K/V, 4 query heads per K/V head | 0/8 → 2/8; full pass 0/8 → 1/8, but no frontier pass |
-| cef66d4a m3 | 6/8 never edited the fault's files | q4_0/q8_0 weights, m=16, n=70000, k=256 | 0/8 → 1/8; full pass stays 0/8 |
-| efe7d4b1 m2 | 6/8 never edited the fault's file | head sizes, KV lengths, f16/q8_0 caches, the barrier symptom | 0/8 → 0/8 |
-
-What it showed: K6 moves a milestone that the report under-specified (1b8b8fb1 m2), not one held by localisation alone
-(efe7d4b1 m2). The guard against naming the location held: none of the three revisions points at the fault's file; for
-efe7d4b1 the checker picked the fault's file from the original text and not from the revised one.
-
-Diagnose findings that became framework fixes: §9.6 of doc 10 lists them. Two for the swarm itself: the K6 claim check
-read a list value `bs=[1,1]` as the number 11 and refused four correct drafts; a writer session that wrote no draft
-("missing declared output 'prompt'") paused the machine, and a rerun succeeded.
+Removed with the GPU kernel lane (2026-10-28).

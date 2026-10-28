@@ -43,7 +43,7 @@ def _tinker_cli():
     return mod
 
 
-# per model call on DeltaAI (coordinator, 2026-10-26): 4096 cut the replies of ~90 stored episodes and ended GPU migration episodes
+# per model call on DeltaAI (coordinator, 2026-10-26): 4096 cut the replies of ~90 stored episodes
 MAX_TOKENS = 8192
 
 

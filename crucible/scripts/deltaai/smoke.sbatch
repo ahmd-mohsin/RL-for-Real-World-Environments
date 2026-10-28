@@ -122,18 +122,6 @@ t "episode: rc=$? $(tail -3 $O/episode.log | tr '\n' ' ')"
 cp -r "$J/runs/smoke" "$O/run" 2>/dev/null
 find "$O/run" -name metrics.json -exec cat {} \; | head -c 3000; echo
 
-# 8. one short student episode on a kernel task (gh200-node: the GPU World through the shim, grades in Apptainer mode)
-KSIF=/work/hdd/bjhg/mahmedmohsin/crucible/sif/crucible-lh-k_base-12.8.1.sif
-[ -e "$W/sif/crucible-lh-k_base-12.8.1.sif" ] || ln -s "$KSIF" "$W/sif/crucible-lh-k_base-12.8.1.sif"
-export CRUCIBLE_KERNEL_WORK=$J/kep PATH=$W/bin:$W/venv/bin:$PATH
-t "kernel episode: kd-bug-llamacpp-ca21f3a1"
-$PY scripts/lh_kernel_target.py student --host gh200-node --kernel "$D/kernel_debug" --backend vllm --vllm-engine "$O/engine.json" \
-  --student "$MODEL" --tasks kd-bug-llamacpp-ca21f3a1 --k 1 --tool-limit 20 --student-concurrency 1 --slots 1 --cap 1 --audit-reserve 0 \
-  --out "$J/runs/ksmoke" > "$O/kepisode.log" 2>&1
-t "kernel episode: rc=$? $(tail -3 $O/kepisode.log | tr '\n' ' ')"
-cp -r "$J/runs/ksmoke" "$O/krun" 2>/dev/null
-find "$O/krun" -name metrics.json -exec cat {} \; | head -c 3000; echo
-
 kill $VPID 2>/dev/null; wait $VPID 2>/dev/null
 docker ps
 rm -rf "$J"

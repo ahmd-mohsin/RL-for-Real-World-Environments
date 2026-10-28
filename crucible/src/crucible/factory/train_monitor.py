@@ -112,7 +112,6 @@ INTENT_BEHAVIOUR: dict[str, str] = {
     "symptom_only": "Meets every constraint the report states, not only the visible symptom",
 }
 FAIL_OUT = re.compile(r"\b(FAIL(ED)?|Error|error:|panic(ked)?|Traceback|exit (status|code) [1-9]|AssertionError|not ok)\b")
-KERNEL_HELDOUT = ("ikllamacpp",)
 
 
 class HeldOutUse(ValueError):
@@ -162,24 +161,19 @@ class Episode:
 
 # ---- task metadata ---------------------------------------------------------------------------------------------------------------
 def task_meta(task: str) -> tuple[str, str, str]:
-    """(lane, language, repo) from a task id: ``db-<lang>-<repo>-<hash>[...]`` (debug), ``kd-<bug|perf>-<repo>-...`` (kernel),
-    ``km-cuda1x-<repo>-...`` (migration)."""
+    """(lane, language, repo) from a task id: ``db-<lang>-<repo>-<hash>[...]`` (debug)."""
     parts = task.split("-")
     if task.startswith("db-") and len(parts) > 2:
         rest = task[len(parts[0]) + len(parts[1]) + 2:]
         m = re.match(r"(.+?)-[0-9a-f]{8}(?:-|$)", rest)
         return "debug", parts[1], (m.group(1) if m else rest)
-    if task.startswith(("kd-", "km-")) and len(parts) > 2:
-        return ("migration" if task.startswith("km-") else "kernel"), "cuda", parts[2]
     return "other", "unknown", task
 
 
 def split_of_task(task: str, overrides: Mapping[str, str] | None = None) -> str:
     if overrides and task in overrides:
         return overrides[task]
-    lane, _, repo = task_meta(task)
-    if lane in ("kernel", "migration") and repo in KERNEL_HELDOUT:
-        return "heldout"
+    _, _, repo = task_meta(task)
     try:
         from crucible.factory.lanes.windows import split_of
 

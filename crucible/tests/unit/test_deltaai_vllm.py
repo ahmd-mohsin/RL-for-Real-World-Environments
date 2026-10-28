@@ -212,14 +212,6 @@ def test_lockdown_verdict_passes_a_locked_world_and_names_each_leak():
     assert lockdown.parse("a=1\nnoise\nb=x=y\n") == {"a": "1", "b": "x=y"}
 
 
-def test_the_kernel_host_on_a_deltaai_node_runs_locally_and_grades_in_apptainer_mode():
-    from crucible.factory.lanes import kernel_episode as ke
-
-    h = ke.host_of("gh200-node")
-    assert h.local and h.ssh_argv("echo hi") == ["bash", "-c", "echo hi"] and h.grade_mode == "apptainer" and h.runtime == "docker"
-    assert h.arch == "90" and ke.host_of("gh200").runtime == "apptainer" and ke.host_of("rtx5090").ssh_argv("x")[0] == "ssh"
-
-
 def test_vllm_runs_default_to_8192_output_tokens_and_record_it():
     import importlib.util as iu
     import sys as _sys

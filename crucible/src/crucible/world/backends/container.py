@@ -4,7 +4,7 @@ on this machine's daemon or a remote one (``docker_host``, e.g. the tunnel ``wor
 The caller starts and removes the container (it owns the flags: ``--network none``, the GPU runtime, the limits); this
 backend only routes every App's commands, state snapshots and seed copies into it (``exec_for``). The App state lives at
 ``base`` inside the container, so a World on a remote GPU host keeps nothing on this machine: file tools, the shell, git
-and the ``fs`` state adapter all run there (the kernel lanes' GPU World, swarm-pipeline/10 §9).
+and the ``fs`` state adapter all run there.
 
 Params: ``container`` (required), ``docker_host`` (None = the local daemon), ``base`` (the App base path inside the
 container, default ``/``), ``user`` (the default ``docker exec`` user, None = the image's), ``gpus`` and ``network_enforced``

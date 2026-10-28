@@ -289,7 +289,7 @@ async def gate_start(variant: Any, *, original_milestones: Sequence[Any], pre: S
 
 # ---- the cheap predictor ---------------------------------------------------------------------------------------------------
 
-LANGS = ("go", "python", "rust", "node", "java", "cuda")
+LANGS = ("go", "python", "rust", "node", "java")
 FEATURES = ("bias", "faults", "edges", "modules", "oracle_lines_log", "milestone_tests_log", "tool_limit_300", "fairness_flags",
             *(f"lang_{x}" for x in LANGS))
 

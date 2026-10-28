@@ -1110,19 +1110,7 @@ P4, failure targeting (`factory/targeting.py`; `lanes/windows_s3.py`; `lanes/win
   - python-semver is `underpowered`: 0/4 vs 3/4, Fisher p 0.071, power 0.41;
   - parse's paraphrases are stable.
 
-Kernel-migration family (`docs/research/swarm-pipeline/06-kernel-family.md`; `factory/lanes/kernel*.py`, `scripts/lh_kernel.py`,
-`scripts/lh_kernel_gpu.py`; $0.36):
-- **Ground truth:** real GPU-migration commits (texture/surface references, legacy warp intrinsics, removed cuSPARSE calls)
-  mined by pickaxe from permissive repos; the oracle is the commit. PCL (task04's repo) is sealed from training.
-- **Grader** (`lanes/kernel_plan.py`, a kit plan): the grader owns the nvcc command (`sm_<arch>` SASS only, arch from
-  `CRUCIBLE_CUDA_ARCH`); `compile` milestones (CPU) and `run` milestones (GPU: binary check, CUPTI launch count, the
-  program's observation, i.e. stdout, device-to-host bytes via link wraps and written files, equal to the original built
-  with CUDA 11.8 as compute_60 PTX, fresh `srand` seed; sanitizer and grader-clock perf for L4).
-- **Result:** 40 windows, 21 pass every CPU gate (S3, S4, original, S6 compile edges, S7, S8 through the kit); 20 are L1,
-  1 has an L3 shape; GPU gates are staged, not run (lab unreachable). The 7B student compiled 0/26 L1 episodes before
-  OpenRouter's credits ran out: L1 is above its band.
-- **Fixed while running:** CRLF sources gave unappliable oracle patches; the grader now always links `libcuda`; a masked
-  episode (provider 402) was read as a 0 by the targeting script.
+The GPU kernel lane (kernel debug and migration) was removed on 2026-10-28 by the lead's decision; history in git before c26f069a.
 
 Student and builder (`docs/research/swarm-pipeline/08-student-and-builder.md`; `actors/claude_code.py`,
 `factory/student.py`, `factory/failures.py`, `scripts/student_serve.sh`; the MVP loop: run the student, mine its traces,
@@ -1171,7 +1159,7 @@ build tasks that target its failures):
     builder credit runs through `credit.compose.turn_credit` over each state's attempts. Yield and cost are tabulated per
     role and model. `diagnose` ranks the bottlenecks and lists proposals, never applied. A remote host's outages
     (`hosts.jsonl`, fed by `world.hostreach.listen`) are counted per host (`tables()["hosts"]`), never blamed on a role.
-  - **Lanes:** `write-prompts` in `lh_debug.py`, `lh_kernel_debug.py` and `lh_kernel_debug_migrate.py`
+  - **Lanes:** `write-prompts` in `lh_debug.py`
     (`factory/swarm_prompts.py`). Per window, a `prompt_author` session drafts the report, the lane's own lint and
     ledger decide, and the reviewer reads it once. `lh_swarm.py --preset swarm` fills `SwarmRunner`'s slots (now also
     journaled, with builder Φ). `lh_debug_target.py --preset swarm` uses the swarm's judges and frontier.
@@ -1238,8 +1226,8 @@ build tasks that target its failures):
       - **Versions:** `versions` gives the path-rules and reward-rule versions per step; a mix with no fix record is a
         `version_mix` defect.
     - **Metadata and tuning:** per lane and step, `metadata` covers tool failure, latency, tokens, context use,
-      compaction Φ, checkpoint cost, mask rate, GPU and World minutes, budget stops, first edit, and useful samples per
-      dollar and per GPU-hour. `tuning` turns these into proposals that are never applied: cadence, compaction,
+      compaction Φ, checkpoint cost, mask rate, World minutes, budget stops, first edit, and useful samples per
+      dollar (the GPU-grade metrics went with the GPU kernel lane, 2026-10-28). `tuning` turns these into proposals that are never applied: cadence, compaction,
       truncation, output tokens, concurrency, group size from `1 - p^k - (1-p)^k`, tool affordances, and the band.
     - **Held-out:** `redact` keeps component, kind, severity and counts, and withholds tasks, episodes, reproductions
       and content-bearing signatures. Tuning reads training traces only.
@@ -1260,15 +1248,13 @@ build tasks that target its failures):
     - K6 must carry an executed repro (S7r verified) for its milestone.
     - A checkpoint start's pass-to-pass tests are graded at the new start, and those failing there leave the
       regression check.
-    - Kernel lint `CAUSE` refuses a diagnosis in a symptom report.
     - Stale prompt runs (another machine, or a new hand-off under the same id) move their run, session state and
       hand-off branch aside.
     - K4/K6 writers get 120 turns.
-    - `lh_kernel_debug.py build --subsets` (`kdm.connected_subsets`).
     - Diagnosed knob overrides in the pilot.
   - **Pilot result:** 1 kept training task, `db-python-black-ae5830b7-c1-516b23`. It is a C1 checkpoint start written
-    by the swarm. It cost $129.7 of Tinker over 8 measured variants. Step 2 found 0 new kernel tasks: llama.cpp's
-    unused fixes do not revert together, and there is no harness for the other CUDA repositories yet.
+    by the swarm. It cost $129.7 of Tinker over 8 measured variants. Step 2 found 0 new tasks on the GPU kernel lane (since
+    removed).
   - **Smoke fixes:** the Kimi native tool section is read by the text protocol, the sidecar probe was added for
     compaction points, the capped client's spend was lost, and a window floor was set.
 - **Student:** the target is `tinker:Qwen/Qwen3.6-35B-A3B`, the model that is post-trained, so tasks are calibrated
@@ -1286,166 +1272,26 @@ build tasks that target its failures):
 - **Fixed:** `lh_run.policy_ref` declared no `config`, so the Runner refused every solvers, probe and arms stage at
   start (M10 R-4 `Undeclared`).
 
-Kernel debugging lane (`docs/research/swarm-pipeline/10-kernel-debug-lane.md`; `factory/langs/cuda.py`,
-`factory/lanes/kernel_harness.py`, `kernel_debug{,_mine,_ops,_world,_plan,_migrate}.py`, `scripts/lh_kernel_debug{,_migrate,_gpu}.py`;
-$0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:opus-5.5`):
-- **Families:** `kernel-bug` (2-4 real CUDA kernel bug fixes reverted together at B, connected through shared ops),
-  `kernel-perf` (real kernel speed-ups reverted: results still correct, a per-GPU perf bar fails), `kernel-migration`
-  (2-4 real toolkit-migration commits reverted at B: CUDA 12 -> 13 / CCCL 3 removals, CUDA 11 -> 12 texture/warp changes,
-  merged into multi-program windows on the kernel-migration machinery). Training: ggml-org/llama.cpp and the two
-  migration repos; held out: ikawrakow/ik_llama.cpp (disjoint repository and commits, same harness type), sealed by the lease.
-- **Harness profiles (2026-10-24, doc 10 §4.1):** a repository plugs in through a `KernelHarness` profile (`factory/lanes/kernel_profiles.py`: build, case listing, per-case run and dump, reference and tolerance as `dump` or `status` comparison, sanitizer run, perf, seeded or fixed inputs). `GgmlHarness` delegates to `kernel_harness` unchanged (same environment, commands and verdicts; the ggml reference identity unchanged); `Catch2Harness` runs self-checking Catch2 GPU tests, first CCCL's CUB (`catch2-cccl`, training), smoked on the 5090 (ReduceByKey `6ad0be74`: B 3/3, revert 2/3, the fix's own case broken). Held-out repositories are named only in the gitignored `data/kernel_debug/harness_repos.json`.
-- **Harness and grader:** the repository's own op test (`test-backend-ops`) as of B, owned by the grader and patched in
-  two layouts (seeded inputs, case selection and listing, dumps, exact repetitions; anchored repairs where a fork's file
-  no longer compiles); the grader builds the candidate's CUDA backend only (everything else from the start tree) with
-  SASS-only flags, compares each case with the reference build's CPU output on fixed and fresh seeds outside the
-  candidate's process, requires kernel launches, runs compute-sanitizer for race/barrier/bounds faults and grader-clock
-  perf bars with a measured noise floor; no GPU or no calibration -> masked, never a 0.
-- **CPU now, GPU bundled:** synthesis (history-ordered chain, B' == B), compile of every touched unit at A' and B for
-  sm_90 and sm_120, the harness built and its case pools listed and seeding executed on the CPU backend, World probes,
-  floors and mutants (apply and build), prompt lint + ledger + fairness lint, intent cards; the bundle
-  (`data/kernel_debug/gpu_bundle`) calibrates case ownership, executed edges, sanitizer and perf bars, then runs S5, S8
-  and S10 on the lab 5090 (Docker) or Marlowe (Apptainer). Results: `10` §8.
-- **Hardware reach (2026-10-23, `kernel_debug_reach`):** a mined fault qualifies only when the GH200 (`sm_90`) or the
-  RTX 5090 (`sm_120`) compiles and dispatches the changed code (each changed file resolved as that GPU sees it: its
-  `__CUDA_ARCH__` or the host pass, HIP/MUSA/NCCL undefined, `common.cuh`'s feature macros and `*_available(cc)`
-  predicates, runtime `cc` tests folded three-valued, code after a `return` dropped, identical branches merged; anything
-  undecided counts as reached), the bug family's change is not speed-only, launch-shape-only or a precision-only kernel
-  selection by its message, no hardware we lack is named, and the op test builds one of its ops. Mining drops the rest
-  with the reason; records carry `targets` per fault and `reach` per milestone. `retire` moves a record to
-  `data/kernel_debug/retired/<id>/` with its reason (reversible; the report lists it); `retire --auto` once every target
-  GPU has run and fewer than two milestones are gradable. Retired: llama.cpp 7ac249cc, 4b8c156e, b377258d; held-out
-  ik_llama.cpp 5b19ab0c, 4da3f014 (`10` §3.1).
-- **GPU calibration rules (lab 5090 run):** S1 executed starts with a sweep of A' (every fault in) over every case of every
-  pool on the fixed seeds; the cases it fails join the 1,000-case sample the rest of the calibration grades; if A' passes
-  every pool case and every sanitizer check, no fault shows on this GPU and the task drops; a milestone owns the pool cases its single revert
-  breaks (or, when the revert does not apply at B, the cases its fix alone repairs); the oracle is re-graded three times on
-  the calibrated cases with fresh seeds and any case B fails leaves (input-sensitive); half-fix mutants are graded over
-  the pool: one that breaks cases adds them to its milestone, one that is whitespace-only or breaks nothing is recorded as
-  equivalent on the op tests and leaves S8, as does one that does not build. The grader builds statically (sealing removes
-  symlinks), names nvcc, splits outputs into chunks of 96 cases, and drops a case the reference crashes on; gate runs share
-  a ccache (task grades never do); x86-only CPU gates (ik_llama.cpp) run on the GPU host first (`cpu_host.json`).
-  The migration windows run on the kernel-migration grader (`kernel_plan`), which now runs the original and the candidate
-  under the same program name (a program that prints its argv[0] failed the oracle).
-- **GPU gate fixes and corrections (2026-10-22, `10` §8.2):** grader and runner bugs found by re-reading the failed runs:
-  `pool_cap=0` reached the plan as the integer 0 and fell back to the 1,000-case stride, so the S1 sweep "of every pool
-  case" covered 10-20% of the large pools (`kernel_debug_plan.pool_cap`); a cached pool grade's reuse key now includes the
-  grader kit (`kit_digest`), so a grade from before a grader fix is never read back; the S1 start drop skips perf
-  milestones (a perf start is correct by design) and pool grades never run the perf check (no bar exists yet: its infra
-  verdict masked every perf task's oracle pool grade); perf calibration times every candidate case on its own inside
-  one grade (`perf_each`: three grades per milestone, not three per case); S10 counts only grades that measured (a
-  masked grade is no pass), runs a perf task's sixty grades one at a time, and runs only for a task that passed S5 and
-  S8; the start of a correctness calibration no longer waits for an idle GPU (only timed steps do). New calibration
-  inputs: each sanitizer milestone runs its tool on `sanitizer_cases`, pool cases whose processes launch the fault's
-  kernels (`kernel_debug_ops.fault_kernels` at staging -> `fault_kernels.json`; a CUPTI launch profile of up to 192
-  pool cases on the reference build), not on the pool's first cases; a stability grade drops an owned case B passes
-  above half its tolerance (`case_ratio`, `MARGIN`); a record may carry grader-owned cases (`harness_extra`: only
-  `test_cases.emplace_back(new test_X(...));` lines of the file's own classes, at the shapes its report describes,
-  `kernel_harness.add_cases`), which join their milestone's pool as added cases and are disclosed in the prompt
-  (`EPILOGUE_EXTRA`). Migration grader: `compare.d2h = "none"` grades a self-checking program on its own report (its
-  copies back were 0.7-9.9 GB), and a window with no timed milestone does not wait for an idle GPU. The shared gate
-  ccache is capped at 12 GB (shared disk). Perf timing: the candidate's timed runs no longer carry the CUPTI launch hook (launches are counted on separate untimed runs; the traced build timed 4-14% slower than itself), and a passing perf check's ratios are read where it reports them. Blackwell consumer GPUs build as `12xa-real` (FP4 MMQ units failed ptxas at `120-real`).
-- **Apptainer GPU hosts (DeltaAI GH200, 2026-10-22, `10` §8.3):** both GPU runners (`run_gpu.py`, the migration
-  `stage_gpu.py`) run their containers as SIFs (`--mode apptainer`; `--build-sif` converts the bundle's Dockerfiles with
-  `kernel_plan.apptainer_def` on the GPU host, apt as root in the build) through one argv builder,
-  `kernel_plan.apptainer_argv` (`--nv --containall`, no network, the host's node-local disk bound at /tmp: a CUDA build
-  does not fit the session tmpfs). DeltaAI has no subuid range, so `--fakeroot` maps uid 0 only and the grader cannot
-  drop to its candidate uid: `CRUCIBLE_APPTAINER_ROOT=user` runs the grader as the invoking user without `--require-root`
-  and every result records `runtime.trusted: false` (fit for the gates, which grade the lane's own patches; grading a
-  policy there needs a subuid range or another sandbox). The Docker path is unchanged. Apptainer `--nv` reaches the driver's
-  libraries only through the container's LD_LIBRARY_PATH, which the grader's rebuilt environment dropped (every CUDA
-  program saw no device, "Unified Memory not supported"): `Trusted.run` appends `/.singularity.d/libs` when it exists.
-  `ingest-gpu --hardware-only` writes a second GPU model's gates to `gates.gpu[<GPU>]` and its calibrated milestones and
-  bars to `gpu_specs[<GPU>]` without touching the record's milestones; `report` adds `gpu_by_hardware` per task and
-  `gpu_pass_by_hardware` per family. The S3 start build now also compiles `start_dependents` (units no fault touches that
-  use a name a fault's header change takes away at A'), which would have caught `kd-perf-llamacpp-3ad8a68c`.
-  Perf calibration (GH200, 2026-10-24): a perf milestone's golden check now runs on cases B passes (its revert breaks none
-  by design; with no cases every grade masked), and a perf candidate case is kept only when B against itself stays within
-  0.5-2x and the revert is at most 20x slower (`plausible_timing`: the GH200 read ratios of 0.0 and thousands).
-- **Grader gaps closed on the existing tasks (2026-10-23, `10` §8.4):**
-  - **A case's inputs no longer depend on the cases run before it.** The harness drew every input from one
-    process-wide counter, so a case's inputs changed with its position in a chunk: the calibration (96-case chunks) and
-    a later grade of the same case saw different inputs at the same seed, and a revert's break seen in the calibration
-    did not repeat at S8 (`cef66d4a` m2, `a45699aa` m3, held-out `35d83401` m1). A selected case now restarts the
-    stream from (seed, case name) (`crucible_case_start`); the 2024 layout's static per-thread engines and the 2025
-    layout's first-tensor thread count are rebuilt per call. Checked on the 5090: the same cases dump identical outputs
-    alone and inside a 35-case chunk, in both dialects.
-  - **Ownership on fixed-seed breaks.** Pool grades report `per_case_fixed` (the spec's fixed seeds only); a revert owns
-    a case, and an executed edge is drawn, only on a break there (one fresh-seed break no longer owns a case S8 then
-    misses).
-  - **An exact attention reference where B's own CPU kernel is wrong.** ik_llama.cpp's IQK CPU flash attention (taken
-    when `max_bias == 0`) disagrees with ggml's semantics on the 2024 op test's inputs, so B failed 237 of its own 455
-    FLASH_ATTN_EXT cases. The reference build can replace the CPU column of a listed case with an exact computation
-    (`crucible_fa_exact`: scale, ALiBi slopes, softcap, additive mask, softmax and GQA in double from the CPU graph's
-    inputs, dequantised by the file's own `tensor_to_float`; `CRUCIBLE_FA_REF_CASES`). The calibration lists a case
-    only on evidence (`KDGrader.fa_probe`, `fa_reference_verdict`, `fa_exact_choice`): B's GPU must match the exact
-    result within half the tolerance, the CPU kernel must not, B's GPU must be bitwise stable across two processes, and
-    the exact computation must agree with both on at least 8 cases where they agree with each other; otherwise nothing
-    switches. Recorded per task as `calibration.fa_reference`.
-  - **The reference's identity includes the harness hooks** (`harness_digest`): a hook change rebuilds every reference.
-  - **Migration S8 read an empty field.** It took per-gate verdicts from the reward document's `gates`, which
-    `kernel_plan` leaves empty, so no fault mutant ever counted as killed. Gates now come from the report (or the
-    `check/<gate>` components) and a mutant is killed when a milestone of the program it targets fails
-    (`gates_of`, `mutant_targets`, `mutant_killed`). A window may list mutants shown equivalent on the program's own
-    inputs (`equivalent_mutants`: the reason citing the code), listed apart as `S8_mutants_excluded`; a window whose
-    every mutant is excluded fails S8. The migration S10 leaves masked grades out of the denominator (`flake_verdict`,
-    as the bug lane does).
-  - **A sanitizer tool keeps a milestone only when it discriminates** (clean on B and dirty on the revert,
-    `sanitizer_discriminates`); a tool dirty on both had kept milestones with nothing left to grade them.
-  - A grade that leaves no reward logs the container's error in the run log.
-- **GPU episodes (2026-10-24, `10` §9, `factory/lanes/kernel_episode.py`, `scripts/lh_kernel_target.py`):** a student,
-  frontier or swarm episode on a kernel task now runs on a GPU host, not in a CPU-only World.
-  - **The World** is one container on the host (the lab 5090's daemon through the shared SSH tunnel), with
-    `--runtime=nvidia`, `--network none` and CPU, memory and PID limits. A new World backend, `container_exec` (registry
-    `world_backend`, `world/backends/container.py`), routes every App's file tools, shell, git and `fs` state snapshots
-    into that running container, so nothing of the World lives on this machine.
-  - **The start tree** is the gated A' with history cut (one `base` commit) and a CUDA build of A' already configured and
-    built in `/ws/build` (gitignored). The template is made once per task, arch and flags on the host, under its build
-    lock. The agent builds with nvcc, runs the op tests on the GPU and uses compute-sanitizer.
-  - **Collection:** the harness collects from a local mirror pulled out of the container (tracked and untracked, not
-    ignored, files and `.git`; `workspace`); the checkpoint sidecar snapshots inside the container.
-  - **Grading stays out of the agent's reach:** every checkpoint and final grade is `run_gpu.py --grade-one` (kernel
-    bugs) or `stage_gpu.py --grade-one` (migrations), run on the host from an episode bundle. That bundle is this
-    checkout's runner and kit, with the gate bundle's tasks, hooks and cache linked in. Each grade is a fresh grading
-    container on the pristine start tree plus the patch, with the calibrated hidden cases, on the GPU model the task was
-    calibrated on. The episode grade is the verifier's `GradeReport` with the window lane's path gates and path reward
-    (`check_paths`, `path_reward`: a hack-severity violation scores 0). The World liveness probe asks the World's own
-    daemon (`envs.world_alive` reads `_crucible_env`).
-  - **Smoke (`10` §9.2):** on `ca21f3a1` the oracle grades 1, the empty patch 0 and `revert-m1` 0.25, at 15–20 s each. A
-    student and a DeepSeek episode at 40 calls built, ran the op tests and compute-sanitizer on the GPU, edited code, and
-    were graded at their checkpoints and at the end. The four smoke runs cost $1.64 of Tinker.
-  - **The gate cache, read-only:** kernel-bug episode grades read the gate runs' build cache read-only (`ccache_ro`:
-    mounted read-only, `CCACHE_READONLY=1`), so unchanged units are reused and a candidate can neither write nor poison it.
-  - **Locks:** the host's GPU lock (`flock`) is shared for correctness grades and exclusive for a perf task's grades and
-    its open World, and a perf task's checkpoints are deferred to the end (`episode_checkpoint`, read by
-    `envs.make_env`). Grades and template builds take the build lock one at a time, because parallel nvcc builds ran
-    the shared 5090 out of memory.
-  - **Masking:** an unreachable host or a missing spec masks the grade (V8).
-  - **Host outages (2026-10-26, `world/hostreach.py`):** when this Mac lost its network, every in-flight episode's tool
-    calls hung until the 9,000 s attempt clock, and all 8 episodes of a measurement were masked after $29.5 of sampling.
-    Every call to a remote host now runs under that host's `HostReach`, shared by the process (every `DockerExec` on a
-    remote daemon, so the lab's task sandboxes too, `SSHExec`, `kernel_episode.remote`, the workspace pull, the liveness
-    check). The local daemon's calls are unchanged.
-    - **Fail fast:** a call still running after 15 s has the host probed (`docker version` through the shared tunnel, or
-      `ssh ... true`), and two failed probes in a row cut it with the typed `HostUnreachable` (at most 50 s). A transport
-      error the call reports itself (no daemon, no tunnel, ssh rc 255) is confirmed by one probe, never read from its words
-      alone. SSH options are `ConnectTimeout=15`, `ServerAliveInterval=15`, `ServerAliveCountMax=4`. The workspace pull
-      runs off the event loop and is killed after 60 s without data (on the loop, one stalled stream held every episode).
-    - **Pause, then retry:** the episode pauses with every registered clock held (the Runner's attempt clock, the agent
-      clock, the World's tool deadline, a grade's scoring budget), and probes with backoff for up to 30 min per attempt,
-      never past 30 min after the host went down. Back: the call runs again if nothing reached the host or it is
-      replayable (framework calls, read-only tools); a policy's write or shell call cut mid-way returns `interrupted` to
-      the agent. Model calls already made are never sampled again. Still down: `transport_unreachable` with detail
-      `host_unreachable`, an infra mask (a masked final grade is regraded from the stored patch, never re-sampled).
-    - **Fleet stop:** `open` starts no World while the host is known to be down, and `lh_kernel_target.py` launches no job
-      (`launch_gate`; skipped with the reason, picked up by the next run of the stage).
-    - **Diagnostics:** each attempt's outages are in `record.meta.host_outages` and a `host_outage` run-journal event; the
-      host's events go to `<out>/journal/hosts.jsonl` (swarm journal); framework health clusters them per host.
-  - **Targeting:** `lh_kernel_target.py` runs the debug lane's targeting stages (pilot, student, frontier, audit, mine,
-    report; the same meter, keep rule, trace audit and presets) over these tasks, and records per-GPU grade minutes. The
-    `fairness` (S9b), `disclose`, `worldfix` and `regrade` stages are refused for kernel tasks: there is no CUDA
-    alternative writer or second verifier yet.
-  - **DeltaAI is declared, not built:** the runner has to run on the compute node itself.
+The GPU kernel lane (kernel debug and migration) was removed on 2026-10-28 by the lead's decision; history in git before c26f069a.
+
+Host outages (2026-10-26, `world/hostreach.py`; kept when the GPU kernel lane was removed): when this Mac lost its network,
+every in-flight remote episode's tool calls hung until the 9,000 s attempt clock, and all 8 episodes of a measurement were
+masked after $29.5 of sampling. Every call to a remote host now runs under that host's `HostReach`, shared by the process
+(every `DockerExec` on a remote daemon, so the lab's task sandboxes too, `SSHExec`, a remote World's workspace pull and
+liveness check). The local daemon's calls are unchanged.
+- **Fail fast:** a call still running after 15 s has the host probed (`docker version` through the shared tunnel, or
+  `ssh ... true`), and two failed probes in a row cut it with the typed `HostUnreachable` (at most 50 s). A transport
+  error the call reports itself (no daemon, no tunnel, ssh rc 255) is confirmed by one probe, never read from its words
+  alone.
+- **Pause, then retry:** the episode pauses with every registered clock held (the Runner's attempt clock, the agent
+  clock, the World's tool deadline, a grade's scoring budget), and probes with backoff for up to 30 min per attempt,
+  never past 30 min after the host went down. Back: the call runs again if nothing reached the host or it is
+  replayable (framework calls, read-only tools); a policy's write or shell call cut mid-way returns `interrupted` to
+  the agent. Model calls already made are never sampled again. Still down: `transport_unreachable` with detail
+  `host_unreachable`, an infra mask (a masked final grade is regraded from the stored patch, never re-sampled).
+- **Fleet stop:** a launcher opens no new episode while the host is known to be down (`HostReach.down`, `wait_up`).
+- **Diagnostics:** each attempt's outages are in `record.meta.host_outages` and a `host_outage` run-journal event; the
+  host's events go to `<out>/journal/hosts.jsonl` (swarm journal); framework health clusters them per host.
 
 Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; `factory/langs/`, `factory/generators/debug.py`,
 `scripts/lh_debug.py`; $0, no model calls; student Qwen/Qwen3.6-35B-A3B):
@@ -1510,7 +1356,7 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
 - **The benchmark, sealed for real (2026-10-24, `swarm-pipeline/00` §10, `07` §4.1):** the debug held-out tasks went
   public on 2026-10-22 through a `git add -f` of `crucible/data/debug`, so sealing is now measured and guarded, not assumed.
   - **Contamination audit** (`factory/benchaudit.py`, `scripts/bench_audit.py`, `runs/benchmark_contamination.json`):
-    every held-out task (debug and kernel) and every kept benchmark variant, against our public tree (`git grep -F` of
+    every held-out debug task and every kept benchmark variant, against our public tree (`git grep -F` of
     its id, report sentences, hidden test names and the lines its fix and hidden tests add; the commit that first
     published each file) and against every training source (`bench.contamination`: 13-grams, code substrings, near
     duplicates, containment; sentences in three or more reports are template, and 13-gram hits spread over three or more

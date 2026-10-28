@@ -46,9 +46,9 @@ operator fixes it between steps, records the fix (``record_fix``), regrades the 
 reward-rule versions the grades used, and a run whose versions changed without a fix record is itself a HIGH defect.
 
 **Metadata** (``metadata``) per lane and step: tool failure rate, seconds per tool call and per model call, tokens per turn
-and per episode, context use, compactions and Φ across them, checkpoint grading cost and timing, mask rate, GPU and World
+and per episode, context use, compactions and Φ across them, checkpoint grading cost and timing, mask rate, World
 minutes, budget stops, time to first edit, and useful gradient samples (an episode in a group with reward spread) per
-dollar and per GPU-hour. ``tuning`` turns them into proposals with the expected effect and the evidence.
+dollar. ``tuning`` turns them into proposals with the expected effect and the evidence.
 
 **Held-out discipline.** Benchmark episodes count only in aggregate: a defect found on held-out traces keeps its component,
 kind, severity and counts; its tasks become placeholders, its episodes, reproduction and content-bearing signature are
@@ -746,13 +746,6 @@ def _mean(xs: Iterable[float | None]) -> float | None:
     return sum(ys) / len(ys) if ys else None
 
 
-def _gpu_s(v: View) -> float:
-    if v.ep.lane not in ("kernel", "migration"):
-        return 0.0
-    meta = v.rep.get("meta") or {}
-    return float(meta.get("grade_s") or 0.0) + sum(float(c.get("graded_s") or 0.0) for c in v.cps)
-
-
 def metadata(views: Sequence[View], *, context: int = 262144) -> dict[str, Any]:
     """Per lane, and per step when the views carry steps: the numbers ``tuning`` reads (module doc)."""
     def block(vs: Sequence[View]) -> dict[str, Any]:
@@ -782,7 +775,6 @@ def metadata(views: Sequence[View], *, context: int = 262144) -> dict[str, Any]:
                 by_group[v.group].append(v)
         useful = sum(len(g) for g in by_group.values() if len(g) >= 2 and max(float(x.ep.reward) for x in g) - min(float(x.ep.reward) for x in g) > 1e-9)  # type: ignore[arg-type]
         cost = sum(float(v.rec.get("cost_usd") or 0.0) for v in vs)
-        gpu_h = sum(_gpu_s(v) for v in un) / 3600.0
         trunc = sum(1 for st in steps if re.search(r"\[\.\.\. ?\d+ (chars|bytes|lines)|truncated", st.result or "", re.IGNORECASE))
         return {
             "episodes": len(vs), "masked": len(vs) - len(un), "mask_rate": (len(vs) - len(un)) / len(vs) if vs else None,
@@ -799,14 +791,14 @@ def metadata(views: Sequence[View], *, context: int = 262144) -> dict[str, Any]:
             "checkpoints_graded": len(cp_graded), "checkpoint_s_mean": (cp_s / len(cp_graded)) if cp_graded else None,
             "checkpoint_share_of_agent_time": (cp_s / agent_s) if agent_s else None,
             "checkpoints_unmeasured": sum(1 for v in un for c in v.cps if not c.get("measured", True)),
-            "world_min_per_episode": _mean(float(t.get("agent") or 0.0) / 60 for t in tim), "gpu_min_per_episode": _mean(_gpu_s(v) / 60 for v in un) if gpu_h else None,
+            "world_min_per_episode": _mean(float(t.get("agent") or 0.0) / 60 for t in tim),
             "budget_stop_share": (sum(1 for v in un if str(v.ep.stop) in BUDGET_STOPS) / len(un)) if un else None,
             "first_edit_call": _mean(firsts), "no_edit_share": (1 - len(firsts) / len(un)) if un else None,
             "truncated_tool_outputs": (trunc / len(steps)) if steps else None,
             "length_finish_share": (sum(1 for v in un for c in v.calls if c.get("finish") == "length") / max(1, sum(len(v.calls) for v in un))) if un else None,
             "useful_samples": useful, "useful_share": (useful / len(un)) if un else None, "usd": round(cost, 4),
-            "usd_per_useful_sample": (cost / useful) if useful else None, "useful_per_gpu_hour": (useful / gpu_h) if gpu_h else None,
-            "episode_wall_s": _mean(float(t.get("agent") or 0.0) for t in tim), "grade_gpu_s_per_episode": _mean(_gpu_s(v) for v in un) if gpu_h else None,
+            "usd_per_useful_sample": (cost / useful) if useful else None,
+            "episode_wall_s": _mean(float(t.get("agent") or 0.0) for t in tim),
         }
     lanes: dict[str, list[View]] = defaultdict(list)
     steps: dict[int, list[View]] = defaultdict(list)
@@ -856,11 +848,6 @@ def tuning(md: Mapping[str, Any], views: Sequence[View], *, cadence: int = 20, c
         elif m.get("input_tokens_per_turn") and m["input_tokens_per_turn"] > 60000 and (tr or 0) < 0.02:
             prop("tool_truncation", lane, "lower the per-result limit for test logs (most of the context is tool output)", "lower tokens per turn at the same Φ",
                  {"input_tokens_per_turn": m["input_tokens_per_turn"]})
-        gs, ws = m.get("grade_gpu_s_per_episode"), m.get("episode_wall_s")
-        if gs and ws:
-            conc = max(1, int(ws // gs))
-            prop("concurrency", lane, f"run at most {conc} episode{'s' if conc != 1 else ''} per GPU at once (grading uses {gs:.0f} GPU-s of a {ws:.0f} s episode)",
-                 "the GPU saturates without queueing grades", {"grade_gpu_s_per_episode": gs, "episode_wall_s": ws, "useful_per_gpu_hour": m.get("useful_per_gpu_hour")})
         lf = m.get("length_finish_share")
         if lf is not None and lf > 0.002:
             prop("sampler", lane, "raise the per-call output-token limit (calls cut at the limit end in a malformed or empty tool call)",

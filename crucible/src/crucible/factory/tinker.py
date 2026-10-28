@@ -73,12 +73,12 @@ def _backend(backend: Any) -> Any:
 
 def task_meta(tasks: Sequence[Any]) -> dict[str, dict[str, Any]]:
     """task id -> language, family, skill (the benchmark breakdowns): a task's own ``language`` / ``family`` / ``intent``
-    when it has them, else the lane's (a kernel-lane task is CUDA, a window task Python; the family is the repository)."""
+    when it has them, else the lane's (a window task is Python; the family is the repository)."""
     out = {}
     for t in tasks:
         w = getattr(t, "window", None) or {}
         lane = type(t).__module__.rsplit(".", 1)[-1]
-        out[str(t.task_id)] = {"language": getattr(t, "language", None) or ("cuda" if "kernel" in lane else "python"),
+        out[str(t.task_id)] = {"language": getattr(t, "language", None) or "python",
                                "family": getattr(t, "family", None) or (w.get("repo") if isinstance(w, Mapping) else None) or lane,
                                "skill": getattr(t, "intent", None) or "unassigned", "split": str(getattr(t, "split", "") or "") or None}
     return out

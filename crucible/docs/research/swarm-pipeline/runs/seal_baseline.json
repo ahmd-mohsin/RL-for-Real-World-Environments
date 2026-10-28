@@ -184,19 +184,11 @@
   },
   {
    "rule": "heldout_id",
-   "path": "crucible/docs/research/swarm-pipeline/10-kernel-debug-lane.md"
-  },
-  {
-   "rule": "heldout_id",
    "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_contamination.json"
   },
   {
    "rule": "heldout_id",
    "path": "crucible/docs/research/swarm-pipeline/runs/benchmark_power.json"
-  },
-  {
-   "rule": "heldout_id",
-   "path": "crucible/docs/research/swarm-pipeline/runs/kernel_debug_funnel.json"
   },
   {
    "rule": "heldout_id",

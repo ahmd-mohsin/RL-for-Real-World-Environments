@@ -1128,33 +1128,10 @@ episodes in `data/observe` (4.4 MB; `11` §7).
 fallback writes `links.json`); per-turn timestamps are reconstructed; the first real sync is untested (no key); `uv lock`
 for the `observe` extra.
 
-## Kernel debug lane (built, CPU gates; GPU gates bundled)
+## Kernel debug lane (removed)
 
-Three long-horizon families on the shared task shape (A' -> B, 2-4 real changes reverted together, milestones in
-history order): `kernel-bug` (real CUDA kernel bug fixes), `kernel-perf` (real kernel speed-ups; results stay correct,
-a grader-clock perf bar fails) and `kernel-migration` (real toolkit-migration commits regrouped into multi-program
-windows). Student Qwen/Qwen3.6-35B-A3B; builder `claude-code:opus-5.5`; $0, no model call, no GPU. Full write-up:
-`10-kernel-debug-lane.md`.
-
-- **Code:** `factory/langs/cuda.py` (the `cuda` profile on the shared `LangProfile` protocol), `factory/lanes/kernel_harness.py`
-  (the grader-owned op test: patch, repairs, dumps, compare), `kernel_debug_ops.py` (op map), `kernel_debug_mine.py`,
-  `kernel_debug.py` (record, task, prompt, ledger, intent), `kernel_debug_world.py` (CPU gates in Docker, GPU backend),
-  `kernel_debug_plan.py` (the GPU kit plan), `kernel_debug_migrate.py`; scripts `lh_kernel_debug.py`
-  (`mine build gates repool author stage-gpu ingest-gpu report`), `lh_kernel_debug_migrate.py`, `lh_kernel_debug_gpu.py`.
-- **Sources:** training ggml-org/llama.cpp (since 2026-05-01, falling back to 2025-09-01 for supply), HeCBench (CUDA 13 /
-  CCCL 3) and cudahandbook (CUDA 12); held out ikawrakow/ik_llama.cpp (since 2026-05-01), sealed by repository.
-- **Result:** 19 candidates pass every CPU gate (11 bug, 3 perf, 5 migration) plus 5 held-out bug candidates that pass
-  every structural CPU gate with their harness runs pending the x86 GPU host; all 24 have intent cards and lint-clean
-  prompts. Dropped: 1 bug (A' does not compile), 1 perf (a milestone without a perf case), 1 held-out perf (a revert
-  mutant does not build; leak-probe hit). Funnel: `runs/kernel_debug_funnel.json`.
-- **GPU bundle:** `crucible/data/kernel_debug/gpu_bundle` (19 bug/perf tasks; `migration/` holds the 5 windows):
-  `bash run_gpu.sh docker` on the lab 5090, `bash run_gpu.sh apptainer` on Marlowe; `ingest-gpu` writes results back.
-  Every GPU gate is listed in `PENDING.json`.
-- **Fixed while running:** a Docker Desktop bind-mount reuse that hid the seeding runs' output (fresh run directory per
-  call; `repool`); the start tree's units only at A'; the 2024 layout's harness repaired by anchored patches; stale
-  CMake caches wiped by a config stamp; OOM retries under the shared 8 GB Docker VM.
-- **Tests:** `test_m17_kd_{harness,mine,task,migrate,world}` (28 functions); kernel lane 53 passed; m17 non-Docker 623
-  passed, 1 skipped; ruff on the lane files and lint-imports (4 kept) clean.
+The GPU kernel lane (kernel debug and migration) was removed on 2026-10-28 by the lead's decision; history in git before
+c26f069a.
 
 ## Debug lane (built): multi-language debugging tasks from interacting real fixes
 
