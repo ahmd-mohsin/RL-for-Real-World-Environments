@@ -114,7 +114,10 @@ def summarize(by_level: dict[int, list[Graded]], *, config: FlakeConfig | None =
     bad = [g for g in all_g if not g.masked and g.finite and not g.passed(cfg.pass_at)]
     checks = Counter(c for g in bad for c in g.failing())
     tests = Counter(t for g in bad for t in (g.detail or {}).get("failing_tests") or [])
-    detail = {"checks": dict(checks.most_common(20)), "tests": dict(tests.most_common(20))} if bad else {}
+    # per false negative too: a run that failed everything (a host kill) and one that failed two tests read apart
+    runs = [{"checks": g.failing(), "n_tests": int((g.detail or {}).get("n_failing") or len((g.detail or {}).get("failing_tests") or [])),
+             "tests": list((g.detail or {}).get("failing_tests") or [])[:5]} for g in bad][:30]
+    detail = {"checks": dict(checks.most_common(20)), "tests": dict(tests.most_common(20)), "runs": runs} if bad else {}
     return FlakeReport(levels, n, fails, sum(r["masked"] for r in levels.values()), clopper_pearson_upper(fails, n, cfg.alpha),
                        separate(all_g, pass_at=cfg.pass_at), cfg, detail)
 

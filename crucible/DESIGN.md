@@ -1554,7 +1554,9 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   - **S10 names what flipped** (2026-10-27): `FlakeReport.false_negative_detail` counts the failing checks and the
     grader's failing tests over the false negatives (`graded_from` keeps a GradeReport's failing tests), and the S10
     evidence carries it. A held-out task failed S10 on 1 false negative in 59, and its record could not say which
-    milestone or test flipped.
+    milestone or test flipped. `runs` lists each false negative (its failing checks, how many tests failed, the first
+    five): the task's rerun had 12 in 60, 10 failing everything (the host killed the whole suite under load) and 2
+    failing only the regression check, and the totals alone could not tell the two apart.
   - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
     seal ignore a record of another tree.
   - **Agent-caused tool errors** (2026-10-26, from mvdan-sh dc951aeb-e1's budget stops, 13-14 failed calls each): an

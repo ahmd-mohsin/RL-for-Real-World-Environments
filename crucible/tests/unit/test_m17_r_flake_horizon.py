@@ -192,7 +192,8 @@ def test_a_flake_report_names_what_failed_in_its_false_negatives():
     runs = [report(i != 3) for i in range(20)]
     rep = asyncio.run(measure_flake(lambda i: graded_from(runs[i % 20]), config=FlakeConfig(reruns=10, concurrency=(1, 2))))
     assert rep.false_negatives == 1
-    assert rep.false_negative_detail == {"checks": {"c_m02": 1}, "tests": {"pkg/a_test.go::TestSlow": 1}}
+    assert rep.false_negative_detail == {"checks": {"c_m02": 1}, "tests": {"pkg/a_test.go::TestSlow": 1},
+                                         "runs": [{"checks": ["c_m02"], "n_tests": 1, "tests": ["pkg/a_test.go::TestSlow"]}]}
     assert rep.to_dict()["false_negative_detail"] == rep.false_negative_detail
     clean = asyncio.run(measure_flake(lambda i: graded_from(report(True)), config=FlakeConfig(reruns=10, concurrency=(1, 2))))
     assert clean.false_negative_detail == {}
