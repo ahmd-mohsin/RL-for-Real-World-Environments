@@ -265,6 +265,21 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   beside CUDA logprobs. The loss tests ran on the CPU only, so they could not see it. Fixed: the bound is a Python float
   (`math.log`). A test runs all three objectives forward and backward on an accelerator (MPS on the Mac, CUDA where
   present), and it fails on the old code.
+- **Attempt 11** (job 3474615, 2026-10-28): **phase 1 passed**, and phase 2 failed. 19:59 in total, 0.67 GPU-hours. vLLM was
+  healthy after 190 s. Two real RL steps ran through the bridge:
+  - trainer step 1: 16 datums, 445 trained tokens, reward mean 0.17, 24 s; trainer step 2: 16 datums, 46 tokens, reward
+    mean 0.29, 5.4 s;
+  - each adapter was broadcast, hot-loaded (`crucible-s000001`, `crucible-s000002`) and served. The greedy probe's
+    logprob went from -8.68 (base) to -0.97 to -0.03, so the LoRA sync works;
+  - checkpoints were written at steps 1 and 2. The relaunched trainer loaded step 2 ("Resuming from step 2",
+    `total_tokens=901`).
+
+  Phase 2 then raced on stale markers. The relaunched trainer re-offers its resume step in `broadcasts/step_2` after
+  deleting the directory. The bridge got there about 30 s first, found phase 1's answered markers (`.sender_ready`,
+  `.receiver_ready`, `.finished`) and moved on, and the trainer waited for a receiver that had gone. Fixed:
+  `FileIO.wait_broadcast` answers only an unanswered offer (`.sender_ready` without `.receiver_ready`). A test replays
+  the race and fails on the old code. The kernel check passed again. Peak GPU memory: 5,050 MiB on the trainer GPU and
+  88,671 MiB on the vLLM GPU (`gpu_memory_utilization = 0.9`).
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

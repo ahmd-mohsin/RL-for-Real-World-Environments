@@ -246,7 +246,7 @@ echo "vLLM healthy after $((SECONDS - T0)) s"
 echo "=== phase 1: two steps"
 {py} --steps 2 --report {out}/smoke1.json || {{ echo "phase 1 failed"; tail -30 {out}/trainer.log; tail -20 {out}/inference.log; kill $INF $TRN $MEM 2>/dev/null; exit 9; }}
 kill $TRN; wait $TRN 2>/dev/null; pkill -u $USER -f prime_rl.trainer.rl.train; sleep 5  # torchrun's workers too: GPU 0 is free for the relaunch
-echo "=== phase 2: trainer relaunched from its step-1 checkpoint"
+echo "=== phase 2: trainer relaunched from its step-2 checkpoint"
 CUDA_VISIBLE_DEVICES=0 {trainer_command(f"{out}/trainer_resume.toml", gpus=1, port="$((30500 + SLURM_JOB_ID % 1000))", tag="resume")} > {out}/trainer_resume.log 2>&1 &
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json

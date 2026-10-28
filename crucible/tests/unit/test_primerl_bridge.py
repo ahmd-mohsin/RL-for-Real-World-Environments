@@ -475,3 +475,33 @@ def test_the_loss_runs_on_an_accelerator_device(kind: str) -> None:
                                         loss_weights=None, ref_logprobs=None), kind=kind, kl_coeff=0.01)
     out.loss.backward()
     assert lp.grad is not None and lp.grad.device.type == dev and all(v.device.type == dev for v in out.metrics.values())
+
+
+def test_a_relaunched_trainers_offer_is_answered_and_the_previous_trainers_markers_are_not(tmp_path: Path) -> None:
+    # attempt 11 (job 3474615): phase 1 left broadcasts/step_2 answered and finished; the relaunched trainer deletes and
+    # re-offers it a few seconds after the bridge looks
+    import shutil
+
+    io = FileIO(tmp_path, ranks=1, seq_len=64, model=MODEL, poll_s=0.01, simple_pack=True)
+    d = tmp_path / "broadcasts" / "step_2"
+    d.mkdir(parents=True)
+    for m in (".sender_ready", ".receiver_ready", ".finished"):
+        (d / m).touch()
+
+    async def relaunched_trainer():
+        await asyncio.sleep(0.2)
+        shutil.rmtree(d)
+        d.mkdir()
+        (d / ".sender_ready").touch()
+        for _ in range(200):  # 2 s: prime-rl's trainer would wait its broadcast timeout, then fail
+            if (d / ".receiver_ready").exists():
+                (d / ".finished").touch()
+                return True
+            await asyncio.sleep(0.01)
+        return False
+
+    async def go():
+        return await asyncio.gather(io.wait_broadcast(2, timeout_s=5), relaunched_trainer())
+
+    got, answered = asyncio.run(go())
+    assert got == d and answered and (d / ".finished").exists()

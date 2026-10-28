@@ -122,13 +122,22 @@ class FileIO:
             raise TimeoutError(f"the prime-rl trainer requested no batch for step {step} in {self.send_timeout_s:.0f}s") from None
 
     async def wait_broadcast(self, step: int, *, timeout_s: float) -> Path:
+        """Answer the trainer's offer of ``step`` and wait until its weights are on disk. Only an unanswered offer counts
+        (``.sender_ready`` without ``.receiver_ready``): a relaunched trainer re-offers its resume step in a directory that
+        still holds the previous trainer's answered markers until it deletes and recreates it (smoke attempt 11, job
+        3474615: the bridge took the stale markers, and the new trainer waited for a receiver that had gone)."""
         d = self.output_dir / "broadcasts" / f"step_{step}"
         t0 = time.monotonic()
-        while not (d / SENDER_READY).exists():
+        while True:
+            if (d / SENDER_READY).exists() and not (d / RECEIVER_READY).exists():
+                try:
+                    (d / RECEIVER_READY).touch()  # unblocks the trainer's broadcast
+                    break
+                except FileNotFoundError:  # the trainer was recreating the directory
+                    pass
             if time.monotonic() - t0 > timeout_s:
                 raise TimeoutError(f"prime-rl trainer published no weights for step {step} in {timeout_s:.0f}s ({d})")
             await asyncio.sleep(self.poll_s)
-        (d / RECEIVER_READY).touch()  # unblocks the trainer's broadcast
         while not (d / FINISHED).exists():
             if time.monotonic() - t0 > timeout_s:
                 raise TimeoutError(f"prime-rl weights for step {step} not finished in {timeout_s:.0f}s ({d})")
