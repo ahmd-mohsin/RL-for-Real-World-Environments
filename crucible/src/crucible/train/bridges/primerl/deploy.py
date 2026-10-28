@@ -27,7 +27,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crucible.train.bridges.primerl.loss import KINDS
+from crucible.train.bridges.primerl.loss import CORRECTIONS, DEFAULT_CORRECTION, KINDS, check_combination
+from crucible.train.bridges.primerl.topk import DEFAULT_K
 
 ACCOUNT = "bjhg-dtai-gh"  # CIS262200; never bfgp-dtai-gh (another project)
 WORK = "/work/hdd/bjhg/mahmedmohsin"
@@ -36,6 +37,10 @@ LOSS_IMPORT = "crucible.train.bridges.primerl.loss.crucible_loss"
 # the trainer's attention: the build installs only the prebuilt FA2 wheel (``--extra flash-attn``); prime-rl's ``auto`` picks
 # FA3 on Hopper (SM90, the GH200) and FA3 is not installed; ``sdpa`` is not an option in v0.10.0 (smoke attempt 5)
 ATTN = "flash_attention_2"
+# vLLM ``--middleware`` import path that adds the top-k head to prime-rl's generate endpoint (``topk_server``; a string, so
+# the loop never imports vLLM)
+MIDDLEWARE = "crucible.train.bridges.primerl.topk_server.CrucibleTopK"
+LM_HEAD_CHUNK = 8192  # prime-rl's fused LM head (its default, pinned): score centering's head hook lives there (``sc_head``)
 
 
 @dataclass
@@ -59,6 +64,8 @@ class DeltaConfig:
     max_importance_ratio: float = 1e4
     gpu_memory_utilization: float = 0.90
     router_replay: bool = True  # MoE routing replay (``routing``): vLLM returns the routes, the trainer replays them
+    pg_correction: str = DEFAULT_CORRECTION  # score centering + MIS (``loss`` doc; swarm-pipeline/14 §7)
+    sc_topk: int = DEFAULT_K  # the sampler's top-k head per token for score centering (``topk``)
     time: str = "12:00:00"
     mem_gb_per_gpu: int = 110  # a quarter node per GPU: charging follows the largest share
     cpus_per_gpu: int = 18
@@ -78,6 +85,15 @@ class DeltaConfig:
             raise ValueError("cp must divide seq_len")
         if self.infer_gpus % self.infer_tp:
             raise ValueError("infer_tp must divide infer_gpus")
+        if self.pg_correction not in CORRECTIONS:
+            raise ValueError(f"pg_correction is one of {CORRECTIONS}")
+        if self.centered and self.sc_topk < 1:
+            raise ValueError("score centering needs sc_topk >= 1")
+
+    @property
+    def centered(self) -> bool:
+        """Score centering is on: vLLM returns the sampler's top-k head and the trainer gathers it (``sc_head``)."""
+        return self.pg_correction.startswith("sc")
 
     @property
     def gpus(self) -> int:
@@ -95,14 +111,15 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
     Tinker bridge's ``TrainConfig`` (the same flags as ``tinker_rl.py train``)."""
     if train.loss_fn not in KINDS:
         raise ValueError(f"loss_fn is one of {KINDS}")
+    check_combination(train.loss_fn, d.pg_correction)
     doc: dict[str, Any] = {
         "output_dir": str(out),
         "max_steps": int(train.steps),
         "model": {"name": d.base_model, "seq_len": d.seq_len, "ep": d.ep, "cp": d.cp, "attn": ATTN, "offload": "optimizer",
-                  "ac": {"freq": 1}, "ac_offloading": {"max_inflight_activations": 5},
+                  "ac": {"freq": 1}, "ac_offloading": {"max_inflight_activations": 5}, "fused_lm_head_token_chunk_size": LM_HEAD_CHUNK,
                   "lora": {"rank": int(train.lora_rank), "alpha": float(d.lora_alpha), "dropout": 0.0}},
         "loss": {"type": "custom", "import_path": LOSS_IMPORT,
-                 "kwargs": {"kind": train.loss_fn, "kl_coeff": d.kl_coeff, "ratio_low": d.ratio_low, "ratio_high": d.ratio_high,
+                 "kwargs": {"kind": train.loss_fn, "pg_correction": d.pg_correction, "kl_coeff": d.kl_coeff, "ratio_low": d.ratio_low, "ratio_high": d.ratio_high,
                             "max_importance_ratio": d.max_importance_ratio, **{k: float(v) for k, v in (train.loss_fn_config or {}).items()
                                                                                 if k in ("ratio_low", "ratio_high", "kl_coeff")}}},
         "optim": {"type": "adamw", "lr": float(train.learning_rate), "max_norm": 1.0},
@@ -126,12 +143,15 @@ def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
     adds session-affine routing across data-parallel engines, so more than one engine is refused here."""
     if d.infer_gpus // d.infer_tp != 1:
         raise ValueError("one vLLM engine per job (infer_gpus == infer_tp): data-parallel engines need prime-rl's vllm-router (disagg extra)")
-    return {"server": {"port": d.port}, "router": "None",
-            "vllm": {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
-                     "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
-                     "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),
-                     "enable_return_routed_experts": bool(d.router_replay)},
-            "weight_broadcast": {"type": "filesystem"}}
+    vllm: dict[str, Any] = {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
+                            "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
+                            "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),
+                            "enable_return_routed_experts": bool(d.router_replay)}
+    if d.centered:
+        # the top-k head on /inference/v1/generate (``topk_server``, loaded as vLLM middleware in the API server); vLLM caps
+        # logprobs per token at max_logprobs (default 20); prime-rl already sets logprobs_mode = processed_logprobs
+        vllm.update({"max_logprobs": int(d.sc_topk), "middleware": [MIDDLEWARE]})
+    return {"server": {"port": d.port}, "router": "None", "vllm": vllm, "weight_broadcast": {"type": "filesystem"}}
 
 
 # prime-rl's own defaults for every component and for the trainer (``prime_rl/utils/process.py``, v0.10.0); its ``rl``

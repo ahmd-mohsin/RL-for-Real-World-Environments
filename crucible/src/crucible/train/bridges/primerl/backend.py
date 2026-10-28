@@ -10,6 +10,9 @@ the two remote calls change: sampling and the optimizer step go to processes pri
   (``inference.server.port``), token ids in (``prompt`` as a list of ids), token ids and logprobs out
   (``return_tokens_as_token_ids``, ``logprobs=0``), ``model`` = the LoRA adapter name of that weight version (or the base
   model before the first step). Errors go through the Tinker bridge's infra/task split (``backend.with_retries``).
+  With routing replay or score centering on, sampling goes through prime-rl's ``/inference/v1/generate`` instead, which
+  also returns the routed experts (``routing``) and, with ``logprobs = k``, the sampler's top-k head (``topk``,
+  ``topk_server``); both are kept per call and stitched per training sequence. ``topk_cost`` measures the head's cost.
 - **The optimizer step** (``trainer().forward_backward``): the batch's datums become prime-rl ``TrainingSample``s
   (``wire``), packed by prime-rl's own packer into ``<out>/batches/step_<s>/rank_<i>.bin`` (its filesystem rollout
   transport); the prime-rl trainer (FSDP2, expert / context parallel, LoRA; launched by ``deploy``) trains on it with
@@ -32,18 +35,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
+from crucible.train.bridges.primerl import topk as topk_mod
 from crucible.train.bridges.primerl import wire
 from crucible.train.bridges.primerl.routing import RoutingStore, decode
+from crucible.train.bridges.primerl.topk import TopKStore
 from crucible.train.bridges.tinker.backend import FBOut, SampleOut, TokenDatum, with_retries
 from crucible.train.bridges.tinker.models import Prices, TinkerModel, resolve
 
 SENDER_READY, RECEIVER_READY, FINISHED = ".sender_ready", ".receiver_ready", ".finished"
+log = logging.getLogger(__name__)
 
 
 def local_model(name: str, *, context: int) -> TinkerModel:
@@ -154,9 +161,10 @@ class _Sampler:
     stats: dict[str, int]
     timeout_s: float = 3600.0
     routing: RoutingStore | None = None  # router replay: the generate endpoint, its routes kept per call (``routing``)
+    topk: TopKStore | None = None  # score centering: the generate endpoint, the sampler's top-k head kept per call (``topk``)
 
     async def sample(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
-        if self.routing is not None:
+        if self.routing is not None or self.topk is not None:
             return await self._generate(prompt_ids, max_tokens=max_tokens, temperature=temperature, stop=stop, seed=seed)
         body: dict[str, Any] = {"model": self.name, "prompt": list(prompt_ids), "max_tokens": int(max_tokens), "temperature": float(temperature),
                                 "logprobs": 0, "return_tokens_as_token_ids": True, "skip_special_tokens": False, "stop_token_ids": list(stop or [])}
@@ -166,22 +174,50 @@ class _Sampler:
         return parse_completion(out)
 
     async def _generate(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
-        """vLLM's token-in/token-out ``/inference/v1/generate`` on prime-rl's server: the routed experts come back with
-        the completion. The prefix cache is salted per episode, so every position this episode feeds was forwarded by one
-        of its own calls (``routing.stitch``)."""
+        """vLLM's token-in/token-out ``/inference/v1/generate`` on prime-rl's server: the routed experts and (with
+        ``topk``) the sampler's top-k head per token come back with the completion (``topk_server``). The prefix cache is
+        salted per episode, so every position this episode feeds was forwarded by one of its own calls (``routing.stitch``)."""
         from crucible.train.bridges.tinker.sampler import _EPISODE
 
-        sp: dict[str, Any] = {"max_tokens": int(max_tokens), "temperature": float(temperature), "logprobs": 0, "stop_token_ids": list(stop or [])}
+        k = self.topk.k if self.topk is not None else 0
+        sp: dict[str, Any] = {"max_tokens": int(max_tokens), "temperature": float(temperature), "logprobs": k, "stop_token_ids": list(stop or [])}
         if seed is not None:
             sp["seed"] = int(seed)
         body: dict[str, Any] = {"model": self.name, "token_ids": list(prompt_ids), "sampling_params": sp}
         if (ep := _EPISODE.get()) is not None:
             body["cache_salt"] = f"crucible-{ep}"
         out = await with_retries("vllm generate", lambda: self.http.post("/inference/v1/generate", body, timeout_s=self.timeout_s), stats=self.stats)
-        res, routes = parse_generate(out)
+        res, routes, heads = parse_generate(out, prompt_len=len(prompt_ids))
+        full = list(prompt_ids) + list(res.tokens)
         if routes is not None and self.routing is not None:
-            self.routing.put(list(prompt_ids) + list(res.tokens), routes)
+            self.routing.put(full, routes)
+        if heads is not None and self.topk is not None:
+            if heads.ids.shape[0] != len(res.tokens):
+                raise ValueError(f"vLLM generate returned {heads.ids.shape[0]} top-k rows for {len(res.tokens)} tokens")
+            self.topk.put(full, heads)
         return res
+
+
+async def topk_cost(http: Http, model: str, prompt_ids: Sequence[int], *, ks: Sequence[int] = (0, 8, 32), n: int = 8, max_tokens: int = 1024,
+                    timeout_s: float = 600.0) -> list[dict[str, float]]:
+    """What returning the top-k head costs on the running server (swarm-pipeline/14 §7.1): ``n`` concurrent generate calls
+    per k (greedy-free, temperature 1, fixed seeds, ``ignore_eos`` so every call makes ``max_tokens``), their wall time,
+    generated tokens per second and response bytes per token. k = 0 is the baseline."""
+    import json as _json
+
+    rows = []
+    for k in ks:
+        body = lambda i, k=k: {"model": model, "token_ids": list(prompt_ids), "cache_salt": f"crucible-topk-bench-{k}-{i}",
+                               "sampling_params": {"max_tokens": int(max_tokens), "temperature": 1.0, "logprobs": int(k), "seed": i, "ignore_eos": True}}
+        t0 = time.monotonic()
+        outs = await asyncio.gather(*(http.post("/inference/v1/generate", body(i), timeout_s=timeout_s) for i in range(n)))
+        wall = time.monotonic() - t0
+        toks = sum(len((o.get("choices") or [{}])[0].get("token_ids") or []) for o in outs)
+        size = sum(len(_json.dumps(o)) for o in outs)
+        heads = sum(1 for o in outs if (o.get("choices") or [{}])[0].get("topk_ids"))
+        rows.append({"k": float(k), "wall_s": wall, "tokens": float(toks), "tokens_per_s": toks / wall if wall > 0 else 0.0,
+                     "response_bytes_per_token": size / max(toks, 1), "calls_with_heads": float(heads)})
+    return rows
 
 
 def parse_completion(out: dict[str, Any]) -> SampleOut:
@@ -197,9 +233,10 @@ def parse_completion(out: dict[str, Any]) -> SampleOut:
                      cached_prompt_tokens=int(cached) if isinstance(cached, int) else None)
 
 
-def parse_generate(out: dict[str, Any]) -> tuple[SampleOut, Any]:
+def parse_generate(out: dict[str, Any], *, prompt_len: int = 0) -> tuple[SampleOut, Any, Any]:
     """prime-rl's generate response: ``token_ids``, the sampled logprobs packed as ``completion_logprobs`` (float32) or
-    in ``logprobs.content``, and ``routed_experts`` (``routing.decode``)."""
+    in ``logprobs.content``, ``routed_experts`` (``routing.decode``) and the top-k head ``topk_ids`` / ``topk_logprobs``
+    (``topk.decode``; row i is completion token i, at position ``prompt_len + i``)."""
     import base64
 
     import numpy as np
@@ -216,7 +253,7 @@ def parse_generate(out: dict[str, Any]) -> tuple[SampleOut, Any]:
     cached = ((out.get("usage") or {}).get("prompt_tokens_details") or {}).get("cached_tokens")
     so = SampleOut(tokens=toks, logprobs=lps, stop_reason="length" if ch.get("finish_reason") == "length" else "stop",
                    cached_prompt_tokens=int(cached) if isinstance(cached, int) else None)
-    return so, decode(ch.get("routed_experts"))
+    return so, decode(ch.get("routed_experts")), topk_mod.decode(ch.get("topk_ids"), ch.get("topk_logprobs"), start=prompt_len)
 
 
 @dataclass
@@ -228,7 +265,7 @@ class _Trainer:
         b = self.backend
         if loss_fn != b.loss_kind:
             raise ValueError(f"the prime-rl trainer was launched with loss {b.loss_kind!r}, not {loss_fn!r} (deploy.trainer_toml)")
-        rows = wire.samples(datums, temperature=b.temperature, env_name=b.env_name, routing=b.routing)
+        rows = wire.samples(datums, temperature=b.temperature, env_name=b.env_name, routing=b.routing, topk=b.topk)
         t0 = time.monotonic()
         await b.io.send(self.step, rows)
         d = await b.io.wait_broadcast(self.step, timeout_s=b.step_timeout_s)
@@ -241,9 +278,21 @@ class _Trainer:
             cov = [r["routing_coverage"] for r in rows]
             m["routing/coverage_mean"], m["routing/coverage_min"] = sum(cov) / len(cov), min(cov)
             m["routing/replayed_share"] = sum(x is not None for x in wire.replay_all_or_none(rows)) / len(rows)  # what the step sends
-            for d in datums:  # trained: their calls' routes are no longer needed
-                for end in wire.call_ends(d):
-                    b.routing.drop(wire.full_ids(d)[:end])
+        if b.topk is not None:
+            cov = [r["sc_coverage"] for r in rows]
+            sent = sum(x is not None for x in topk_mod.all_or_none(rows)) / len(rows)
+            b.sc_steps += 1
+            b.sc_fallbacks += sent < 1.0
+            m.update({"sc/coverage_mean": sum(cov) / len(cov), "sc/coverage_min": min(cov), "sc/centered_share": sent,
+                      "sc/fallback": float(sent < 1.0), "sc/fallback_steps_share": b.sc_fallbacks / b.sc_steps})
+            if sent < 1.0:
+                log.warning("prime-rl step %d: %d of %d sequences lack a sampler head at a trained position (coverage min %.3f): "
+                            "no heads sent, the loss falls back to MIS for the whole step", self.step, sum(c < 1.0 for c in cov), len(cov), min(cov))
+        for dt in datums:  # trained: their calls' routes and heads are no longer needed (``dt``: ``d`` is the broadcast)
+            for end in wire.call_ends(dt):
+                for store in (b.routing, b.topk):
+                    if store is not None:
+                        store.drop(wire.full_ids(dt)[:end])
         b.last = (self.step, d, name)
         self.step += 1
         return FBOut(target_logprobs=[], metrics=m)
@@ -289,6 +338,9 @@ class PrimeRLBackend:
     stats: dict[str, int] = field(default_factory=dict)
     adapters: dict[str, str] = field(default_factory=dict)  # adapter dir -> the name vLLM serves it under
     routing: RoutingStore | None = None  # MoE router replay (``routing``): None samples over /v1/completions without routes
+    topk: TopKStore | None = None  # score centering (``topk``): the sampler's top-k head per token, over /inference/v1/generate
+    sc_steps: int = 0
+    sc_fallbacks: int = 0  # steps sent without heads (one sequence lacked a head at a trained position): the loss used MIS
     last: tuple[int, Path, str] | None = None
 
     async def load_adapter(self, name: str, path: Path) -> None:
@@ -298,12 +350,12 @@ class PrimeRLBackend:
 
     async def sampler(self, model: str, path: str | None = None) -> _Sampler:
         if path is None:
-            return _Sampler(self.http, self.base_model, None, self.stats, routing=self.routing)
+            return _Sampler(self.http, self.base_model, None, self.stats, routing=self.routing, topk=self.topk)
         name = self.adapters.get(str(path))
         if name is None:  # a resumed run samples from a version this process never loaded
             name = f"{self.adapter_prefix}-{Path(path).name}"
             await self.load_adapter(name, Path(path))
-        return _Sampler(self.http, name, str(path), self.stats, routing=self.routing)
+        return _Sampler(self.http, name, str(path), self.stats, routing=self.routing, topk=self.topk)
 
     async def trainer(self, model: str, *, rank: int, resume: str | None = None, seed: int | None = None) -> _Trainer:
         """The trainer process is already running (``deploy``); its first step is 0, or the checkpoint step + 1 for

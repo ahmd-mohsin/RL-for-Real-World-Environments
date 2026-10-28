@@ -3,7 +3,8 @@
 **Scope.** RL post-training of the student, Qwen/Qwen3.6-35B-A3B, on NCSA DeltaAI GH200 nodes instead of Tinker. The
 user's decision of 2026-10-25: train on DeltaAI GPUs, keep Tinker for task creation. Serving, the arm64 Worlds, the
 sandbox and the benchmark harness on DeltaAI are a separate worker's (this doc covers the trainer). Code:
-`crucible/src/crucible/train/bridges/primerl/`, `scripts/delta_rl.py`, `tests/unit/test_primerl_bridge.py`.
+`crucible/src/crucible/train/bridges/primerl/`, `scripts/delta_rl.py`, `tests/unit/test_primerl_bridge.py`,
+`test_primerl_routing.py`, `test_primerl_score_centering.py`.
 
 ## 1. The framework choice
 
@@ -55,7 +56,8 @@ scripted groups run through Tinker's fake and through the bridge's fake trainer,
   the ratio capped and the gradient straight-through), `ppo` and `cispo`, plus a sampler–learner anchor
   β·Σ(log q − log p_θ) on the sampled tokens. That is the k1 estimate of KL(q‖p_θ) that Tinker's `stable_reinforce`
   adds; its gradient −β∇log p_θ keeps the learner near the policy that produced the data, without a reference model.
-  `--kl-coeff` sets β (default 0).
+  `--kl-coeff` sets β (default 0). On top of that, the off-policy correction `--pg-correction` defaults to **score
+  centering with masked importance sampling** (`sc+mis`, §7).
 - **The loss scale stays exact.** prime-rl divides the rl loss by the step's trainable-token count; the bridge sends the
   advantages multiplied by that count (`wire.undo_token_mean`), so `loss_scale = sum` or `token_mean` trains exactly what
   it does on Tinker.
@@ -123,7 +125,7 @@ while the curves move: the budget allows about 200 steps of that size. A 2-step 
 ```
 uv run python scripts/delta_rl.py plan --steps 40 --groups-per-step 4 --group 8 --balance 976
 uv run python scripts/delta_rl.py render --rows R.jsonl --targeting T.json --run-name rl-001 --stage stage/rl-001 \
-    --steps 40 --groups-per-step 4 --group 8 --sampler difficulty --eta 0.1 --loss cispo --kl-coeff 0.01
+    --steps 40 --groups-per-step 4 --group 8 --sampler difficulty --eta 0.1   # SC+MIS, k = 32 (§7); --pg-correction none --loss cispo for CISPO
 rsync -a crucible/src crucible/scripts crucible/pyproject.toml deltaai:/work/hdd/bjhg/mahmedmohsin/crucible-train/crucible/
 rsync -a stage/rl-001/ deltaai:/work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001/
 ssh deltaai 'bash /work/hdd/bjhg/mahmedmohsin/crucible-train/runs/rl-001/build_env.sh'   # once, on the login node: BUILD_OK
@@ -241,8 +243,187 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 ## 6. Open items
 
 - **MoE routing replay is built but not yet run live** (§2): it is first checked on the 2-step real-model run.
+- **Score centering (SC+MIS) is built but not yet run live** (§7.6): the 2-step run checks the head on the generate
+  endpoint, full coverage, alignment and the server and trainer cost.
 - **Model-written code is graded as the user on DeltaAI** (Apptainer user mode, `trusted: false`): acceptable for our own
   patches, not for RL episodes at scale, until NCSA grants a subuid range or a different sandbox is used. This blocks the
   real run's grading, not the trainer.
 - **The real 35B on 2 trainer GPUs is untested** (memory headroom at 262K with `cp = 2`). The 2-step real-model run decides
   between `cp = 2` and a whole node for the trainer.
+
+## 7. Score centering with masked importance sampling (SC+MIS)
+
+The student samples in bf16 vLLM with its own MoE routing (replayed, §2) and trains in prime-rl's FSDP model, and the
+loop is asynchronous (`--max-staleness`, `--async-groups`). So the sampler q never equals the learner p_θ, even on the
+step it was saved. "Score Centering Stabilizes Off-policy Reinforcement Learning" (Marek and Ryabinin, arXiv 2609.20807,
+2026; reference code `martin-marek/score-centering`, MIT, read at 6484296) splits the expected policy gradient at a
+prefix into E_q[R·s_y] = E_q[R]·s̄ + Cov_q(R, s_y), with s̄ = Σ_v q_v ∇log p_v. The first term is **drift**: it carries no
+information about which rollouts succeeded, it vanishes only on-policy, and it accumulates over steps. Score centering
+subtracts the score's expectation under the effective sampling mass, which removes the drift and keeps the signal:
+
+  per-token loss = −A·(sg(w_y)·log p_y − Σ_{v∈H} sg(q_v·w(p_v/q_v) − α·p_v)·log p_v)
+
+H is the sampler's top-k head at that position. The tail is modeled as ρ·p_v with ρ = (1 − Σ_H q)/(1 − Σ_H p), so its
+centering term is −α·Σ_H p_v∇log p_v with α = ρ·w(1/ρ), and only the k head logprobs carry gradient. The token weight w
+is 1 (SC), TIS min(r, 2) or MIS r·𝟙[0.5 ≤ r ≤ 5]. As the reference code does: float32, no renormalization of the head,
+and the sampled token's own logprob kept when it is outside the head. With exact IS weights (w = r) the centering term
+vanishes; on-policy, SC is plain PG.
+
+### 7.1 The sampler returns the head (`topk.py`, `topk_server.py`)
+
+- **What vLLM 0.31.0 returns.** With `sampling_params.logprobs = k`, vLLM's sampler gathers k + 1 entries per generated
+  token: the sampled token first, then the top k (`Sampler.gather_logprobs`; the sampled token is repeated when it is in
+  the head). The values come from the temperature-processed distribution, since prime-rl sets `logprobs_mode =
+  "processed_logprobs"`, so they match the trainer's temperature-scaled logprobs. The API server keeps them as
+  `FlatLogprobs`: flat Python lists of ids, logprobs, ranks and decoded tokens.
+  - Upstream's `/inference/v1/generate` answers with `logprobs.content`, one JSON object per token, holding a
+    `top_logprobs` list of `{"token": "token_id:<n>", "logprob": x}` keyed by token id. A sampled token outside the head
+    pushes the k-th head entry out of that list (`_create_tokens_logprobs` keeps the first k of the k + 1 dict items).
+  - **prime-rl v0.10.0's handler** (`inference/vllm/serving_tokens.py`, `_PackedOutputs`) replaces that with
+    `completion_logprobs`: only the sampled entry, as a base64 float32 array. It drops the rest. So on the endpoint the
+    bridge uses, **the head is not returned at all**, whatever `logprobs` asks for.
+  - vLLM's `max_logprobs` defaults to 20, below k = 32.
+  - vLLM PR 62446 (open, not merged) returns top-k as flat base64 `.npy` arrays on this endpoint and reports 4–5× less
+    server CPU at k = 8. The bridge does not depend on it.
+- **The patch.** `topk_server.install` makes `_PackedOutputs` also pack entries 1..k of each position as `topk_ids`
+  (int32) and `topk_logprobs` (float32) `[n, k]`, in prime-rl's own `{data, shape, dtype}` base64 form. The response
+  models gain the two fields. It loads as a vLLM `--middleware` import path: vLLM imports it in every API-server process
+  while it builds the app. `inference_toml` sets `vllm.middleware` and `vllm.max_logprobs = k` (prime-rl passes extra
+  `vllm` keys through to vLLM's namespace). Nothing in prime-rl or vLLM is edited on disk.
+- **The bridge** (`backend._Sampler`) samples over the generate endpoint whenever routing replay or score centering is
+  on, with `logprobs = k`. It keeps each call's heads in a `TopKStore` keyed by the sha of prompt + completion, as
+  `RoutingStore` keeps routes. At train time `topk.stitch` gives every trained position the head of the call that
+  sampled it.
+- **Expected overhead.**
+  - **GPU:** one `torch.topk` over the 248K vocabulary per sampled token. The log-softmax is already computed for
+    `logprobs = 0`. The device-to-host copy grows from 1 to 33 entries per token.
+  - **API-server CPU and memory:** the output processor converts and appends k + 1 entries per token instead of 1, and
+    holds them as Python objects until the call ends. That is about 2.8 KB per token at k = 32, ~23 MB for an
+    8192-token reply, and ~0.7 GB across 30 concurrent calls. The packing is one numpy pass per call, and no per-token
+    JSON objects are built. The response carries ~350 B per token of base64 instead of ~1.6 KB of `top_logprobs` objects.
+  - This is where vLLM's own top-k path costs CPU (the PR's 4–5× at k = 8 is mostly the JSON objects, which this path
+    skips). It must be measured: `delta_rl.py topk-bench` times n concurrent calls at k = 0, 8 and 32 (wall time,
+    tokens/s, bytes per token). The smoke job runs it on the 0.6B model after its RL steps.
+
+### 7.2 The trainer gets the learner's head logprobs (`sc_head.py`)
+
+- **prime-rl's custom-loss interface does not have them.** `LossInputs` (`trainer/rl/loss.py:21-37`) has the sampled
+  token's learner and sampler logprobs, the advantages, the mask and the weights. Score centering needs log p_v for the k
+  head ids, and Σ_H p_v, at every trained position.
+- **The narrowest hook is the fused LM head.** `FusedOutputLinear` (`trainer/models/layers/lm_head.py`) computes the
+  logprobs in `_SequenceChunkedLogProbEntropyFn`, over token chunks × vocab chunks of 8192 with an online logsumexp, so
+  [T, V] (262K × 248K) is never materialized. That loop already gathers logits at per-position ids for prime-rl's
+  top-p/top-k sampling-mask replay. `HeadLogProbFn` is the same loop without the replay renormalization, plus k gathers
+  per vocab chunk. It returns the full-vocabulary logprob and entropy, unchanged, and `head_lp` [N, k] with its
+  gradient. The backward pass recomputes per chunk, as prime-rl's does: g_tok·e_y + Σ_v g_v·e_v − (g_tok + Σ_v g_v)·softmax.
+- **The data rides prime-rl's sampling-mask stream.** `TrainingSample.sampling_mask` is the one per-token int stream that
+  prime-rl already packs, shifts to the labels, shards under context parallel and passes to the LM head. A head row is
+  `[SC_MAGIC, ids_1..k, bits(logprob_1)..bits(logprob_k)]` (float32 bit-cast to int32), only at trained positions; other
+  positions have count 0. The marker tells the hook that the row is a head, never a sampling mask (Crucible never samples
+  with top-p or top-k).
+- **What is patched**, by `install`, when prime-rl's trainer imports the loss (`setup_rl_loss_fn`):
+  1. `FusedOutputLinear.forward` runs `HeadLogProbFn` on a payload and stashes the micro batch's head. Without a payload
+     it runs the stock path.
+  2. `VanillaOutputLinear.forward` refuses a payload, because prime-rl's train loop would renormalize the sampled
+     logprobs over it. The trainer config pins `model.fused_lm_head_token_chunk_size = 8192` (prime-rl's default).
+  3. The train module's `gather_for_cp` records the context-parallel group. Its `compute_loss` gathers the head over
+     that group with prime-rl's own differentiable all-gather (as for the logprobs, so the gradient scale is the same),
+     shifts it to the sampled-token positions, splits it per sequence, and keys each piece by the `trainer_logprobs`
+     tensor that `compute_loss` hands that sequence's `LossInputs`. `crucible_loss` looks it up.
+
+  The patch fails at startup when these names are not where v0.10.0 has them, never silently.
+- **Cost:** `head_lp` is 4·k bytes per token, 33.5 MB at 262K tokens and k = 32, plus its gradient. The extra compute is
+  k gathers and one scatter per token per vocab chunk, small against the head's three matmuls.
+
+### 7.3 The default configuration, and how it composes
+
+- **Default: `--pg-correction sc+mis`, k = 32, `--loss importance_sampling`, no PPO clip, `--kl-coeff 0`.**
+  - **SC:** the paper's evidence is that SC alone matches or beats every IS method under quantization mismatch, with the
+    gap growing as the mismatch grows. That is the bf16-sampler and MoE-routing case here.
+  - **+MIS:** under staleness, SC composed with an IS correction performs best, ahead of vanilla SC. This loop is async
+    with a staleness bound. MIS (r kept in [0.5, 5], else the token weight is 0) drops the rare token whose ratio is
+    wild, such as a routing flip that replay missed, instead of truncating it. Its tail factor α is 1 or 0. TRL's async
+    GRPO trainer picks the same default (below).
+  - **k = 32:** in the paper's top-k sweep (App. A.4), k = 32 and k = 128 match full centering in every setting
+    tested. 128 is the paper's "conservative default"; 32 costs a quarter of the server work.
+- **No PPO / CISPO clip with SC.** The paper composes SC with TIS or MIS only. It never adds a PPO clip, whose bounds are
+  meant for policy movement, not mismatch. TRL replaces its clipped objective when score centering is on. So
+  `pg_correction != none` requires `--loss importance_sampling` (a test pins the refusal), and `ratio_low` /
+  `ratio_high` are not used. `ppo` and `cispo` stay available with `--pg-correction none`, and `tis` / `mis` alone
+  stay available too.
+- **The sampler anchor is orthogonal.** In expectation, its gradient is β·∇KL(q‖p_θ), a pull toward q with a stated
+  strength that does not depend on the reward (a test pins this). SC removes the reward-dependent pull E_q[R]·s̄; the
+  anchor is a separate trust region. The paper uses none, so β stays 0 by default. Raise it only if `sc/kl_head`
+  grows.
+- **The advantages are unchanged:** Dr.GRPO, honesty in the advantage, M6 turn credit, × the token count for
+  `loss_scale`.
+- **Values:** the SC / TIS / MIS surrogates take the IS surrogate's value −A·w, so the logged loss stays comparable to
+  `importance_sampling`; only the gradients differ.
+
+### 7.4 All or none per step, and diagnostics
+
+- **A step centers every sequence or none** (`topk.all_or_none`), mirroring routing replay. If any sequence lacks a head
+  at a trained position (a call whose heads were not returned, or a re-rendered prompt whose key does not match), the
+  step sends no heads. The loss then falls back to its importance part for the whole step: `sc` and `sc+mis` to MIS,
+  `sc+tis` to TIS. The bridge logs a warning, and the trainer refuses a sequence with partial heads.
+- **Logged by the bridge:** `sc/coverage_mean`, `sc/coverage_min`, `sc/centered_share`, `sc/fallback` and
+  `sc/fallback_steps_share`.
+- **Logged by the trainer,** as `primerl/<name>/{mean,min,max,...}`:
+  - `sc/head_mass` and `sc/head_mass_min` (Σ_H q);
+  - `sc/rho`, `sc/rho_min` and `sc/rho_max`;
+  - `sc/score_mean_l1`, the drift proxy: Σ_H |q_v − p_v| + |q_tail − p_tail|, the L1 norm of s̄ in logit space
+    (∇_z log p_v = e_v − p, so s̄_z = q − p), a lower bound of 2·TV(q, p);
+  - `sc/kl_head` (KL(q‖p) from the head) and `sc/tail_dropped` (the tails MIS removed);
+  - `is/masked_frac` (MIS's dropped tokens);
+  - `sc/align_err` (the largest gap between a sampled token's logprob and its own head entry: 0 when the heads are
+    aligned);
+  - `sc/fallback`.
+
+### 7.5 Memory per 160K-token episode (median 73K sampled tokens; k = 32)
+
+| where | what | size |
+|---|---|---|
+| the loop (Grace memory) | `TopKStore`: int32 id + float32 logprob per head entry, sampled tokens only | 73K × 32 × 8 B = **18.7 MB** (routes: 51 MB) |
+| the batch file | `sampling_mask` rows of 1 + 2k int32 per trained token, plus a count per position | 73K × 260 B + 160K × 4 B = **19.6 MB** |
+| the trainer, per micro batch (262K tokens, `cp = 2`) | the padded [T, 65] int32 stream, ~68 MB on host and on GPU; per rank: ids (int64) 33.5 MB, `head_lp` + gradient 33.5 MB, the gathered head ~100 MB | **~0.3 GB** of 96 GB |
+| the vLLM API server | `FlatLogprobs` of an in-flight call | ~2.8 KB per generated token |
+
+A 4 × 8 step holds about 0.6 GB of heads in the loop until it trains. Groups that never train (zero spread, infra
+drops) are evicted with the oldest calls past `max_calls`, as routes are.
+
+### 7.6 Checks
+
+- **TRL.** Confirmed: score centering composed with MIS is the default in TRL's async GRPO trainer
+  (`trl/experimental/async_grpo`, main at 9824938, 2026-10-27). `AsyncGRPOConfig.score_centering = True`;
+  `vllm_importance_sampling_clip_min / _max` = 0.5 / 5 drop tokens outside the band (MIS); `num_sampler_logprobs = 8`.
+  - The loss (`compute_loss`, "Appendix A.2") is −A·(w·log p − Σ_H sg(p_v·𝟙[0.5 q_v ≤ p_v ≤ 5 q_v] − 𝟙[0.5 ≤ 1/ρ ≤ 5]·p_v)·log p_v),
+    with w = r masked. That is this formula with w = MIS: q·w(p/q) = p in the band, and α = ρ·w(1/ρ) is the band
+    indicator on 1/ρ.
+  - With SC on, the PPO clip is not applied.
+  - It gathers the head logprobs in a fused LM head (`score_ids`), the same design as `sc_head`.
+  - The differences: TRL's default k is 8 (here 32), and TRL's loss value includes the log-probs (here the IS surrogate's
+    value; the gradients are equal).
+- **Tests** (`tests/unit/test_primerl_score_centering.py`, CPU, small vocabularies):
+  - with k = V, the gradient equals full score centering;
+  - with a top-k head, the gradient equals the reference implementation's (its README PyTorch function, as the oracle);
+  - exact IS weights make the centering term vanish;
+  - on-policy SC is plain PG;
+  - the expected gradient under a mismatched q is 0 with SC (k = V and a one-token tail) while plain PG drifts, and the
+    anchor's expected gradient is β(p − q);
+  - the reference repository's drift test, ported;
+  - the sampled token outside the head, and that only the tail's mass matters;
+  - the MIS band edges at 0.5 and 5;
+  - the fallback and all-or-none rule;
+  - the server packing, the store, the stitching and the payload round trip;
+  - `HeadLogProbFn` against a full softmax (values and gradients, multi-chunk);
+  - prime-rl's micro-batch path emulated end to end (payload → shift → fused head → split → custom loss), equal to the
+    full-softmax loss;
+  - `install` and `topk_server.install` against stand-ins with prime-rl's v0.10.0 names.
+- **Not yet run live.** The 2-step 35B run must show:
+  - the generate endpoint returning `topk_ids` (the middleware loaded; `max_logprobs = 32` accepted);
+  - `sc/coverage_min` = 1 and `sc/centered_share` = 1 on both steps (no fallback);
+  - `sc/align_err` ≈ 0 (the heads aligned with the sampled tokens after prime-rl's shift and CP shard);
+  - `sc/head_mass` and `sc/rho` (a head that holds most of the sampler's mass, ρ near 1; `sc/head_mass_min` shows the
+    flattest positions);
+  - the trainer's peak memory and step time against a `--pg-correction mis` step;
+  - `topk-bench` on the 35B server: tokens/s at k = 32 against k = 0.
