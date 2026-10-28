@@ -55,6 +55,9 @@ from crucible.train.bridges.tinker.models import Prices, TinkerModel, resolve
 SENDER_READY, RECEIVER_READY, FINISHED = ".sender_ready", ".receiver_ready", ".finished"
 log = logging.getLogger(__name__)
 
+# the rows prime-rl's trainer logs per step (``trainer/rl/train.py``, v0.10.0): its tensor stats (``loss/mean``) and the
+# optimizer's (``optim/grad_norm``); both are written after the step's checkpoint
+TRAINER_METRIC_KEYS = ("loss/mean", "optim/grad_norm")
 FIRST_STEP = 1  # a fresh prime-rl trainer's first step (``Progress.step``, v0.10.0); its startup broadcast is step_0
 
 
@@ -296,7 +299,7 @@ class _Trainer:
         d = await b.io.wait_broadcast(self.step, timeout_s=b.step_timeout_s)
         name = f"{b.adapter_prefix}-s{self.step:06d}"
         await b.load_adapter(name, d)
-        m = dict(b.io.metrics(self.step))
+        m = await b.trainer_metrics(self.step)
         m.update({"primerl/step": float(self.step), "primerl/step_s": time.monotonic() - t0, "primerl/samples": float(len(rows)),
                   "primerl/token_scale": wire.undo_token_mean(datums)})
         if b.routing is not None:
@@ -360,6 +363,10 @@ class PrimeRLBackend:
     step_timeout_s: float = 6 * 3600.0
     poll_s: float = 1.0
     startup_timeout_s: float = 3 * 3600.0
+    # prime-rl logs a step's numbers after its checkpoint, so they land after the broadcast the bridge waits for (the
+    # passing smoke, job 3474848: steps 1 and 2 reached steps.jsonl without the trainer's loss or grad norm)
+    metrics_keys: tuple[str, ...] = TRAINER_METRIC_KEYS
+    metrics_timeout_s: float = 600.0
     stats: dict[str, int] = field(default_factory=dict)
     adapters: dict[str, str] = field(default_factory=dict)  # adapter dir -> the name vLLM serves it under
     routing: RoutingStore | None = None  # MoE router replay (``routing``): None samples over /v1/completions without routes
@@ -373,6 +380,23 @@ class PrimeRLBackend:
         """The name the base model is served under. With LoRA on (always, here) prime-rl serves it as ``<model>-base``
         (``InferenceConfig.to_namespace``, v0.10.0), because vLLM rejects an adapter named like a served base model."""
         return f"{self.base_model}-base"
+
+    async def trainer_metrics(self, step: int) -> dict[str, float]:
+        """The trainer's logged numbers for ``step``, once its rows with ``metrics_keys`` are in prime-rl's file monitor.
+        The wait is bounded: past ``metrics_timeout_s`` the step goes on with what is there, and
+        ``primerl/metrics_complete`` = 0 says so (a missing number never stops training)."""
+        t0 = time.monotonic()
+        while True:
+            m = dict(self.io.metrics(step))
+            done = all(f"primerl/{k}" in m for k in self.metrics_keys)
+            if done or time.monotonic() - t0 > self.metrics_timeout_s:
+                if not done:
+                    log.warning("prime-rl logged no %s for step %d in %.0fs", [k for k in self.metrics_keys if f"primerl/{k}" not in m], step,
+                                self.metrics_timeout_s)
+                m["primerl/metrics_complete"] = 1.0 if done else 0.0
+                m["primerl/metrics_wait_s"] = time.monotonic() - t0
+                return m
+            await asyncio.sleep(self.poll_s)
 
     async def load_adapter(self, name: str, path: Path) -> None:
         await with_retries("vllm load_lora_adapter", lambda: self.http.post("/load_lora_adapter", {"lora_name": name, "lora_path": str(path)},

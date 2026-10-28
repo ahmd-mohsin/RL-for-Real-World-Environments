@@ -953,7 +953,9 @@ launcher, filesystem transports and an import-path loss.
   fresh run is `broadcasts/step_0`, and step s writes `broadcasts/step_<s>` and `checkpoints/step_<s>`, so Crucible's
   version v is prime-rl's step v. A checkpoint counts once DCP has written `trainer/.metadata`. The base model is sampled
   as `<model>-base`, the name prime-rl serves under LoRA. Every wait on the trainer is bounded, including prime-rl's
-  unbounded batch-request wait (`FileIO.send_timeout_s`).
+  unbounded batch-request wait (`FileIO.send_timeout_s`). prime-rl logs a step's loss and grad norm after its
+  checkpoint, so `forward_backward` waits, bounded (`metrics_timeout_s`), for that step's rows (`trainer_metrics`), and
+  `steps.jsonl` and W&B carry them for every step. A timeout sets `primerl/metrics_complete = 0` and never stops training.
   Prompt and training token ids must be ints, checked when sampling and on the wire, because vLLM accepts a list of
   strings as text prompts.
   The loss is tested forward and backward on an accelerator device as well as the CPU.

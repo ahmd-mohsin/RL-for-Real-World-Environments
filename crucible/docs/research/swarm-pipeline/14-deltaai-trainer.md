@@ -95,6 +95,14 @@ scripted groups run through Tinker's fake and through the bridge's fake trainer,
   once torch DCP has written its `trainer/.metadata`.
 - **The base model's served name** is `<model>-base`: with LoRA on, prime-rl serves it so, because vLLM rejects an adapter
   named like a served base model (`InferenceConfig.to_namespace`).
+- **The trainer's numbers per step.** prime-rl logs a step's rows (its tensor stats with `loss/mean`, then the optimizer's
+  `optim/grad_norm`) after the step's checkpoint, so they land after the broadcast the bridge answers. `forward_backward`
+  therefore waits, after the adapter is hot-loaded, until both rows for that step are in the file monitor
+  (`PrimeRLBackend.trainer_metrics`, `TRAINER_METRIC_KEYS`). They then go into `fb.metrics` as `primerl/*`, and so into
+  `steps.jsonl` and W&B with the step they belong to. The wait is bounded (`metrics_timeout_s`, 600 s): a step whose rows
+  never come goes on, with `primerl/metrics_complete = 0`, since a missing number never stops training.
+  `primerl/metrics_wait_s` records the wait, which with `ckpt.interval = 1` is mostly the checkpoint that `save_state`
+  waited for before.
 
 ## 3. Memory and parallelism on GH200
 
@@ -316,10 +324,10 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
 
 ## 6. Open items
 
-- **Trainer metrics arrive late at the bridge.** prime-rl logs a step's metrics after its checkpoint, and the bridge reads
-  them right after the broadcast, so in the passing smoke steps 1 and 2 carried no trainer loss or grad norm (step 3 did).
-  The Tinker loop's `steps.jsonl` and W&B would miss them the same way. A fix reads them after `save_state`, or attaches
-  step s's to step s + 1.
+- **Trainer metrics arrived late at the bridge** (fixed 2026-10-28, §2 "The trainer's numbers per step"; not yet run on
+  a GPU). prime-rl logs a step's metrics after its checkpoint, and the bridge read them right after the broadcast, so in
+  the passing smoke steps 1 and 2 carried no trainer loss or grad norm (step 3 did). The bridge now waits for that step's
+  rows, with a bound.
 - **A gradient after a resume is not yet shown live**: step 3 of the smoke had zero-spread groups (§5.1). The 2-step real
   run, or a smoke with higher temperature, shows it.
 
