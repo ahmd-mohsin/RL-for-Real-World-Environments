@@ -461,3 +461,17 @@ def test_the_smoke_prompt_is_token_ids_and_the_bridge_refuses_anything_else(tmp_
         asyncio.run(s.sample(["input_ids", "attention_mask"], max_tokens=4, temperature=1.0, stop=None, seed=None))
     with pytest.raises(TypeError, match="must be ints"):
         wire.to_sample(TokenDatum(["input_ids"], ["attention_mask"], [0.0], [0.0], [1]), temperature=1.0)
+
+
+@pytest.mark.parametrize("kind", ["importance_sampling", "ppo", "cispo"])
+def test_the_loss_runs_on_an_accelerator_device(kind: str) -> None:
+    # attempt 10 (job 3474513): a CPU torch.tensor bound beside CUDA logprobs; the CPU-only tests could not see it
+    dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else None
+    if dev is None:
+        pytest.skip("no accelerator")
+    lp = torch.tensor([-1.0, -2.0, -0.5], device=dev, requires_grad=True)
+    out = crucible_loss(SimpleNamespace(trainer_logprobs=lp, inference_logprobs=torch.tensor([-1.1, -1.9, -0.5], device=dev),
+                                        advantages=torch.tensor([1.0, -1.0, 0.5], device=dev), loss_mask=torch.tensor([True, True, False], device=dev),
+                                        loss_weights=None, ref_logprobs=None), kind=kind, kl_coeff=0.01)
+    out.loss.backward()
+    assert lp.grad is not None and lp.grad.device.type == dev and all(v.device.type == dev for v in out.metrics.values())

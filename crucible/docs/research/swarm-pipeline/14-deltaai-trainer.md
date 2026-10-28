@@ -260,6 +260,11 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   answered 200. Crucible's own chat codec already passes `return_dict=False` and was not affected. Fixed: the smoke renders
   the template as text and encodes it (`delta_rl.smoke_encode`). The bridge now refuses non-integer token ids when it
   samples and on the wire (`wire.to_sample`), so this class of bug fails where it starts.
+- **Attempt 10** (job 3474513, 2026-10-28): it failed in 18:32 (phase 1), 0.62 GPU-hours. The batch now decoded, and the
+  trainer reached Crucible's loss, which failed: `clamp(max=torch.tensor(...))` put the importance-ratio bound on the CPU
+  beside CUDA logprobs. The loss tests ran on the CPU only, so they could not see it. Fixed: the bound is a Python float
+  (`math.log`). A test runs all three objectives forward and backward on an accelerator (MPS on the Mac, CUDA where
+  present), and it fails on the old code.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

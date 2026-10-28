@@ -26,6 +26,7 @@ advantages pre-multiplied by that count (``wire.undo_token_mean``), so the train
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,7 +66,8 @@ def token_objective(lp_train: Any, lp_sample: Any, adv: Any, mask: Any, *, kind:
     if lp.numel() == 0:
         return zero, {"ratio/mean": zero.detach(), "kl/mismatch": zero.detach(), "kl/anchor": zero.detach(), "clip/frac": zero.detach()}
     if kind == "importance_sampling":
-        capped = log_r.detach().clamp(max=torch.tensor(max_importance_ratio, dtype=log_r.dtype).log())
+        # a Python float bound: a torch.tensor here lives on the CPU and fails beside CUDA logprobs (smoke attempt 10)
+        capped = log_r.detach().clamp(max=math.log(max_importance_ratio))
         r = torch.exp(capped + (log_r - log_r.detach()))
         per = -r * a
         clipped = (log_r.detach() > capped).float()
