@@ -989,7 +989,7 @@ launcher, filesystem transports and an import-path loss.
     fused LM head. `HeadLogProbFn` is its chunked logprob function plus k gathers per vocab chunk, never [T, V], and
     never renormalized over the head. `compute_loss` in the train module gathers the head over context parallel, shifts
     it, splits it per sequence and keys it by `trainer_logprobs`; the vanilla head refuses a payload.
-  - **No PPO clip with SC or TIS/MIS** (the paper's evidence; TRL's async GRPO default is the same SC+MIS): they require
+  - **No PPO clip with SC or TIS/MIS** (the paper's reported setups; TRL's async GRPO default is the same SC+MIS): they require
     `--loss importance_sampling`, and `--pg-correction none` keeps ppo / cispo. The anchor composes with every mode
     (default 0).
   - **All or none per step:** a step where any sequence lacks a head at a trained position sends none, and the loss uses
@@ -999,6 +999,17 @@ launcher, filesystem transports and an import-path loss.
   - **Cost:** `delta_rl.py topk-bench` times the server at k = 0, 8 and 32; the smoke runs it. Unit-tested on the CPU
     (k = V equals full centering, the reference code's gradient and drift test, the prime-rl micro-batch path
     emulated); not yet run live.
+  - **Audit (2026-10-28, doc 14 §7.7):** the paper (all of it), the reference code at fdca22b, TRL main c886cf2, prime-rl
+    v0.10.0 and vLLM v0.31.0 read side by side. The estimator, ρ / α, stop-gradients, the IS composition, the
+    temperature and the aggregation match the paper. `test_primerl_score_centering_paper.py` checks Eq. 5, 7-10 and 13
+    against brute-force full-vocabulary sums and against the reference `losses.py` ported as an oracle, and checks the
+    variance claim and the edge cases. Three fixes:
+    - every sampler call sends neutral sampling fields (`backend.NEUTRAL_SAMPLING`), and vLLM runs with
+      `generation_config = "vllm"`: `/v1/completions` had applied the student's `top_k = 20` / `top_p = 0.95`, which
+      the trainer cannot score (the path without centering or replay);
+    - `TopKStore` keeps every call under a key and picks one by the sequence's sampled logprobs: two calls with the same
+      tokens no longer share heads across versions, and training one no longer drops the other's;
+    - the trainer's temperature is the loop's (`delta_rl`), and a call sampled at another temperature keeps no heads.
 - **CLI**: `delta_rl.py` takes `tinker_rl.py train`'s flags unchanged, through the shared builders `add_common` /
   `add_train_flags` / `train_config`, plus the deployment's. The smoke runs on `ghx4-interactive`, since `test` is closed
   to the account.

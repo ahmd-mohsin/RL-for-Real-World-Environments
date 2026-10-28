@@ -56,6 +56,12 @@ SENDER_READY, RECEIVER_READY, FINISHED = ".sender_ready", ".receiver_ready", ".f
 log = logging.getLogger(__name__)
 
 FIRST_STEP = 1  # a fresh prime-rl trainer's first step (``Progress.step``, v0.10.0); its startup broadcast is step_0
+# The trainer scores every token under softmax(z / T) over the whole vocabulary, so the sampler must sample from exactly
+# that: no top-k / top-p / min-p truncation and no penalties. Sent explicitly on every call, because vLLM's
+# /v1/completions fills unset fields from the model's generation_config.json (Qwen3.6-35B-A3B ships top_k = 20,
+# top_p = 0.95), and prime-rl's sampling-mask replay, the trainer's only way to score a truncated sampler, carries the
+# score-centering heads here (``topk``). ``deploy.inference_toml`` also sets ``generation_config = "vllm"``.
+NEUTRAL_SAMPLING = {"top_p": 1.0, "top_k": 0, "min_p": 0.0, "repetition_penalty": 1.0, "presence_penalty": 0.0, "frequency_penalty": 0.0}
 
 
 def local_model(name: str, *, context: int) -> TinkerModel:
@@ -183,6 +189,7 @@ class _Sampler:
     timeout_s: float = 3600.0
     routing: RoutingStore | None = None  # router replay: the generate endpoint, its routes kept per call (``routing``)
     topk: TopKStore | None = None  # score centering: the generate endpoint, the sampler's top-k head kept per call (``topk``)
+    train_temperature: float | None = None  # the trainer's temperature: only calls sampled at it keep their heads
 
     async def sample(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
         # vLLM reads a list of strings as a batch of text prompts and answers 200, so a mis-tokenised prompt would only
@@ -192,7 +199,8 @@ class _Sampler:
         if self.routing is not None or self.topk is not None:
             return await self._generate(prompt_ids, max_tokens=max_tokens, temperature=temperature, stop=stop, seed=seed)
         body: dict[str, Any] = {"model": self.name, "prompt": list(prompt_ids), "max_tokens": int(max_tokens), "temperature": float(temperature),
-                                "logprobs": 0, "return_tokens_as_token_ids": True, "skip_special_tokens": False, "stop_token_ids": list(stop or [])}
+                                "logprobs": 0, "return_tokens_as_token_ids": True, "skip_special_tokens": False, "stop_token_ids": list(stop or []),
+                                **NEUTRAL_SAMPLING}
         if seed is not None:
             body["seed"] = int(seed)
         out = await with_retries("vllm completions", lambda: self.http.post("/v1/completions", body, timeout_s=self.timeout_s), stats=self.stats)
@@ -201,11 +209,18 @@ class _Sampler:
     async def _generate(self, prompt_ids: Sequence[int], *, max_tokens: int, temperature: float, stop: Sequence[int] | None, seed: int | None) -> SampleOut:
         """vLLM's token-in/token-out ``/inference/v1/generate`` on prime-rl's server: the routed experts and (with
         ``topk``) the sampler's top-k head per token come back with the completion (``topk_server``). The prefix cache is
-        salted per episode, so every position this episode feeds was forwarded by one of its own calls (``routing.stitch``)."""
+        salted per episode, so every position this episode feeds was forwarded by one of its own calls (``routing.stitch``).
+        The heads need no salt: they are measured on each call's own decode steps, and vLLM's block hash includes the LoRA
+        adapter, so no call reuses KV computed by another policy version. A call's heads are kept with its sampled-token
+        logprobs (``topk.TopKStore`` tells equal calls apart by them), and only when it sampled at the training
+        temperature (``train_temperature``)."""
+        import numpy as np
+
         from crucible.train.bridges.tinker.sampler import _EPISODE
 
         k = self.topk.k if self.topk is not None else 0
-        sp: dict[str, Any] = {"max_tokens": int(max_tokens), "temperature": float(temperature), "logprobs": k, "stop_token_ids": list(stop or [])}
+        sp: dict[str, Any] = {"max_tokens": int(max_tokens), "temperature": float(temperature), "logprobs": k, "stop_token_ids": list(stop or []),
+                              **NEUTRAL_SAMPLING}
         if seed is not None:
             sp["seed"] = int(seed)
         body: dict[str, Any] = {"model": self.name, "token_ids": list(prompt_ids), "sampling_params": sp}
@@ -219,7 +234,10 @@ class _Sampler:
         if heads is not None and self.topk is not None:
             if heads.ids.shape[0] != len(res.tokens):
                 raise ValueError(f"vLLM generate returned {heads.ids.shape[0]} top-k rows for {len(res.tokens)} tokens")
-            self.topk.put(full, heads)
+            if self.train_temperature is None or abs(float(temperature) - self.train_temperature) <= 1e-9:
+                self.topk.put(full, replace(heads, sampled=np.asarray(res.logprobs, dtype=np.float32)))
+            else:  # vLLM's processed logprobs are softmax(z / T_call); the trainer scores at its own T (e.g. a greedy probe, T = 0)
+                self.stats["sc_heads_other_temperature"] = self.stats.get("sc_heads_other_temperature", 0) + 1
         return res
 
 
@@ -313,11 +331,13 @@ class _Trainer:
             if sent < 1.0:
                 log.warning("prime-rl step %d: %d of %d sequences lack a sampler head at a trained position (coverage min %.3f): "
                             "no heads sent, the loss falls back to MIS for the whole step", self.step, sum(c < 1.0 for c in cov), len(cov), min(cov))
-        for dt in datums:  # trained: their calls' routes and heads are no longer needed (``dt``: ``d`` is the broadcast)
+        for dt, row in zip(datums, rows, strict=True):  # trained: their calls' routes and heads are no longer needed (``d`` is the broadcast)
+            full = wire.full_ids(dt)
             for end in wire.call_ends(dt):
-                for store in (b.routing, b.topk):
-                    if store is not None:
-                        store.drop(wire.full_ids(dt)[:end])
+                if b.routing is not None:
+                    b.routing.drop(full[:end])
+                if b.topk is not None:  # this sequence's own call: another call with the same tokens keeps its heads
+                    b.topk.drop(full[:end], full_logprobs=topk_mod.trained_logprobs(row["logprobs"], row["mask"]))
         b.last = (self.step, d, name)
         self.step += 1
         return FBOut(target_logprobs=[], metrics=m)
@@ -354,7 +374,7 @@ class PrimeRLBackend:
     base_model: str  # the HF name vLLM loads (``vllm.model``)
     learning_rate: float
     loss_kind: str = "importance_sampling"
-    temperature: float = 1.0
+    temperature: float = 1.0  # the trainer's per-token temperature (``wire``): the loop's sampling temperature (delta_rl)
     env_name: str = "crucible"
     adapter_prefix: str = "crucible"
     step_timeout_s: float = 6 * 3600.0
@@ -381,12 +401,12 @@ class PrimeRLBackend:
 
     async def sampler(self, model: str, path: str | None = None) -> _Sampler:
         if path is None:
-            return _Sampler(self.http, self.served_base, None, self.stats, routing=self.routing, topk=self.topk)
+            return _Sampler(self.http, self.served_base, None, self.stats, routing=self.routing, topk=self.topk, train_temperature=self.temperature)
         name = self.adapters.get(str(path))
         if name is None:  # a resumed run samples from a version this process never loaded
             name = f"{self.adapter_prefix}-{Path(path).name}"
             await self.load_adapter(name, Path(path))
-        return _Sampler(self.http, name, str(path), self.stats, routing=self.routing, topk=self.topk)
+        return _Sampler(self.http, name, str(path), self.stats, routing=self.routing, topk=self.topk, train_temperature=self.temperature)
 
     async def trainer(self, model: str, *, rank: int, resume: str | None = None, seed: int | None = None) -> _Trainer:
         """The trainer process is already running (``deploy``); its first step is 1 (``FIRST_STEP``), or the checkpoint step + 1 for

@@ -7,7 +7,9 @@ per-token advantages Crucible sent (``wire.to_sample``), and the loss mask of th
 
 **The objective has two axes.** ``kind`` is the Tinker objective, so a run means the same thing on both backends (Tinker
 docs, losses; ``bridges/tinker/fake.py``). ``pg_correction`` is the off-policy correction of score centering's grid
-(arXiv 2609.20807; reference code martin-marek/score-centering, MIT). With r = exp(log p_θ − log q) per sampled token,
+(arXiv 2609.20807; reference code martin-marek/score-centering, MIT; audited against both in swarm-pipeline/14 §7.7). p_θ
+and q are both at the sampling temperature T: vLLM returns softmax(z/T) logprobs (``processed_logprobs``) and the trainer
+scales its logits by 1/T per token. With r = exp(log p_θ − log q) per sampled token,
 A the advantage, w a detached weight and sg the stop-gradient:
 
 | ``pg_correction`` | per-token loss | ``kind`` |
@@ -31,7 +33,8 @@ The sampler reports its top-k head H per token (``topk``). The tail is modeled a
 renormalized, and the sampled token's own logprob is kept when it lies outside the head. With exact IS weights
 (w = r) the centering term vanishes, and on-policy (q = p) SC is plain policy gradient (tests).
 
-**No extra ratio clip.** The paper uses SC alone or composed with TIS / MIS, never with a PPO clip; TRL's async GRPO trainer
+**No extra ratio clip.** The paper reports SC alone or composed with TIS / MIS. Its code can also compose SC with PPO's
+advantage-signed band (an arm of its quantization/staleness sweep that no figure shows), and TRL's async GRPO trainer
 replaces its clipped objective when score centering is on. So ``pg_correction != "none"`` requires ``kind =
 "importance_sampling"`` and ignores ``ratio_low`` / ``ratio_high``. PPO and CISPO stay available with ``pg_correction =
 "none"`` (swarm-pipeline/14 §7.3).
@@ -39,7 +42,8 @@ replaces its clipped objective when score centering is on. So ``pg_correction !=
 **The sampler anchor** (``kl_coeff`` β > 0, Tinker's ``stable_reinforce``): β·(log q − log p_θ), the k1 estimate of
 KL(q‖p_θ) on the sampled tokens. Its gradient −β∇log p_θ raises every sampled token regardless of its advantage. In
 expectation it is β·∇KL(q‖p_θ), a deliberate pull toward the sampler of known strength, independent of the reward, so it
-composes with every row above. Default 0.
+composes with every row above. It is the drift SC removes, at a fixed strength β instead of E_q[R]: with SC, β > 0 adds
+back a distillation toward the (biased) sampler. Default 0.
 
 **Values.** The SC / TIS / MIS surrogates are written so their value is the IS surrogate's, −A·w (−A·sg(w)·e^(log p −
 sg(log p)); the centering term adds 0), and only their gradients differ. On-policy every row has the value −A, as

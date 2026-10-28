@@ -285,7 +285,10 @@ exit $RC
 SMOKE_TIMEOUTS = {"step_timeout_s": 900.0, "startup_timeout_s": 1200.0}
 
 
-def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False, sc_topk: int = 0, timeouts: dict[str, float] | None = None):
+def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False, sc_topk: int = 0, timeouts: dict[str, float] | None = None,
+             temperature: float = 1.0):
+    """``temperature``: the loop's sampling temperature, which the trainer scores every token at (``wire``) and which
+    score centering's heads must come from (``backend._Sampler``)."""
     from crucible.train.bridges.primerl.backend import FileIO, HttpClient, PrimeRLBackend
     from crucible.train.bridges.primerl.routing import RoutingStore
     from crucible.train.bridges.primerl.topk import TopKStore
@@ -296,7 +299,7 @@ def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_rep
         io.send_timeout_s = t["step_timeout_s"]
     return PrimeRLBackend(io=io, http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss,
                           routing=RoutingStore() if router_replay else None,
-                          topk=TopKStore(k=sc_topk) if sc_topk > 0 else None, **t)
+                          topk=TopKStore(k=sc_topk) if sc_topk > 0 else None, temperature=float(temperature), **t)
 
 
 def smoke_encode(tok, text: str) -> list[int]:
@@ -356,7 +359,7 @@ def cmd_train(args) -> None:
     tasks = tl._tasks_from_rows(args)
     targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
     b = _backend(args, lr=cfg.learning_rate, loss=cfg.loss_fn, ranks=d.data_ranks, seq_len=d.seq_len, router_replay=d.router_replay,
-                 sc_topk=d.sc_topk if d.centered else 0)
+                 sc_topk=d.sc_topk if d.centered else 0, temperature=cfg.temperature)
     out = asyncio.run(train(tasks, config=cfg, run_dir=Path(args.run_dir), targeting=targeting, observe=tl._observe(args), backend=b,
                             model=local_model(cfg.model, context=d.seq_len), **tl._envs_kw(args)))
     tl.write(Path(args.run_dir) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})

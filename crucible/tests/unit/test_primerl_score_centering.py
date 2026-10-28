@@ -8,6 +8,7 @@ import asyncio
 import base64
 import importlib
 import math
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -605,3 +606,101 @@ def test_the_cost_bench_times_each_k_against_the_server() -> None:
 
     rows = asyncio.run(topk_cost(TopKHttp(), MODEL, [1, 2], ks=[0, 2], n=2, max_tokens=2))
     assert [r["k"] for r in rows] == [0.0, 2.0] and all(r["tokens"] == 4.0 for r in rows) and rows[1]["response_bytes_per_token"] > 0
+
+
+# ---- the audit's fixes (swarm-pipeline/14 §7.7) -------------------------------------------------------------------------------------
+def test_calls_that_returned_the_same_tokens_keep_their_own_heads_and_drop_one_at_a_time() -> None:
+    """Two calls with equal prompt + completion (the same task in two groups, sampled from versions 3 and 4): each
+    training sequence gets the heads of its own call, picked by its sampled logprobs, and training one leaves the other.
+    One entry per key handed the first sequence the newer call's heads and lost the second's head when the first trained."""
+    store = topk.TopKStore(k=2)
+    full = [7, 8, 9, 50, 51]
+    v3 = topk.Heads(ids=np.array([[50, 1], [51, 1]], np.int32), logprobs=np.array([[-0.1, -3.0], [-0.2, -3.0]], np.float32), start=3,
+                    sampled=np.array([-0.1, -0.2], np.float32))
+    v4 = topk.Heads(ids=np.array([[50, 2], [51, 2]], np.int32), logprobs=np.array([[-0.4, -1.5], [-0.6, -1.1]], np.float32), start=3,
+                    sampled=np.array([-0.4, -0.6], np.float32))
+    store.put(full, v3)
+    store.put(full, v4)
+    mask = [False, False, False, True, True]
+    lp3, lp4 = [0.0, 0.0, 0.0, -0.1, -0.2], [0.0, 0.0, 0.0, -0.4, -0.6]
+    ids3, lps3, _, cov3 = topk.stitch(full, [5], mask, store, logprobs=lp3)
+    ids4, _, _, cov4 = topk.stitch(full, [5], mask, store, logprobs=lp4)
+    assert cov3 == cov4 == 1.0 and ids3[3].tolist() == [50, 1] and lps3[4].tolist() == pytest.approx([-0.2, -3.0]) and ids4[3].tolist() == [50, 2]
+    store.drop(full, full_logprobs=topk.trained_logprobs(lp3, mask))  # the version-3 group trained
+    assert store.calls == 1 and store.get(full).ids[0].tolist() == [50, 2]
+    ids4b, _, _, cov4b = topk.stitch(full, [5], mask, store, logprobs=lp4)
+    assert cov4b == 1.0 and ids4b[3].tolist() == [50, 2]
+    # untrained positions carry logprob 0 on the wire: they are ignored when calls are compared
+    store.put(full, v3)
+    lp3_partial = [0.0, 0.0, 0.0, 0.0, -0.2]
+    assert topk.stitch(full, [5], [False, False, False, False, True], store, logprobs=lp3_partial)[0][4].tolist() == [51, 1]
+    # the count bound evicts whole keys, oldest first
+    small = topk.TopKStore(k=2, max_calls=2)
+    small.put(full, v3)
+    small.put(full, v4)
+    small.put([1, 50, 51], replace(v3, start=1))
+    assert small.calls == 1 and small.get(full) is None and small.get([1, 50, 51]) is not None
+
+
+class VersionedHttp(TopKHttp):
+    """The generate endpoint returning the same tokens for every call, with logprobs and heads that depend on the
+    adapter (``model``): two policy versions that sample the same completion."""
+
+    async def post(self, path, body, *, timeout_s):
+        self.posts.append((path, body))
+        if path != "/inference/v1/generate":
+            return {}
+        v = 0.1 if body["model"].endswith("-base") else 0.3
+        return {"choices": [{"token_ids": [50, 51], "completion_logprobs": _arr(np.array([-v, -2 * v], np.float32)), "finish_reason": "stop",
+                             "topk_ids": _arr(np.array([[50, 9], [51, 9]], np.int32)),
+                             "topk_logprobs": _arr(np.array([[-v, -3.0], [-2 * v, -3.0]], np.float32))}]}
+
+
+def test_an_async_group_keeps_its_heads_when_an_older_group_with_the_same_tokens_trains_first(tmp_path: Path) -> None:
+    store = topk.TopKStore(k=2)
+    b = PrimeRLBackend(io=FakeIO(tmp_path), http=VersionedHttp(), base_model=MODEL, learning_rate=4e-5, topk=store)
+    prompt = [1, 2, 3]
+
+    async def go():
+        tr = await b.trainer(MODEL, rank=32)
+        old = await (await b.sampler(MODEL, None)).sample(prompt, max_tokens=8, temperature=1.0, stop=None, seed=1)  # version 0
+        b.adapters[str(tmp_path / "v1")] = "crucible-s000001"
+        new = await (await b.sampler(MODEL, str(tmp_path / "v1"))).sample(prompt, max_tokens=8, temperature=1.0, stop=None, seed=2)  # version 1
+        assert old.tokens == new.tokens and old.logprobs != new.logprobs
+        d_old = smoke.datum(prompt, old.tokens, old.logprobs, 1.0, rollout="a", segment=0)
+        d_new = smoke.datum(prompt, new.tokens, new.logprobs, 1.0, rollout="b", segment=0)
+        fb1 = await tr.forward_backward([d_old], loss_fn="importance_sampling", config=None)
+        _, lps, _ = topk.decode_payload(b.io.sent[0][1][0]["sc_heads"]["ids"], b.io.sent[0][1][0]["sc_heads"]["counts"])
+        assert fb1.metrics["sc/fallback"] == 0.0 and lps[3].tolist() == pytest.approx([-0.1, -3.0])  # its own (version-0) heads
+        fb2 = await tr.forward_backward([d_new], loss_fn="importance_sampling", config=None)
+        _, lps2, _ = topk.decode_payload(b.io.sent[1][1][0]["sc_heads"]["ids"], b.io.sent[1][1][0]["sc_heads"]["counts"])
+        assert fb2.metrics["sc/fallback"] == 0.0 and lps2[3].tolist() == pytest.approx([-0.3, -3.0]) and not store.by_key
+
+    asyncio.run(go())
+
+
+def test_the_sampler_asks_for_the_full_softmax_and_keeps_heads_only_at_the_training_temperature(tmp_path: Path) -> None:
+    """vLLM's /v1/completions fills unset sampling fields from the model's generation_config.json (the student ships
+    top_k = 20, top_p = 0.95), which the trainer cannot score; every call sends neutral values and the server is told to
+    use vLLM's defaults. A call at another temperature (the smoke's greedy probe) keeps no heads: its logprobs are
+    softmax(z / T_call), not the distribution the trainer scores."""
+    from crucible.train.bridges.primerl.backend import NEUTRAL_SAMPLING
+
+    store = topk.TopKStore(k=2)
+    b = PrimeRLBackend(io=FakeIO(tmp_path), http=TopKHttp(), base_model=MODEL, learning_rate=4e-5, topk=store, temperature=0.7)
+
+    async def go():
+        s = await b.sampler(MODEL, None)
+        await s.sample([1, 2, 3], max_tokens=8, temperature=0.0, stop=None, seed=1)
+        assert store.calls == 0 and b.stats["sc_heads_other_temperature"] == 1
+        await s.sample([1, 2, 3], max_tokens=8, temperature=0.7, stop=None, seed=1)
+        assert store.calls == 1 and store.get([1, 2, 3, 50, 51]).sampled.tolist() == pytest.approx([-0.1, -0.2])
+        sp = b.http.posts[-1][1]["sampling_params"]
+        assert all(sp[k] == v for k, v in NEUTRAL_SAMPLING.items()) and sp["temperature"] == 0.7
+        plain = PrimeRLBackend(io=FakeIO(tmp_path), http=TopKHttp(), base_model=MODEL, learning_rate=4e-5)
+        await (await plain.sampler(MODEL, None)).sample([1, 2], max_tokens=4, temperature=1.0, stop=None, seed=None)  # the fake answers {}
+        path, body = plain.http.posts[-1]
+        assert path == "/v1/completions" and all(body[k] == v for k, v in NEUTRAL_SAMPLING.items())
+
+    asyncio.run(go())
+    assert deploy.inference_toml(TrainConfig(model=MODEL, require_band=False), deploy.DeltaConfig())["vllm"]["generation_config"] == "vllm"
