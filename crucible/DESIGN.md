@@ -1510,7 +1510,8 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     fix line, hidden-test line and hidden test name, hashed; eight shared windows, or all of a short name, match) and
     the bench key. `--i-know "<reason>"` / `$CRUCIBLE_SEAL_OVERRIDE` let a commit through, journaled without the text.
     `check --tree --baseline` is a ratchet against `runs/seal_baseline.json` (the exposures public before the guard), and
-    a unit test runs it on HEAD.
+    a unit test runs it on HEAD. `check --range A..B` reads what B's commits add since the merge base (`A...B`): a
+    two-dot tree diff showed a branch behind main re-adding ids main had since redacted (2026-10-27).
   - **Held-out supply off git** (`factory/heldout_supply.py`, `scripts/heldout_supply.py`): candidates from `gh api`
     search, owners disjoint from every registered source and from anything our history names, permissive licences, the
     lanes' languages, post-cutoff fixes that change a test and a source file counted on a blobless shallow clone, the

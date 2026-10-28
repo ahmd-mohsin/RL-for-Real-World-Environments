@@ -125,6 +125,23 @@ def test_a_commit_range_and_the_tree_ratchet(repo: Path) -> None:
     assert [f.path for f in sg.ratchet(sg.tree(repo, "HEAD", seal), base)] == ["more.md"]
 
 
+def test_a_range_reads_only_what_the_branch_adds(repo: Path) -> None:
+    """A branch behind main does not carry main's later redaction of a held-out id as its own addition."""
+    seal = seal_for(repo)
+    stage(repo, "notes.md", "db-node-zzlib-a6cd4654 kept\n", force=True)
+    git(repo, "commit", "-qm", "exposed", "--no-verify")
+    git(repo, "branch", "side")
+    stage(repo, "notes.md", "held-out task 1 kept\n")
+    git(repo, "commit", "-qm", "redact")
+    git(repo, "checkout", "-q", "side")
+    stage(repo, "other.md", "training notes\n")
+    git(repo, "commit", "-qm", "side work")
+    assert sg.commit_range(repo, "main..side", seal) == []
+    stage(repo, "leak.md", "db-node-zzlib-a6cd4654 again\n")
+    git(repo, "commit", "-qm", "leak")
+    assert [f.path for f in sg.commit_range(repo, "main..side", seal)] == ["leak.md"]
+
+
 def test_the_hook_script_exists_and_calls_the_guard() -> None:
     hook = Path(__file__).resolve().parents[3] / ".githooks" / "pre-commit"
     assert hook.is_file() and "seal_guard.py\" check --staged" in hook.read_text()

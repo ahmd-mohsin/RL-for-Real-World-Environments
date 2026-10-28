@@ -229,6 +229,11 @@ def staged(repo: Path, seal: Seal) -> list[Finding]:
 
 
 def commit_range(repo: Path, rng: str, seal: Seal) -> list[Finding]:
+    """What the commits of ``A..B`` add. Read as ``A...B`` (from their merge base): a two-dot diff compares the trees, so a
+    branch behind ``A`` showed ``A``'s own later edits reversed, and a redaction on main read as the branch adding the
+    held-out ids back (2026-10-27, the inference branch)."""
+    if ".." in rng and "..." not in rng:
+        rng = rng.replace("..", "...", 1)
     diff = _git(repo, "diff", "--unified=0", "--no-color", "--no-ext-diff", "--text", rng)
     names = _git(repo, "diff", "--name-only", "--diff-filter=ACMR", rng).split()
     return scan_diff(diff, seal, new_paths=names)
