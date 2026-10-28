@@ -73,7 +73,7 @@ class FakeIO:
         return d
 
     def metrics(self, step):
-        return {}
+        return {"primerl/loss/mean": 0.0, "primerl/optim/grad_norm": 0.0}
 
     def checkpoint(self, step):
         return self.root / "checkpoints" / f"step_{step}"

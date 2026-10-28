@@ -127,8 +127,8 @@ class FakeIO:
         (self.root / "checkpoints" / f"step_{step}").mkdir(parents=True, exist_ok=True)
         return d
 
-    def metrics(self, step):
-        return {"primerl/loss/mean": -0.25}
+    def metrics(self, step):  # both rows prime-rl logs per step, there once the step's broadcast is
+        return {"primerl/loss/mean": -0.25, "primerl/optim/grad_norm": 1.5}
 
     def checkpoint(self, step):
         d = self.root / "checkpoints" / f"step_{step}"
@@ -247,6 +247,9 @@ def test_the_tinker_loop_trains_the_same_datums_on_prime_rl_as_on_tinker(tmp_pat
     assert any(a != 0.0 for r in b.io.sent[0][1] for a in r["advantages"])
     state = json.loads((tmp_path / "run" / "state.json").read_text())
     assert parse_ckpt(state["state_path"])[0] == 2 and state["sampler_path"].endswith("step_2")
+    steps = [json.loads(x) for x in (tmp_path / "run" / "steps.jsonl").read_text().splitlines()]
+    assert len(steps) == 2 and all(r["fb_metrics"]["primerl/optim/grad_norm"] == 1.5 and r["fb_metrics"]["primerl/loss/mean"] == -0.25
+                                   and r["fb_metrics"]["primerl/metrics_complete"] == 1.0 for r in steps)
 
 
 def test_a_reply_cut_at_the_token_limit_is_a_limit_stop_in_the_curriculum_and_still_trains() -> None:
@@ -508,3 +511,32 @@ def test_a_relaunched_trainers_offer_is_answered_and_the_previous_trainers_marke
 
     got, answered = asyncio.run(go())
     assert got == d and answered and (d / ".finished").exists()
+
+
+def test_the_trainers_loss_and_grad_norm_reach_the_step_even_when_logged_after_the_broadcast(tmp_path: Path) -> None:
+    # the passing smoke (job 3474848): prime-rl logs a step's rows after its checkpoint, so steps 1 and 2 carried neither
+    io = FileIO(tmp_path, ranks=1, seq_len=64, model=MODEL, poll_s=0.01)
+    b = PrimeRLBackend(io=io, http=FakeHttp(), base_model=MODEL, learning_rate=4e-5, poll_s=0.01, metrics_timeout_s=5.0)
+    f = tmp_path / "monitors" / "file" / "metrics.jsonl"
+    f.parent.mkdir(parents=True)
+    f.write_text(json.dumps({"step": 1, "time": 1.0, "loss/mean": 1.5, "optim/grad_norm": 107.0}) + "\n")
+
+    async def trainer_logs_late():  # the checkpoint, then the tensor-stats row, then the optimizer's row
+        await asyncio.sleep(0.2)
+        with f.open("a") as h:
+            h.write(json.dumps({"step": 2, "time": 2.0, "loss/mean": 0.26, "entropy/all/mean": 1.3}) + "\n")
+        await asyncio.sleep(0.2)
+        with f.open("a") as h:
+            h.write(json.dumps({"step": 2, "time": 2.1, "optim/grad_norm": 72.4}) + "\n")
+
+    async def go():
+        m, _ = await asyncio.gather(b.trainer_metrics(2), trainer_logs_late())
+        return m
+
+    m = asyncio.run(go())
+    assert m["primerl/loss/mean"] == 0.26 and m["primerl/optim/grad_norm"] == 72.4 and m["primerl/entropy/all/mean"] == 1.3
+    assert m["primerl/metrics_complete"] == 1.0 and m["primerl/metrics_wait_s"] >= 0.3 and "primerl/time" in m
+    # bounded: a step whose rows never come goes on, flagged
+    b.metrics_timeout_s = 0.1
+    m3 = asyncio.run(b.trainer_metrics(3))
+    assert m3["primerl/metrics_complete"] == 0.0 and "primerl/optim/grad_norm" not in m3

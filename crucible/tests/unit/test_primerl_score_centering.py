@@ -322,8 +322,8 @@ class FakeIO:
         (self.root / "checkpoints" / f"step_{step}").mkdir(parents=True, exist_ok=True)
         return d
 
-    def metrics(self, step):
-        return {}
+    def metrics(self, step):  # the two rows prime-rl's trainer logs per step (backend.TRAINER_METRIC_KEYS)
+        return {"primerl/loss/mean": 0.0, "primerl/optim/grad_norm": 0.0}
 
     def checkpoint(self, step):
         return self.root / "checkpoints" / f"step_{step}"
