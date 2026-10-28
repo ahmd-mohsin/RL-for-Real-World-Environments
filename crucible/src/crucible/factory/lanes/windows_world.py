@@ -101,9 +101,19 @@ def docker(*args: str, timeout: float = 1800, input: str | None = None) -> subpr
     return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout, check=False, input=input)
 
 
-def image_id(tag: str) -> str | None:
-    r = docker("image", "inspect", "--format", "{{.Id}}", tag, timeout=60)
-    return r.stdout.strip() if r.returncode == 0 else None
+def image_id(tag: str, *, timeouts: tuple[float, ...] = (60, 180, 600)) -> str | None:
+    """The image's id, or None when it does not exist. A daemon that does not answer in time is asked again with more
+    time (the host's load, 2026-10-28: ``docker image inspect`` timed out at 60 s and two kept tasks' S3 re-gates
+    crashed); the last timeout raises, so a slow daemon is never read as a missing image."""
+    for i, t in enumerate(timeouts):
+        try:
+            r = docker("image", "inspect", "--format", "{{.Id}}", tag, timeout=t)
+        except subprocess.TimeoutExpired:
+            if i == len(timeouts) - 1:
+                raise
+            continue
+        return r.stdout.strip() if r.returncode == 0 else None
+    return None
 
 
 def ensure_base() -> str:

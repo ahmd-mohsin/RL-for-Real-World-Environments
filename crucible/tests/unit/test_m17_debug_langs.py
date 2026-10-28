@@ -457,3 +457,26 @@ def test_the_go_profile_names_a_dead_test_binary(tmp_path):
               {"Action": "fail", "Package": "example.com/m", "Test": "TestB"}]
         _, notes = GO.parse_report("\n".join(json.dumps(e) for e in ev), tmp_path, ["a_test.go"])
         assert want in notes, (want, notes)
+
+
+def test_a_slow_docker_daemon_is_asked_again_never_read_as_a_missing_image(monkeypatch):
+    """Under load ``docker image inspect`` timed out at 60 s and two kept tasks' S3 re-gates crashed (2026-10-28)."""
+    import subprocess
+
+    from crucible.factory.lanes import windows_world as ww
+
+    calls: list[float] = []
+
+    def slow(*args, timeout=0, input=None):
+        calls.append(timeout)
+        if len(calls) < 3:
+            raise subprocess.TimeoutExpired(["docker", *args], timeout)
+        return subprocess.CompletedProcess(["docker", *args], 0, "sha256:abc\n", "")
+
+    monkeypatch.setattr(ww, "docker", slow)
+    assert ww.image_id("img") == "sha256:abc" and calls == [60, 180, 600]
+    calls.clear()
+    monkeypatch.setattr(ww, "docker", lambda *a, timeout=0, input=None: (calls.append(timeout), (_ for _ in ()).throw(subprocess.TimeoutExpired("docker", timeout)))[1])
+    with pytest.raises(subprocess.TimeoutExpired):
+        ww.image_id("img")
+    assert calls == [60, 180, 600]

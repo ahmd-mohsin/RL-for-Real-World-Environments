@@ -1580,6 +1580,9 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     (`n_differs`; the flip counts read all of them, not the first 10) and its output tail; `masked_why` lists the mask
     reasons. Two kept tasks failed S3 on one rerun in 60 each: one sandbox did not start (exit 125), and one root
     package failed as a whole with infra ok.
+  - **A slow Docker daemon is asked again** (2026-10-28, `windows_world.image_id`): `docker image inspect` gets 60,
+    180, then 600 s, and the last timeout raises, so a slow daemon is never read as a missing image. Under load the
+    first timeout crashed two kept tasks' S3 re-gates.
   - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
     seal ignore a record of another tree.
   - **Agent-caused tool errors** (2026-10-26, from mvdan-sh dc951aeb-e1's budget stops, 13-14 failed calls each): an
