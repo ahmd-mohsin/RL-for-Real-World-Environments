@@ -2073,17 +2073,23 @@ class WindowTask(ExecTask):
         return [] if (self.workspace(world) / ".git").exists() else ["the workspace repository (.git) was deleted"]
 
     async def snapshot_patch(self, world: Any) -> str:
-        """The workspace as a patch against ``base`` (new files included), read inside the World's container through a
-        private index: the agent's own index and history are never touched."""
+        """The workspace as a patch against the base commit recorded when the World opened (``open_world``:
+        ``world._crucible_base_sha``), new files included, read inside the World's container through a private index with
+        hardened git (``verify.collect.snapshot_command``): the agent's own index and history are never touched, and its
+        tags, config, hooks and filter drivers decide nothing. Harness audit R6 (2026-10-28): this diffed against the ``base``
+        tag with the repository's own config, so a moved or deleted tag misplaced (or unmeasured) mid-episode Phi. A World
+        with no recorded base raises (that point is unmeasured), never falls back to the tag."""
+        from crucible.verify.collect import snapshot_command
         from crucible.world.exec import DockerExec
 
+        base = getattr(world, "_crucible_base_sha", None)
+        if not base:
+            raise RuntimeError("workspace snapshot: the World recorded no base commit when it opened (the base tag is never trusted)")
         ws = str(self.workspace(world))
-        cmd = ("set -e; I=$(mktemp); cp .git/index \"$I\" 2>/dev/null || true; GIT_INDEX_FILE=\"$I\" git -c safe.directory='*' add -A >/dev/null 2>&1; "
-               "GIT_INDEX_FILE=\"$I\" git -c safe.directory='*' -c core.quotepath=off diff --cached --binary base; rm -f \"$I\"")
         # as the host user: on a Linux or WSL bind mount, root's ``git add`` leaves root-owned object directories in the
         # agent's repository, and the host-side final collect then cannot index those files and drops them
         user = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else None
-        out = await DockerExec(world._crucible_container).run(cmd, cwd=ws, timeout_s=300, user=user)
+        out = await DockerExec(world._crucible_container).run(snapshot_command(str(base)), cwd=ws, timeout_s=300, user=user)
         if not out.ok:
             raise RuntimeError(f"workspace snapshot failed: {out.stderr[-300:]}")
         return out.stdout

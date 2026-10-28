@@ -30,7 +30,8 @@ Line numbers are those of this commit.
 - **Enforcement: filter only, not admission.**
   - A group is checked when it lands (`_verdict`, `:542`) and again when the batch is built (`:559`).
   - A stale group is **dropped** (`drops.jsonl`), never reweighted or kept.
-  - No group is cancelled in flight. prime-rl cancels them (`dispatcher.on_version_pending`); see recommendation R3.
+  - No group was cancelled in flight. prime-rl cancels them (`dispatcher.on_version_pending`); recommendation R3, now
+    fixed: a doomed group is cancelled before each weight swap.
 - **Versions in flight.** At most one version per call, with no fixed bound per group. A group can span any number of
   versions and is trained only if its oldest version is within the bound.
 - **Partial rollouts: call-level switching.**
@@ -68,7 +69,7 @@ Line numbers are those of this commit.
 - No framework solves this exactly:
   - slime forks a segment per call when R3 is on (`slime/agent/trajectory.py:200-209`);
   - SkyRL and ROLL concatenate per call and new token.
-- See recommendation R5.
+- See recommendation R5 (fixed by refusal: such a sequence is not replayed).
 
 ### 1.4 The prefix cache across versions
 
@@ -108,8 +109,9 @@ Line numbers are those of this commit.
 - Groups are `group_size` attempts of one task (default 4; the plan uses 8). A group with any masked member is dropped
   whole and refilled (`infra_in_group`).
 - Advantages are Dr.GRPO, R − mean R, with no std (`train/credit.outcome_advantages`). Zero-spread groups are dropped and
-  refilled (`drop_zero_spread`, DAPO's dynamic sampling).
-- Loss aggregation: `loss_scale = sum` (default) or `token_mean`. The bridge multiplies by the step's trained-token count
+  refilled (`drop_zero_spread`, DAPO's dynamic sampling). Since the second pass the spread is that of the composed
+  advantages (outcome + honesty), so a flat group whose honesty terms differ trains (harness audit R8).
+- Loss aggregation: `loss_scale = token_mean` (the default since the second pass, R9) or `sum`. The bridge multiplies by the step's trained-token count
   (`wire.undo_token_mean`, `wire.py:82`) to cancel prime-rl's division by the global rl weight (`train.py:311-327`), so
   both modes train exactly what they train on Tinker.
   - Under AdamW and prime-rl's `max_norm = 1.0`, `sum` and `token_mean` differ only by a per-step scale, which clipping
@@ -117,7 +119,7 @@ Line numbers are those of this commit.
   - Within a step both weight every token equally, as DAPO's token-mean does.
 - The default correction is SC+MIS with no PPO clip (`loss.py`). MIS keeps r in [0.5, 5].
   - Under staleness, MIS is the only trust region. A stale token whose ratio leaves the band is masked, not clipped.
-  - `is/masked_frac` against `staleness/max` is the signal to watch (R2).
+  - `is/masked_frac` against `staleness/max` is the signal to watch (R2: now logged per staleness bucket).
 - No reference KL. The sampler anchor β is 0 by default.
 
 ### 1.8 Determinism and accounting
@@ -128,8 +130,8 @@ Line numbers are those of this commit.
   - Groups sampled but never trained are lost, not retrained (as in AReaL, ROLL and verl fully-async).
   - The difficulty sampler and the quarantine keep the observations of groups that landed, including stale and dropped
     ones. These are measurements of an older policy, decayed per step.
-- With `save_every > 1` (not the default), the steps between checkpoints are retrained after a crash and appear twice in
-  `steps.jsonl` (R7).
+- With `save_every > 1` (not the default), the steps between checkpoints are retrained after a crash. They appeared
+  twice in `steps.jsonl` (R7, fixed: the rows past the resumed step move aside at the restart).
 
 ## 2. Bugs found and fixed
 
@@ -210,7 +212,7 @@ episode is about 28 minutes.
 
 | framework | π_old in the ratio | train/inference correction (default) | loss aggregation | advantage | zero-variance groups | KL |
 |---|---|---|---|---|---|---|
-| **Crucible (DeltaAI)** | sampler logprobs of each call | SC + MIS [0.5, 5], k = 32; no PPO clip | `sum` (exact via `undo_token_mean`) | Dr.GRPO + honesty + M6 turn credit | dropped and refilled | none (anchor β 0) |
+| **Crucible (DeltaAI)** | sampler logprobs of each call | SC + MIS [0.5, 5], k = 32; no PPO clip | `token_mean` (was `sum`; both exact via `undo_token_mean`) | Dr.GRPO + honesty + M6 turn credit | dropped and refilled when the composed advantages are equal | none (anchor β 0) |
 | prime-rl | sampler | custom / IcePop-style masks | global rl weight | per env | filtered (`no_signal`) | optional |
 | AReaL | sampler by default; decoupled: recomputed prox + behaviour IS (`functional.py:452-596`) | rejection sampling off by default (`behav_imp_weight_cap` removed) | global token mean | none by default | user filter | `kl_ctl` 0.1 vs ref |
 | slime | trainer recompute (default) | `--use-tis` off; tis 2.0 / mis 0.5–5 | per-sample token mean | GRPO with std | `check_reward_nonzero_std` | 0 |
@@ -234,37 +236,107 @@ episode is about 28 minutes.
 | TRL async GRPO | `rollout_state.json` (prompt index, version) | regenerated | HF `global_step` |
 | ROLL | dataset cursor | skipped | `state.step` |
 
-## 4. Recommendations not implemented
+## 4. Recommendations
+
+A second pass (2026-10-28, branch `worktree-agent-a6734480fd8877554`) implemented or decided R2-R9. Each fix has a test
+that fails on the code before it: `tests/unit/test_open_risks_loop.py` (R2, R3, R4, R6, R7) and
+`test_open_risks_routing.py` (R5). R1 is a configuration choice for after the GPU run.
+
+| Item | Status |
+|---|---|
+| R1 overlap sampling and training | open: a configuration choice after the 2-step real-model run |
+| R2 trust region per staleness bucket | fixed (all buckets' token shares; the KL and MIS share where the backend returns trainer logprobs) |
+| R3 cancel doomed groups in flight | fixed |
+| R4 cancel pending groups at an error stop | fixed (at every stop) |
+| R5 version-consistent routing replay | fixed by refusal (a sequence that spans a weight swap is never replayed) |
+| R6 the quarantine under async | fixed |
+| R7 `save_every > 1` duplicates rows | fixed |
+| R8 `publish_every > 1` in the torch loop | decided: documented, not a bug |
+| R9 Dr.GRPO's constant normaliser | decided: `token_mean` is the default; a constant normaliser is not adopted |
 
 - **R1. Overlap sampling and training before going asynchronous in earnest** (`--async-groups 4 --max-staleness 1`).
+  Open, by design.
   - Sampling dominates (doc 14 §3: about 1 h per 4 × 8 step, of which training is about 0.2 h). In synchronous mode the
     vLLM GPUs idle while the trainer runs, and the trainer GPUs idle for the other ~0.8 h.
   - With call-level switching, staleness 1 costs only the calls in flight at the swap, and MIS bounds them.
   - Run it after the 2-step real-model run has shown `kl/mismatch`, `sc/*` and `is/masked_frac` at staleness 0.
   - prime-rl defaults to 8, SkyRL and TRL to 4, NeMo-RL to 1, and AReaL's example uses 2.
-- **R2. Watch the trust region under staleness.** With SC+MIS and no clip, MIS is the only bound.
-  - Log `is/masked_frac` and `kl/mismatch` per staleness bucket (the loop knows each datum's `min_version`).
-  - If the masked share grows with staleness, add AReaL's decoupled proximal policy (a recompute pass per step, which costs
-    one more forward pass at 160K tokens), or lower `max_staleness`.
-- **R3. Cancel doomed groups in flight.**
-  - Before a step's refresh, cancel pending groups whose trainable turns already include a version older than
-    `version + 1 − max_staleness`. They can never train.
-  - prime-rl does this (`on_version_pending`), as does the torch loop (`Scheduler.evict_doomed`).
-  - It needs the in-flight minimum version per group, which the Runner does not expose yet. A 300-call episode is 28
-    minutes of a Worlds slot.
-- **R4. Cancel pending groups on an error stop.** `TinkerTrainer.run`'s `finally` awaits every pending group before
-  re-raising (up to `rollout_s`, 30 minutes), holding the GPUs.
-- **R5. Version-consistent routing under async.** When a sequence has calls of several versions, either split the
-  sequence per version, as slime forks per call under R3, or prefer the later call's prefix routes for that call's
-  tokens. Measure first: synchronous runs are exact, and only episodes crossing a swap are affected.
-- **R6. The quarantine under async** (torch-loop audit): the first group to land after probation opens decides release,
-  and it may be a stale group picked before the quarantine. Attribute observations to the step at which the group was
-  picked.
-- **R7. `save_every > 1` duplicates rows.** The steps after the last checkpoint are retrained on resume and appended to
-  `steps.jsonl` / `rewards.jsonl` again. Either keep `save_every = 1` (the default, and prime-rl checkpoints every step
-  anyway), or tag rows with a lineage id.
-- **R8. `publish_every > 1` in the torch loop.** τ counts published versions, so the trainer can be up to
-  `publish_every − 1` updates past what staleness reports. Document this, or count trainer updates.
-- **R9. Dr.GRPO's normalizer.** `loss_scale = sum` weights long episodes by token count, as DAPO's token-mean does. A
-  constant normalizer (the generation budget) keeps the effective step size steady across steps if clipping stops
-  binding. Under AdamW + `max_norm` 1 this is cosmetic today.
+- **R2. Watch the trust region under staleness.** **Fixed.**
+  - Each step logs, per staleness bucket b (the version the step trains on minus a sequence's oldest version), the share
+    of trained tokens: `staleness/tokens_frac/s<b>` (`trainer.staleness_metrics`).
+  - Where the backend returns the trainer's logprobs (Tinker), it also logs `kl/mismatch/s<b>` = E[r − 1 − log r] and
+    `is/masked_frac/s<b>`, the share of tokens whose ratio is outside MIS's [0.5, 5].
+  - prime-rl's trainer returns no per-token logprobs and its loss sees no per-sequence tag, so on the DeltaAI path only
+    the token shares are logged. In a step with one bucket, which is every synchronous step, the trainer's own
+    `is/masked_frac` and `kl/mismatch` are that bucket's. A per-bucket split there needs a per-sequence channel into
+    prime-rl's `compute_loss` (the score-centering hook's pattern); it is not built, because the planned run is
+    synchronous.
+  - Found on the way: `staleness/max` and `staleness/mean` were measured against the version after the step, so a
+    synchronous run logged 1. They now use the version the step trains on (0 when synchronous), the definition the
+    filter uses.
+  - If the masked share grows with staleness, add AReaL's decoupled proximal policy (a recompute pass per step, which
+    costs one more forward pass at 160K tokens), or lower `max_staleness`.
+- **R3. Cancel doomed groups in flight.** **Fixed.**
+  - `Runner.inflight_min_version(run_id)` reads the oldest policy version among the calls of the attempts still running
+    (`Runner.live`, `Attempt.policies`, set by the harnesses; a discarded summary attempt is left out). Every later call
+    samples a newer version, so the value can only stay or fall.
+  - At the start of each step (`TinkerTrainer._cancel_doomed`, before the weights move to v{step}), a group still in
+    flight whose oldest token is more than `max_staleness` behind the new version is cancelled. It is a
+    `cancelled_stale` drop with its minimum version, and it counts as lost for the quarantine.
+  - This is prime-rl's `on_version_pending` and the torch loop's `Scheduler.evict_doomed`. Only asynchronous runs have
+    groups in flight at a step. A 300-call episode holds its Worlds for about 28 minutes, which used to run out before
+    the group was dropped as `stale` on landing.
+- **R4. Cancel pending groups on an error stop.** **Fixed, at every stop.**
+  - `TinkerTrainer.run` no longer awaits the groups in flight in its `finally` (up to `rollout_s`, 30 minutes, holding
+    the GPUs). It cancels them (`_stop_pending`), waits at most `cancel_grace_s` (300 s) for their Worlds to close, and
+    drops them as `cancelled_at_stop:<why>` (`error:<type>` on an exception). A group that had already finished is
+    `unused_at_stop:<why>`, as before.
+  - Cancelling at a normal stop too is deliberate: a group in flight at a stop can never train, and its observations
+    for the quarantine and the difficulty sampler are lost either way (as after a crash).
+- **R5. Version-consistent routing under async.** **Fixed, by refusal.**
+  - A sequence whose sampled tokens span more than one policy version (`meta` min_version ≠ max_version) is never
+    replayed. `wire._routes` sends no routes for it (coverage 0, `routing_version_mixed`), so `replay_all_or_none`
+    recomputes the router for that step, with one warning per step and `routing/version_mixed_share` on the dashboard.
+  - Before, `stitch`'s first-forward-wins rule trained the later version's tokens over a prefix routed as the earlier
+    version routed it.
+  - The synchronous DeltaAI run has one version per episode and always replays. Under async, a step with an episode
+    that crossed a swap trains without replay.
+  - The exact alternative is to split the sequence at the version change (slime's per-call fork), which forwards the
+    prefix again. It is not built: measure the refused share first.
+- **R6. The quarantine under async.** **Fixed.**
+  - The first group to land after a probation opened decided the release, and it could be a group picked before the
+    quarantine. A late group could also strike, or re-quarantine, a task already quarantined.
+  - Each group now carries the step its task was picked at and whether it was the probation retry
+    (`TaskQuarantine.last_probe` after the pick). `observe(..., picked=, probe=)` ignores a group picked before the
+    task's last quarantine (`_Task.since`), and during a probation only the retry group decides. Strikes are dated by
+    the pick step. `lost(..., probe=)` re-opens a probation only when the retry itself was lost.
+  - Callers that pass neither keep the old behaviour. The difficulty sampler forwards both and marks its probation pick
+    the same way.
+- **R7. `save_every > 1` duplicated rows.** **Fixed.**
+  - At a restart, the rows of `steps.jsonl` and `rewards.jsonl` past the resumed step (steps trained after the last
+    `save_state`, which the resume trains again) move to `steps.rolled_back.jsonl` / `rewards.rolled_back.jsonl`
+    (`TinkerTrainer._rollback_logs`). Nothing is deleted. A torn last line moves too.
+  - A dashboard sink that already received those steps (W&B) still has them; the files are the record.
+  - `save_every = 1` stays the default, and prime-rl checkpoints every step anyway.
+- **R8. `publish_every > 1` in the torch loop.** **Decided: not a bug; documented.**
+  - τ counts published versions, by definition (`SchedulerConfig.max_staleness`: "versions behind"). With
+    `publish_every = k`, a token sampled from version v may be up to τ·k + (k − 1) optimizer updates behind the weights
+    that train it.
+  - The DeltaAI loop publishes every step (`TinkerTrainer`), so it is unaffected. A torch-loop run that publishes less
+    often should set τ for the update gap it accepts (τ ≈ ⌊gap / k⌋). DESIGN §13 says so.
+- **R9. Dr.GRPO's normaliser.** **Decided** (with the harness audit's R9).
+  - `loss_scale = token_mean` is now the default: a global token mean, as prime-rl, AReaL, SkyRL, verl, NeMo-RL and TRL
+    normalise (§3.3), and on the prime-rl path exactly prime-rl's own normalisation. Within a step every token weighs
+    the same (DAPO's token mean, Dr.GRPO's unbiased choice); across steps the scale no longer swings with the batch's
+    token count. With `sum`, the clip (`max_norm` 1) bound on almost every step and gave every step the same length
+    whatever its signal.
+  - A constant normaliser (the generation budget) would also keep the step size steady. Under AdamW its only gain over
+    `token_mean` is when clipping stops binding, so it is not adopted.
+  - A run directory made with the old default (`sum`) resumes only with `--loss-scale sum`.
+- **Test isolation (fixed).** `tests/unit/test_primerl_score_centering.py::test_install_patches...` failed only in
+  full-suite order. The cause was production code, not a test. `sc_head.install` found prime-rl's train module by
+  `getattr` over all of `sys.modules`. A lazy module that any process importing transformers holds (an aria
+  image-processing submodule) imported torchvision on attribute access and raised `ModuleNotFoundError`. So the test
+  failed after any test that imported transformers (`train/bridges/tinker/codec.py` does), and the trainer's hook
+  depended on what else its process had imported. The scan now reads each module's own `__dict__`. Regression test:
+  `test_open_risks_routing.py::test_sc_head_install_is_not_broken_by_a_lazy_module_in_sys_modules`.

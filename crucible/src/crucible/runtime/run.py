@@ -247,6 +247,26 @@ class RunSummary:
 class Runner:
     def __init__(self, root: Path):
         self.root = Path(root)
+        # async-RL audit R3 (2026-10-28): the attempts dispatched and not yet torn down, by attempt id (``inflight_min_version``)
+        self.live: dict[str, Attempt] = {}
+
+    def inflight_min_version(self, run_id: str | None = None) -> int | None:
+        """The oldest policy version that sampled a token in any attempt still running (of run ``run_id``; None: every run of
+        this Runner), read from the live policies' model calls (``Attempt.policies``: ``call["tokens"]["policy_version"]``;
+        a discarded summary attempt, ``accepted`` False, never trains and is left out). None when no live call has a version
+        yet: such work may still sample only newer weights. A trainer cancels a group that can no longer train before it
+        swaps weights (``TinkerTrainer``; prime-rl's ``on_version_pending``). Because every later call samples a newer
+        version, the value can only stay or fall while an attempt runs, so "too old" is final."""
+        vs: list[int] = []
+        for a in list(self.live.values()):
+            if run_id is not None and a.run_id != run_id:
+                continue
+            for p in list((getattr(a, "policies", None) or {}).values()):
+                for c in list(getattr(p, "model_calls", None) or []):
+                    v = (c.get("tokens") or {}).get("policy_version") if isinstance(c, dict) else None
+                    if isinstance(v, int) and not isinstance(v, bool) and c.get("accepted") is not False:
+                        vs.append(v)
+        return min(vs) if vs else None
 
     def plan(self, spec: RunSpec) -> list[tuple[SampleKey, Any, Any, Any]]:
         """Every planned sample. Duplicate task, policy or harness ids in one run are refused (M13 audit B7: two Harbor
@@ -498,7 +518,8 @@ class Runner:
             else:
                 journal.event("dispatched", attempt=aid, harness=harness.id, policy=policy.id, task=task.id, seed=sk.seed, **extra)
                 attempt = Attempt(sample=sk, id=aid, n=n, dir=adir, task=task, policy=policy, ledger=ledger, scopes=scopes,
-                                  timeout_s=spec.attempt_timeout_s or None)
+                                  timeout_s=spec.attempt_timeout_s or None, run_id=spec.run_id)
+                self.live[aid] = attempt  # async-RL audit R3: ``inflight_min_version`` reads its live policies
                 # M10 lab audit R-6: every dispatched attempt runs in a lifecycle scope. Containers started under it (a World sandbox, a
                 # grade container, a borrowed pooled one) are recorded and, while the attempt lives, renewed; on exit, however it ends
                 # (scored, masked, past the clock, cancelled), the scope closes any World still open, removes what the attempt started
@@ -539,6 +560,7 @@ class Runner:
                                                                detail="attempt_timeout" if timeout else None),
                                                cost_uncertain_usd=est, regradable=regradable)
                 finally:
+                    self.live.pop(aid, None)
                     self._teardown(journal, adir, aid, scope)
                 if d0 is not None and (d1 := _digest_now(task)) != d0:  # edited during the attempt: its grade is discarded
                     hr = _task_changed(task.id, d0, d1, "during the attempt", hr)

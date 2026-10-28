@@ -87,17 +87,19 @@ def clock(cm: Any) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def held() -> Iterator[None]:
+def held(only: Any = None) -> Iterator[None]:
     """Every clock of this context stands still while the block runs: its deadline is lifted at entry and set at exit to
     what it had left then. Holds of one clock by several outages at once count: the last to end sets it again. A clock
-    that has no deadline, has fired, or is not entered (or no longer) is left alone."""
+    that has no deadline, has fired, or is not entered (or no longer) is left alone. ``only`` (a sequence of entered
+    timeouts): hold just those, whether or not this context registered them (the agent clock during a model call,
+    ``actors.policy.model_time``; harness-reward audit R2), sharing the hold counts with an outage's hold of the same clock."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         yield
         return
     mine: list[list[Any]] = []
-    for cm in _CLOCKS.get():
+    for cm in (_CLOCKS.get() if only is None else tuple(c for c in only if c is not None)):
         h = _HOLDS.get(id(cm))
         if h is not None and h[0] is cm:
             h[1] += 1

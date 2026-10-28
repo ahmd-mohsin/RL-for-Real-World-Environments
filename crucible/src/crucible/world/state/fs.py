@@ -36,11 +36,15 @@ def git_shell(root: str, git_dir: str | None = None, extra_env: str = "") -> str
             f"git -c safe.directory='*' -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.quotepath=off {loc}")
 
 
-def git_diff_command(root: str, ref: str = "base", stat: bool = False, git_dir: str | None = None) -> str:
-    """Working tree (incl. untracked, minus ignored) vs ``ref`` through a throwaway index; the repo's index is untouched."""
+def git_diff_command(root: str, ref: str = "base", stat: bool = False, git_dir: str | None = None, *, config: dict[str, str] | None = None) -> str:
+    """Working tree (incl. untracked, minus ignored) vs ``ref`` through a throwaway index; the repo's index is untouched.
+    ``config``: extra settings at command scope (``GIT_CONFIG_COUNT``, above the repository's own config): the checkpoint
+    sidecar passes empty commands for the repository's filter drivers (harness-reward audit R6, 2026-10-28)."""
     ref = shlex.quote(check_ref(ref))
     flag = "--stat" if stat else "--binary"
-    g = git_shell(root, git_dir, 'GIT_INDEX_FILE="$T"')
+    cfg = dict(config or {})
+    env = "".join(f" GIT_CONFIG_KEY_{i}={shlex.quote(k)} GIT_CONFIG_VALUE_{i}={shlex.quote(v)}" for i, (k, v) in enumerate(cfg.items()))
+    g = git_shell(root, git_dir, 'GIT_INDEX_FILE="$T"' + (f" GIT_CONFIG_COUNT={len(cfg)}{env}" if cfg else ""))
     return (f'set -e; T=$(mktemp); trap \'rm -f "$T"\' EXIT; {g} read-tree {ref}; {g} add -A -- . 2>/dev/null || true; '
             f"{g} diff --cached --no-ext-diff --no-textconv {flag} {ref}")
 

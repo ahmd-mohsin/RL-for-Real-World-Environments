@@ -22,7 +22,10 @@ def test_gpu_flags_are_an_opt_in_on_the_local_provider():
         assert gpu_enabled() and GPU_FLAGS in LocalSandboxProvider.EXTRA_CONTAINER_RUN_ARGS
         assert LocalSandbox.type == "local"  # sandboxes keep agentenv's local networking (host_url_for, CA trust)
     assert LocalSandboxProvider.EXTRA_CONTAINER_RUN_ARGS == base
-    assert not [e for e in entry_points(group="agent_env.sandbox_providers") if e.value.startswith("crucible")]  # no broken provider registered
+    # no provider that creates sandboxes (the type guard destroyed them); the only crucible one is crucible_world, which creates
+    # nothing and lets agentenv's teardown_run close a run's World (harness-reward audit 2026-10-28 §5)
+    assert all(e.name == "crucible_world" and e.value.endswith(":CrucibleWorldProvider")
+               for e in entry_points(group="agent_env.sandbox_providers") if e.value.startswith("crucible"))
 
 
 async def test_world_record_has_card_and_stock_tool_access_step_works():

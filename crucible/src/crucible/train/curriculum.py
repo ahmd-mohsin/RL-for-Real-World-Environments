@@ -102,6 +102,8 @@ class DifficultySampler:
         """The index (into ``tasks``) of the next task. Same contract as ``TaskQuarantine.pick``: never stalls."""
         n = len(self.tasks)
         q = self.quarantine
+        if q is not None:
+            q.last_probe = False
         if q is not None and q.config.enabled:
             q._open_probations(step)
         open_ = [i for i in range(n) if self._curriculum_ok(self.tasks[i]) and not (q is not None and q.blocked(self.tasks[i], step))]
@@ -120,14 +122,17 @@ class DifficultySampler:
             s = q.state[self.tasks[i]]
             if s.probation:
                 s.probe_out = True
+                q.last_probe = True
         return i
 
     # ---- observations ----
-    def observe(self, task: str, draws: Sequence[Draw], step: int, *, rewards: Sequence[float | None] = (), phis: Sequence[float | None] = ()) -> None:
+    def observe(self, task: str, draws: Sequence[Draw], step: int, *, rewards: Sequence[float | None] = (), phis: Sequence[float | None] = (),
+                picked: int | None = None, probe: bool | None = None) -> None:
         """A landed group of ``task`` (masked members are ``Draw(passed=None)``). The quarantine sees the group's rewards
-        and Φ exactly as before; the tracker sees every draw; the curriculum may move."""
+        and Φ exactly as before (``picked`` / ``probe``: ``TaskQuarantine.observe``); the tracker sees every draw; the
+        curriculum may move."""
         if self.quarantine is not None and rewards:
-            self.quarantine.observe(task, rewards, phis, step)
+            self.quarantine.observe(task, rewards, phis, step, picked=picked, probe=probe)
         r = self.tracker.observe(task, step, draws)
         if self.levels and task in self.levels and r.full.n >= self.config.min_n:
             parent, lv = self.levels[task]
@@ -141,9 +146,9 @@ class DifficultySampler:
                 self.current[parent] = min(higher)
                 self._event("start_later", task, step, f"p̂ upper bound {hi:.2f} < {self.config.demote}: level {lv} -> {min(higher)}", parent=parent)
 
-    def lost(self, task: str) -> None:
+    def lost(self, task: str, *, probe: bool | None = None) -> None:
         if self.quarantine is not None:
-            self.quarantine.lost(task)
+            self.quarantine.lost(task, probe=probe)
 
     def _event(self, kind: str, task: str, step: int, why: str, **extra: Any) -> dict[str, Any]:
         e = {"event": kind, "task": task, "step": step, "reason": why, **extra}

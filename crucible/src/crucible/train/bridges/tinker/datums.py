@@ -20,8 +20,15 @@ advantage leaving here is final, and it is built by the same rules every other C
    Each sequence becomes one ``TokenDatum``: ``input_ids`` = full[:-1], targets / logprobs / advantages / mask = the
    per-position values shifted by one (tinker-cookbook ``rl/data_processing.trajectory_to_data``, PATTERN). Tokens
    outside the policy's own completions carry advantage 0 and no gradient (Tinker's RL losses take no mask).
-5. **Scale.** ``loss_scale="sum"`` sends the advantages as they are (Tinker's sum); ``"token_mean"`` divides them by the
-   batch's trained-token count, so the step size does not grow with episode length.
+5. **Format penalty** (``format_penalty`` > 0; off by default, as in the torch trainer): a call that issued malformed tool
+   calls (``Turn.format_errors``) is penalised on its own tokens only, by the torch trainer's two rules (m13 C-8):
+   ``"reduction"`` subtracts ``format_penalty`` x errors from each of its tokens; ``"signed"`` marks them with
+   ``format_kappa`` and rebalances by the sign of the rollout's advantage with each sign's batch mass kept
+   (``credit.signed.signed_rebalance``, MiMo's verl fork). Harness-reward audit R5 (2026-10-28): before, only the torch
+   trainer could apply it, so a run configured with a penalty trained without it on Tinker and prime-rl.
+6. **Scale.** ``loss_scale="sum"`` sends the advantages as they are (Tinker's sum); ``"token_mean"`` (the default since
+   2026-10-28, harness-reward audit R9) divides them by the batch's trained-token count, so the step size does not grow
+   with the batch's length.
 
 Masked rollouts never reach here (their group is dropped whole: ``trainer``). Per datum, ``meta`` names the rollout,
 its group, version range and the composed sequence advantage, so the equivalence test can compare the slime path turn by
@@ -64,24 +71,70 @@ def seq_datum(s: TrainSeq, meta: dict[str, Any] | None = None) -> TokenDatum:
     return TokenDatum(input_ids=full[:-1], target_ids=full[1:], logprobs=lps[1:], advantages=adv[1:], mask=mask[1:], meta=dict(meta or {}))
 
 
+FORMAT_MODES = ("reduction", "signed")
+
+
+def _format_penalty(seqs: list[tuple[TrainSeq, RolloutRecord, float]], penalty: float, mode: str, kappa: float) -> None:
+    """Module doc, point 5: the format penalty on the offending calls' trained tokens, in place on ``TrainSeq.advantages``."""
+    if mode not in FORMAT_MODES:
+        raise ValueError(f"format_penalty_mode is one of {FORMAT_MODES}, got {mode!r}")
+    if mode == "reduction":
+        for s, ro, _ in seqs:
+            errs = {t.call_id: int(t.format_errors) for t in ro.turns if t.format_errors}
+            for cid, a, b in s.call_spans:
+                if errs.get(cid):
+                    for i in range(a, b):
+                        if s.response_mask[i]:
+                            s.advantages[i] -= penalty * errs[cid]
+        return
+    from crucible.credit.signed import signed_rebalance
+
+    if kappa < 1.0:
+        raise ValueError("format_kappa >= 1 (signed mode punishes a marked token on a negative rollout at least as hard as the rest)")
+    flat, hit, sign, where = [], [], [], []
+    for si, (s, ro, adv) in enumerate(seqs):
+        errs = {t.call_id for t in ro.turns if t.format_errors}
+        marked = [False] * len(s.response_mask)
+        for cid, a, b in s.call_spans:
+            if cid in errs:
+                for i in range(a, b):
+                    marked[i] = True
+        for i, m in enumerate(s.response_mask):
+            if m:
+                flat.append(s.advantages[i])
+                hit.append(kappa if marked[i] else 0.0)
+                sign.append((adv > 0) - (adv < 0))
+                where.append((si, i))
+    new, _ = signed_rebalance(flat, hit, sign)
+    for (si, i), v in zip(where, new, strict=True):
+        seqs[si][0].advantages[i] = v
+
+
 def build_datums(records: Sequence[RolloutRecord], groups: Sequence[str], *, turn_eta: float = 0.0, honesty: bool = True,
-                 frozen_actors: Iterable[str] = ()) -> list[TokenDatum]:
-    """Datums for the live rollouts of ``records`` (module doc). ``groups[i]`` is record i's GRPO group."""
+                 frozen_actors: Iterable[str] = (), format_penalty: float = 0.0, format_mode: str = "reduction",
+                 format_kappa: float = 2.0) -> list[TokenDatum]:
+    """Datums for the live rollouts of ``records`` (module doc). ``groups[i]`` is record i's GRPO group. ``format_penalty``,
+    ``format_mode``, ``format_kappa``: the torch trainer's ``tool_format_penalty``, ``format_penalty_mode`` and
+    ``format_kappa`` (module doc, point 5; 0 = off)."""
     frozen = tuple(frozen_actors)
     recs, keys = list(records), list(groups)
     seq = sequence_advantages(recs, keys, honesty=honesty)
     if turn_eta > 0:
         require_turn_credit(recs, frozen, where="tinker.build_datums")
         recs = credited_records(recs, keys, turn_weight=turn_eta, frozen_actors=frozen)
-    out: list[TokenDatum] = []
+    seqs: list[tuple[TrainSeq, RolloutRecord, str]] = []
     for ro, g in zip(recs, keys, strict=True):
         for s in flatten(ro, seq[ro.rollout_id], turn_weight=turn_eta, frozen_actors=frozen):
-            if not any(s.response_mask):
-                continue
-            vs = [v for v in s.versions_seen]
-            out.append(seq_datum(s, {"rollout": ro.rollout_id, "group": g, "seq_adv": seq[ro.rollout_id], "reward": ro.reward, "segment": s.segment,
-                                     "actor": s.actor, "call_spans": [list(x) for x in s.call_spans], "prompt_len": len(s.prompt_ids),
-                                     "min_version": min(vs) if vs else None, "max_version": max(vs) if vs else None}))
+            if any(s.response_mask):
+                seqs.append((s, ro, g))
+    if format_penalty and any(t.format_errors for _, ro, _ in seqs for t in ro.turns):
+        _format_penalty([(s, ro, seq[ro.rollout_id]) for s, ro, _ in seqs], float(format_penalty), format_mode, float(format_kappa))
+    out: list[TokenDatum] = []
+    for s, ro, g in seqs:
+        vs = list(s.versions_seen)
+        out.append(seq_datum(s, {"rollout": ro.rollout_id, "group": g, "seq_adv": seq[ro.rollout_id], "reward": ro.reward, "segment": s.segment,
+                                 "actor": s.actor, "call_spans": [list(x) for x in s.call_spans], "prompt_len": len(s.prompt_ids),
+                                 "min_version": min(vs) if vs else None, "max_version": max(vs) if vs else None}))
     return out
 
 

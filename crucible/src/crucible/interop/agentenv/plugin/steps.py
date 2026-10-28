@@ -5,8 +5,19 @@ MCP server per App (tools ``<app>__<tool>``), per-role ACL, clock and triggers �
 the context, so agentenv's stock ``deploy_agent`` / ``prompt_agent`` / clock / trigger steps work unchanged. The record's
 ``mcp_url`` is the agent proxy (``/mcp`` only, role pinned); ``gateway_url`` stays for orchestration steps. The World
 object lives in this process (``WORLDS``), keyed by a per-run ``instance_id`` (M11 audit G4 D1: keyed by ``env_id``,
-concurrent runs of one task graded each other's World); the persisted context holds ids only. ``sandbox_id`` is empty, so
-agentenv's ``teardown_run`` skips it (G4 D6: an unknown sandbox type failed teardown).
+concurrent runs of one task graded each other's World); the persisted context holds ids only. The env record's
+``sandbox_id`` is empty, so agentenv's stock steps never resolve it to a sandbox (G4 D6: an unknown sandbox type failed teardown).
+
+**Teardown** (harness-reward audit 2026-10-28, §5: a failed deploy or prompt step leaked the World, its gateway, App servers
+and any paid sandbox, and the ``mkdtemp`` directory was never removed). agentenv tears a run down through its sandboxes
+only (``teardown_run`` over the context's sandbox records; the pin has no other run hook), so the step also records a bare
+sandbox of type ``crucible_world`` (``DeployedSandbox``, named ``crucible_world:<env_id>:<instance>``, which no stock step
+addresses) and the plugin registers ``CrucibleWorldProvider`` under that type (entry point ``agent_env.sandbox_providers``).
+``teardown_run`` (``agent-env run``, ``eval run``, the ``LocalRunner``: however the run ended) then closes the World and
+removes its directory. A step whose own setup fails after the World opened closes it at once. ``release`` is idempotent:
+the verify step, ``close_world``, ``teardown_worlds`` (for embedders that call ``Task.run`` themselves) and a later
+``teardown_run`` may all reach one World. The World's work tree is always removed; the directory goes whole unless a verify
+step wrote its outputs there (the run's records name them).
 
 ``crucible_verify``: grades the World from its state with the task's own grader and Crucible's single reward producer
 (never agentenv's ``reward.txt`` path: that clamps to [0, 1] and scores a missing reward as 0). An infrastructure fault
@@ -28,17 +39,84 @@ belongs to agentenv's own steps here, so ``a2a_state`` is None.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, ClassVar
 
 from agent_env.env.env import DeployedGatewayEnv
+from agent_env.providers.sandbox_providers.sandbox_provider import SandboxProvider
+from agent_env.task_step.context import DeployedSandbox
 from agent_env.task_step.task_step import TaskStep
 
 WORLDS: dict[str, dict[str, Any]] = {}
+DIRS: dict[str, Path] = {}  # instance -> its mkdtemp directory, until it is removed (it outlives a World a verify step closed)
+SANDBOX_TYPE = "crucible_world"
+SANDBOX_PREFIX = "crucible-world-"
+
+
+def sandbox_id_of(instance: str) -> str:
+    return f"{SANDBOX_PREFIX}{instance}"
+
+
+async def release(instance: str) -> bool:
+    """Close this process's World ``instance`` (if still live) and remove its directory: the work tree always, the whole
+    directory unless a verify step wrote its outputs there. Idempotent. True when a live World was closed."""
+    s = WORLDS.pop(instance, None)
+    try:
+        if s is not None:
+            await s["world"].close()
+    finally:
+        d = DIRS.get(instance) or (s or {}).get("dir")
+        if d is not None:
+            d = Path(d)
+            if any(d.glob("verify-*")):
+                shutil.rmtree(d / "work", ignore_errors=True)
+            else:
+                shutil.rmtree(d, ignore_errors=True)
+                DIRS.pop(instance, None)
+    return s is not None
+
+
+async def teardown_worlds(context) -> list[str]:
+    """Release every World ``context`` opened (its ``crucible_world`` sandbox records), for embedders that call
+    ``Task.run`` themselves and own the run's teardown. Returns the instances that were still live."""
+    out = []
+    for sb in list(getattr(context, "deployed_sandboxes", [])):
+        if sb.sandbox_type == SANDBOX_TYPE and sb.sandbox_id.startswith(SANDBOX_PREFIX):
+            inst = sb.sandbox_id[len(SANDBOX_PREFIX):]
+            if await release(inst):
+                out.append(inst)
+    return out
+
+
+class _WorldHandle:
+    """What ``CrucibleWorldProvider.get_sandbox`` returns: the part of agentenv's ``Sandbox`` that ``teardown_run`` uses."""
+
+    type = SANDBOX_TYPE
+
+    def __init__(self, sandbox_id: str):
+        self.sandbox_id = sandbox_id
+
+    async def terminate(self) -> None:
+        if self.sandbox_id.startswith(SANDBOX_PREFIX):
+            await release(self.sandbox_id[len(SANDBOX_PREFIX):])
+
+
+class CrucibleWorldProvider(SandboxProvider):
+    """The ``crucible_world`` sandbox type (module doc, "Teardown"): it never creates anything (the ``crucible_world`` step
+    opens the World), and ``get_sandbox`` hands ``teardown_run`` a handle whose ``terminate`` releases the World."""
+
+    async def create_sandbox(self, *, image_name: str, port: int, env: dict[str, str], cpu: float = 1.0, memory: int = 8192,
+                             disk_size_gb: float = 10, timeout: int = 3600 * 2, attribution: Any = None, network_policy: Any = None) -> Any:
+        raise NotImplementedError("a crucible World is opened by the crucible_world task step, never by a sandbox provider")
+
+    async def get_sandbox(self, sandbox_id: str) -> Any:
+        return _WorldHandle(sandbox_id)
 
 
 def _load(spec: str):
@@ -55,10 +133,8 @@ def instance_for(context, env_id: str) -> str:
 
 
 async def close_world(context, env_id: str) -> None:
-    """Close and forget this run's World (for runs that end before ``crucible_verify``)."""
-    s = WORLDS.pop(instance_for(context, env_id), None)
-    if s is not None:
-        await s["world"].close()
+    """Close and forget this run's World (for runs that end before ``crucible_verify``), its directory removed."""
+    await release(instance_for(context, env_id))
 
 
 class CrucibleMaskedGrade(RuntimeError):
@@ -84,23 +160,37 @@ class CrucibleWorldStep(TaskStep):
 
         task = _load(self.task)(**{"backend": "agentenv", **self.task_kwargs})
         d = Path(tempfile.mkdtemp(prefix="ae-crucible-"))
-        world = await task.open(d / "work")
-        gw = world.backend.gateway_url
-        async with httpx.AsyncClient(timeout=60) as c:
-            card = (await c.get(f"{gw}{WELL_KNOWN_PATH}")).raise_for_status().json()
         instance = uuid.uuid4().hex
-        WORLDS[instance] = {"task": task, "world": world, "dir": d, "trace_offset": len(world.log), "env_id": self.env_id}
-        # the full record (m13 audit 02, C2): stock steps (deploy_agent, sync_env_clock, modify_env_tool_access,
-        # register_env_triggers, collect_artifacts) read the card and the MCP URL from it; agents get the proxy (H2 V6)
-        rec = DeployedGatewayEnv(
-            env_id=self.env_id, env_version=0, gateway_url=gw, gateway_mode="consistent", sandbox_id="",
-            sandbox_type="crucible_world", environment_card_url=f"{gw}{WELL_KNOWN_PATH}", environment_card=card,
-            environment_card_read_at_utc=datetime.datetime.now(datetime.UTC).isoformat(), mcp_server_name=card.get("name"), instance_id=instance)
-        # the card URL stays the gateway's (orchestration steps invoke its extensions); the MCP URL a deploy_agent hands the
-        # agent is the proxy's. A record rebuilt from a persisted context derives the gateway's again, but such a run
-        # cannot reach this World anyway (``CrucibleWorldMissing``)
-        rec.mcp_url = await world.backend.agent_mcp_url()
+        DIRS[instance] = d
+        world = None
+        try:
+            world = await task.open(d / "work")
+            WORLDS[instance] = {"task": task, "world": world, "dir": d, "trace_offset": len(world.log), "env_id": self.env_id}
+            gw = world.backend.gateway_url
+            async with httpx.AsyncClient(timeout=60) as c:
+                card = (await c.get(f"{gw}{WELL_KNOWN_PATH}")).raise_for_status().json()
+            # the full record (m13 audit 02, C2): stock steps (deploy_agent, sync_env_clock, modify_env_tool_access,
+            # register_env_triggers, collect_artifacts) read the card and the MCP URL from it; agents get the proxy (H2 V6)
+            rec = DeployedGatewayEnv(
+                env_id=self.env_id, env_version=0, gateway_url=gw, gateway_mode="consistent", sandbox_id="",
+                sandbox_type=SANDBOX_TYPE, environment_card_url=f"{gw}{WELL_KNOWN_PATH}", environment_card=card,
+                environment_card_read_at_utc=datetime.datetime.now(datetime.UTC).isoformat(), mcp_server_name=card.get("name"), instance_id=instance)
+            # the card URL stays the gateway's (orchestration steps invoke its extensions); the MCP URL a deploy_agent hands the
+            # agent is the proxy's. A record rebuilt from a persisted context derives the gateway's again, but such a run
+            # cannot reach this World anyway (``CrucibleWorldMissing``)
+            rec.mcp_url = await world.backend.agent_mcp_url()
+        except BaseException:
+            # harness-reward audit 2026-10-28 (§5): neither the World, its gateway nor its directory outlives a step that failed
+            if world is not None and instance not in WORLDS:
+                with contextlib.suppress(Exception):
+                    await world.close()
+            with contextlib.suppress(Exception):
+                await release(instance)
+            raise
         context.deployed_envs.append(rec)
+        # teardown_run reaches the World through this record (module doc, "Teardown"): a later step that fails no longer leaks it
+        context.deployed_sandboxes.append(DeployedSandbox(sandbox_name=f"{SANDBOX_TYPE}:{self.env_id}:{instance[:8]}", sandbox_id=sandbox_id_of(instance),
+                                                          sandbox_mode="process", sandbox_type=SANDBOX_TYPE))
         context.metadata.setdefault("crucible", {})[self.env_id] = {"task": self.task, "task_kwargs": self.task_kwargs, "env_id": self.env_id,
                                                                      "world": getattr(task, "world_id", ""), "instance_id": instance}
         return context
@@ -177,8 +267,7 @@ class CrucibleVerifyStep(TaskStep):
             graded = True
         finally:
             if self.close:
-                WORLDS.pop(instance, None)
-                await world.close()
+                await release(instance)
             elif cut is not None and graded and not masked:
                 world.lift_cut()  # the World serves another episode; after a failed or masked grade it stays cut (a retry sees no new call)
         if masked:

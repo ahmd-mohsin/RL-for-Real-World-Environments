@@ -268,8 +268,16 @@ def install() -> None:
                                "the vanilla head's train loop would renormalize the sampled logprobs over the sampler's head")
         return orig_vanilla(self, hidden_states, labels, temperature=temperature, sampling_mask=sampling_mask)
 
-    trains = [m for m in list(sys.modules.values()) if m is not None and getattr(m, "compute_loss", None) is prl_loss.compute_loss
-              and hasattr(m, "gather_for_cp") and hasattr(m, "setup_rl_loss_fn")]
+    # each module's own namespace, never ``getattr``: a lazy module (transformers' ``_LazyModule``, which every process that
+    # imported transformers holds in ``sys.modules``) imports a submodule on attribute access, and one whose optional
+    # dependency is missing (``image_processing_aria_fast`` without torchvision) raised out of this scan. It made the hook
+    # depend on what else the process had imported (the unit test failed only after a test that imported transformers)
+    def own(m: Any, name: str) -> Any:
+        d = getattr(m, "__dict__", None)
+        return d.get(name) if isinstance(d, dict) else None
+
+    trains = [m for m in list(sys.modules.values()) if m is not None and own(m, "compute_loss") is prl_loss.compute_loss
+              and own(m, "gather_for_cp") is not None and own(m, "setup_rl_loss_fn") is not None]
     if not trains:
         raise RuntimeError("prime-rl's train module (compute_loss, gather_for_cp) is not loaded: the score-centering hook cannot attach")
     fused.forward, vanilla.forward = fused_forward, vanilla_forward

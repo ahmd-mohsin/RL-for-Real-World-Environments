@@ -12,6 +12,8 @@ A *policy* is the actor under training or evaluation: it alone calls ``World.ste
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
 import re
 from collections.abc import Callable, Sequence
@@ -27,8 +29,18 @@ from crucible.world import hostreach
 from crucible.world.world import World, WorldError
 
 
+class PolicyOutputError(ValueError):
+    """The model's own output could not be acted on (a policy reading its model's reply raises it where it parses that
+    reply): the policy's outcome, scored 0 as ``crucible:policy_error`` (harness-reward audit R1, 2026-10-28)."""
+
+
 class Policy:
     actor_id: str
+    # harness-reward audit R1 (2026-10-28): a harness-owned policy turns every fault of its model's output into feedback inside
+    # ``act`` (``LLMToolPolicy``: an unparseable call is an ``invalid_arguments`` tool reply, a cut-off reply a nudge), so an
+    # exception that still escapes ``act`` is the framework's bug: masked as ``crucible:framework_error``, never scored 0. A
+    # policy whose own logic parses actions (scripted, game seats) keeps the old rule: ValueError and kin are its outcome
+    harness_owned: bool = False
 
     async def act(self, obs: Observation) -> Action:  # pragma: no cover - interface
         raise NotImplementedError
@@ -55,6 +67,24 @@ class ScriptedPolicy(Policy):
 
     def load_state_dict(self, d: dict) -> None:
         self._i = d["i"]
+
+
+# harness-reward audit R2 (2026-10-28): the episode's agent clock when it counts only the agent's own time
+# (``EpisodeLimits.agent_clock="own"``): a model call holds it (``model_time``), so sampler queue time under load never becomes
+# a ``timeout`` stop. The attempt clock (``RunSpec.attempt_timeout_s``, masked) still bounds everything, model calls included
+_MODEL_CLOCK: contextvars.ContextVar[Any] = contextvars.ContextVar("crucible_agent_clock_own_time", default=None)
+
+
+@contextlib.contextmanager
+def model_time() -> Any:
+    """While a policy's model call runs, the agent clock of an ``agent_clock="own"`` episode stands still (``hostreach.held``
+    on that one clock: the World's tool deadline and the Runner's attempt clock keep running). Elsewhere a no-op."""
+    cm = _MODEL_CLOCK.get()
+    if cm is None:
+        yield
+        return
+    with hostreach.held(only=(cm,)):
+        yield
 
 
 SYSTEM = """You are an agent working inside a simulated workplace. Use the tools to complete your instruction.
@@ -166,6 +196,8 @@ class LLMToolPolicy(Policy):
     """A minimal function-calling harness. Parallel tool calls in one turn are executed in order and their results
     are appended together before any message that arrived meanwhile (a valid history for OpenAI-style APIs);
     provider reasoning fields are replayed verbatim; tool output is bounded once, by the World."""
+
+    harness_owned = True  # every model-output fault is fed back inside ``act``: what escapes is the harness's (R1)
 
     def __init__(self, actor_id: str, llm: LLMClient, *, system: str = SYSTEM, max_tokens: int = 1200, max_tool_output: int | None = None,
                  max_nudges: int = 2, temperature: float = 0.0, context: ContextConfig | None = None, vision: bool = False, audio: bool = False,
@@ -356,9 +388,10 @@ class LLMToolPolicy(Policy):
             return
         attempts: list[dict[str, Any]] = []
         for attempt in range(2):  # an empty summary (a reasoning model that spent its budget thinking) is resampled once
-            r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
-                                        temperature=self.temperature, sample_key=f"{self.sample_key}:summary{attempt}" if attempt and self.sample_key else self.sample_key,
-                                        seed=0 if self.temperature == 0 else None)
+            with model_time():
+                r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
+                                            temperature=self.temperature, sample_key=f"{self.sample_key}:summary{attempt}" if attempt and self.sample_key else self.sample_key,
+                                            seed=0 if self.temperature == 0 else None)
             self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
             if (r.tokens or {}).get("new_segment") and self.model_calls:  # a thinking-template re-render: a segment, not a prefix break (M14 H3 V9)
                 self._new_segment("rerender", before, len(self.messages))
@@ -494,8 +527,9 @@ class LLMToolPolicy(Policy):
         self.messages.append({"role": "user", "content": note})
         self.limit_events.append({"kind": "final_turn", "at": self.tool_calls_issued, "text": note})
         try:
-            r = await self.llm.complete(self.messages, tools=tools, max_tokens=await self._reply_tokens(), temperature=self.temperature,
-                                        sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
+            with model_time():
+                r = await self.llm.complete(self.messages, tools=tools, max_tokens=await self._reply_tokens(), temperature=self.temperature,
+                                            sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)
         except (LLMError, BudgetExceeded, ContextOverflow) as e:
             return Done(reason=f"the tool-call limit was reached; the final turn failed: {e}")
         if (r.tokens or {}).get("new_segment") and self.model_calls:  # as in ``_act``: the harness note is a user turn, so a template
@@ -531,8 +565,9 @@ class LLMToolPolicy(Policy):
         try:
             await self._maybe_compact()  # inside: a failed summary call ends the turn like a failed turn (it crashed run_episode)
             max_tokens = await self._reply_tokens()
-            r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=max_tokens, temperature=self.temperature,
-                                        sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
+            with model_time():  # harness-reward audit R2: sampler time is not the agent's (agent_clock="own")
+                r = await self.llm.complete(self.messages, tools=self.tools or None, max_tokens=max_tokens, temperature=self.temperature,
+                                            sample_key=self.sample_key, seed=0 if self.temperature == 0 else None)  # sampled branches must differ
         except ContextOverflow as e:
             self.stop = "context_overflow"  # truncated, scored: a long-horizon failure is data, not an outage
             return Done(reason=f"context overflow: {e}")
@@ -654,11 +689,25 @@ class EpisodeLimits:
     max_steps: int = 50
     max_tool_errors: int | None = 25  # consecutive failed policy calls: a policy stuck in an error loop ends "too_many_errors"
     timeout_s: float | None = None  # wall clock for the whole episode; the final snapshot is still taken
+    # what ``timeout_s`` counts (harness-reward audit R2, 2026-10-28): "wall" (the default: every second, model calls included,
+    # as before) or "own" (the agent's own time: a policy's model call holds the clock, ``model_time``). Training sets "own"
+    # (``factory.envs.make_env(training=True)``) so a shared sampler's queue load never decides a ``timeout`` stop
+    agent_clock: str = "wall"
     # actors whose end of conversation ends the episode (stop "user_stop" / "out_of_scope"). None: every simulated person
     # (a responder with a ``scenario``) once all of them have ended, as in every reference loop; () never ends early. The
     # default was () and nothing set it, so after "###DONE###" the policy talked to no one until max_steps (M2 audit).
     end_on: tuple[str, ...] | None = None
     snapshot_every: int = 0  # >0: a WorldRef every N steps (deduplicated by fingerprint) for state-based credit and branching
+
+    def identity_config(self) -> dict[str, Any]:
+        """The limits in a harness id (``runtime.identity``): every field, ``agent_clock`` only when it is not the default
+        "wall", so the ids of harnesses made before it existed are unchanged."""
+        import dataclasses
+
+        d = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        if d.get("agent_clock") == "wall":
+            d.pop("agent_clock")
+        return d
 
 
 @dataclass
@@ -771,12 +820,20 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                         kind = "transport_timeout"  # an inference socket, not the episode clock: infra, masked
                     elif kind is None and isinstance(ex, (ConnectionError, OSError)):
                         kind = "transport_unreachable"  # a lost worker or endpoint: infra, masked
+                    owned = bool(getattr(policies[a], "harness_owned", False))
                     if kind is not None:
                         state["policy_failure"], state["stop"] = {"kind": kind, "reason": why}, "error"
-                    elif isinstance(ex, (ValueError, IndexError, KeyError, TypeError)):
+                    elif isinstance(ex, PolicyOutputError) or (not owned and isinstance(ex, (ValueError, IndexError, KeyError, TypeError))):
                         # the policy's own logic choked on its output (a malformed argument, an out-of-range action):
                         # its outcome, scored 0 (it was masked with unknown blame, enough of which halts a run)
                         state["policy_failure"], state["stop"] = {"kind": "crucible:policy_error", "reason": why, "mask": False}, "policy_error"
+                    elif owned:
+                        # harness-reward audit R1 (2026-10-28): a harness-owned policy feeds every fault of its model's output
+                        # back to the model, so this is the framework's own code (a config error, a zip(strict=True) mismatch,
+                        # a codec bug): masked with fault "framework" (framework_health's masked_failure cluster), never a 0
+                        # that trains the policy away from a bug it did not cause
+                        state["policy_failure"], state["stop"] = {"kind": "crucible:framework_error", "reason": why, "blame": "harness", "mask": True,
+                                                                  "detail": "framework"}, "error"
                     else:  # anything else stays unclassified: masked and counted by the unknown-blame stop rule
                         state["policy_failure"], state["stop"] = {"kind": "agent_run_error", "reason": why, "blame": "unknown"}, "error"
                     return
@@ -812,9 +869,15 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
 
     try:
         # the agent clock stands still while a remote host's outage pauses the episode (``world.hostreach``, 2026-10-26)
+        if limits.agent_clock not in ("wall", "own"):
+            raise ValueError(f"EpisodeLimits.agent_clock is 'wall' or 'own', got {limits.agent_clock!r}")
         async with asyncio.timeout(limits.timeout_s) as agent_clock:
-            with hostreach.clock(agent_clock):
-                await loop()
+            tok = _MODEL_CLOCK.set(agent_clock if limits.agent_clock == "own" and limits.timeout_s is not None else None)
+            try:
+                with hostreach.clock(agent_clock):
+                    await loop()
+            finally:
+                _MODEL_CLOCK.reset(tok)
     except TimeoutError:
         state["stop"] = "timeout"
     observed = []
@@ -864,14 +927,16 @@ TRUNCATING_STOPS = ("max_steps", "timeout", "context_overflow", "max_output_toke
 
 
 def _masking_failure(world: World) -> str | None:
-    """The kind of the first failure that masks the episode (a simulator broke, an infra fault), else ``None``."""
+    """The kind of the first failure that ends the episode, else ``None``: one that masks it (a simulator broke, an infra
+    fault), or a World the policy broke past use (``crucible:agent_broke_env`` recorded by the World or its watch: harness
+    audit R3, 2026-10-28: its container is dead, so the episode stops and is scored 0, never masked)."""
     for r in world.responders.values():
         for f in getattr(r, "failures", None) or ():
             if _masks(f):
                 return str(f.get("kind"))
     for f in world.failures:
         d = f.model_dump()
-        if _masks(d):
+        if _masks(d) or d.get("kind") == "crucible:agent_broke_env":
             return str(d.get("kind"))
     return None
 

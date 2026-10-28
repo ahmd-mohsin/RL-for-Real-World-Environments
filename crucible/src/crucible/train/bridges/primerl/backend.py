@@ -399,6 +399,7 @@ class _Trainer:
             cov = [r["routing_coverage"] for r in rows]
             m["routing/coverage_mean"], m["routing/coverage_min"] = sum(cov) / len(cov), min(cov)
             m["routing/replayed_share"] = sum(x is not None for x in wire.replay_all_or_none(rows)) / len(rows)  # what the step sends
+            m["routing/version_mixed_share"] = wire.version_mixed_share(rows)  # async-RL audit R5: refused, they span a weight swap
         if b.topk is not None:
             cov = [r["sc_coverage"] for r in rows]
             sent = sum(x is not None for x in topk_mod.all_or_none(rows)) / len(rows)
