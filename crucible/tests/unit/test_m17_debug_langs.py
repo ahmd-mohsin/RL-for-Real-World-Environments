@@ -419,3 +419,41 @@ def test_an_s3_rerun_the_host_timed_out_is_masked_and_flips_are_per_test() -> No
     flip = {**ref, "a_test.go::TestB": "failed"}
     assert rerun_verdict(ref, SimpleNamespace(results=flip, infra="ok", why=""), set()) == ("unclean", ["a_test.go::TestB"])
     assert rerun_verdict(ref, SimpleNamespace(results=flip, infra="ok", why=""), {"a_test.go::TestB"}) == ("clean", [])
+
+
+def test_an_s3_rerun_the_host_failed_or_a_dead_test_binary_is_masked_and_a_panic_is_one_test() -> None:
+    """Two kept tasks failed S3 on one rerun in 60 each (2026-10-27): one whose sandbox never started (infra masked,
+    exit 125), one whose whole root package failed at once with infra ok (the flip counts then named every test of a
+    file). A host failure, go test's own timeout, an OOM and a whole package lost at once with no test-level cause are
+    masked (the rerun is replaced); a panic is the panicking test's flip only; a few tests flipping stay unclean."""
+    from types import SimpleNamespace
+
+    from crucible.factory.lanes.windows_s3 import rerun_verdict, run_level
+
+    ref = {f"calc_test.go::TestC{i}": "passed" for i in range(30)} | {f"sub/x_test.go::TestX{i}": "passed" for i in range(4)}
+    run = lambda results, why="", infra="ok": SimpleNamespace(results=results, infra=infra, why=why)
+    assert rerun_verdict(ref, run({}, "sandbox did not start (exit 125)", "masked"), set()) == ("masked", [])
+    assert rerun_verdict(ref, run(dict(ref), "timeout: example.com/m"), set()) == ("masked", [])
+    dead = {**ref, **{f"calc_test.go::TestC{i}": "failed" for i in range(30)}}
+    assert run_level(ref, run(dead), [t for t in ref if dead[t] != ref[t]]).startswith("30 passing tests of 1 package(s)")
+    assert rerun_verdict(ref, run(dead), set()) == ("masked", [])
+    assert rerun_verdict(ref, run(dead, "panic: TestC7 (example.com/m)"), set()) == ("unclean", ["calc_test.go::TestC7"])
+    few = {**ref, "calc_test.go::TestC3": "failed", "sub/x_test.go::TestX1": "failed"}
+    assert rerun_verdict(ref, run(few), set()) == ("unclean", ["calc_test.go::TestC3", "sub/x_test.go::TestX1"])
+    whole_small = {**ref, **{f"sub/x_test.go::TestX{i}": "failed" for i in range(4)}}  # under 10 tests: not a dead binary
+    assert rerun_verdict(ref, run(whole_small), set())[0] == "unclean"
+
+
+def test_the_go_profile_names_a_dead_test_binary(tmp_path):
+    """go test's own timeout is the run's; a panic names its test; a fatal runtime error is named."""
+    (tmp_path / "go.mod").write_text("module example.com/m\n")
+    (tmp_path / "a_test.go").write_text("package m\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\n")
+    base = [{"Action": "run", "Package": "example.com/m", "Test": "TestA"}, {"Action": "pass", "Package": "example.com/m", "Test": "TestA"},
+            {"Action": "run", "Package": "example.com/m", "Test": "TestB"}]
+    for out, test, want in (("panic: test timed out after 20m0s\n", None, "timeout: example.com/m"),
+                            ("panic: runtime error: index out of range [3] with length 3\n", "TestB", "panic: TestB (example.com/m)"),
+                            ("fatal error: concurrent map writes\n", "TestB", "fatal error: concurrent map writes (example.com/m)")):
+        ev = [*base, {"Action": "output", "Package": "example.com/m", **({"Test": test} if test else {}), "Output": out},
+              {"Action": "fail", "Package": "example.com/m", "Test": "TestB"}]
+        _, notes = GO.parse_report("\n".join(json.dumps(e) for e in ev), tmp_path, ["a_test.go"])
+        assert want in notes, (want, notes)

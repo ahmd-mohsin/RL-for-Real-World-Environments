@@ -1557,6 +1557,17 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     milestone or test flipped. `runs` lists each false negative (its failing checks, how many tests failed, the first
     five): the task's rerun had 12 in 60, 10 failing everything (the host killed the whole suite under load) and 2
     failing only the regression check, and the totals alone could not tell the two apart.
+  - **S3 masks a rerun the host failed or whose test binary died** (2026-10-27, `windows_s3.rerun_verdict`,
+    `run_level`, `golang.parse_report`). A rerun is masked and replaced (V8) when:
+    - its sandbox never started or was killed from outside (`infra == "masked"`);
+    - the Go profile names go test's own timeout, an OOM or a kill;
+    - a whole package's passing tests (at least half, and 10) failed at once with no test-level cause.
+
+    A panic is the panicking test's flip only, so the per-function flaky rule applies to it. Masks stay under a fifth
+    of the reruns, so a package that keeps dying still fails the bound. An unclean rerun records every differing test
+    (`n_differs`; the flip counts read all of them, not the first 10) and its output tail; `masked_why` lists the mask
+    reasons. Two kept tasks failed S3 on one rerun in 60 each: one sandbox did not start (exit 125), and one root
+    package failed as a whole with infra ok.
   - **Gate records name the tree they graded** (`window_a`); a rebuild moves the old record aside, and the gates and the
     seal ignore a record of another tree.
   - **Agent-caused tool errors** (2026-10-26, from mvdan-sh dc951aeb-e1's budget stops, 13-14 failed calls each): an

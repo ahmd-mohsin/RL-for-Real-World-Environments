@@ -61,17 +61,54 @@ def new_names(rec: Mapping[str, Any], base_dir: Path) -> set[str]:
     return {n for n in names if n.startswith("test") and n not in a_text}
 
 
+# a run-level cause the profile names in ``why`` (``golang.parse_report``): the host's (masked) or one test's (a panic)
+HOST_RUN = re.compile(r"\btimeout: |fatal error: runtime: out of memory|\bkilled: ")
+PANIC = re.compile(r"\bpanic: (\S+)")
+
+
+def run_level(ref: Mapping[str, str], tr: Any, differs: Sequence[str]) -> str:
+    """Why a rerun's differences are the run's, not its tests' ('' when they are tests'): every differing test is a
+    passing test of the first run that failed or vanished, and in each package they touch at least half of the first
+    run's passing tests (and 10) went at once: a test binary that died (a crash, an OOM kill, go test's own timeout), not
+    dozens of flaky tests. excelize 824ac2ce-d1 (2026-10-27): one rerun of 60, infra ok, its whole root package failed;
+    the flip counts then named every test of calc_test.go."""
+    if not differs or any(ref.get(t) != "passed" or tr.results.get(t) == "passed" for t in differs):
+        return ""
+    pkg = lambda t: t.split("::", 1)[0].rsplit("/", 1)[0] if "/" in t.split("::", 1)[0] else ""
+    passing: dict[str, int] = {}
+    for t, v in ref.items():
+        if v == "passed":
+            passing[pkg(t)] = passing.get(pkg(t), 0) + 1
+    hit: dict[str, int] = {}
+    for t in differs:
+        hit[pkg(t)] = hit.get(pkg(t), 0) + 1
+    if all(n >= 10 and n >= passing.get(p, 0) / 2 for p, n in hit.items()):
+        return f"{sum(hit.values())} passing tests of {len(hit)} package(s) failed at once ({', '.join(sorted(p or '.' for p in hit))[:120]})"
+    return ""
+
+
 def rerun_verdict(ref: Mapping[str, str], tr: Any, ignored: set[str]) -> tuple[str, list[str]]:
-    """One S3 rerun against the first run: ``masked`` when the host ran out of time (the whole suite killed under load,
-    no result: k8sgpt 855ff255, 4 of 5 unclean reruns, 2026-10-26), never a verdict on the tree (V8); else ``clean`` or
-    ``unclean`` with the tests that differ. P5: an id built from the clock (marshmallow parametrizes on datetime.now())
+    """One S3 rerun against the first run: ``masked`` when the host failed it, never a verdict on the tree (V8): the
+    whole suite killed at the time limit with no result (k8sgpt 855ff255, 4 of 5 unclean reruns, 2026-10-26), a sandbox
+    that never started or a run killed from outside (``infra == "masked"``: reviewdog 4da03bc4-s1, "sandbox did not
+    start (exit 125)", 2026-10-27), a run-level death the profile names (go test's timeout, an OOM kill) or a whole
+    package lost at once with no test-level cause (``run_level``). A panic is one test's: only the panicking test
+    differs, so the per-function flaky rule sees one flip. Else ``clean`` or ``unclean`` with the tests that differ
+    (every one: the flip counts read them). P5: an id built from the clock (marshmallow parametrizes on datetime.now())
     exists in one run only; ids are compared where both runs have them, and the runs must collect the same number of
     tests (a crashed module still changes the count)."""
-    if str(tr.why or "").startswith("timeout after") and not tr.results:
+    why = str(tr.why or "")
+    if (why.startswith("timeout after") and not tr.results) or tr.infra == "masked" or HOST_RUN.search(why):
         return "masked", []
     common = (set(ref) & set(tr.results)) - ignored
     if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
-        return "unclean", (sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted(set(ref) ^ set(tr.results)))[:10]
+        differs = sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted((set(ref) ^ set(tr.results)) - ignored)
+        if panics := sorted({m.group(1) for m in PANIC.finditer(why)}):
+            own = [t for t in differs if t.split("::", 1)[-1].split("/", 1)[0] in panics]
+            return "unclean", own or differs
+        if run_level(ref, tr, [t for t in differs if t in ref]) and not (set(tr.results) - set(ref) - ignored):
+            return "masked", []
+        return "unclean", differs
     return "clean", []
 
 
@@ -119,11 +156,12 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
         tr = await run_tests(sb, base_dir, {}, {}, targets)
         verdict, diff = rerun_verdict(ref, tr, ignored)
         if verdict == "masked":
-            masked.append(str(tr.why))
+            masked.append(str(tr.why) or run_level(ref, tr, [t for t in ref if tr.results.get(t) != ref[t]]) or "masked")
             return
         done += 1
         if verdict == "unclean":
-            unclean.append({"infra": tr.infra, "why": tr.why, "differs": diff})
+            unclean.append({"infra": tr.infra, "why": tr.why, "n_differs": len(diff), "differs": diff[:10], "flips": diff,
+                            "tail": str(tr.tail or "")[-1500:]})
 
     if ran:
         for _ in range(half):
@@ -140,10 +178,10 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
     bound = cp_upper(len(unclean), done) if done else 1.0
     flips: dict[str, int] = {}
     for u in unclean:
-        for t in u["differs"]:
+        for t in u.pop("flips"):
             flips[t] = flips.get(t, 0) + 1
     out["reruns"] = {"n": done, "clean": done - len(unclean), "unclean": unclean[:5], "cp_upper": round(bound, 4), "concurrency": [1, concurrency],
-                     "masked": len(masked), "flips": dict(sorted(flips.items(), key=lambda x: -x[1])[:40])}
+                     "masked": len(masked), "masked_why": sorted(set(masked))[:10], "flips": dict(sorted(flips.items(), key=lambda x: -x[1])[:40])}
     out["checks"]["reruns_clean"] = bool(done) and bound <= max_flake  # too many masks leave fewer reruns: the bound fails
     # the verifier does not move: the oracle passes every milestone test, the start state none
     tests, _ = grader_tests(rec, base_dir)

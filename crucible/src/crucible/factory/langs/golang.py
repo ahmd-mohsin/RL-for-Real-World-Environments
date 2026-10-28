@@ -359,6 +359,7 @@ class GoProfile(CLikeProfile):
         out: dict[str, str] = {}
         build_failed: set[str] = set()
         killed: list[str] = []
+        deaths: list[str] = []
         st = {"pass": "passed", "fail": "failed", "skip": "skipped"}
         for line in report.splitlines():
             if not line.startswith("{"):
@@ -372,6 +373,14 @@ class GoProfile(CLikeProfile):
             if act == "output" and not ev.get("Test") and str(ev.get("Output") or "").strip() == "signal: killed":
                 killed.append(str(ev.get("Package") or ""))
                 continue
+            if act == "output":  # a test binary that died: go test's own timeout (the run's), a panic (one test's), a fatal error
+                text = str(ev.get("Output") or "")
+                if "panic: test timed out after" in text:
+                    deaths.append(f"timeout: {ev.get('Package') or ''}")
+                elif text.startswith("panic: ") and ev.get("Test"):
+                    deaths.append(f"panic: {str(ev['Test']).split('/', 1)[0]} ({ev.get('Package') or ''})")
+                elif text.startswith("fatal error: "):
+                    deaths.append(f"{text.strip()[:80]} ({ev.get('Package') or ''})")
             if act == "build-fail" and ev.get("ImportPath"):
                 build_failed.add(ev["ImportPath"].split(" ", 1)[0])
                 continue
@@ -389,7 +398,7 @@ class GoProfile(CLikeProfile):
             if f is None:
                 continue
             out[f"{f}::{ev['Test']}"] = st[act]
-        notes = [f"killed: signal: killed ({p})" for p in sorted(set(killed))]
+        notes = [f"killed: signal: killed ({p})" for p in sorted(set(killed))] + sorted(set(deaths))
         for pkg in sorted(p for p in build_failed if p):
             d = dir_of(pkg)
             if d is None:
