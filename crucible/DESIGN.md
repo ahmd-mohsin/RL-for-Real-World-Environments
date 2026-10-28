@@ -949,6 +949,18 @@ launcher, filesystem transports and an import-path loss.
   every module the job imports, so a missing package fails on the login node.
   The trainer runs under torchrun as prime-rl's `rl` launcher starts it (`deploy.trainer_command`), with prime-rl's
   default trainer and common environment; its `trainer` console script sets up no distributed rank.
+- **Step numbering** follows prime-rl v0.10.0: steps count from 1 (`backend.FIRST_STEP`). The startup broadcast of a
+  fresh run is `broadcasts/step_0`, and step s writes `broadcasts/step_<s>` and `checkpoints/step_<s>`, so Crucible's
+  version v is prime-rl's step v. A checkpoint counts once DCP has written `trainer/.metadata`. The base model is sampled
+  as `<model>-base`, the name prime-rl serves under LoRA. Every wait on the trainer is bounded, including prime-rl's
+  unbounded batch-request wait (`FileIO.send_timeout_s`).
+  Prompt and training token ids must be ints, checked when sampling and on the wire, because vLLM accepts a list of
+  strings as text prompts.
+  The loss is tested forward and backward on an accelerator device as well as the CPU.
+  The bridge answers only an unanswered broadcast offer (`.sender_ready` without `.receiver_ready`), so a relaunched
+  trainer's re-offer of its resume step is never confused with the previous trainer's answered markers.
+- **The GPU smoke passed** (2026-10-28, job 3474848, 6:25 on 2 GH200): two RL steps, a relaunch from checkpoint 2, and a
+  third step, all through the bridge on Qwen3-0.6B, plus the student's Gated DeltaNet kernels on the GPU (doc 14 §5.1).
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

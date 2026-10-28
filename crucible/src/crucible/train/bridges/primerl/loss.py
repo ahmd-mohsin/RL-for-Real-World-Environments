@@ -153,7 +153,7 @@ def mass(lp: Any, lq: Any, weight: str, *, mis_low: float = MIS_LOW, mis_high: f
         return torch.exp(torch.minimum(lp, lq + math.log(tis_cap)))
     if weight == "mis":
         d = lp - lq
-        band = (d >= torch.tensor(mis_low, dtype=d.dtype).log()) & (d <= torch.tensor(mis_high, dtype=d.dtype).log())
+        band = (d >= math.log(mis_low)) & (d <= math.log(mis_high))  # float bounds: no CPU tensor beside CUDA (smoke attempt 10)
         return torch.where(band, torch.exp(lp), torch.zeros_like(lp))
     raise ValueError(f"unknown weight {weight!r}")
 
@@ -184,7 +184,7 @@ def centering(head: Head, m: Any, weight: str, **band: float) -> tuple[Any, dict
     kl_head = torch.where(valid, q_h * (lq_h - lp_d), torch.zeros_like(lp_d)).sum(-1) + q_tail * log_rho
     metrics = {"sc/head_mass": head_q.mean(), "sc/head_mass_min": head_q.min(), "sc/rho": rho.mean(), "sc/rho_min": rho.min(),
                "sc/rho_max": rho.max(), "sc/score_mean_l1": ((q_h - p_h).abs().sum(-1) + (q_tail - p_tail).abs()).mean(),
-               "sc/kl_head": kl_head.mean(), "sc/tail_dropped": (alpha == 0).to(dt).mean(), "sc/fallback": torch.zeros((), dtype=dt)}
+               "sc/kl_head": kl_head.mean(), "sc/tail_dropped": (alpha == 0).to(dt).mean(), "sc/fallback": torch.zeros((), dtype=dt, device=lp_d.device)}
     return term, metrics
 
 
@@ -213,7 +213,8 @@ def token_objective(lp_train: Any, lp_sample: Any, adv: Any, mask: Any, *, kind:
     extra: dict[str, Any] = {}
     if weight == "kind":
         if kind == "importance_sampling":
-            capped = log_r.detach().clamp(max=torch.tensor(max_importance_ratio, dtype=log_r.dtype).log())
+            # a Python float bound: a torch.tensor here lives on the CPU and fails beside CUDA logprobs (smoke attempt 10)
+            capped = log_r.detach().clamp(max=math.log(max_importance_ratio))
             r = torch.exp(capped + (log_r - log_r.detach()))
             per = -r * a
             clipped = (log_r.detach() > capped).float()
@@ -229,7 +230,7 @@ def token_objective(lp_train: Any, lp_sample: Any, adv: Any, mask: Any, *, kind:
                 raise ValueError(f"{int((~present).sum())} of {present.numel()} trained tokens have no sampler head: a step centers all or none")
         elif centered:
             weight = fallback_weight(pg_correction)
-            extra["sc/fallback"] = torch.ones((), dtype=torch.float32)
+            extra["sc/fallback"] = torch.ones((), dtype=torch.float32, device=log_r.device)
         lr_d = log_r.detach().clamp(-LOG_RATIO_CLAMP, LOG_RATIO_CLAMP)
         w = mass(lr_d, torch.zeros_like(lr_d), weight, **band)
         per = -a * w * torch.exp(lp - lp.detach())  # value −A·w, gradient −A·w·∇log p (module doc)
@@ -242,7 +243,7 @@ def token_objective(lp_train: Any, lp_sample: Any, adv: Any, mask: Any, *, kind:
             if head.lq_label is not None:
                 gap = (head.lq_label[m].to(lq.dtype) - lq).abs()
                 gap = gap[~torch.isnan(gap)]
-                extra["sc/align_err"] = gap.max() if gap.numel() else torch.zeros((), dtype=lq.dtype)
+                extra["sc/align_err"] = gap.max() if gap.numel() else torch.zeros((), dtype=lq.dtype, device=lq.device)
     loss = per.sum()
     anchor = (lq - lp)
     if kl_coeff > 0:

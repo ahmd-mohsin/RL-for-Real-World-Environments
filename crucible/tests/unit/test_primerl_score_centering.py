@@ -350,7 +350,7 @@ def test_the_sampler_asks_for_k_logprobs_keeps_the_heads_and_a_step_sends_all_or
             assert fb.metrics["sc/coverage_min"] == 1.0 and fb.metrics["sc/fallback"] == 0.0 and fb.metrics["sc/fallback_steps_share"] == 0.0
             ids, lps, present = topk.decode_payload(sent[0]["ids"], sent[0]["counts"])
             assert present.tolist() == [False, False, False, True, True] and ids[3].tolist() == [50, 9] and lps[4].tolist() == pytest.approx([-0.2, -3.0])
-        assert store.get([1, 2, 3, 50, 51]) is None and b.last[1].name == "step_0"  # trained: dropped; the broadcast path is the sampler's
+        assert store.get([1, 2, 3, 50, 51]) is None and b.last[1].name == "step_1"  # trained: dropped; the broadcast path is the sampler's
         grid = wire.simple_pack(rows, ranks=1)
         assert isinstance(grid[0][0]["sc_heads"]["ids"], str)
 

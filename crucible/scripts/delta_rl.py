@@ -222,7 +222,7 @@ def cmd_render_smoke(args) -> None:
     t0["model"].pop("ep")
     t0["model"].pop("cp")
     t1 = json.loads(json.dumps(t0))
-    t1["resume"] = {"step": 1}  # the checkpoint of step 1 (the second step): the relaunched trainer continues at step 2
+    t1["resume"] = {"step": 2}  # phase 1 trains prime-rl steps 1 and 2 (backend.FIRST_STEP); the relaunch continues at step 3
     inf = inference_toml(cfg, d)
     (stage / "trainer.toml").write_text(tomli_w.dumps(t0))
     (stage / "trainer_resume.toml").write_text(tomli_w.dumps(t1))
@@ -260,7 +260,7 @@ echo "vLLM healthy after $((SECONDS - T0)) s"
 echo "=== phase 1: two steps"
 {py} --steps 2 --report {out}/smoke1.json || {{ echo "phase 1 failed"; tail -30 {out}/trainer.log; tail -20 {out}/inference.log; kill $INF $TRN $MEM 2>/dev/null; exit 9; }}
 kill $TRN; wait $TRN 2>/dev/null; pkill -u $USER -f prime_rl.trainer.rl.train; sleep 5  # torchrun's workers too: GPU 0 is free for the relaunch
-echo "=== phase 2: trainer relaunched from its step-1 checkpoint"
+echo "=== phase 2: trainer relaunched from its step-2 checkpoint"
 CUDA_VISIBLE_DEVICES=0 {trainer_command(f"{out}/trainer_resume.toml", gpus=1, port="$((30500 + SLURM_JOB_ID % 1000))", tag="resume")} > {out}/trainer_resume.log 2>&1 &
 TRN=$!
 {py} --steps 1 --resume-from {out}/smoke1.json --report {out}/smoke2.json
@@ -280,14 +280,34 @@ exit $RC
     print(json.dumps({"stage": str(stage), "cluster_out": str(out), "submit": " ".join(submit_command(out / "job.sbatch", d))}, indent=1))
 
 
-def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False, sc_topk: int = 0):
+# the smoke's bounds: a 0.6B step takes seconds, so a stalled handshake fails the job in minutes instead of holding the GPUs
+# to the time limit (attempt 8 held them 1:55 waiting for a broadcast that never came)
+SMOKE_TIMEOUTS = {"step_timeout_s": 900.0, "startup_timeout_s": 1200.0}
+
+
+def _backend(args, *, lr: float, loss: str, ranks: int, seq_len: int, router_replay: bool = False, sc_topk: int = 0, timeouts: dict[str, float] | None = None):
     from crucible.train.bridges.primerl.backend import FileIO, HttpClient, PrimeRLBackend
     from crucible.train.bridges.primerl.routing import RoutingStore
     from crucible.train.bridges.primerl.topk import TopKStore
 
-    return PrimeRLBackend(io=FileIO(Path(args.primerl_out), ranks=ranks, seq_len=seq_len, model=args.base_model),
-                          http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss,
-                          routing=RoutingStore() if router_replay else None, topk=TopKStore(k=sc_topk) if sc_topk > 0 else None)
+    t = timeouts or {}
+    io = FileIO(Path(args.primerl_out), ranks=ranks, seq_len=seq_len, model=args.base_model)
+    if "step_timeout_s" in t:
+        io.send_timeout_s = t["step_timeout_s"]
+    return PrimeRLBackend(io=io, http=HttpClient(f"http://localhost:{args.port}"), base_model=args.base_model, learning_rate=lr, loss_kind=loss,
+                          routing=RoutingStore() if router_replay else None,
+                          topk=TopKStore(k=sc_topk) if sc_topk > 0 else None, **t)
+
+
+def smoke_encode(tok, text: str) -> list[int]:
+    """The chat prompt's token ids: the template rendered as text, then encoded. ``apply_chat_template(tokenize=True)``
+    returns a ``BatchEncoding`` in transformers 5, and ``list()`` of it is its keys (smoke attempt 9, job 3474394)."""
+    msgs = [{"role": "user", "content": text}]
+    try:
+        rendered = tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False, tokenize=False)
+    except TypeError:
+        rendered = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+    return [int(t) for t in tok.encode(rendered, add_special_tokens=False)]
 
 
 def cmd_smoke(args) -> None:
@@ -298,17 +318,13 @@ def cmd_smoke(args) -> None:
     tok = AutoTokenizer.from_pretrained(args.base_model)
 
     def encode(text: str) -> list[int]:
-        msgs = [{"role": "user", "content": text}]
-        try:
-            return list(tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False))
-        except TypeError:
-            return list(tok.apply_chat_template(msgs, add_generation_prompt=True))
+        return smoke_encode(tok, text)
 
     resume = sampler_path = None
     if args.resume_from:
         prev = json.loads(Path(args.resume_from).read_text())
         resume, sampler_path = prev["last_checkpoint"], prev["last_adapter"]
-    b = _backend(args, lr=args.lr, loss="importance_sampling", ranks=1, seq_len=4096, sc_topk=args.sc_topk)
+    b = _backend(args, lr=args.lr, loss="importance_sampling", ranks=1, seq_len=4096, sc_topk=args.sc_topk, timeouts=SMOKE_TIMEOUTS)
     out = asyncio.run(run(b, encode=encode, decode=lambda ids: tok.decode(list(ids), skip_special_tokens=True), model="Qwen/Qwen3.6-35B-A3B",
                           steps=args.steps, learning_rate=args.lr, resume=resume, sampler_path=sampler_path, rank=16))
     Path(args.report).write_text(json.dumps(out, indent=1, default=str))
@@ -362,7 +378,7 @@ def main() -> None:
     add_deploy_flags(p)
     p.add_argument("--run-name", required=True)
     p.add_argument("--stage", required=True, help="local directory the files are written to (rsync it to the run directory)")
-    p.add_argument("--resume-step", type=int)
+    p.add_argument("--resume-step", type=int, help="the prime-rl checkpoint step to resume from (steps count from 1)")
     p.set_defaults(fn=cmd_render)
     p = sub.add_parser("render-smoke")
     p.add_argument("--base-model", default="Qwen/Qwen3-0.6B")
