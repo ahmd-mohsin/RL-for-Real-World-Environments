@@ -1496,6 +1496,12 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     (`n_differs`; the flip counts read all of them, not the first 10) and its output tail; `masked_why` lists the mask
     reasons. Two kept tasks failed S3 on one rerun in 60 each: one sandbox did not start (exit 125), and one root
     package failed as a whole with infra ok.
+  - **A license header is never contamination evidence** (2026-10-28, `benchaudit.LICENSE_LINE`): the audit's fix-line
+    and hidden-test-line probes leave out license-header lines (Apache, MIT, SPDX, copyright). A fix that adds a test
+    file adds its header, and every licensed file in the public tree holds those lines. Two held-out Go tasks read
+    contaminated on six or seven Apache-2.0 header lines. The seal guard does not fingerprint them either
+    (`sealguard.LICENSE_LINE`, the one copy: the hook runs without the project's deps); fingerprinted, they refused
+    any commit touching a licensed file.
   - **An audit quote is checked on its words** (2026-10-28, `audit.validate`, `_words`): evidence passes when it is
     in the trace with whitespace and case folded, or when its letters and digits appear in order (punctuation
     re-typed). Joined spans and invented words still fail. A held-out task's auditor wrote `failing hidden tests:

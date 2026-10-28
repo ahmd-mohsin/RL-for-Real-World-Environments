@@ -206,3 +206,29 @@ def test_this_repository_exposes_nothing_beyond_the_frozen_baseline() -> None:
     base = json.loads((root / "crucible/docs/research/swarm-pipeline/runs/seal_baseline.json").read_text())["findings"]
     new = sg.ratchet(sg.tree(root, "HEAD", sg.Seal.load(root)), base)
     assert new == [], new[:10]
+
+
+def test_a_license_header_is_never_contamination_evidence():
+    """A fix that adds a test file adds its license header; every licensed file in the public tree holds those lines,
+    and two held-out tasks read contaminated on them (2026-10-28). The guard does not fingerprint them either. The
+    task's own lines still count."""
+    from crucible.factory.benchaudit import LINE_CHARS, _distinct
+
+    lines = ["// Copyright (c) 2031 The Example Widget Authors. All rights reserved.",
+             "// Permission is hereby granted, free of charge, to any person obtaining a copy",
+             "// SPDX-License-Identifier: MIT and some more words here",
+             '\tif got := analyzer.Count(results); got != wantFindings { t.Fatalf("got %d", got) }']
+    assert _distinct(lines, LINE_CHARS) == [lines[3].strip()]
+
+
+def test_the_guard_does_not_fingerprint_a_license_header(repo: Path) -> None:
+    """A held-out fix's added test file starts with a license header: fingerprinted, its lines refused any commit that
+    touched a licensed file (2026-10-28). The fix's own line still trips the guard."""
+    hdr = "// Licensed under the Example Widget License, version 7, see the file named COPYING"
+    t = ba.HeldTask("db-node-zzlib-a6cd4654", "zzlib", "debug", "x", [], [FIX], [hdr])
+    sg.refresh(repo, [t], held_out=HELD, urls=URLS)
+    seal = sg.Seal.load(repo, held_out=HELD, urls=URLS)
+    stage(repo, "LICENSES/widget.txt", hdr + "\n")
+    assert not [f for f in sg.staged(repo, seal) if f.rule == "hidden_content"]
+    stage(repo, "notes.md", f"a line from a fix: {FIX.strip()}\n")
+    assert "hidden_content" in {f.rule for f in sg.staged(repo, seal)}

@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from crucible.bench import contamination
+from crucible.factory.sealguard import LICENSE_LINE  # the guard keeps the regex: its hook runs without the project's deps
 
 MIN_LINES = 3  # fix or hidden-test lines in the public tree that make a task contaminated
 MIN_PROMPT = 2  # report sentences in the public tree that make a task contaminated
@@ -128,7 +129,7 @@ def variants(parents: Sequence[HeldTask], reports: Path, ids: Iterable[str]) -> 
 def _distinct(lines: Iterable[str], n: int) -> list[str]:
     seen, out = set(), []
     for ln in sorted({x.strip() for x in lines}, key=len, reverse=True):
-        if len(ln) >= n and sum(ch.isalnum() for ch in ln) >= n // 2 and ln not in seen:
+        if len(ln) >= n and sum(ch.isalnum() for ch in ln) >= n // 2 and ln not in seen and not LICENSE_LINE.search(ln):
             seen.add(ln)
             out.append(ln)
     return out[:CAP]

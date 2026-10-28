@@ -57,6 +57,15 @@ CAP = 60  # items per kind per task (the longest), as in the audit
 HEX = re.compile(r"\b[0-9a-fA-F]{32,}\b")
 
 
+# a license header's lines (a fix that adds a test file adds its header): every licensed file holds them, so they are
+# never one task's evidence. Two held-out Go tasks read contaminated on six or seven Apache-2.0 header lines
+# found in the public tree's LICENSE files and vendored sources (2026-10-28)
+LICENSE_LINE = re.compile(r"SPDX-License-Identifier|\bCopyright\b|Licensed under the|apache\.org/licenses|"
+                          r"you may not use this file except|Unless required by applicable law|distributed under the License|"
+                          r"WITHOUT WARRANTIES OR CONDITIONS|governing permissions and|limitations under the License|"
+                          r"Permission is hereby granted|THE SOFTWARE IS PROVIDED", re.IGNORECASE)
+
+
 def digest(text: str) -> str:
     return hashlib.sha256(text.strip().encode()).hexdigest()[:20]
 
@@ -138,7 +147,9 @@ def refresh(root: Path, tasks: Iterable[Any], *, key: bytes | None = None, extra
         ids.update(getattr(t, "aliases", []) or [])
         for group, n, share in (([*t.fix_lines], LINE_CHARS, COVER), ([*t.test_lines], LINE_CHARS, COVER),
                                 ([re.split(r"::|/", x)[-1] for x in t.hidden_tests], TEST_CHARS, 1.0)):
-            for x in sorted({_norm(x) for x in group if len(_norm(x)) >= n}, key=len, reverse=True)[:CAP]:
+            # a license header's line is every licensed file's (LICENSE_LINE): fingerprinted, it refused any
+            # commit touching a licensed file, and a test of the rule itself (2026-10-28)
+            for x in sorted({_norm(x) for x in group if len(_norm(x)) >= n and not LICENSE_LINE.search(x)}, key=len, reverse=True)[:CAP]:
                 items[x] = max(items.get(x, 0.0), share)
     windows: dict[str, int] = {}
     need: dict[int, int] = {}
