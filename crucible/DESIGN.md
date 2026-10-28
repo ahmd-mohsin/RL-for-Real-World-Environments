@@ -1547,6 +1547,10 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     cached, and `subset` says the check did not run (retry on a quieter host), not "not a real fix". Under load, a
     held-out rebuild's suite at B timed out at 900 s for all eight fixes, five of which had built the task before. The
     cached failure would have answered every retry.
+  - **A grade the host timed out is graded once more** (2026-10-27, `windows.timed_out_empty`, `WindowTask.grade`): a
+    run the sandbox killed at its limit with no test reported is no verdict on the tree. The grade runs once more, and a
+    second such timeout is the tree's (a hang, a fail, never masked, so a hang cannot buy a mask). A held-out DeepSeek
+    episode was graded all-fail on such a run under load. Its regrade passed three of four milestones in 500 s.
   - **S10 names what flipped** (2026-10-27): `FlakeReport.false_negative_detail` counts the failing checks and the
     grader's failing tests over the false negatives (`graded_from` keeps a GradeReport's failing tests), and the S10
     evidence carries it. A held-out task failed S10 on 1 false negative in 59, and its record could not say which

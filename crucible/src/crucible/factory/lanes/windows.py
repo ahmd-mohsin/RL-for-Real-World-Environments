@@ -388,6 +388,13 @@ def normalize_ids(results: Mapping[str, str], targets: Sequence[str]) -> dict[st
     return out
 
 
+def timed_out_empty(tr: TestRun) -> bool:
+    """The sandbox killed the whole run at its time limit and no test reported: no verdict on the tree yet. A held-out
+    DeepSeek episode (2026-10-27) was graded all-fail on such a run under load; its regrade passed three of four
+    milestones in 500 s. ``WindowTask.grade`` runs once more; a second timeout is the tree's (a hang), a fail."""
+    return str(tr.why or "").startswith("timeout after") and not tr.results
+
+
 async def run_tests(sandbox: DockerSandbox, base_dir: Path, files: Mapping[str, str | None], tests: Mapping[str, str], targets: Sequence[str],
                     deleted: Sequence[str] = ()) -> TestRun:
     """A fresh copy of A, ``files`` written (protected paths never), ``tests`` written over it, the test files B deleted
@@ -1664,6 +1671,10 @@ class WindowTask(ExecTask):
         else:
             targets = sorted({x.split("::", 1)[0] for ts in check_tests.values() for x in ts})
             tr = await run_tests(self.sandbox, self.base_dir, files, self.grader_tests, targets, self.window.get("tests_deleted") or ())
+            if timed_out_empty(tr):  # the whole run killed at its time limit with no result: once more before it is a verdict
+                tr = await run_tests(self.sandbox, self.base_dir, files, self.grader_tests, targets, self.window.get("tests_deleted") or ())
+                if timed_out_empty(tr):
+                    tr.why = f"{tr.why} twice (the tree hangs)"
             if tr.infra != "ok":
                 rep = GradeReport(task=self.task_id, tier="full", checks=[], gates={c: "infra" for c in check_tests}, reward=0.0, outcome=0.0,
                                   infra={"status": "masked", "why": tr.why}, trusted=False, elapsed_s=time.monotonic() - t0, meta={"why": tr.why})

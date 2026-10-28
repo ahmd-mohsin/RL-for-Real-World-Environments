@@ -160,3 +160,29 @@ def test_held_out_repositories_never_enter_a_training_store(tmp_path: Path) -> N
         h.save_window({"id": "w2", "repo": "boltons"})
     assert open_store(tmp_path / "s", held).split == "heldout" and open_store(tmp_path / "s", "boltons").split == "train"
     assert json.loads((tmp_path / "s" / "heldout" / "split.json").read_text())["split"] == "heldout"
+
+
+def test_a_whole_run_timeout_with_no_result_is_graded_once_more(tmp_path: Path) -> None:
+    """A held-out episode was graded all-fail on a run the sandbox killed at its limit under load (no test reported);
+    its regrade passed three of four milestones. The grade runs once more; a second timeout is the tree's (a hang)."""
+    from crucible.factory.lanes.executable import TestRun
+
+    task, rec, repo = make_task(tmp_path)
+    real = task.sandbox
+
+    class Slow:
+        def __init__(self, fails: int):
+            self.fails, self.calls = fails, 0
+
+        async def run(self, tree, targets):
+            self.calls += 1
+            if self.calls <= self.fails:
+                return TestRun({}, "ok", None, 900.0, "", why="timeout after 900.0s")
+            return await real.run(tree, targets)
+
+    task.sandbox = once = Slow(1)
+    rep = asyncio.run(task.grade_patch(diff(repo, rec["a"], rec["b"], "pkg")))
+    assert once.calls == 2 and rep.reward == 1.0 and rep.meta["milestones"] == {"m01": True, "m02": True, "m03": True}
+    task.sandbox = hang = Slow(5)
+    rep = asyncio.run(task.grade_patch(diff(repo, rec["a"], rec["b"], "pkg")))
+    assert hang.calls == 2 and rep.reward == 0.0 and rep.meta["why"].endswith("twice (the tree hangs)")
