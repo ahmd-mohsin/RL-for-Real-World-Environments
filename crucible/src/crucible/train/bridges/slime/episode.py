@@ -28,9 +28,11 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from crucible.runtime.harness.sandbox import EXIT_TIME_BUDGET_EXCEEDED, Sandbox
+from crucible.verify.collect import snapshot_command
 
-SNAPSHOT_CMD = ("set -e; I=$(mktemp); cp .git/index \"$I\" 2>/dev/null || true; GIT_INDEX_FILE=\"$I\" git add -A >/dev/null 2>&1; "
-                "GIT_INDEX_FILE=\"$I\" git -c core.quotepath=off diff --cached --binary {base}; rm -f \"$I\"")
+# the in-sandbox snapshot (``verify.collect.snapshot_command``) as a ``str.format`` template on ``{base}``: pass the base commit
+# recorded at open (``SlimeTaskEnv.open``), never the agent-movable ``base`` tag (harness audit R6, 2026-10-28)
+SNAPSHOT_CMD = snapshot_command("{base}", require_sha=False)
 
 
 def toy_tokens(text: str, *, vocab: int = 50_000) -> list[int]:

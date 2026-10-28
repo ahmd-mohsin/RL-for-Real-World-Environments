@@ -60,6 +60,7 @@ class _Task:
     probation: bool = False  # past ``until``: one retry group allowed
     probe_out: bool = False  # the retry group is in flight
     times: int = 0  # how often it was quarantined
+    since: int | None = None  # the step of the last quarantine: a group picked before it is not an observation of it (async R6)
 
 
 @dataclass
@@ -69,6 +70,9 @@ class TaskQuarantine:
     splits: Mapping[str, str] | None = None  # task -> split; anything but "train" is refused
     state: dict[str, _Task] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
+    # whether the last ``pick`` was a task's probation retry (async-RL audit R6, 2026-10-28): the caller tags the group it
+    # launches with it and passes it back to ``observe`` / ``lost``, so only that group decides the probation
+    last_probe: bool = False
 
     def __post_init__(self) -> None:
         held = sorted(t for t, s in (self.splits or {}).items() if str(s or "train") != "train")
@@ -98,6 +102,7 @@ class TaskQuarantine:
         task on probation gets its one retry group (marked in flight). When every task is blocked, the one released
         soonest is sampled (logged ``all_quarantined``): a run never stalls on its own quarantine."""
         n = len(self.tasks)
+        self.last_probe = False
         if not self.config.enabled:
             return start % n
         self._open_probations(step)
@@ -108,16 +113,30 @@ class TaskQuarantine:
                 s = self.state[t]
                 if s.probation:
                     s.probe_out = True
+                    self.last_probe = True
                 return i
         i = min(range(n), key=lambda x: (self.state[self.tasks[x]].until if self.state[self.tasks[x]].until is not None else step, x))
         self._event("all_quarantined", self.tasks[i], step, "every training task is quarantined: sampling the one released soonest")
         return i
 
     # ---- observations ----
-    def observe(self, task: str, rewards: Sequence[float | None], phis: Sequence[float | None], step: int) -> dict[str, Any] | None:
-        """A landed, unmasked group of ``task`` at optimizer step ``step``; returns the event it caused, if any."""
+    def observe(self, task: str, rewards: Sequence[float | None], phis: Sequence[float | None], step: int, *, picked: int | None = None,
+                probe: bool | None = None) -> dict[str, Any] | None:
+        """A landed, unmasked group of ``task`` at optimizer step ``step``; returns the event it caused, if any.
+
+        Async-RL audit R6 (2026-10-28): under asynchronous sampling a group lands steps after it was picked. ``picked`` (the
+        step its task was picked at) dates the observation: a group picked before the task's last quarantine measured the
+        policy that quarantine already judged, and is not an observation (it used to release the task, or quarantine it
+        again, in place of its retry group). ``probe`` (``last_probe`` after the pick that launched it): during a probation
+        only the retry group decides; another group of the task is not an observation. Callers that pass neither keep the
+        old behaviour (the landing step, and the first group to land decides)."""
         s = self.state.get(task)
         if s is None or not self.config.enabled:
+            return None
+        at = step if picked is None else int(picked)
+        if picked is not None and s.since is not None and at < s.since:
+            return None
+        if s.probation and probe is False:
             return None
         is_flat = flat(rewards, phis)
         rs = [None if x is None else round(float(x), 6) for x in rewards]
@@ -130,23 +149,24 @@ class TaskQuarantine:
         if not is_flat:
             s.strikes, s.last_step = 0, None
             return None
-        if s.last_step == step:
+        if s.last_step == at:
             return None  # one strike per step: two flat groups of one step are one observation
         s.strikes += 1
-        s.last_step = step
+        s.last_step = at
         if s.strikes >= self.config.q:
             return self._quarantine(task, step, f"{s.strikes} consecutive flat groups (last rewards {rs}, no Φ spread)")
         return None
 
-    def lost(self, task: str) -> None:
-        """A group of ``task`` was masked (infrastructure): not an observation; a lost retry re-opens the probation."""
+    def lost(self, task: str, *, probe: bool | None = None) -> None:
+        """A group of ``task`` was masked (infrastructure) or cancelled: not an observation; a lost retry re-opens the
+        probation (``probe`` False: another group of the task was lost, the retry is still out)."""
         s = self.state.get(task)
-        if s is not None and s.probation:
+        if s is not None and s.probation and probe is not False:
             s.probe_out = False
 
     def _quarantine(self, task: str, step: int, why: str, *, kind: str = "quarantined") -> dict[str, Any]:
         s = self.state[task]
-        s.until, s.strikes, s.last_step, s.times = step + self.config.r, 0, None, s.times + 1
+        s.until, s.strikes, s.last_step, s.times, s.since = step + self.config.r, 0, None, s.times + 1, step
         return self._event(kind, task, step, why, until=s.until)
 
     def _event(self, kind: str, task: str, step: int, why: str, **extra: Any) -> dict[str, Any]:

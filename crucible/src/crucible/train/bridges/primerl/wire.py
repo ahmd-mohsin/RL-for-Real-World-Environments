@@ -22,10 +22,13 @@ per micro batch, round robin over ranks, as plain dicts) only for tests and dry 
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 
 from crucible.train.bridges.tinker.backend import TokenDatum
+
+log = logging.getLogger(__name__)
 
 
 def full_ids(d: TokenDatum) -> list[int]:
@@ -72,13 +75,28 @@ def _heads(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list
     return {"sc_heads": encode_payload(ids, lps, present), "sc_coverage": cov}
 
 
+def version_mixed(d: TokenDatum) -> bool:
+    """Whether the datum's sampled tokens come from more than one policy version (an episode that crossed a weight swap
+    under async sampling: ``meta`` ``min_version`` < ``max_version``, from ``datums.build_datums``)."""
+    lo, hi = d.meta.get("min_version"), d.meta.get("max_version")
+    return isinstance(lo, int) and isinstance(hi, int) and lo != hi
+
+
 def _routes(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list[float], routing: Any) -> dict[str, Any]:
     if routing is None:
         return {}
     from crucible.train.bridges.primerl.routing import encode_for_wire, stitch
 
+    if version_mixed(d):
+        # async-rl audit R5 (2026-10-28): a call after a hot-load re-forwards the prefix under the new adapter, so the prefix has
+        # one routing per version, and one training sequence carries one route per position. ``stitch`` kept the first call's,
+        # so the later version's tokens were trained over a prefix routed as the earlier version routed it: no replay is exact
+        # for such a sequence. It is refused (no routes, coverage 0, ``routing_version_mixed``), so ``replay_all_or_none``
+        # recomputes the router for the step, as for any incomplete coverage; a synchronous run (one version per episode)
+        # is unaffected. Splitting the sequence per version (slime's fork under R3) is the exact alternative (DESIGN §10.3)
+        return {"routed_experts": None, "routing_coverage": 0.0, "routing_version_mixed": True}
     arr, cov = stitch(token_ids, call_ends(d), routing, logprobs=logprobs, mask=mask)  # the logprobs pick this sequence's own calls
-    return {"routed_experts": encode_for_wire(arr) if arr is not None else None, "routing_coverage": cov}
+    return {"routed_experts": encode_for_wire(arr) if arr is not None else None, "routing_coverage": cov, "routing_version_mixed": False}
 
 
 def undo_token_mean(datums: Sequence[TokenDatum]) -> float:
@@ -88,7 +106,17 @@ def undo_token_mean(datums: Sequence[TokenDatum]) -> float:
 
 def samples(datums: Sequence[TokenDatum], *, temperature: float, env_name: str = "crucible", routing: Any = None, topk: Any = None) -> list[dict[str, Any]]:
     k = undo_token_mean(datums)
-    return [to_sample(d, temperature=temperature, env_name=env_name, scale=k, routing=routing, topk=topk) for d in datums]
+    rows = [to_sample(d, temperature=temperature, env_name=env_name, scale=k, routing=routing, topk=topk) for d in datums]
+    mixed = sum(bool(r.get("routing_version_mixed")) for r in rows)
+    if mixed:
+        log.warning("%d of %d sequences span more than one policy version: their routes are refused (one route per position cannot "
+                    "match both versions' prefixes), so this step recomputes the router (async-rl audit R5)", mixed, len(rows))
+    return rows
+
+
+def version_mixed_share(rows: Sequence[dict[str, Any]]) -> float:
+    """The share of a step's sequences whose routes were refused for spanning several policy versions (``_routes``)."""
+    return sum(bool(r.get("routing_version_mixed")) for r in rows) / len(rows) if rows else 0.0
 
 
 def simple_pack(rows: Sequence[dict[str, Any]], *, ranks: int) -> list[list[dict[str, Any]]]:

@@ -20,6 +20,14 @@ one ``[T, layers, top_k]`` array (``stitch``): each position comes from the firs
 is salted per episode (``cache_salt``), so no position is served from another episode's cache without routing. The
 episode's very last token is never forwarded, and its row is zero; it is no input to a trained logit.
 
+**One version per replayed sequence** (async-rl audit R5, 2026-10-28). A call after a hot-load re-forwards the whole
+prefix under the new adapter (the prefix cache is keyed by adapter), so a sequence whose calls span two policy versions
+has two routings for its prefix, and the trainer takes one route per position: first-forward-wins trained the later
+version's tokens over the earlier version's prefix routes. ``wire._routes`` refuses such a sequence (no routes, coverage 0,
+``routing_version_mixed``), and the step recomputes the router (``wire.replay_all_or_none``). A synchronous run has one
+version per episode and always replays. Splitting the sequence at the version change (slime forks a segment per call
+under R3) would keep replay exact at the cost of forwarding the prefix again.
+
 ``coverage`` (positions with a recorded route over all positions) is logged per step: replay is exact when it is 1.
 ``topk_overlap`` is the mismatch metric for comparing two routings when both are known (|S_sample ∩ S_train| / k per
 token and layer). With replay off, the logprob-level mismatch the loss already logs (``kl/mismatch`` = E[r − 1 − log r])

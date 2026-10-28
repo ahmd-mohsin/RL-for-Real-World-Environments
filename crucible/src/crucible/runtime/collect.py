@@ -22,6 +22,7 @@ into a masked ``empty_collection`` on both attempts.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,17 +46,18 @@ class Collected:
     stalled: bool = False  # M10 lab audit R-5 review round 1: a git call of this collection ran past its timeout (it did not answer)
 
 
-async def _git(ws: Path, *a: str) -> ExecOut:
+async def _git(ws: Path, *a: str, flags: list[str] | None = None) -> ExecOut:
     """One git call off the event loop, bounded by ``verify.collect.GIT_TIMEOUT_S`` (read at call time) and killed with its
     session past it (M10 lab audit R-5 item 4): ``out.timed_out`` says it did not answer. ``GIT_FLAGS``: the repository is the
-    agent's (see the module doc)."""
-    return await _run_subprocess(["git", "-C", str(ws), *vcollect.GIT_FLAGS, *a], cwd=None, env=None, timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
+    agent's (see the module doc); ``flags`` (``verify.collect.safe_flags``) also neutralise its own filter drivers."""
+    return await _run_subprocess(["git", "-C", str(ws), *(flags if flags is not None else vcollect.GIT_FLAGS), *a], cwd=None, env=None,
+                                 timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
 
 
 async def _status(ws: Path) -> tuple[list[str], bool]:
     """The collectable changed paths and whether ``git status`` timed out (then ``['?']``: unknown counts as changed, so a
-    stalled git is never read as "the agent changed nothing", which scores 0)."""
-    out = await _git(ws, "status", "--porcelain", "--untracked-files=all")
+    stalled git is never read as "the agent changed nothing", which scores 0). Submodules are not entered (harness audit R6)."""
+    out = await _git(ws, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all", flags=await vcollect.safe_flags(ws))
     if out.timed_out:
         return ["?"], True
     lines = out.stdout.splitlines()
@@ -77,7 +79,8 @@ async def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Co
     paths, stalled = await _status(ws)
     status_err = [f"git status timed out after {vcollect.GIT_TIMEOUT_S:g}s"] if stalled else []
     if mode == "legacy":
-        rc, raw, err, timed_out, dur = await _run_subprocess_raw(["bash", "-c", LEGACY.format(base=base)], cwd=str(ws), env=None,
+        legacy = LEGACY.replace(_G, "git " + " ".join(shlex.quote(f) for f in await vcollect.safe_flags(ws)))  # harness audit R6: its filters too
+        rc, raw, err, timed_out, dur = await _run_subprocess_raw(["bash", "-c", legacy.format(base=base)], cwd=str(ws), env=None,
                                                                  timeout_s=vcollect.GIT_TIMEOUT_S, stdin=None)
         # M7 R3: the patch is the hook's stdout bytes, decoded losslessly (CRLF, Latin-1 survive to the grader)
         out = ExecOut(rc=rc, stdout=decode(raw), stderr=err.decode(errors="replace"), duration_s=dur, timed_out=timed_out)
@@ -86,7 +89,7 @@ async def collect(ws: Path, *, base: str = "HEAD", mode: str = "tolerant") -> Co
                 (ws / ".git" / "index.lock").unlink(missing_ok=True)
             except OSError:
                 pass
-        await _git(ws, "reset", "-q")
+        await _git(ws, "reset", "-q", flags=await vcollect.safe_flags(ws))
         errors = [f"the legacy collect hook timed out after {vcollect.GIT_TIMEOUT_S:g}s"] if out.timed_out else ([out.stderr[-400:]] if out.rc else [])
         return Collected(out.stdout if out.ok else "", mode, bool(paths), [*status_err, *errors], paths, stalled or out.timed_out)
     c = await tolerant_collect(ws, base=base)
@@ -125,14 +128,20 @@ async def repo_broken(ws: Path, base: str | None) -> list[str]:
     that timed out is *not* a problem of the repository (a host stall is not the policy's 0): only a git that answered with a
     failure is reported."""
     ws = Path(ws)
-    if not (ws / ".git").exists():
+    if not (ws / ".git").exists() and not (ws / ".git").is_symlink():
         return ["the workspace repository (.git) was deleted"]
+    # open-risks pass 2026-10-28 (harness audit R6): a redirected repository (a gitdir file or symlink, core.worktree, core.bare,
+    # a commondir) or a filter driver no override can name is refused before any host git runs in it: git would index (and
+    # reset the index of) another repository or tree on the host, or run the policy's command
+    if hazards := await vcollect.repo_hazards(ws):
+        return hazards
+    flags = await vcollect.safe_flags(ws)
     out = []
-    st = await _git(ws, "status", "--porcelain")
+    st = await _git(ws, "status", "--porcelain", "--ignore-submodules=all", flags=flags)
     if not st.timed_out and st.rc != 0:
         out.append(f"git status fails in the workspace: {st.stderr.strip()[:200]}")
     if base:
-        base_ok = await _git(ws, "cat-file", "-e", f"{base}^{{commit}}")
+        base_ok = await _git(ws, "cat-file", "-e", f"{base}^{{commit}}", flags=flags)
         if not base_ok.timed_out and base_ok.rc != 0:
             out.append(f"the base commit {base[:12]} is gone from the workspace repository")
     return out

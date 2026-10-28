@@ -98,6 +98,17 @@ def misbehaved(ep: Any, prefix: str = "") -> StageFailure | None:
                                 mask=False))
 
 
+def broke_world(ep: Any, prefix: str = "") -> StageFailure | None:
+    """The policy killed its own World during the episode (``factory.envs.InfraWatch``: the container exited from inside,
+    with OOMKilled or a kill/shutdown command as evidence; harness audit R3, 2026-10-28): its outcome, scored 0 and never
+    masked or graded. Without this the dead World's host-mounted workspace was collected and graded."""
+    f = next((x for x in ep.failures if x.get("kind") == "crucible:agent_broke_env" and x.get("mask") is False), None)
+    if f is None:
+        return None
+    return StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason=(prefix + str(f.get("reason", "")))[:500], blame="policy",
+                                mask=False))
+
+
 @dataclass
 class TaskStep:
     """One step of a multi-step task (M1 item 4; Harbor ``StepConfig``). ``min_reward``: a float gates the step's
@@ -664,13 +675,14 @@ class NativeHarness:
                 obs = await world.begin_task_step(st.name, i, st.instruction)
                 if i > 0 and st.fresh_context:
                     policies = attempt.policy.make(attempt)
+                    attempt.policies = policies  # async-RL audit R3: Runner.inflight_min_version reads them
                     used.append(policies)
                 limits = dataclasses.replace(self.limits, max_steps=st.max_steps) if st.max_steps else self.limits
                 ep = await run_episode(world, policies, limits=limits, reset=False, start_obs=obs, sample_key=attempt.id)
             total_steps += ep.steps
             if ep.masked:
                 raise StageFailure(await _masked_episode(attempt.task, world, ep, prefix=f"step {st.name}: "))
-            if (mb := misbehaved(ep, prefix=f"step {st.name}: ")) is not None:
+            if (mb := misbehaved(ep, prefix=f"step {st.name}: ") or broke_world(ep, prefix=f"step {st.name}: ")) is not None:
                 raise mb
             if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
                 raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=f"step {st.name}: {ep.stop_condition}", mask=True, blame="harness"))
@@ -874,6 +886,7 @@ class NativeHarness:
             t0 = time.monotonic()
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
+                attempt.policies = policies  # async-RL audit R3: Runner.inflight_min_version reads them
                 observers = []
                 side = None if resume or getattr(attempt.task, "steps", None) else episode_sidecar(self.sidecar, attempt)
                 if side is not None:  # M17 checkpoint credit: the sidecar writes progress.jsonl (one writer per attempt)
@@ -919,7 +932,7 @@ class NativeHarness:
             pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
-            if (mb := misbehaved(ep)) is not None:  # processes survived the quiesce: scored 0, never graded (as _run_steps does)
+            if (mb := misbehaved(ep) or broke_world(ep)) is not None:  # processes survived the quiesce, or it killed its World: scored 0
                 raise mb
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") and res.grade.get("steps") is None else []
             if broken:  # the policy broke its environment: its own outcome, scored 0, never masked

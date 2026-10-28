@@ -141,7 +141,8 @@ async def test_every_collection_git_call_runs_without_fsmonitor_or_hooks(tmp_pat
     await collect(ws, base="abc", mode="legacy")
     calls = log.read_text().splitlines()
     assert calls and all("core.fsmonitor=false" in c and "core.hooksPath=/dev/null" in c for c in calls), calls  # legacy chain included
-    assert vcollect.GIT_FLAGS == ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+    # harness audit R6 (2026-10-28): submodule recursion off too (a nested repository's config is the policy's as well)
+    assert vcollect.GIT_FLAGS == ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "submodule.recurse=false"]
     diffs = [c for c in calls if " diff " in c]
     assert diffs and all("--no-textconv" in c and "--no-ext-diff" in c for c in diffs), diffs
 

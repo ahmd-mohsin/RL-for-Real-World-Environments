@@ -862,6 +862,28 @@ non-Claude model (difficulty ladder, cross-family roles):
   staleness drop, spread), datums under one credit rule (Dr.GRPO outcome advantage, honesty composed, M6 turn credit,
   one datum per TITO sequence), `importance_sampling` / `ppo` / `cispo`, sampler refresh per step, resume from Tinker state
   with its optimizer, a per-model task band required.
+- **Training defaults after the open-risks pass** (2026-10-28; `docs/research/harness-reward-audit.md` §8,
+  `async-rl-audit.md` §4). The reasons are in those docs; in short:
+  - **Environment.** `factory.tinker.train` builds its envs with `make_env(training=True)`. The agent timeout counts
+    only the agent's own time (`EpisodeLimits.agent_clock="own"`: a model call holds the clock), and a `timeout` stop
+    is masked, as prime-rl drops timed-out rollouts. Benchmarks and evals keep the wall clock and a scored `timeout`.
+  - **Loss scale.** `loss_scale = "token_mean"` (was `sum`): a global token mean, as prime-rl, AReaL, SkyRL, verl,
+    NeMo-RL and TRL normalise, so the step's scale does not swing with the batch's token count. A run directory made
+    with `sum` resumes only with `--loss-scale sum`.
+  - **Spread.** `drop_zero_spread` drops a group whose composed advantages (outcome + honesty) are all equal, so a flat
+    group whose honesty terms differ trains calibration.
+  - **Format penalty.** `tool_format_penalty` (with `format_penalty_mode`, `format_kappa`) is the torch trainer's rule,
+    applied by every backend in `datums.build_datums`; 0 (off) by default, as before.
+  - **Masked share.** Over the last `masked_window` (64) landed samples, more than `max_masked_frac` (0.5) masked stops
+    the run (`masked_frac`, with the mask kinds), NeMo-Gym's abort.
+  - **Groups in flight.** Before each weight swap, a group still sampling whose oldest token can no longer train is
+    cancelled (`cancelled_stale`; `Runner.inflight_min_version`, prime-rl's `on_version_pending`). At any stop, an error
+    included, the groups in flight are cancelled, never awaited (`cancelled_at_stop:<why>`).
+  - **Metrics.** Staleness is measured against the version a step trains on (0 when synchronous; it was logged as 1).
+    Each step logs its token share per staleness bucket and, on Tinker, `kl/mismatch/s<b>` and `is/masked_frac/s<b>`.
+  - **Quarantine.** Each observation is dated by its group's pick step, and only the probation retry decides a
+    probation.
+  - **Resume.** The rows of `steps.jsonl` and `rewards.jsonl` past the resumed step move to `*.rolled_back.jsonl`.
 - **Quarantine** (`train/quarantine.py`, backend-neutral; 2026-10-21, pattern from rl-env-use, MIT): a training task
   whose groups are flat (one reward, no Φ spread) on 2 consecutive steps is not sampled for 3 steps, then retried with
   one group; Φ spread without a pass is never quarantined; held-out tasks are refused; every event is logged
@@ -997,7 +1019,13 @@ launcher, filesystem transports and an import-path loss.
   - calls that returned the same tokens keep one entry each, picked by the training sequence's sampled logprobs
     (`closest_call`), so one never replays another's experts, and training one never drops another's routes;
   - all or none per step, with incomplete coverage refused, as the torch trainer's R3 replay does;
-  - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off.
+  - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off;
+  - replay is exact only within one policy version. A training sequence whose calls span a weight swap is refused
+    (`routing_version_mixed`, coverage 0), so that step recomputes the router, and `routing/version_mixed_share` is
+    logged. Synchronous runs always replay. Splitting such sequences per version is the exact alternative; it is not
+    built (async-rl audit R5);
+  - `sc_head.install` finds prime-rl's train module from each module's own namespace, never `getattr`, so a lazy module
+    in `sys.modules` (transformers holds them) cannot break the score-centering hook.
   - The broadcast directory is no longer shadowed by the datum loop that drops trained routes (with replay on,
     `save_for_sampler` had returned a datum instead of the adapter path).
 - **Score centering with MIS** (`primerl/topk.py`, `topk_server.py`, `sc_head.py`; doc 14 §7; on by default,
@@ -1596,6 +1624,25 @@ A custody violation, like an unkillable process at quiesce, is `crucible:policy_
 | Perf: load guard, round-spread check (original contaminated → infra, re-graded), wall time from the grader's clock (`wall_ratio_max`, record mode included, or K/5K differential runs with a positive, plausible per-step time), timings positive and finite, end-state sanity | timers forged in-process; zero or negative timings; start-up that shrinks with the step count; scoring another user's GPU job as a perf failure |
 | Every reward file removed before grading (host and container, and rLLM's agent-writable `/tmp/rllm/reward.json`); any grader exception → masked `grader_exception`, no reward file; candidate crashes while judged, candidate content that breaks `setup`, and a policy-broken schema → fail, never masked; a certain hard-gate fail decides the reward even when another check is infra | turning a 0 into a masked grade by crashing the grader, a FIFO in the tree, a dropped table or a jittery run; a stale or agent-written reward file read as this grade's |
 
+**What a grade or a credit trusts in the agent's tree** (2026-10-28, `docs/research/harness-reward-audit.md` §8 R3, R6).
+Nothing the policy can write decides a grade or a credit:
+- **The base.** Snapshots and the final collect diff against the base commit recorded before the agent acts
+  (`world._crucible_base_sha`, `attempt/base_sha`), never the `base` tag. A World with no recorded base is unmeasured.
+- **Host git.** Every host git call in the agent's repository turns off hooks, fsmonitor and submodule recursion, and
+  makes the repository's own filter drivers pass-throughs (`verify.collect.safe_flags`; the host checkpoint snapshot
+  through `fs.git_diff_command(config=)`). A planted driver used to run on the host at `git add` and could put any
+  content in the graded patch.
+- **A redirected repository.** A `gitdir:` file or symlink, a `commondir`, `core.worktree` or `core.bare` is refused as
+  `agent_broke_env` before any host git runs in it (`verify.collect.repo_hazards`).
+- **The patch format** is fixed by flags (`DIFF_FORMAT`), not by the repository's config. The mid-episode snapshot is one
+  hardened in-container command (`verify.collect.snapshot_command`) that renders a change the way the final collect does.
+- **Test-runner plumbing** a patch adds (a `[pytest11]` entry point, a module shadowing pytest's own) is a hack-severity
+  path violation (`pathcheck.runner_plumbing`; `RULES_VERSION = path-2026-10-28`).
+- **A dead World** is masked as infrastructure unless the daemon's evidence names the policy (its own memory limit, or a
+  kill command, with no stop from outside). Then it is a scored 0 and is never graded (`InfraWatch`, `native.broke_world`).
+- **Not hardened:** the native harness's verifier view (`FsAdapter.q_git_diff`) without a `trusted_git_dir` still honours
+  repo-local filter drivers. It is off the training path.
+
 ---
 
 ## 9. The Acceptance Contract (quality gate for every task)
@@ -1742,7 +1789,12 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
     - a stock `modify_env_tool_access` step is now tested against it;
     - the gateway bind host is `gateway_bind`;
   - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows with no score and raises (harness-reward audit 2026-10-28: the row carried `score: 0.0`, which a tolerant run's aggregate scored); **Fixed (C3):** boolean gate results (agentenv aggregators test `is True`), replay of only this episode's slice of the gateway trajectory, the router's signed `__actor` argument stripped, the replay task rebuilt with its kwargs.
-  - a `crucible_ref` artifact type.
+  - a `crucible_ref` artifact type;
+  - World teardown (harness-reward audit 2026-10-28 §5). A World opened by the `crucible_world` step is torn down by
+    agentenv's own `teardown_run`, however the run ended, through a `crucible_world` sandbox record and the plugin's
+    `CrucibleWorldProvider` (entry point `agent_env.sandbox_providers`). The step closes its World at once when its own
+    setup fails. `release` removes the World's work tree and keeps any verify outputs. Before, a failed deploy or prompt
+    step leaked the World and its directory.
 - **MiMo round trip** (`interop/mimo/{verify,export}.py`):
   - The import records a sha256 manifest of the source env.
   - Each env's own `verify()` grades a World run in a fresh grading root: the source's verifier files plus the run's `system/*.db` and `workspace/`.
@@ -3944,6 +3996,32 @@ the torch loop:
   into the configuration (that refused every resume).
 
 The DeltaAI bridge's fixes are listed under the bridge above.
+
+**The two audits' open risks** (2026-10-28; the harness audit's §8 and the async audit's §4 give each item's status and
+test).
+- **Harness and reward.**
+  - A harness exception inside a harness-owned policy (`LLMToolPolicy`) masks the episode as `crucible:framework_error`
+    (fault `framework`). Only the model's own output (`PolicyOutputError`) is the policy's scored 0.
+  - Training counts the agent's own time and masks a `timeout`.
+  - A World the policy killed is a scored 0.
+  - The format penalty is one rule on every backend.
+  - Snapshots, collects and grades no longer trust anything in the agent's tree (§8.3).
+- **Decisions.**
+  - Flat groups with differing honesty terms train.
+  - `loss_scale` defaults to `token_mean`.
+  - A constant (generation-budget) normaliser is not adopted.
+- **The loop.**
+  - Doomed groups are cancelled before each weight swap, and groups in flight are cancelled at every stop.
+  - The masked-share stop.
+  - Staleness is measured against the trained version, with per-bucket trust-region metrics.
+  - The quarantine is dated by the pick step.
+  - Resumed steps keep one row.
+  - Router replay is refused for sequences spanning a weight swap.
+- **`publish_every > 1` (torch loop).** τ counts published versions. With `publish_every = k`, a token may be up to
+  τ·k + (k − 1) optimizer updates behind the weights that train it; set τ for the update gap you accept. The DeltaAI
+  loop publishes every step.
+- **Test isolation.** The score-centering test that failed only in suite order was a production bug in `sc_head.install`
+  (fixed above).
 
 ## 14. Repository layout
 

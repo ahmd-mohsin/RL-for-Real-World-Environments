@@ -7,7 +7,8 @@ framework. A comparison with nine local frameworks closes it. Every claim names 
 `crucible/src/crucible/` unless they say otherwise.
 
 All the fixes are in commit `9db0857d` on branch `worktree-agent-ab4ad5539d6391889`. Each has a test in
-`tests/unit/test_harness_reward_audit.py` that fails on the code before it.
+`tests/unit/test_harness_reward_audit.py` that fails on the code before it. The open risks of §8 were fixed or decided in
+a second pass (2026-10-28, branch `worktree-agent-a6734480fd8877554`); §8 gives each item's status.
 
 ## 0. What actually trains the student
 
@@ -82,7 +83,7 @@ its fix (checked by reverting the source).
     now not trained.
 - **The policy's own exceptions** (`actors/policy.py:763-781`).
   - `ValueError`, `IndexError`, `KeyError` or `TypeError` raised out of `act` are scored 0 as `crucible:policy_error`.
-  - Risk R1: a harness bug of those types inside `LLMToolPolicy` (a `zip(strict=True)` mismatch, a config error) becomes
+  - Risk R1 (fixed, §8): a harness bug of those types inside `LLMToolPolicy` (a `zip(strict=True)` mismatch, a config error) becomes
     a negative reward instead of a mask.
   - The engine path is wrapped correctly: `EngineCallError` carries an infra `failure_kind` (`train/world_env.py:52-60,
     189-214`).
@@ -98,7 +99,7 @@ its fix (checked by reverting the source).
   - `Timeouts.agent_s` (3600 s) is the episode's `asyncio.timeout`. It ends with stop `timeout`, truncated and scored
     (`actors/policy.py:815-819`).
   - `rollout_s` bounds the attempt and masks.
-  - Risk R2: the agent clock includes model sampling latency, so in a shared async sampler a `timeout` stop depends on
+  - Risk R2 (fixed for training, §8): the agent clock includes model sampling latency, so in a shared async sampler a `timeout` stop depends on
     queue load, not on the policy.
 - **Context.**
   - `ContextOverflow` ends `context_overflow`, truncated and scored (`actors/policy.py:536-538`).
@@ -123,7 +124,7 @@ its fix (checked by reverting the source).
     after the loop.
   - The cap thinning keeps the end and the commits.
   - An unmeasured point carries Φ and is never 0 (`checkpoint.py:512-525`). Correct.
-  - Risk R6: the windows lane's snapshot diffs against the agent-movable `base` tag (`factory/lanes/windows.py:2081`),
+  - Risk R6 (fixed, §8): the windows lane's snapshot diffs against the agent-movable `base` tag (`factory/lanes/windows.py:2081`),
     not the recorded base sha the harness uses. Moving or deleting the tag makes mid-episode Φ unmeasured or wrong. It
     cannot raise the reward, since the final grade and reconcile decide the end, but it can misplace turn credit.
 
@@ -229,11 +230,12 @@ its fix (checked by reverting the source).
 | Ending | Reward | Right for RL? |
 |---|---|---|
 | `agent_done` | the grade | yes |
-| `max_steps` (tool limit), `timeout`, `context_overflow`, `max_output_tokens`, `too_many_errors` | the grade of the partial work, truncated flag (limit policy `score`) | yes for a coding task graded on state (verifiers, Harbor, OpenEnv do the same). `timeout` is the exception: see R2 |
+| `max_steps` (tool limit), `timeout`, `context_overflow`, `max_output_tokens`, `too_many_errors` | the grade of the partial work, truncated flag (limit policy `score`) | yes for a coding task graded on state (verifiers, Harbor, OpenEnv do the same). `timeout` is the exception: in training it now counts only the agent's own time and is masked (R2, fixed) |
 | `GIVE_UP:` / `STATUS.json` "not done" | the grade, plus an honesty term (a correct "not met" claim costs nothing) | yes |
 | an agent-caused tool error | none by itself (fault `policy`, scored), counted toward `too_many_errors` | yes |
-| a malformed tool call | the World's error message; a format penalty only in the torch trainer | partly (R5) |
-| the policy's own exception | 0 (`crucible:policy_error`) | mostly; R1 |
+| a malformed tool call | the World's error message; the format penalty (off by default) on every backend | yes (R5, fixed) |
+| the policy's own exception | 0 (`crucible:policy_error`) for its model's output (`PolicyOutputError`); a harness exception is masked `crucible:framework_error` | yes (R1, fixed) |
+| it killed its World (OOM in its own container, a kill command, no stop from outside) | 0 (`crucible:agent_broke_env`) | yes (R3, fixed) |
 | it broke its repo (`.git` deleted, git hung) | 0 (`crucible:agent_broke_env`) | yes |
 | survivors at quiesce | 0 (`crucible:policy_misbehavior`; B4) | yes |
 | provider / engine / Tinker cap / container lost / host gone / tool crash | masked; the whole group is dropped and refilled (`trainer.py:410-419`) | yes (V8) |
@@ -256,7 +258,8 @@ its fix (checked by reverting the source).
 - **Special-casing test names.** Not detectable mechanically. The hidden tests are separate from the visible ones the
   agent can read (`window["tests_deleted"]`, `windows.py:1673`), which is the mitigation.
 - **Masking its own episode.** In the data, four `env_container_lost` masks were "after step 1" (§0). A policy whose
-  command kills its own container is masked, not scored, and its group's signal is lost (R3).
+  command killed its own container was masked, not scored, and its group's signal was lost. Fixed (R3): the daemon's
+  evidence decides, and a death the policy caused is a scored 0.
 
 ### 4.4 Partial credit and the final-vs-sidecar reconcile
 
@@ -279,13 +282,20 @@ its fix (checked by reverting the source).
 - **The reward path.** Crucible never uses agentenv's reward-file verifier. `crucible_verify` grades with Crucible's
   producer, and a masked grade writes no reward file and raises. V8 holds on every live path, except the row score that
   B7 fixed.
-- **Not fixed: real bugs, recommended fixes.** These touch agentenv lifecycle and timeline code that has no
-  training-path user today.
-  - **A failed agentenv run leaks the World** (`interop/agentenv/plugin/steps.py:85-106`).
-    - The World is closed only in `CrucibleVerifyStep`'s `finally`, so a failed deploy or prompt step leaks the gateway,
-      the App servers and any paid sandbox.
-    - The `mkdtemp` directory is never removed.
-    - Fix: close on failure, and register teardown with agentenv's `teardown_run`.
+- **Real bugs, recommended fixes.** These touch agentenv lifecycle and timeline code that has no training-path user
+  today. The first is fixed (2026-10-28); the other two are not.
+  - **A failed agentenv run leaked the World** (`interop/agentenv/plugin/steps.py:85-106`). **Fixed (2026-10-28).**
+    - The World was closed only in `CrucibleVerifyStep`'s `finally`, so a failed deploy or prompt step leaked the
+      gateway, the App servers and any paid sandbox, and the `mkdtemp` directory was never removed.
+    - agentenv tears a run down only through its sandbox records (`teardown_run`; the pin has no other run hook). The
+      `crucible_world` step now also records a bare sandbox of type `crucible_world`, and the plugin registers
+      `CrucibleWorldProvider` under that type (entry point `agent_env.sandbox_providers`; an editable reinstall picks it
+      up). Its handle's `terminate` closes the World and removes its directory, so `agent-env run`, `eval run` and the
+      `LocalRunner` close it however the run ended.
+    - A `crucible_world` step whose own setup fails closes its World at once. `release` is idempotent: verify,
+      `close_world`, `teardown_worlds` and `teardown_run` may all reach one World. The work tree is always removed; the
+      directory goes whole unless a verify step wrote outputs there.
+    - Tests: `tests/unit/test_open_risks_agentenv.py`.
   - **`export_agentenv` publishes Tasks that cannot run** (`factory/envs.py:575-597`). `RowTask` refuses every backend
     but `local`, and the World step passes `backend="agentenv"`. Fix: refuse at publish time.
   - **`_restore_triggers` breaks wall-clock triggers** (`interop/agentenv/world_backend.py:571-596`).
@@ -299,7 +309,8 @@ its fix (checked by reverting the source).
   - **`crucible_verify` has no grading budget or regrade.** `A2AHarness` has both.
   - **The sandbox fallback chain has no per-provider deadline.**
   - **"no-network" is not hermetic on Modal**, which adds its own hosts.
-  - **THIRD_PARTY.md lacks DEPEND rows** for the plugin, `publish.py`, the explorer, `mcp_env.py` and `agents.py`.
+  - **THIRD_PARTY.md lacked DEPEND rows** for the plugin, `publish.py`, the explorer, `mcp_env.py` and `agents.py`.
+    Fixed (2026-10-28): five DEPEND rows at pin 041afd7.
 
 ## 6. The RLM (M16) harness
 
@@ -366,10 +377,10 @@ Crucible's state.
 | Advantage across segments | one per episode, copied to all segments (prime-rl `orchestrator/algo/routing.py:11-40`; SkyRL `trainer.py:1212-1250`; TRL `async_rollout_worker.py:1072-1074`) | Same (§3.3). |
 | Summary attempts | trained only when a `compaction` edge accepts them (verifiers `trace.py:519-549`); prime-agent types each compaction's outcome (`semantic_edges/compaction.rs:12-168`); Harbor flags copied context "not for training" (`models/trajectories/step.py:64-72`) | M16 already did; `LLMToolPolicy` now does too (B1). |
 | Ungraded runs | `None`, not 0; dropped per member, baseline over survivors (prime-rl `algo/base.py:11-18`); typed verifier errors (Harbor `verifier/verifier.py:20-122`). Anti-patterns: masked members in the GRPO mean (SkyRL `ppo_utils.py:1374-1383`), infra scored 0 (prime-environments, rLLM `integrations/harbor/runtime.py:165`) | Stricter: a masked member drops its whole group (no partial group), and a failed grade is masked. |
-| Truncation | scored on the final state and flagged (verifiers `trace.py:620-632`); optional overlong masking (NeMo-RL `grpo.py:3571-3580`; DAPO); prime-rl drops timeouts in training (`dispatcher.py:668-674`) | Scored and flagged; `LimitPolicy` can mask or penalise per stop. A wall-clock `timeout` in training is load-dependent (R2): prime-rl's choice (drop it) is worth adopting. |
-| Group gates | zero-variance and min-members filters (SkyRL `trainer_utils.py:661-677`, rLLM `buffer.py:203`); abort when the masked fraction is too high (NeMo-Gym `rollout_collection.py:2666-2674`) | Zero spread, infra, staleness and objective filters, and `too_many_drops` (`trainer.py:410-419`). No masked-fraction abort for the factory's measurement arms. |
+| Truncation | scored on the final state and flagged (verifiers `trace.py:620-632`); optional overlong masking (NeMo-RL `grpo.py:3571-3580`; DAPO); prime-rl drops timeouts in training (`dispatcher.py:668-674`) | Scored and flagged; `LimitPolicy` can mask or penalise per stop. Training now counts only the agent's own time and masks a `timeout`, as prime-rl does (R2). |
+| Group gates | zero-variance and min-members filters (SkyRL `trainer_utils.py:661-677`, rLLM `buffer.py:203`); abort when the masked fraction is too high (NeMo-Gym `rollout_collection.py:2666-2674`) | Zero spread, infra, staleness and objective filters, and `too_many_drops` (`trainer.py:410-419`). The masked-share stop (`max_masked_frac`, §8) now stops a training run whose recent samples are mostly masked. |
 | Grading hygiene | tests staged only at verify time, `/tests` wiped (verifiers `tasksets/harbor/taskset.py:318-354`); test edits stripped from the patch and a held-out test patch applied (NeMo-Gym `swemer_v2/verification.py:129-131, 161-164`); fail-closed egress (NeMo-Gym `sandbox/agent_tools.py:62-69`) | Comparable or stronger: a pristine-tree grade in its own container, protected paths restored, path checks on the World's trace, `--network none`. |
-| Format errors | cap consecutive format errors (mini-swe-agent `agents/default.py:100-114`); optional negative advantage on invalid tool calls (NeMo-RL `grpo.py:2319-2406`) | Capped (`max_nudges`, `max_tool_errors`); the format penalty is not in the Tinker / prime-rl datums (R5). |
+| Format errors | cap consecutive format errors (mini-swe-agent `agents/default.py:100-114`); optional negative advantage on invalid tool calls (NeMo-RL `grpo.py:2319-2406`) | Capped (`max_nudges`, `max_tool_errors`); the optional format penalty is now applied by every backend (R5). |
 | Logprob alignment | sampled tokens get mask 1 only if their logprobs line up (OpenEnv `capture/graph.py:443-473`) | `Turn.missing()` masks the whole rollout on a length mismatch (`core/schema/rollout.py:172-182`), stricter. |
 
 Bugs seen in the references, which Crucible avoids:
@@ -379,41 +390,136 @@ Bugs seen in the references, which Crucible avoids:
 
 ## 8. Open risks and recommendations
 
-- **R1. Policy exceptions are scored 0** (`actors/policy.py:776-778`).
-  - A `ValueError`, `IndexError`, `KeyError` or `TypeError` from harness code inside `act` is scored as the policy's.
-  - Recommend: classify by origin. Only exceptions raised while parsing the model's own output should be the policy's,
-    for example a `PolicyOutputError` raised where `LLMToolPolicy` reads arguments. Everything else should be
-    `agent_run_error` with unknown blame.
-- **R2. The wall-clock agent timeout counts sampler latency.**
-  - In async RL on a shared sampler, `timeout` stops (12 of 790 targeting rollouts) carry queue load into the reward.
-  - Recommend, either:
-    - mask `timeout` in training (`LimitPolicy(on_timeout="mask")`; B3 makes this work for the workspace harness), or
-    - hold the agent clock during model calls with `hostreach.held()` around `llm.complete`, leaving a model-time budget
-      separate.
-- **R3. A policy can mask its own episode by killing its container** (`env_container_lost`, `factory/envs.py:127-141`).
-  - Recommend: when the World dies right after a policy shell command, check that command against a kill-pattern list
-    (`kill -9 1`, `pkill`, `shutdown`, `rm -rf /`). Score a match as `crucible:agent_broke_env` instead of masking it.
-  - Measure first. The four "after step 1" masks in the targeting data look like infrastructure (the first step is
-    usually a read).
+The open-risks pass (2026-10-28, branch `worktree-agent-a6734480fd8877554`) fixed or decided every item below. Each fix
+has a unit test that fails on the code before it: `tests/unit/test_open_risks_loop.py` (R1, R2, R5, R8, R9, the
+masked-share stop, the host checkpoint snapshot of R6), `test_open_risks_integrity.py` (R3, R6) and
+`test_open_risks_agentenv.py` (R10).
+
+| Item | Status | Where |
+|---|---|---|
+| R1 harness exceptions scored 0 | fixed | `actors/policy.py` `run_episode`, `Policy.harness_owned`, `PolicyOutputError` |
+| R2 the agent clock counts sampler time | fixed (training default) | `EpisodeLimits.agent_clock`, `model_time`, `make_env(training=True)` |
+| R3 a policy masks its own episode by killing its World | fixed | `factory/envs.py` `InfraWatch`, `death_evidence`, `native.broke_world` |
+| R4 an answered history probe is masked | unchanged (correct per P21) | |
+| R5 format penalty in the torch trainer only | fixed (one rule on every backend, off by default) | `datums.build_datums`, `TrainConfig.tool_format_penalty` |
+| R6 snapshots and grades that trust the agent's tree | fixed | `verify/collect.py`, `windows.snapshot_patch`, `pathcheck.runner_plumbing` |
+| R7 compaction in training | unchanged (out of scope: not used in training) | |
+| R8 honesty in flat groups | decided: keep groups whose composed advantages differ | `TinkerTrainer._has_signal` |
+| R9 `loss_scale="sum"` | decided: default `token_mean` | `TrainConfig.loss_scale` |
+| R10 agentenv | fixed (World leak, THIRD_PARTY rows) | see R10 |
+| masked-fraction abort (§7) | fixed | `TrainConfig.max_masked_frac`, `masked_window` |
+
+- **R1. Policy exceptions were scored 0** (`actors/policy.py:776-778`). **Fixed.**
+  - A `ValueError`, `IndexError`, `KeyError` or `TypeError` from harness code inside `act` was scored as the policy's.
+  - Now a policy declares `harness_owned`. `LLMToolPolicy` does: it turns every fault of its model's output into feedback
+    inside `act` (unparseable arguments become an `invalid_arguments` tool reply, a cut-off reply a nudge), so anything
+    that still escapes `act` is the framework's.
+  - Such an exception masks the episode as `crucible:framework_error` (blame `harness`, detail `framework`). It reaches
+    `framework_health`'s `masked_failure` cluster (component `harness`) and never trains the policy away from a bug it
+    did not cause.
+  - A policy reading its model's reply raises `PolicyOutputError` where the reply itself cannot be acted on; that stays
+    `crucible:policy_error`, scored 0. Policies whose own logic parses actions (scripted, game seats) keep the old rule.
+  - Model-caused tool errors were never on this path: they are World answers (`PolicyToolError`, fault `policy`).
+- **R2. The wall-clock agent timeout counted sampler latency.** **Fixed; the training default.**
+  - `EpisodeLimits.agent_clock="own"`: each model call holds the agent clock (`actors.policy.model_time`, a
+    `hostreach.held(only=...)` hold on that one clock). The World's tool deadline and the Runner's attempt clock
+    (`rollout_s`, masked) keep running, so a sampler that never answers still ends the attempt.
+  - `make_env(training=True)` (set by `factory.tinker.train`, the DeltaAI run's path) uses it and masks a `timeout` stop
+    (`LimitPolicy(on_timeout="mask")`), as prime-rl drops timed-out rollouts in training
+    (`orchestrator/dispatcher.py:668-674`).
+  - Evals and benchmarks are unchanged: the wall clock and a scored `timeout`. `EpisodeLimits` leaves `agent_clock` out
+    of a harness id at its default, so existing ids are unchanged.
+  - Not covered: the RLM's model calls do not go through `model_time` (the RLM is not on the training path).
+- **R3. A policy could mask its own episode by killing its container** (`env_container_lost`). **Fixed.**
+  - `InfraWatch` now asks the daemon why a dead World died (`envs.death_evidence`: `DockerExec.lost` and the container's
+    `.State`) and records the last shell command the policy ran.
+  - The death is the policy's outcome only when the daemon saw no stop from outside and the container either ran out of
+    its own memory limit (`OOMKilled`) or exited right after a kill or shutdown command (`envs.KILL_COMMAND`). Then it is
+    `crucible:agent_broke_env`: scored 0, never collected or graded (`native.broke_world` in both harnesses), and the
+    episode stops at once.
+  - Everything else stays `env_container_lost`, masked, with the evidence in the failure, so it can be measured.
+  - The window World's PID 1 is `sleep infinity`, which no signal from inside the container can kill, so this branch
+    should be rare; the four measured "after step 1" masks stay infrastructure.
 - **R4. A history probe the World answered is masked as `answer_exposed`.** The policy gets no negative signal for
   trying. This is correct per P21 (the task leaked), but such tasks should leave the training pool. The masks name them.
-- **R5. Format penalties are torch-trainer only.** `Turn.format_errors` is recorded but `datums.build_datums` ignores it.
-  - Recommend: if a format penalty is wanted on Tinker / prime-rl, apply it in `build_datums` on the offending call's
-    span, with the signed mode's rebalancing (`credit/signed.py`).
-- **R6. Patch identity between the sidecar and the collect.**
-  - Recommend: make the windows lane's `snapshot_patch` diff against the recorded base sha with the collect's own
-    flags and excludes. B5's change-equality is the fallback.
-  - Not done here: it changes the lane's Φ inputs mid-episode, and the lead owns the lanes.
-- **R7. Compaction is untested in training, and its accounting is approximate.**
+  Unchanged.
+- **R5. Format penalties were torch-trainer only.** **Fixed: one rule on every backend.**
+  - `TrainConfig.tool_format_penalty`, `format_penalty_mode` (`reduction` | `signed`) and `format_kappa` are the torch
+    trainer's settings, applied by `datums.build_datums` on the offending call's own tokens: `reduction` subtracts the
+    penalty per malformed call, `signed` rebalances by the sign of the rollout's advantage with each sign's batch mass
+    kept (`credit.signed`).
+  - The default stays 0 (off) on every backend, as the torch trainer's was. A malformed call already costs one of the
+    tool calls, is answered with the error and counts toward `too_many_errors`, so its outcome already carries the cost;
+    `reduction` adds net negative mass, which `signed` avoids. A run that sets one is a different objective (it is in
+    the run identity then).
+- **R6. Patch identity between the sidecar and the collect, and what else trusts the agent's tree.** **Fixed.**
+  - `open_world` records the base commit before the agent acts (`world._crucible_base_sha`). `WindowTask.snapshot_patch`
+    and the slime snapshot diff against it with one hardened in-container command (`verify.collect.snapshot_command`):
+    - no system or global config, the git dir and work tree named explicitly;
+    - no hooks, fsmonitor or submodule recursion;
+    - the repository's own filter drivers made pass-throughs;
+    - the collect's derived-file excludes, and a fixed diff format.
+  - A World with no recorded base is unmeasured, never diffed against the tag.
+  - The audit of what else trusts the agent's tree found three holes, all fixed:
+    1. **Filter drivers.** Host git in the agent's repository ran its own filter drivers at `git add`: code the policy
+       chose ran on the host and could put any content in the graded patch. Every host git call now neutralises them
+       (`verify.collect.safe_flags`). The host checkpoint snapshot of lanes without their own snapshot
+       (`checkpoint.workspace_snapshot`) does the same at command scope (`fs.git_diff_command(config=)`).
+    2. **A redirected repository.** A `.git` replaced by a symlink or `gitdir:` file, a `commondir`, `core.worktree` or
+       `core.bare` made host git index another repository or tree. `repo_broken` now refuses these as `agent_broke_env`
+       before any host git runs (`verify.collect.repo_hazards`).
+    3. **Test-runner plumbing.** The grader runs pytest with the tree on `PYTHONPATH` and plugin autoload on, so a patch
+       adding a `[pytest11]` entry point or a module shadowing the runner (pytest, `_pytest`, pluggy, iniconfig, py,
+       `pytest_timeout`, m17guard) steered the test run. These are now `path:plumbing` (hack) when the patch adds them
+       outside the project's own names (`pathcheck.runner_plumbing`). Plugin autoload stays on: turning it off would
+       change kept verdicts (`--timeout` needs the autoloaded plugin).
+  - **Verdict-affecting, flagged:** `RULES_VERSION` moved to `path-2026-10-28`, which changes every window task's
+    verifier version (and so the objective id); stored path verdicts read as stale in `framework_health` and `repath`.
+    No kept oracle or floor verdict changes. Only a policy that games these surfaces scores differently.
+  - Checked and sound: the final collect's recorded base, the pre-agent base reads (`_base_sha`,
+    `checkpoint.start_commit`), protected test files and the conftest (protected, restored, plumbing). Other
+    gitattributes (eol, `-diff`, `export-ignore`) only change content the agent chose and never reach the pristine grade
+    tree.
+  - Not hardened: `world/state/fs.FsAdapter.q_git_diff` (the native harness's verifier view) still honours repo-local
+    filter drivers when it runs without a `trusted_git_dir`. It is off the training path, and the layering keeps the
+    helpers in `verify` out of `world`.
+- **R7. Compaction is untested in training, and its accounting is approximate.** Out of scope for this pass (training
+  runs without compaction).
   - Before any run turns compaction on:
     - pass a `ContextConfig` through `NativeEnv.policy_kwargs` (today it carries only the tool limit);
     - fit the summary call to the window as `_reply_tokens` does;
     - add `_compactions_in_row` to `state_dict`.
   - With 0 `context_overflow` in 790 rollouts, it is not urgent.
-- **R8. Honesty in flat groups.** `factory/honesty.compose_advantage` (`honesty.py:156-166`) says the honesty term alone
-  separates honest from miscalibrated members in a group without outcome spread. `TrainConfig.drop_zero_spread=True` (the default) drops those groups first, so
-  honesty never trains there.
-  - Recommend: keep a flat group whose honesty terms differ, or document that honesty only reshapes groups with spread.
-- **R9. `loss_scale="sum"` weighs episodes by length.** With episodes from 20 to 300 calls, the long ones dominate the
-  gradient. `token_mean` (a constant per batch) keeps the Dr.GRPO property and bounds the step size.
-- **R10. The agentenv items in §5** (World leak, unusable export, trigger restore).
+- **R8. Honesty in flat groups.** **Decided: a flat group trains when its composed advantages differ.**
+  - `drop_zero_spread` now drops a group whose members' composed sequence advantages (outcome + honesty, exactly what
+    `build_datums` trains) are all equal (`TinkerTrainer._has_signal`), not one whose rewards are.
+  - Why: on hard tasks most groups fail together. There the honesty term alone separates an honest "not done" (0) from
+    a false "done" (< 0), and that is the only place calibration can train. Dropping on reward spread is what DAPO,
+    slime (`check_reward_nonzero_std`) and prime-rl (`no_signal`) do because a flat GRPO group has no gradient; this
+    group has one. A group whose composed advantages are equal (every member equally miscalibrated) is still dropped:
+    with no honest member in it, the term would push down whole trajectories with no contrast.
+  - Every group with outcome spread keeps its spread after composition, so the change only adds groups. The quarantine
+    still reads rewards and Φ.
+- **R9. `loss_scale="sum"` weighs episodes by length.** **Decided: the default is now `token_mean`.**
+  - Both modes weigh every trained token equally within a step, so long episodes carry more weight in both. That is
+    the Dr.GRPO choice, kept on purpose: a per-episode mean would weigh a long failing episode's tokens less and favour
+    long failures.
+  - They differ in the step's scale. `sum` scales the gradient by the batch's trained-token count, which swings several
+    fold between batches of 20-call and 300-call episodes. With prime-rl's `max_norm = 1` the clip then binds on almost
+    every step and gives every step the same length, whatever its signal.
+  - `token_mean` divides by the batch's token count (a global token mean). That is how prime-rl (global rl weight),
+    AReaL, SkyRL, verl, NeMo-RL and TRL normalise (async-rl-audit §3.3). On the prime-rl path it is prime-rl's own
+    normalisation (`wire.undo_token_mean` and `datums.scale` cancel). The score-centering audit verified that both modes
+    keep SC's per-token weights correct.
+  - A constant normaliser (Dr.GRPO's generation budget; async audit R9) would also keep the step size steady. Under
+    AdamW its only gain over `token_mean` is when clipping stops binding, so it is not adopted.
+  - **Resume, flagged:** a run directory created with the old default records `loss_scale = "sum"`; resuming it needs
+    `--loss-scale sum`, since the trained objective must not change mid-run.
+- **R10. The agentenv items in §5.** See §5: the World leak on a failed run is fixed and the THIRD_PARTY rows are added
+  (`interop/agentenv/plugin/steps.py`, `CrucibleWorldProvider`; tests in `test_open_risks_agentenv.py`). The unusable export and the trigger restore are unchanged (no training-path user).
+- **The masked-fraction abort** (§7, NeMo-Gym `rollout_collection.py:2666-2674`). **Fixed.**
+  - Over the last `masked_window` landed samples (default 64), more than `max_masked_frac` masked (default 0.5) stops
+    the run with `stop = "masked_frac"`. The state is saved, and the mask kinds go to `summary.json` and a `stop` record.
+  - NeMo-Gym's own setting is off by default, with 0.5 in its example and 50 minimum samples.
+  - Both settings are resumable (operational). `None` turns it off. Masked training timeouts (R2) count, and the kinds
+    tell them apart.

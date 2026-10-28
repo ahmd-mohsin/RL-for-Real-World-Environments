@@ -35,7 +35,17 @@ from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.grading import answer_sensitive, decided, deciding_record, grade_in_place, grade_summary, grading_window, seen_before, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
-from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, _take_findings, episode_sidecar, misbehaved, probed, save_episode
+from crucible.runtime.harness.native import (
+    LIMIT_STOPS,
+    NativeHarness,
+    _keep_tries,
+    _take_findings,
+    broke_world,
+    episode_sidecar,
+    misbehaved,
+    probed,
+    save_episode,
+)
 from crucible.runtime.infra import StageFailure, boundary, classify_exception, episode_failure
 from crucible.verify.patchio import read_patch, write_patch
 from crucible.world.exec import HostUnreachable, _run_subprocess
@@ -222,6 +232,7 @@ class WorkspaceHarness(NativeHarness):
                 (attempt.dir / "base_sha").write_text(base_sha + "\n")
             with boundary("agent"):
                 policies = attempt.policy.make(attempt)
+                attempt.policies = policies  # async-RL audit R3: Runner.inflight_min_version reads them
                 side = episode_sidecar(self.sidecar, attempt)  # M17 checkpoint credit (opt-in; None = off, nothing changes)
                 ep = await run_episode(world, probed(policies, side, world), limits=self.limits, observers=[side] if side is not None else (),
                                        sample_key=attempt.id)
@@ -240,7 +251,7 @@ class WorkspaceHarness(NativeHarness):
             pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
-            if (mb := misbehaved(ep)) is not None:  # its processes survived the quiesce and could still write the tree collected next
+            if (mb := misbehaved(ep) or broke_world(ep)) is not None:  # survivors could still write the tree collected next; or it killed its World
                 raise mb
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
             ws = await _workspace(attempt.task, world, "collect")

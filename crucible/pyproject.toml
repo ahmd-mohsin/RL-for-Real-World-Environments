@@ -63,6 +63,10 @@ crucible = "crucible.cli.main:cli"
 crucible_world = "crucible.interop.agentenv.plugin.steps:CrucibleWorldStep"
 crucible_verify = "crucible.interop.agentenv.plugin.steps:CrucibleVerifyStep"
 
+# the crucible_world sandbox type: agentenv's teardown_run closes a run's World through it (plugin/steps.py, "Teardown")
+[project.entry-points."agent_env.sandbox_providers"]
+crucible_world = "crucible.interop.agentenv.plugin.steps:CrucibleWorldProvider"
+
 [project.entry-points."agent_env.artifacts"]
 crucible_ref = "crucible.interop.agentenv.plugin.artifacts:CrucibleRefArtifact"
 

@@ -116,13 +116,77 @@ async def world_alive(world: Any) -> bool:
     return await container_running(name, env)
 
 
+# harness audit R3 (2026-10-28): a shell command that ends the container (or everything in it) from inside
+KILL_COMMAND = re.compile(r"(^|[;&|`(\s])(sudo\s+)?(kill\s+(-(9|KILL|SIGKILL|TERM|SIGTERM|s\s+\w+)\s+)*-?1\b|pkill\b|killall5?\b|shutdown\b|halt\b|"
+                          r"poweroff\b|reboot\b|telinit\b|init\s+[06]\b|rm\s+(-\w+\s+)*(--no-preserve-root\s+)?/(\s|$|\*))")
+SHELL_ARGS = ("command", "cmd", "script", "code")
+
+
+def shell_text(action: Any) -> str | None:
+    """The command text of a shell-like tool call (a ``command`` / ``cmd`` / ``script`` / ``code`` string argument), else None."""
+    args = getattr(action, "arguments", None)
+    if not isinstance(args, Mapping):
+        return None
+    return next((str(args[k]) for k in SHELL_ARGS if isinstance(args.get(k), str)), None)
+
+
+async def death_evidence(world: Any) -> dict[str, Any]:
+    """What the World's container daemon says about a container that stopped answering (harness audit R3): ``lost``, the
+    reason it was lost to the episode from outside (``DockerExec.lost``: stopped, killed, removed or paused through the
+    daemon, its lifetime over, the daemon unreachable), or None when its own main process exited; ``state``, its
+    ``.State`` (``Status``, ``ExitCode``, ``OOMKilled``, ``Error``) when it still exists. Empty without a container."""
+    name = getattr(world, "_crucible_container", None)
+    if not name:
+        return {}
+    from crucible.world.exec import DockerExec, _run_subprocess
+
+    env = getattr(world, "_crucible_env", None)
+    ex = DockerExec(name, docker_host=(env or {}).get("DOCKER_HOST"))
+    ev: dict[str, Any] = {"container": name}
+    try:
+        ev["lost"] = await ex.lost()
+        st = await _run_subprocess(["docker", "inspect", "--format", "{{json .State}}", name], cwd=None, env=dict(env) if env is not None else None,
+                                   timeout_s=60, stdin=None)
+        ev["state"] = {k: v for k, v in json.loads(st.stdout or "{}").items() if k in ("Status", "ExitCode", "OOMKilled", "Error")} if st.ok else None
+    except Exception as e:  # noqa: BLE001 -- no evidence: infrastructure, as before
+        ev["error"] = f"{type(e).__name__}: {e}"[:300]
+    return ev
+
+
+def policy_killed(ev: Mapping[str, Any], last_command: str | None) -> str | None:
+    """Why a dead World is the policy's doing, or None (infrastructure, masked). Only when the daemon saw no action from
+    outside (``lost`` None, with a state to read) and either the container ran out of its own memory limit (``OOMKilled``)
+    or the last command the policy ran ends a container from inside (``KILL_COMMAND``). Anything else (removed, stopped,
+    paused or killed through the daemon, an unreachable daemon or host, no evidence) stays infrastructure."""
+    if not ev or "lost" not in ev or ev.get("lost") is not None or ev.get("error") or not isinstance(ev.get("state"), Mapping):
+        return None
+    st = ev["state"]
+    if st.get("Status") == "running":
+        return None
+    if st.get("OOMKilled"):
+        return (f"the World's container ran out of its memory limit (OOMKilled, exit {st.get('ExitCode')}) after the policy's command: "
+                f"{(last_command or '?')[:200]}")
+    if last_command and KILL_COMMAND.search(last_command):
+        return f"the World's container exited (exit {st.get('ExitCode')}, no stop from outside) after the policy ran: {last_command[:200]}"
+    return None
+
+
 class InfraWatch:
     """An episode sidecar around another (or none): after every World step and at the end, a dead World is recorded as an
-    infrastructure fault, which masks the attempt; everything else is delegated unchanged."""
+    infrastructure fault, which masks the attempt; everything else is delegated unchanged.
 
-    def __init__(self, inner: Any = None, *, alive: Callable[[Any], Any] = world_alive):
-        self.inner, self.alive = inner, alive
+    Harness audit R3 (2026-10-28): a World the policy killed itself is not infrastructure. When the container's own main
+    process exited with no stop from outside and the evidence names the policy (``policy_killed``: OOMKilled, or a
+    kill/shutdown command as the last tool call), the death is ``crucible:agent_broke_env``, scored 0 (``mask=False``) and
+    the episode stops; otherwise it is masked as before. The evidence (the daemon's verdict, the container state, the last
+    command) is in the failure either way. The window World's PID 1 is ``sleep infinity``, which no signal from inside the
+    container kills, so the policy branch is expected to be rare."""
+
+    def __init__(self, inner: Any = None, *, alive: Callable[[Any], Any] = world_alive, evidence: Callable[[Any], Any] = death_evidence):
+        self.inner, self.alive, self.evidence = inner, alive, evidence
         self.dead: str | None = None
+        self.last_command: str | None = None
+        self.death: dict[str, Any] | None = None
 
     async def _check(self, world: Any, where: str) -> None:
         from crucible.world.exec import HOST_UNREACHABLE, HostUnreachable
@@ -138,8 +202,27 @@ class InfraWatch:
             return
         if not alive:
             self.dead = where
+            try:
+                ev = dict(await self.evidence(world) or {})
+            except Exception as e:  # noqa: BLE001 -- no evidence: infrastructure
+                ev = {"error": f"{type(e).__name__}: {e}"[:300]}
+            ev["last_command"] = (self.last_command or "")[:300] or None
+            self.death = ev
+            why = policy_killed(ev, self.last_command)
+            if why is not None:
+                from crucible.core.schema.run import Failure
+
+                ev["verdict"] = "policy"
+                if hasattr(world, "failures"):
+                    world.failures.append(Failure(kind="crucible:agent_broke_env", stage="agent", reason=f"{why} ({where})"[:500], mask=False,
+                                                  blame="policy", detail="world_killed_by_policy", evidence=ev))
+                if hasattr(world, "_log"):
+                    world._log("state", None, "policy_broke_world", text=why[:2000], data={"kind": "crucible:agent_broke_env", "evidence": ev})
+                return
+            ev["verdict"] = "infra"
+            brief = json.dumps({k: ev.get(k) for k in ("lost", "state", "last_command", "error") if ev.get(k) is not None}, default=str)[:600]
             if hasattr(world, "_infra"):
-                world._infra("crucible:env_container_lost", f"the World's sandbox died ({where})")
+                world._infra("crucible:env_container_lost", f"the World's sandbox died ({where})" + (f"; evidence {brief}" if brief != "{}" else ""))
 
     async def on_start(self, world: Any) -> None:
         if self.inner is not None:
@@ -150,6 +233,9 @@ class InfraWatch:
             await self.inner.before_action(world, actor, policy, action)
 
     async def on_step(self, world: Any, step: int, actor: str, action: Any, result: Any) -> Any:
+        cmd = shell_text(action)
+        if cmd is not None:
+            self.last_command = cmd
         await self._check(world, f"after step {step}")
         if self.inner is not None:
             return await self.inner.on_step(world, step, actor, action, result)
@@ -159,7 +245,7 @@ class InfraWatch:
         await self._check(world, "at the end")
         out = await self.inner.on_end(world) if self.inner is not None else {}
         if self.dead:
-            out = {**out, "infra_dead": self.dead}
+            out = {**out, "infra_dead": self.dead, **({"death": self.death} if (self.death or {}).get("container") else {})}
         return out
 
     def reconcile(self, patch: Any, final: Any) -> dict[str, Any] | None:
@@ -208,11 +294,18 @@ class NativeEnv:
 
 def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig | None = None, honesty_lambda: float | None = None,
              tool_limit: int | None = None, limit_warning: int = 5, max_steps: int = 150, timeouts: Timeouts | None = None, infra_watch: bool = True,
-             rlm_config: Any = None) -> NativeEnv:
+             rlm_config: Any = None, training: bool = False) -> NativeEnv:
     """The native environment of ``task`` (see the module doc). ``checkpoint`` None = ``CheckpointConfig()`` (K = 10, cap
-    20); pass ``checkpoint=False``-like ``None`` via ``CheckpointConfig(every=0, on_commit=False)`` to keep only the end."""
+    20); pass ``checkpoint=False``-like ``None`` via ``CheckpointConfig(every=0, on_commit=False)`` to keep only the end.
+
+    ``training`` (harness-reward audit R2, 2026-10-28; ``factory.tinker.train`` sets it): the agent timeout counts only the
+    agent's own time (``EpisodeLimits.agent_clock="own"``: a model call holds the clock, so a shared sampler's queue never
+    decides the stop) and a ``timeout`` stop is masked, not scored (``LimitPolicy(on_timeout="mask")``), as prime-rl drops
+    timed-out rollouts in training (``orchestrator/dispatcher.py:668-674``). Off (benchmarks, evals): unchanged, a
+    wall-clock ``timeout`` graded on the partial work."""
     from crucible.actors.policy import EpisodeLimits
     from crucible.factory.honesty import honesty_group_fn
+    from crucible.runtime.infra import LimitPolicy
 
     timeouts = timeouts or Timeouts()
     cfg = checkpoint or CheckpointConfig()
@@ -227,11 +320,12 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
         return InfraWatch(inner) if infra_watch else inner
 
     steps = max_steps if tool_limit is None else tool_limit + 2  # the policy stops itself; +1 final STATUS write, +1 its Done
-    limits = EpisodeLimits(max_steps=steps, timeout_s=timeouts.agent_s)
+    limits = EpisodeLimits(max_steps=steps, timeout_s=timeouts.agent_s, agent_clock="own" if training else "wall")
+    limit_policy = LimitPolicy(on_timeout="mask") if training else None
     if mode == "workspace":
         from crucible.runtime.harness.workspace import WorkspaceHarness
 
-        harness = WorkspaceHarness(limits=limits, sidecar=sidecar)
+        harness = WorkspaceHarness(limits=limits, sidecar=sidecar, limit_policy=limit_policy)
     elif mode == "rlm":
         from crucible.runtime.harness.rlm import RLMHarness
 
@@ -242,7 +336,7 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
             raise ValueError(f"mode='rlm' grades the World in place; {type(task).__name__} is graded from a collected patch (grade_patch): "
                              "use mode='workspace'")
 
-        harness = RLMHarness(rlm_config, limits=limits, sidecar=sidecar)
+        harness = RLMHarness(rlm_config, limits=limits, sidecar=sidecar, limit_policy=limit_policy)
     else:
         raise ValueError(f"mode is workspace or rlm, got {mode!r}")
     return NativeEnv(task=task, harness=harness, sidecar=sidecar, honesty_group_fn=honesty_group_fn(), limits=limits, timeouts=timeouts,
@@ -410,7 +504,8 @@ class SlimeTaskEnv:
         from crucible.train.bridges.slime.episode import SNAPSHOT_CMD
 
         async def snap(_world: Any) -> str:
-            rc, out, err = await handle.sandbox.exec(SNAPSHOT_CMD.format(base="base"), timeout=300)
+            # the base commit recorded at open, never the agent-movable ``base`` tag (harness audit R6, 2026-10-28)
+            rc, out, err = await handle.sandbox.exec(SNAPSHOT_CMD.format(base=handle.base), timeout=300)
             if rc != 0:
                 raise RuntimeError(f"snapshot failed: {err[-300:]}")
             return out

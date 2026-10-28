@@ -66,6 +66,8 @@ CRUCIBLE_FAILURE_KINDS = frozenset(
         "crucible:env_build_failed",  # the task's Dockerfile did not build: masked
         # added with the M0 audit (2026-10-14, R-2)
         "crucible:task_changed",  # the task's content digest changed between plan, dispatch and the end of the attempt: never graded, masked
+        # added with the open-risks fixes (2026-10-28, harness-reward audit R1)
+        "crucible:framework_error",  # the harness's own code raised inside a harness-owned policy (not the model's output): masked, detail "framework"
     }
 )
 # Kinds a retry cannot fix (sweep G2 D3: ``retryable`` was never False, so a stale image was retried three times)
@@ -91,6 +93,7 @@ DEFAULT_BLAME: dict[str, str] = {
     "crucible:replay_divergence": "harness", "crucible:reissue_limit": "infra",
     "crucible:grader_tampered": "policy", "crucible:env_container_lost": "infra", "crucible:grader_network_error": "infra",
     "crucible:env_image_unavailable": "infra", "crucible:env_build_failed": "infra", "crucible:task_changed": "task",
+    "crucible:framework_error": "harness",
 }
 
 

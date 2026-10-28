@@ -419,7 +419,12 @@ def add_train_flags(p) -> None:
     p.add_argument("--rank", type=int, default=32)
     p.add_argument("--lr", type=float, default=4e-5)
     p.add_argument("--loss", default="importance_sampling", choices=["importance_sampling", "ppo", "cispo"])
-    p.add_argument("--loss-scale", default="sum", choices=["sum", "token_mean"])
+    p.add_argument("--loss-scale", default="token_mean", choices=["sum", "token_mean"],
+                   help="token_mean (default since 2026-10-28, harness-reward audit R9): a global token mean; sum: the token sum (resume an older run with it)")
+    p.add_argument("--format-penalty", type=float, default=0.0, help="tool_format_penalty on a malformed call's tokens (0: off; harness-reward audit R5)")
+    p.add_argument("--format-penalty-mode", default="reduction", choices=["reduction", "signed"])
+    p.add_argument("--max-masked-frac", type=float, default=0.5, help="stop when more than this share of the last --masked-window samples is masked (<= 0: off)")
+    p.add_argument("--masked-window", type=int, default=64)
     p.add_argument("--eta", type=float, default=0.1)
     p.add_argument("--max-staleness", type=int, default=0)
     p.add_argument("--async-groups", type=int, default=0)
@@ -444,7 +449,9 @@ def train_config(args):
                        loss_fn=args.loss, learning_rate=args.lr, turn_eta=args.eta, max_staleness=args.max_staleness, async_groups=args.async_groups,
                        max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
                        drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r,
-                       sampler=args.sampler, band_lo=args.band_lo, band_hi=args.band_hi, explore=args.explore, difficulty_decay=args.difficulty_decay)
+                       sampler=args.sampler, band_lo=args.band_lo, band_hi=args.band_hi, explore=args.explore, difficulty_decay=args.difficulty_decay,
+                       tool_format_penalty=args.format_penalty, format_penalty_mode=args.format_penalty_mode,
+                       max_masked_frac=args.max_masked_frac if args.max_masked_frac and args.max_masked_frac > 0 else None, masked_window=args.masked_window)
 
 
 def main() -> None:

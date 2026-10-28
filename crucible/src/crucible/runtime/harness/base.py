@@ -52,6 +52,11 @@ class Attempt:
     clock: Any = None
     timeout_s: float | None = None
     agent_left: float | None = None
+    # async-RL audit R3 (2026-10-28): the run this attempt belongs to, and the policies the harness made for it (``{actor:
+    # Policy}``, set by the harness once ``policy.make`` returns), so ``Runner.inflight_min_version`` can read the versions of
+    # the calls made so far while the attempt runs
+    run_id: str | None = None
+    policies: dict[str, Any] = field(default_factory=dict)
 
 
 class HarnessResult(CrucibleModel):

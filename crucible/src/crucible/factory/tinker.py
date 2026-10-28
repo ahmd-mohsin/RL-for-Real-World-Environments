@@ -107,7 +107,8 @@ async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: 
     from crucible.factory.receipts import make_receipt, write_receipt
     from crucible.train.bridges.tinker.trainer import TinkerTrainer
 
-    envs = [make_env(t, checkpoint=phi_checkpoint, tool_limit=tool_limit, timeouts=timeouts, mode=mode) for t in tasks]
+    # training=True (harness-reward audit R2): the agent clock counts only the agent's own time and a timeout is masked
+    envs = [make_env(t, checkpoint=phi_checkpoint, tool_limit=tool_limit, timeouts=timeouts, mode=mode, training=True) for t in tasks]
     ocfg = _observe_cfg(observe)
     obs = None
     if ocfg is not None:

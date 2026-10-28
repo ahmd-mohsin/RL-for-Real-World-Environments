@@ -15,9 +15,16 @@ One **step**:
    - ``stale``: the oldest weight version that produced a token of the group is more than ``max_staleness`` optimizer
      steps behind the trainer: **dropped** (slime only logs staleness) and refilled. Checked when the group lands and
      again when the batch is built;
-   - ``zero_spread`` (``drop_zero_spread``): every member has the same reward: no signal (slime's nonzero-std filter).
+   - ``zero_spread`` (``drop_zero_spread``): every member's composed sequence advantage (outcome + honesty,
+     ``datums.sequence_advantages``) is the same: no signal (slime's nonzero-std filter, prime-rl's ``no_signal``).
+     Harness-reward audit R8 (2026-10-28): the rule read the rewards only, so a group without outcome spread whose honesty
+     terms differ (an honest "not done" beside a false "done") was dropped and honesty never trained there.
    Every drop is a row in ``drops.jsonl``; a step that cannot fill its batch within ``max_groups_per_step`` launches
    stops the run (``too_many_drops``) instead of looping.
+   **Masked share** (``max_masked_frac``; NeMo-Gym's ``max_mask_fraction``): over the last ``masked_window`` landed
+   samples, more than ``max_masked_frac`` masked stops the run (``masked_frac``, state saved, the mask kinds in
+   ``summary.json``), so an infrastructure failure cannot starve training while the run keeps filling batches from the
+   survivors. ``None`` turns it off.
    **Quarantine** (``train.quarantine``, the backend-neutral scheduler rule): a task whose groups are flat (one reward
    for every member and no Φ spread) for ``quarantine_q`` consecutive steps (default 2) is not sampled for the next
    ``quarantine_r`` steps (default 3), then retried once; tasks are otherwise sampled round-robin. Every event is a row
@@ -37,7 +44,15 @@ One **step**:
 
 **Off-policy bound.** ``async_groups`` > 0 keeps that many extra groups sampling while a step trains (their tokens come
 from the previous weights); ``max_staleness`` bounds how old a trained group may be. ``async_groups=0,
-max_staleness=0`` is synchronous on-policy RL.
+max_staleness=0`` is synchronous on-policy RL. Staleness is the version a step trains on (the sampler's version before the
+step) minus the oldest version that produced a token of the group: 0 in a synchronous run (``staleness/*`` logged 1).
+Async-RL audit R3 (2026-10-28): before each weight swap, a group still sampling whose oldest token
+(``Runner.inflight_min_version``) is already too old to train under the new version is cancelled (``cancelled_stale``), as
+prime-rl's ``on_version_pending`` does, instead of holding its Worlds for up to an episode to be dropped on landing. R4: at
+any stop, an error included, the groups still in flight are cancelled (``cancelled_at_stop:<why>``), never awaited for up
+to ``rollout_s``. R2: each step logs, per staleness bucket b, the share of trained tokens (``staleness/tokens_frac/s<b>``)
+and, where the backend returns the trainer's logprobs (Tinker), the mismatch KL ``kl/mismatch/s<b>`` = E[r - 1 - log r]
+and the share MIS would mask (``is/masked_frac/s<b>``, r outside ``MIS_BAND``).
 
 **Resume (requeue-safe).** The run directory holds ``config.json`` (the fixed configuration: a resume with a different
 one is refused, except ``steps`` and ``cap_usd``), ``state.json`` (written atomically after each ``save_state``: the step,
@@ -45,7 +60,9 @@ the Tinker state path, the sampler path and version of that step, the objective)
 path), ``spend.jsonl`` (the meter re-opens on it: one cap across restarts), ``steps.jsonl``, ``drops.jsonl``,
 ``rewards.jsonl`` (objective id, verifier version per row) and ``rollouts/`` (the Runner's run dirs). A restart creates
 the training client from the saved state *with its optimizer* and samples from that step's weights; groups sampled but
-not trained before a crash are sampled again (their spend stays booked).
+not trained before a crash are sampled again (their spend stays booked). Async-RL audit R7 (2026-10-28): the rows of
+``steps.jsonl`` and ``rewards.jsonl`` past the resumed step (steps trained after the last ``save_state``, trained again
+now) move to ``steps.rolled_back.jsonl`` / ``rewards.rolled_back.jsonl`` at the restart, so each step keeps one row.
 
 **The cap** (``spend.SpendMeter``): every sample and train call holds its worst case first; past ``cap_usd`` the call is
 refused, the episode in flight is masked (``crucible:credits_exhausted``), and the run stops with ``stop="cap"`` after
@@ -76,13 +93,14 @@ import json
 import math
 import statistics
 import time
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from crucible.core.schema.rollout import RolloutRecord
-from crucible.train.bridges.tinker.datums import build_datums, scale
+from crucible.train.bridges.tinker.datums import FORMAT_MODES, build_datums, scale, sequence_advantages
 from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
@@ -93,7 +111,13 @@ from crucible.train.sinks import Sink, Tracking
 LOSSES = ("importance_sampling", "ppo", "cispo")
 # the quarantine only changes which task is sampled when, never the objective: a resume may change it (and a run made
 # before it existed resumes with it on)
-RESUMABLE_CHANGES = ("steps", "cap_usd", "quarantine_q", "quarantine_r", "sampler", "band_lo", "band_hi", "explore", "difficulty_decay")
+RESUMABLE_CHANGES = ("steps", "cap_usd", "quarantine_q", "quarantine_r", "sampler", "band_lo", "band_hi", "explore", "difficulty_decay",
+                     "max_masked_frac", "masked_window")
+# fields added after runs existed, left out of the identity at their default so those runs still resume (a run that sets one
+# trains another objective: it is in the identity then)
+IDENTITY_DEFAULTS = {"tool_format_penalty": 0.0, "format_penalty_mode": "reduction", "format_kappa": 2.0}
+# the band of the prime-rl loss's MIS (``primerl.loss.MIS_LOW`` / ``MIS_HIGH``, the paper's 0.5 and 5): ``is/masked_frac/s<b>``
+MIS_BAND = (0.5, 5.0)
 
 
 class TrainerEnv(Protocol):
@@ -118,7 +142,12 @@ class TrainConfig:
     loss_fn: str = "importance_sampling"
     loss_fn_config: dict[str, float] | None = None
     learning_rate: float = 4e-5  # tinker-cookbook rl_loop default for LoRA RL
-    loss_scale: str = "sum"
+    # harness-reward audit R9 (2026-10-28): "token_mean" (a global token mean: every trained token weighs the same, divided by
+    # the batch's trained-token count, as prime-rl, AReaL, SkyRL, verl, NeMo-RL and TRL normalise; async-rl-audit §3.3), so
+    # the step's scale does not swing with how long the batch's 20-300-call episodes were. "sum" (the default before)
+    # scaled the gradient by the token count and left only the clip (max_norm 1) to bound it, which then gave every step
+    # the same length whatever its signal. Not per episode: a sequence mean weighs a long failing episode's tokens less
+    loss_scale: str = "token_mean"
     turn_eta: float = 0.1  # M6 turn-credit weight (credit.compose default); 0 trains on the outcome only
     honesty: bool = True
     temperature: float = 1.0
@@ -126,7 +155,7 @@ class TrainConfig:
     enable_thinking: bool = False
     max_staleness: int = 0
     async_groups: int = 0
-    drop_zero_spread: bool = True
+    drop_zero_spread: bool = True  # drop a group whose composed advantages (outcome + honesty) are all equal (R8)
     quarantine_q: int = 2  # flat groups on this many consecutive steps quarantine a task (train.quarantine); 0: off
     quarantine_r: int = 3  # steps a quarantined task is not sampled, then retried once
     sampler: str = "round_robin"  # "round_robin" (the quarantine's order) | "difficulty" (train.curriculum, swarm-pipeline/12)
@@ -144,6 +173,15 @@ class TrainConfig:
     seed: int = 0
     require_band: bool = True
     system: str | None = None
+    # harness-reward audit R5 (2026-10-28): the torch trainer's format penalty, on every backend (``datums.build_datums``);
+    # 0 (the default there too) is off: a malformed call already costs its tool call and is answered with the error
+    tool_format_penalty: float = 0.0
+    format_penalty_mode: str = "reduction"  # "reduction" | "signed" (``credit.signed``: each sign's batch mass kept)
+    format_kappa: float = 2.0
+    # NeMo-Gym's abort (rollout_collection.py, max_mask_fraction): over the last ``masked_window`` landed samples, more than
+    # this share masked stops the run (``masked_frac``); None: off
+    max_masked_frac: float | None = 0.5
+    masked_window: int = 64
 
     def __post_init__(self) -> None:
         if self.loss_fn not in LOSSES:
@@ -158,6 +196,10 @@ class TrainConfig:
             raise ValueError("max_staleness, async_groups >= 0; groups_per_step >= 1; steps >= 0")
         if self.async_groups and self.max_staleness < 1:
             raise ValueError("async_groups > 0 samples from older weights: set max_staleness >= 1 (or async_groups=0)")
+        if self.format_penalty_mode not in FORMAT_MODES or self.tool_format_penalty < 0 or self.format_kappa < 1.0:
+            raise ValueError(f"format_penalty_mode is one of {FORMAT_MODES}; tool_format_penalty >= 0; format_kappa >= 1")
+        if (self.max_masked_frac is not None and not 0.0 < self.max_masked_frac <= 1.0) or self.masked_window < 1:
+            raise ValueError("max_masked_frac is in (0, 1] or None; masked_window >= 1")
         resolve(self.model)  # an unknown model has no price: refused here
 
     @property
@@ -165,7 +207,8 @@ class TrainConfig:
         return self.max_groups_per_step or 3 * self.groups_per_step
 
     def identity(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if k not in RESUMABLE_CHANGES}
+        return {k: v for k, v in asdict(self).items()
+                if k not in RESUMABLE_CHANGES and not (k in IDENTITY_DEFAULTS and v == IDENTITY_DEFAULTS[k])}
 
 
 @dataclass
@@ -179,6 +222,8 @@ class Group:
     launched_version: int
     seconds: float
     error: str | None = None
+    picked_step: int | None = None  # the optimizer step its task was picked at (the quarantine dates observations by it: R6)
+    probe: bool | None = None  # it is its task's probation retry (``TaskQuarantine.last_probe`` after its pick)
 
     @property
     def masked(self) -> bool:
@@ -277,6 +322,41 @@ def step_metrics(batch: Sequence[Group], datums: Sequence[Any], fb: Any, kl: Seq
     return out
 
 
+def staleness_metrics(datums: Sequence[Any], target_logprobs: Sequence[Sequence[float]] | None, trained_version: int) -> dict[str, float]:
+    """Async-RL audit R2 (2026-10-28): the step's trust region per staleness bucket. A datum's bucket b is the version the
+    step trains on minus the oldest version that sampled a token of its sequence (``meta["min_version"]``). Always: the
+    share of trained tokens per bucket (``staleness/tokens_frac/s<b>``). With the trainer's logprobs of every datum
+    (Tinker's ``target_logprobs``): per bucket, the mismatch KL ``kl/mismatch/s<b>`` = E[r - 1 - log r] over trained tokens
+    (``primerl.loss``'s ``kl/mismatch``) and the share of trained tokens whose ratio r = pi_train / pi_sample is outside the
+    MIS band (``is/masked_frac/s<b>``: what the prime-rl loss's MIS drops). prime-rl's trainer returns no per-token logprobs,
+    so there only the token shares are logged; in a step with one bucket (every synchronous step) the trainer's own
+    ``is/masked_frac`` and ``kl/mismatch`` are that bucket's."""
+    tokens: Counter[int] = Counter()
+    kl: dict[int, list[float]] = {}
+    out_band: dict[int, list[float]] = {}
+    have = bool(target_logprobs) and len(target_logprobs or ()) == len(datums)
+    lo, hi = MIS_BAND
+    for i, d in enumerate(datums):
+        mv = (getattr(d, "meta", None) or {}).get("min_version")
+        if not isinstance(mv, int) or isinstance(mv, bool):
+            continue
+        b = int(trained_version) - mv
+        tokens[b] += int(sum(1 for m in d.mask if m))
+        if have:
+            for lp_s, lp_t, m in zip(d.logprobs, target_logprobs[i], d.mask, strict=False):  # type: ignore[index]
+                if m:
+                    lr = max(-20.0, min(20.0, float(lp_t) - float(lp_s)))
+                    r = math.exp(lr)
+                    kl.setdefault(b, []).append(r - 1.0 - lr)
+                    out_band.setdefault(b, []).append(0.0 if lo <= r <= hi else 1.0)
+    total = sum(tokens.values())
+    out: dict[str, float] = {f"staleness/tokens_frac/s{b}": n / total for b, n in sorted(tokens.items())} if total else {}
+    for b in sorted(kl):
+        out[f"kl/mismatch/s{b}"] = statistics.fmean(kl[b])
+        out[f"is/masked_frac/s{b}"] = statistics.fmean(out_band[b])
+    return out
+
+
 def read_group(root: Path, run_id: str, k: int) -> list[RolloutRecord]:
     """The group's ``k`` rollouts from the Runner's run directory (a sample without a rollout is masked)."""
     out = []
@@ -336,6 +416,13 @@ class TinkerTrainer:
                 levels={str(e.task.task_id): tuple(c) for e in self.envs if (c := getattr(e.task, "curriculum", None))},
                 requires={str(e.task.task_id): requires_of(getattr(e.task, "milestones", None) or ()) for e in self.envs}, seed=config.seed)
         self._d_logged = 0
+        self._pending: dict[asyncio.Task, dict[str, Any]] = {}  # groups in flight -> {gi, run_id, task, picked_step, probe}
+        self._runners: dict[int, Any] = {}  # gi -> the Runner of its group while it runs (``inflight_min_version``: R3)
+        self._cancelled: set[asyncio.Task] = set()  # cancelled groups still winding down (their Worlds closing)
+        self._recent: deque[str | None] = deque(maxlen=config.masked_window)  # per landed sample: its mask kind, None when live
+        self.masked_stop: dict[str, Any] | None = None
+
+    cancel_grace_s = 300.0  # how long a cancelled group may take to close its Worlds before the loop goes on without it
 
     def _q_flush(self) -> None:
         """Quarantine events not logged yet: ``quarantine.jsonl`` and the sinks' ``quarantine`` records."""
@@ -382,30 +469,39 @@ class TinkerTrainer:
         _atomic(self.dir / "versions.json", self.versions)
 
     # ---- groups ----
-    async def _group(self, env: Any, gi: int) -> Group:
+    @staticmethod
+    def _run_id(env: Any, gi: int) -> str:
+        return f"g{gi:06d}-{hashlib.sha1(str(env.task.task_id).encode()).hexdigest()[:8]}"
+
+    async def _group(self, env: Any, gi: int, *, picked_step: int | None = None, probe: bool | None = None) -> Group:
         from crucible.runtime.infra import RetryRule
         from crucible.runtime.run import Runner
 
         assert self.sampler is not None
         tid = str(env.task.task_id)
-        run_id = f"g{gi:06d}-{hashlib.sha1(tid.encode()).hexdigest()[:8]}"
+        run_id = self._run_id(env, gi)
         v0 = self.sampler.version
         pol = self.sampler.policy_ref(pid=f"tinker-student-v{v0}", temperature=self.cfg.temperature, max_tokens=self.cfg.max_tokens, system=self.cfg.system,
                                       **env.policy_kwargs())
         t0 = time.monotonic()
         err = None
+        runner = Runner(self.dir / "rollouts")
+        self._runners[gi] = runner  # async-RL audit R3: its in-flight minimum version is read before each weight swap
         try:
             spec = env.run_spec(run_id=run_id, policies=[pol], k=self.cfg.group_size, concurrency=self.cfg.group_size, rollout_mode="train",
                                 run_seed=self.cfg.seed + gi, retry=RetryRule(max_attempts=1), breaker=None,  # a group is all or nothing: the
                                 # trainer drops and refills it; the Runner's breakers would defer and re-run a masked member past max_attempts
                                 sampling={"temperature": self.cfg.temperature, "max_tokens": self.cfg.max_tokens})
-            await Runner(self.dir / "rollouts").run(spec)
+            await runner.run(spec)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 -- a group that could not run is infrastructure: dropped and refilled
             err = f"{type(e).__name__}: {str(e)[:300]}"
+        finally:
+            self._runners.pop(gi, None)
         recs = read_group(self.dir / "rollouts", run_id, self.cfg.group_size)
-        return Group(gi, env, tid, str(getattr(env.task, "verifier_version", "") or ""), run_id, recs, v0, time.monotonic() - t0, err)
+        return Group(gi, env, tid, str(getattr(env.task, "verifier_version", "") or ""), run_id, recs, v0, time.monotonic() - t0, err,
+                     picked_step=picked_step, probe=probe)
 
     def _verdict(self, g: Group) -> str | None:
         if g.verifier_version != self.objective.get(g.task_id):
@@ -415,21 +511,136 @@ class TinkerTrainer:
         if self._stale(g):
             return "stale"
         rs = g.rewards()
-        if self.cfg.drop_zero_spread and (len(rs) < 2 or statistics.pstdev(rs) <= 1e-6):
+        if self.cfg.drop_zero_spread and (len(rs) < 2 or not self._has_signal(g)):
             return "zero_spread"
         return None
+
+    def _has_signal(self, g: Group) -> bool:
+        """Harness-reward audit R8 (2026-10-28): the group trains something when its members' composed sequence advantages
+        (outcome + honesty, exactly what ``build_datums`` puts on their tokens) differ. Outcome spread always gives that; a
+        group without it still does when its honesty terms differ (an honest "not done" beside a false "done": the term
+        alone separates them, ``factory.honesty.compose_advantage``). Before, the rule read the rewards only, so honesty
+        never trained in such a group."""
+        live = [r for r in g.records if not r.mask_sample and r.reward is not None]
+        adv = sequence_advantages(live, [g.run_id] * len(live), honesty=self.cfg.honesty)
+        return len(adv) >= 2 and statistics.pstdev(list(adv.values())) > 1e-6
 
     def _stale(self, g: Group) -> bool:
         mv = g.min_version()
         return mv is not None and self.state["version"] - mv > self.cfg.max_staleness
 
     def _drop(self, g: Group, reason: str) -> None:
-        self.drops[reason] = self.drops.get(reason, 0) + 1
         why = g.error or next((f"{r.rollout_id}: {r.failure_kind}" for r in g.records if r.mask_sample), None)
-        row = {"step": self.state["step"], "version": self.state["version"], "group": g.run_id, "task": g.task_id, "reason": reason, "detail": why,
-               "rewards": g.rewards(), "min_version": g.min_version()}
+        self._drop_row({"group": g.run_id, "task": g.task_id, "rewards": g.rewards(), "min_version": g.min_version()}, reason, why)
+
+    def _drop_row(self, info: Mapping[str, Any], reason: str, detail: str | None) -> None:
+        self.drops[reason] = self.drops.get(reason, 0) + 1
+        row = {"step": self.state["step"], "version": self.state["version"], "group": info.get("group") or info.get("run_id"), "task": info.get("task"),
+               "reason": reason, "detail": detail, "rewards": list(info.get("rewards") or []), "min_version": info.get("min_version")}
         _append(self.dir / "drops.jsonl", row)
         self.tracking.record("drop", row, int(self.state["step"]))
+
+    # ---- groups in flight: cancel what can never train (async-RL audit R3, R4) ----
+    async def _cancel_doomed(self, new_version: int) -> None:
+        """Before the weights move to ``new_version``: a group still sampling whose oldest sampled token is already more than
+        ``max_staleness`` versions behind ``new_version`` can never train (every later call samples a newer version, so its
+        minimum never rises), so it is cancelled now (``cancelled_stale``), as prime-rl's ``on_version_pending`` and the torch
+        loop's ``Scheduler.evict_doomed`` do. A 300-call episode holds its Worlds for about 28 minutes; it used to run to the
+        end and be dropped as ``stale`` on landing. A group with no versioned call yet is left to run."""
+        doomed = []
+        for t, info in list(self._pending.items()):
+            r = self._runners.get(int(info["gi"]))
+            mv = r.inflight_min_version() if r is not None and not t.done() else None
+            if mv is not None and new_version - mv > self.cfg.max_staleness:
+                doomed.append((t, info, mv))
+        for t, info, mv in doomed:
+            self._pending.pop(t, None)
+            t.cancel()
+            self._cancelled.add(t)
+            self.quarantine.lost(str(info["task"]), probe=info.get("probe"))  # never an observation; a cancelled retry re-opens
+            self._drop_row({**info, "min_version": mv}, "cancelled_stale",
+                           f"in flight at the swap to v{new_version}: its oldest token is v{mv} (max_staleness {self.cfg.max_staleness})")
+        if doomed:
+            await self._settle_cancelled(self.cancel_grace_s)
+
+    async def _settle_cancelled(self, timeout_s: float | None) -> None:
+        """Wait (at most ``timeout_s``) for cancelled groups to close their Worlds (the Runner's teardown runs on cancel)."""
+        if not self._cancelled:
+            return
+        done, _ = await asyncio.wait(list(self._cancelled), timeout=timeout_s)
+        for t in done:
+            self._cancelled.discard(t)
+            if not t.cancelled():
+                t.exception()  # retrieved: a group that raised while cancelling is not an unhandled-task warning
+
+    async def _stop_pending(self, why: str) -> None:
+        """Async-RL audit R4: at a stop (an error included) every group still in flight is cancelled, never awaited: one could
+        hold its Worlds and the GPUs for up to ``rollout_s`` (30 minutes) after the loop had stopped. A group that had
+        already finished is dropped as ``unused_at_stop:<why>``; the others as ``cancelled_at_stop:<why>``."""
+        items = list(self._pending.items())
+        self._pending.clear()
+        if not items:
+            return
+        for t, _ in items:
+            if not t.done():
+                t.cancel()
+        done, _ = await asyncio.wait([t for t, _ in items], timeout=self.cancel_grace_s)
+        for t, info in items:
+            g = t.result() if t in done and not t.cancelled() and t.exception() is None else None
+            if isinstance(g, Group):
+                self._drop(g, f"unused_at_stop:{why}")
+            else:
+                self.quarantine.lost(str(info["task"]), probe=info.get("probe"))
+                self._drop_row(info, f"cancelled_at_stop:{why}", None if t in done else f"still closing after {self.cancel_grace_s:g}s")
+                if t not in done:
+                    self._cancelled.add(t)
+
+    # ---- the masked share (NeMo-Gym's abort) ----
+    def _count_masked(self, g: Group) -> None:
+        if g.error is not None:
+            self._recent.extend(["group_error"] * self.cfg.group_size)
+        else:
+            self._recent.extend([str(r.failure_kind or "masked") if r.mask_sample or r.reward is None else None for r in g.records])
+
+    def _masked_share_exceeded(self) -> bool:
+        """Over the last ``masked_window`` landed samples (once that many have landed), more than ``max_masked_frac`` masked:
+        the run stops (``masked_frac``) with the mask kinds, instead of training on the survivors of a broken pipeline."""
+        c = self.cfg
+        if c.max_masked_frac is None or len(self._recent) < c.masked_window:
+            return False
+        kinds = [k for k in self._recent if k is not None]
+        if len(kinds) / len(self._recent) <= c.max_masked_frac:
+            return False
+        self.masked_stop = {"masked": len(kinds), "window": len(self._recent), "max_masked_frac": c.max_masked_frac,
+                            "kinds": dict(Counter(kinds).most_common()), "step": int(self.state["step"])}
+        self.tracking.record("stop", {"stop": "masked_frac", **self.masked_stop}, int(self.state["step"]))
+        return True
+
+    # ---- resume: one row per step (async-RL audit R7) ----
+    def _rollback_logs(self, keep_step: int) -> None:
+        """The rows of ``steps.jsonl`` and ``rewards.jsonl`` past ``keep_step`` (steps trained after the last ``save_state``,
+        which a resume trains again) move to ``<name>.rolled_back.jsonl``; nothing is deleted. A torn last line (the crash)
+        moves too."""
+        for name in ("steps", "rewards"):
+            f = self.dir / f"{name}.jsonl"
+            if not f.exists():
+                continue
+            keep, gone = [], []
+            for line in f.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    step = int(json.loads(line).get("step") or 0)
+                except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+                    gone.append(line)
+                    continue
+                (keep if step <= keep_step else gone).append(line)
+            if gone:
+                with (self.dir / f"{name}.rolled_back.jsonl").open("a") as fh:
+                    fh.write("".join(x + "\n" for x in gone))
+                tmp = f.with_suffix(".jsonl.tmp")
+                tmp.write_text("".join(x + "\n" for x in keep))
+                tmp.replace(f)
 
     # ---- the update ----
     async def _step(self, batch: list[Group]) -> None:
@@ -437,11 +648,14 @@ class TinkerTrainer:
         cfg = self.cfg
         recs = [r for g in batch for r in g.records]
         keys = [g.run_id for g in batch for _ in g.records]
-        datums = scale(build_datums(recs, keys, turn_eta=cfg.turn_eta, honesty=cfg.honesty), cfg.loss_scale)
+        datums = scale(build_datums(recs, keys, turn_eta=cfg.turn_eta, honesty=cfg.honesty, format_penalty=cfg.tool_format_penalty,
+                                    format_mode=cfg.format_penalty_mode, format_kappa=cfg.format_kappa), cfg.loss_scale)
         if not datums:
             raise RuntimeError("a kept batch produced no datum (every rollout token-incomplete?)")
         tokens = sum(len(d.input_ids) for d in datums)
         step = self.state["step"] + 1
+        v_train = int(self.state["version"])  # the version this step trains on: staleness is measured against it
+        await self._cancel_doomed(step)  # async-RL audit R3: the weights move to v{step}; what can no longer train stops now
         t0 = time.monotonic()
         with self.meter.hold(self.model.prices.usd(train=tokens), f"forward_backward {tokens} tokens"):
             fb = await self.trainer.forward_backward(datums, loss_fn=cfg.loss_fn, config=cfg.loss_fn_config)
@@ -473,10 +687,11 @@ class TinkerTrainer:
         t = self.meter.totals
         tok = {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample, "train": t.train}
         now = time.monotonic()
-        m = step_metrics(batch, datums, fb, kl, version=step, sampler_version=self.sampler.version, drops=self.drops,
+        m = step_metrics(batch, datums, fb, kl, version=v_train, sampler_version=self.sampler.version, drops=self.drops,
                          usd_step=self.meter.spent - self._last_usd, usd_cum=self.meter.spent, cap_usd=self.cfg.cap_usd,
                          tokens={**{k: v - self._last_tokens.get(k, 0) for k, v in tok.items()}, "trained": n_tr},
                          train_s=train_s, step_s=(now - self._last_step_t) if self._last_step_t is not None else None)
+        m.update(staleness_metrics(datums, getattr(fb, "target_logprobs", None), v_train))
         m["quarantine/active"] = float(len(self.quarantine.active(step)))
         m["quarantine/events"] = float(len(self.quarantine.events))
         if self.difficulty is not None:
@@ -506,6 +721,7 @@ class TinkerTrainer:
         self._last_usd, self._last_tokens = self.meter.spent, {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample,
                                                                "train": t.train}
         res = self.state.get("resume")
+        self._rollback_logs(int(res["step"]) if res else 0)  # async-RL audit R7: the steps a resume trains again keep one row
         if res:  # requeue-safe: back to the last saved state (weights + optimizer) and that step's sampler weights
             self.state.update(step=res["step"], version=res["step"], sampler_path=res["sampler_path"], state_path=res["state_path"])
         t_start = time.monotonic()
@@ -513,21 +729,25 @@ class TinkerTrainer:
         self.sampler = TinkerSampler(self.backend, self.model, meter=self.meter, codec=self.codec, path=self.state.get("sampler_path"),
                                      version=self.state["version"])
         await self.sampler.start()
-        pending: dict[asyncio.Task, int] = {}
+        pending = self._pending
         batch: list[Group] = []
         launched = 0
         gi = int(self.state.get("next_group", 0))
         cursor = int(self.state.get("cursor", gi))  # round-robin position over the tasks (= the group index before the quarantine)
+        failed: BaseException | None = None
         try:
             while self.state["step"] < cfg.steps and self.stop is None:
                 need = cfg.groups_per_step - len(batch)
                 extra = cfg.async_groups if self.state["step"] + 1 < cfg.steps else 0
                 while len(pending) < need + extra and launched < cfg.max_launches + extra and not self.meter.exhausted:
-                    i = (self.difficulty or self.quarantine).pick(cursor, int(self.state["step"]))
+                    picked = int(self.state["step"])
+                    i = (self.difficulty or self.quarantine).pick(cursor, picked)
+                    probe = self.quarantine.last_probe  # async-RL audit R6: this group is its task's probation retry
                     self._q_flush()
                     env = self.envs[i]
                     cursor = i + 1
-                    pending[asyncio.create_task(self._group(env, gi))] = gi
+                    t = asyncio.create_task(self._group(env, gi))
+                    pending[t] = {"gi": gi, "run_id": self._run_id(env, gi), "task": str(env.task.task_id), "picked_step": picked, "probe": probe}
                     gi += 1
                     launched += 1
                     self.state["next_group"], self.state["cursor"] = gi, cursor
@@ -536,19 +756,23 @@ class TinkerTrainer:
                     break
                 done, _ = await asyncio.wait(list(pending), return_when=asyncio.FIRST_COMPLETED)
                 for t in done:
-                    pending.pop(t)
+                    info = pending.pop(t)
                     g = t.result()
+                    g.picked_step = info["picked_step"] if g.picked_step is None else g.picked_step
+                    g.probe = info["probe"] if g.probe is None else g.probe
                     self.groups_seen += 1
+                    self._count_masked(g)
                     why = self._verdict(g)
                     if g.masked:
-                        self.quarantine.lost(g.task_id)  # infrastructure: never an observation of the task
+                        self.quarantine.lost(g.task_id, probe=g.probe)  # infrastructure: never an observation of the task
                     elif why != "objective_changed":
                         phis = [float(r.progress["phi_final"]) if isinstance((r.progress or {}).get("phi_final"), int | float)
                                 else None for r in g.records if not r.mask_sample and r.reward is not None]
                         if self.difficulty is not None:  # the sampler forwards the group to the quarantine and keeps p̂
-                            self.difficulty.observe(g.task_id, draws_of(g.records), int(self.state["step"]), rewards=g.rewards(), phis=phis)
+                            self.difficulty.observe(g.task_id, draws_of(g.records), int(self.state["step"]), rewards=g.rewards(), phis=phis,
+                                                    picked=g.picked_step, probe=g.probe)
                         else:
-                            self.quarantine.observe(g.task_id, g.rewards(), phis, int(self.state["step"]))
+                            self.quarantine.observe(g.task_id, g.rewards(), phis, int(self.state["step"]), picked=g.picked_step, probe=g.probe)
                     self._q_flush()
                     if why is None:
                         batch.append(g)
@@ -556,6 +780,9 @@ class TinkerTrainer:
                         self._drop(g, why)
                         if why == "objective_changed":
                             self.stop = "objective_changed"
+                if self.stop is None and self._masked_share_exceeded():
+                    self.stop = "masked_frac"
+                    break
                 for g in [g for g in batch if self._stale(g)]:
                     batch.remove(g)
                     self._drop(g, "stale")
@@ -570,12 +797,13 @@ class TinkerTrainer:
                         break
                     batch = batch[cfg.groups_per_step:]
                     launched = len(pending)
+        except BaseException as e:
+            failed = e
+            raise
         finally:
-            if pending:  # in flight at a stop: finish (the cap refuses their calls at once), never trained
-                outs = await asyncio.gather(*pending, return_exceptions=True)
-                for o in outs:
-                    if isinstance(o, Group):
-                        self._drop(o, f"unused_at_stop:{self.stop or 'done'}")
+            # async-RL audit R4: in flight at a stop (an error included): cancelled, never trained, never awaited to the end
+            await self._stop_pending(self.stop or (f"error:{type(failed).__name__}" if failed is not None else "done"))
+            await self._settle_cancelled(self.cancel_grace_s)
             if self.trainer is not None and self.state.get("resume", {}).get("step") != self.state["step"] and self.state["step"] > 0:
                 try:
                     await self._checkpoint()
@@ -595,6 +823,7 @@ class TinkerTrainer:
                "versions": self.versions, "drops": dict(self.drops), "groups_seen": self.groups_seen, "spend": self.meter.summary(),
                "calls": len(log), "sampled_tokens": samp, "sample_tokens_per_s_per_call": (samp / sum(lat)) if lat and sum(lat) else None,
                "turn_latency_s": {"mean": statistics.fmean(lat), "p50": statistics.median(lat), "max": max(lat)} if lat else None,
+               "masked_stop": self.masked_stop,
                "trained_episodes": eps, "usd_per_episode": (self.meter.spent / max(1, self.groups_seen * self.cfg.group_size)),
                "wall_s": round(wall_s, 1), "steps_log": self.step_rows, "codec": self.codec.settings() if hasattr(self.codec, "settings") else None,
                "quarantine": {"events": len(self.quarantine.events), "quarantined": sorted({e["task"] for e in self.quarantine.events

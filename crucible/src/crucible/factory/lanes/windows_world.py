@@ -743,6 +743,9 @@ async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: 
         raise
     w._crucible_ws = ws
     w._crucible_container = name
+    # the commit the agent starts from, read before it acts: the ``base`` tag lives in the agent's repository and can be moved
+    # or deleted, so the snapshots of this World diff against this sha (harness audit R6, 2026-10-28)
+    w._crucible_base_sha = await base_commit(ws)
     ins = await asyncio.to_thread(docker, "inspect", "-f", "{{.HostConfig.NetworkMode}}", name, timeout=60)
     w._crucible_network = ins.stdout.strip() if ins.returncode == 0 else None  # as docker reports it, never assumed
     inner = w.close
@@ -755,6 +758,15 @@ async def open_world(*, image: str, base_dir: Path, workdir: Path, instruction: 
 
     w.close = close
     return w
+
+
+async def base_commit(ws: Path) -> str | None:
+    """The workspace repository's ``base^{commit}`` as a sha (host git, bounded), or None."""
+    from crucible.world.exec import _run_subprocess
+
+    out = await _run_subprocess(["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", str(ws),
+                                 "rev-parse", "--verify", "-q", "base^{commit}"], cwd=None, env=None, timeout_s=60, stdin=None)
+    return (out.stdout.strip() or None) if out.ok else None
 
 
 def own_containers() -> list[str]:

@@ -251,11 +251,14 @@ def workspace_snapshot(root: Path | str, base: str) -> Callable[[Any], Awaitable
     """The working tree (untracked included, ignored excluded) against ``base`` through a throwaway index, with git's hooks,
     fsmonitor and global config off (``world.state.fs.git_diff_command``): the agent's index and repository are untouched,
     and nothing enters the World's trace."""
+    from crucible.verify.collect import filter_drivers, filter_flags
     from crucible.world.state.fs import git_diff_command
 
-    cmd = git_diff_command(str(root), base)
-
     async def snap(_world: Any) -> str:
+        # harness-reward audit R6 (2026-10-28): a filter driver the policy wrote into its repository's config would run on the
+        # host at ``git add`` and could put any content in the snapshot: each one is a pass-through at command scope
+        fl = filter_flags(await filter_drivers(Path(root)))
+        cmd = git_diff_command(str(root), base, config=dict(x.split("=", 1) for x in fl[1::2]))
         rc, out, err = await _sh(cmd)
         if rc:
             raise RuntimeError(f"snapshot diff failed: {err.strip()[-300:]}")
