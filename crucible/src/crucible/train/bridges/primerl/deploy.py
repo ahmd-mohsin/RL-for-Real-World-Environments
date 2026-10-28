@@ -72,6 +72,7 @@ class DeltaConfig:
     cpus_per_gpu: int = 18
     workdir: str = f"{WORK}/crucible-train"  # runs, Crucible's source, the HF cache
     envdir: str = "/work/nvme/bjhg/mahmedmohsin/crucible-train"  # prime-rl, its venv, uv's cache, CPython: small files load fast
+    hf_home: str = ""  # the HF cache the trainer, vLLM and the tokenizer read; "" is <workdir>/hf_cache (``hf_cache``)
     port: int = 8000
     extra_env: dict[str, str] = field(default_factory=dict)
 
@@ -95,6 +96,12 @@ class DeltaConfig:
     def centered(self) -> bool:
         """Score centering is on: vLLM returns the sampler's top-k head and the trainer gathers it (``sc_head``)."""
         return self.pg_correction.startswith("sc")
+
+    @property
+    def hf_cache(self) -> str:
+        """The HF cache of the job: ``hf_home``, else ``<workdir>/hf_cache``. The inference worker's cache already holds the
+        student's 67 GB of weights (``/work/hdd/bjhg/mahmedmohsin/crucible-infer/hf``); a second copy is a 70 GB download."""
+        return self.hf_home or f"{self.workdir}/hf_cache"
 
     @property
     def gpus(self) -> int:

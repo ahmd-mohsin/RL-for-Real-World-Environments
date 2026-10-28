@@ -250,6 +250,8 @@ def test_the_tinker_loop_trains_the_same_datums_on_prime_rl_as_on_tinker(tmp_pat
     steps = [json.loads(x) for x in (tmp_path / "run" / "steps.jsonl").read_text().splitlines()]
     assert len(steps) == 2 and all(r["fb_metrics"]["primerl/optim/grad_norm"] == 1.5 and r["fb_metrics"]["primerl/loss/mean"] == -0.25
                                    and r["fb_metrics"]["primerl/metrics_complete"] == 1.0 for r in steps)
+    # the dashboard row rides in the run's own record (an offline W&B run cannot be read back): staleness buckets included
+    assert all(r["metrics"].get("staleness/tokens_frac/s0") == 1.0 and r["metrics"]["train/primerl/optim/grad_norm"] == 1.5 for r in steps)
 
 
 def test_a_reply_cut_at_the_token_limit_is_a_limit_stop_in_the_curriculum_and_still_trains() -> None:
