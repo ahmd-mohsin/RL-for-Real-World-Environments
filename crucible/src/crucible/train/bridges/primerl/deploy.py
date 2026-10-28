@@ -53,10 +53,16 @@ class DeltaConfig:
     gpus_per_node: int = 4
     train_gpus: int = 2
     infer_gpus: int = 2
-    ep: int = 2  # expert parallel over the train GPUs (256 experts)
+    # expert parallel over the train GPUs: 1 (FSDP shards the experts like every other weight). prime-rl v0.10.0's LoRA
+    # experts under EP > 1 (``layers/lora/multi_moe.py``) re-permute tokens its dispatcher already permuted, through a
+    # constant a refactor removed (trainer probe, job 3478344: ImportError TOKEN_GROUP_ALIGN_SIZE_M at the first forward)
+    ep: int = 1
     cp: int = 2  # context parallel (ring): seq_len / cp tokens per GPU
     infer_tp: int = 2  # the 70 GB of bf16 weights split two ways leave room for ~30 concurrent 160K-token episodes (plan)
     seq_len: int = 262_144
+    # the trainer's parameter dtype (prime-rl ``model.optimization_dtype``): float32 keeps the LoRA weights' updates; it also
+    # holds the frozen base in fp32 (37.6B params: ~75 GB per GPU over 2, probe job 3478344), bfloat16 halves that
+    optimization_dtype: str = "float32"
     lora_rank: int = 32
     lora_alpha: float = 64.0
     kl_coeff: float = 0.0  # the stable_reinforce-style sampler anchor (loss doc)
@@ -81,6 +87,10 @@ class DeltaConfig:
             raise ValueError(f"DeltaAI runs are charged to {ACCOUNT} (CIS262200) only, not {self.account!r}")
         if self.train_gpus + self.infer_gpus > self.nodes * self.gpus_per_node:
             raise ValueError("train_gpus + infer_gpus exceed the job's GPUs")
+        if self.ep != 1:
+            raise ValueError("ep must be 1: prime-rl v0.10.0's LoRA experts break under expert parallel (the ep field's note)")
+        if self.optimization_dtype not in ("float32", "bfloat16"):
+            raise ValueError("optimization_dtype is float32 or bfloat16")
         if self.train_gpus % self.ep or self.train_gpus % self.cp:
             raise ValueError("ep and cp must divide train_gpus")
         if self.seq_len % self.cp:
@@ -124,6 +134,7 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
         "output_dir": str(out),
         "max_steps": int(train.steps),
         "model": {"name": d.base_model, "seq_len": d.seq_len, "ep": d.ep, "cp": d.cp, "attn": ATTN, "offload": "optimizer",
+                  "optimization_dtype": d.optimization_dtype,
                   "ac": {"freq": 1}, "ac_offloading": {"max_inflight_activations": 5}, "fused_lm_head_token_chunk_size": LM_HEAD_CHUNK,
                   "lora": {"rank": int(train.lora_rank), "alpha": float(d.lora_alpha), "dropout": 0.0}},
         "loss": {"type": "custom", "import_path": LOSS_IMPORT,

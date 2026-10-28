@@ -1021,6 +1021,11 @@ launcher, filesystem transports and an import-path loss.
     with the same run raised by more steps, and a separate asynchronous run with its own trainer (a resume may not change
     `async_groups` / `max_staleness`). A watchdog stops a phase whose trainer or vLLM died.
   - `DeltaConfig.hf_home` reuses the inference worker's cache of the student's weights.
+  - **No expert parallel with LoRA** (`DeltaConfig.ep = 1`, `ep > 1` refused). In prime-rl v0.10.0 the LoRA experts under
+    EP re-permute tokens that the dispatcher already permuted, through a constant a refactor removed (the trainer probe,
+    job 3478344, failed at the first forward). With `ep = 1`, FSDP shards the experts like every other weight.
+  - `DeltaConfig.optimization_dtype` (prime-rl's `model.optimization_dtype`): float32 by default, which holds the frozen
+    base in fp32 too (about 75 GB per GPU over 2). bfloat16 halves that, at the price of bf16 LoRA updates.
 - **Each `steps.jsonl` row carries the dashboard row** (`metrics`: staleness buckets, drops, the SC, routing and MIS
   numbers). An offline W&B run cannot be read back, and the run's own record now shows what the dashboard showed.
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The

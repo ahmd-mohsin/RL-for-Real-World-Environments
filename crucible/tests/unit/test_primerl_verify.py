@@ -8,6 +8,7 @@ import importlib.util
 import json
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,7 +73,7 @@ def _render(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     stage = tmp_path / "stage"
     argv = ["delta_rl.py", "render-verify", "--stage", str(stage), "--run-name", "v", "--tasks", TASK, "--targeting", str(t),
             "--world-image", "crucible-lh-d:go-go-toml-d4fe68839d05", "--group", "6", "--tool-limit", "110", "--ckpt-every", "20", "--ckpt-cap", "15",
-            "--seq-len", "65536", "--cp", "1", "--ep", "2", "--workdir", "/n/ct", "--hf-home", "/h/hf", "--partition", "ghx4-interactive", "--time", "01:55:00"]
+            "--seq-len", "65536", "--cp", "1", "--ep", "1", "--workdir", "/n/ct", "--hf-home", "/h/hf", "--partition", "ghx4-interactive", "--time", "01:55:00"]
     monkeypatch.setattr("sys.argv", argv)
     dr.main()
     return stage, Path("/n/ct/runs/v")
@@ -85,7 +86,8 @@ def test_render_verify_writes_a_probe_and_the_phased_job(tmp_path: Path, monkeyp
     sync = tomllib.loads((stage / "trainer_sync.toml").read_text())
     asy = tomllib.loads((stage / "trainer_async.toml").read_text())
     assert sync["max_steps"] == 3 and asy["max_steps"] == 2 and sync["ckpt"]["keep_last"] == 2 and sync["output_dir"] == str(out / "sync")
-    assert asy["output_dir"] == str(out / "async") and sync["model"]["cp"] == 1 and sync["model"]["ep"] == 2
+    assert asy["output_dir"] == str(out / "async") and sync["model"]["cp"] == 1 and sync["model"]["ep"] == 1
+    assert sync["model"]["optimization_dtype"] == "float32"
     inf = tomllib.loads((stage / "inference.toml").read_text())
     assert inf["vllm"]["max_loras"] == 2 and inf["vllm"]["max_model_len"] == 65536  # the async phase shares this server
     assert list(json.loads((stage / "targeting.json").read_text())) == [TASK]
@@ -129,7 +131,7 @@ def test_the_in_job_train_command_parses_to_the_phase_config(tmp_path: Path, mon
     dr.main()
     cfg, d, env, a = seen["cfg"], seen["d"], seen["env"], seen["args"]
     assert (cfg.steps, cfg.group_size, cfg.async_groups, cfg.max_staleness) == (2, 6, 4, 1)
-    assert (d.seq_len, d.cp, d.ep, d.data_ranks, d.hf_cache, d.pg_correction) == (65536, 1, 2, 2, "/h/hf", "sc+mis")
+    assert (d.seq_len, d.cp, d.ep, d.data_ranks, d.hf_cache, d.pg_correction) == (65536, 1, 1, 2, "/h/hf", "sc+mis")
     assert env["tool_limit"] == 110 and (env["phi_checkpoint"].every, env["phi_checkpoint"].cap) == (20, 15)
     assert a.tasks == [TASK] and a.debug.endswith("/J/data/debug")
 
@@ -138,3 +140,14 @@ def test_passthrough_drops_the_verify_only_flags() -> None:
     dr = _load("delta_rl")
     got = dr.passthrough(["--tasks", "a", "--steps", "9", "--stage=s", "--world-image", "w", "--group", "6"], drop=dr.VERIFY_ONLY)
     assert got == ["--tasks", "a", "--group", "6"]
+
+
+def test_expert_parallel_is_refused_with_lora_and_the_dtype_is_rendered() -> None:
+    # prime-rl v0.10.0 LoRA experts under ep > 1 import a removed constant and re-permute dispatched tokens (job 3478344)
+    with pytest.raises(ValueError, match="ep must be 1"):
+        deploy.DeltaConfig(ep=2)
+    with pytest.raises(ValueError, match="optimization_dtype"):
+        deploy.DeltaConfig(optimization_dtype="fp8")
+    d = deploy.DeltaConfig(optimization_dtype="bfloat16")
+    cfg = SimpleNamespace(loss_fn="importance_sampling", steps=2, lora_rank=32, learning_rate=4e-5, loss_fn_config=None)
+    assert deploy.trainer_toml(cfg, d, Path("/w"))["model"]["optimization_dtype"] == "bfloat16" and deploy.DeltaConfig().ep == 1

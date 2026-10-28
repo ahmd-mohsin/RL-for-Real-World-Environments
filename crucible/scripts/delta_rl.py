@@ -65,6 +65,8 @@ def add_deploy_flags(p) -> None:
     p.add_argument("--cp", type=int, default=d.cp)
     p.add_argument("--infer-tp", type=int, default=d.infer_tp)
     p.add_argument("--seq-len", type=int, default=d.seq_len)
+    p.add_argument("--optimization-dtype", default=d.optimization_dtype, choices=["float32", "bfloat16"],
+                   help="the trainer's parameter dtype (bfloat16 halves the frozen base's memory; float32 keeps the LoRA updates exact)")
     p.add_argument("--kl-coeff", type=float, default=d.kl_coeff, help="sampler-learner anchor β (0: off)")
     p.add_argument("--pg-correction", default=d.pg_correction, choices=list(CORRECTIONS),
                    help="off-policy correction: score centering (sc) alone or with TIS / MIS, TIS / MIS alone, or none (the --loss objective)")
@@ -88,7 +90,7 @@ def delta_config(args):
 
     return DeltaConfig(base_model=args.base_model, partition=args.partition, nodes=args.nodes, train_gpus=args.train_gpus, infer_gpus=args.infer_gpus,
                        ep=args.ep, cp=args.cp, infer_tp=args.infer_tp, seq_len=args.seq_len, lora_rank=args.rank, kl_coeff=args.kl_coeff, time=args.time,
-                       workdir=args.workdir, envdir=args.envdir, hf_home=args.hf_home, router_replay=not args.no_router_replay, pg_correction=args.pg_correction, sc_topk=args.sc_topk)
+                       workdir=args.workdir, envdir=args.envdir, hf_home=args.hf_home, optimization_dtype=args.optimization_dtype, router_replay=not args.no_router_replay, pg_correction=args.pg_correction, sc_topk=args.sc_topk)
 
 
 def cmd_plan(args) -> None:
