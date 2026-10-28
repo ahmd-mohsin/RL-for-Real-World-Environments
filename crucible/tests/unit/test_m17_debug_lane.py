@@ -336,3 +336,26 @@ def test_a_checked_literal_list_is_a_set_of_texts_to_quote() -> None:
     assert asserted_messages(inputs) == ["bad value"]
     py = "+    for want in ['first line', 'second line']:\n+        assert want in out\n"
     assert asserted_messages(py) == ["first line", "second line"]
+
+
+def test_an_expected_text_in_a_want_variable_or_table_field_is_a_text_to_quote() -> None:
+    """Two held-out milestones compared an analyzer's exact finding text (``want := "..."`` then ``want == got.Text``;
+    a table row's ``expectedErrors: []string{...}``) that no report stated; every student and frontier run failed them.
+    The list's opener may be a kept line (the fix adds only a row); only added lines give texts, and a word, a format
+    or an escape is not one."""
+    from crucible.factory.generators.debug import asserted_messages
+
+    one = "\n".join([  # noqa: FLY002 - one diff line per entry
+        "+\twant := \"Pool 'ns/p' has state Ready=False, cause Drained: no members left\"",
+        "+\twantKind := \"Pool\"",
+        '+\texpected := "%s failed"',
+    ])
+    assert asserted_messages(one) == ["Pool 'ns/p' has state Ready=False, cause Drained: no members left"]
+    table = "\n".join([  # noqa: FLY002
+        " \t\t\texpectedErrors: []string{",
+        ' \t\t\t\t"Queue ns/a has no consumer group.",',
+        '+\t\t\t\t"Queue ns/a routes to the fallback topic ns/t which is unknown.",',
+        " \t\t\t},",
+        '+\t\t\twant: "line one\\nline two",',
+    ])
+    assert asserted_messages(table) == ["Queue ns/a routes to the fallback topic ns/t which is unknown."]

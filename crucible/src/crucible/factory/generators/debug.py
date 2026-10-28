@@ -391,32 +391,59 @@ def _checks_item(line: str, var: str) -> bool:
     return bool(re.search(rf"Contains\(.*,\s*{v}\s*\)|\.includes\(\s*{v}\s*\)|toContain\(\s*{v}\s*\)|\bassertIn\(\s*{v}\s*,|\b{v}\s+in\s+\w", line))
 
 
+# an expected output text held in a want/expected variable or field that the test compares by equality (Go
+# ``want := "<the finding's text>"`` then ``if want == got.Text``; a table's ``expectedErrors: []string{...}``):
+# two held-out milestones compared the analyzer's exact finding text, which no report stated, and every student and
+# frontier run failed them
+_EXPECT_ONE = re.compile(rf"\b(?:[Ww]ant|[Ee]xpect)\w*\s*(?::=|=|:)\s*{_LIT}\s*,?\s*$")
+_EXPECT_LIST = re.compile(r"\b(?:[Ww]ant|[Ee]xpect)\w*\s*(?::=|=|:)\s*(?:\[\]string\s*\{|\[)\s*")
+_FORMAT = re.compile(r"%[-+# 0-9.]*[sdvqfgxXtTp]|\\")  # a format verb, or an escape (a text spanning lines)
+
+
 def asserted_messages(test_diff: str) -> list[str]:
-    """The exact output texts a fix's added test lines check for (``MESSAGE_CHECKS``, and the items of a literal list a
-    loop checks by containment, ``_LOOP_LIST``), in order, without duplicates. A literal with regex or format syntax,
-    under 4 characters, or with no letter is left out."""
+    """The exact output texts a fix's added test lines check for (``MESSAGE_CHECKS``, the items of a literal list a loop
+    checks by containment, ``_LOOP_LIST``, and the sentences a want/expected variable or field holds,
+    ``_EXPECT_ONE``/``_EXPECT_LIST``: the comparison itself is often outside the hunk), in order, without duplicates. A literal under 4 characters or with no
+    letter is left out, and so is one with regex syntax from a pattern check or a format verb from any."""
     out: list[str] = []
 
-    def add(s: str) -> None:
+    def add(s: str, strict: bool = True) -> None:
         s = s.replace('\\"', '"').replace("\\'", "'")
-        if len(s.strip()) >= 4 and re.search(r"[A-Za-z]", s) and not _NOT_TEXT.search(s) and s not in out:
+        if len(s.strip()) >= 4 and re.search(r"[A-Za-z]", s) and not (_NOT_TEXT if strict else _FORMAT).search(s) and s not in out:
             out.append(s)
 
-    added = [ln[1:] for ln in test_diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
-    for i, ln in enumerate(added):
-        for rx in MESSAGE_CHECKS:
-            for m in rx.finditer(ln):
-                add(next((g for g in m.groups() if g is not None), ""))
+    # the hunks' kept and added lines in order (a removed line is not in the new file): structure (a loop, a want list)
+    # may sit on a kept line while the fix adds only an item, but only added lines give texts
+    lines = [(ln[0] == "+", ln[1:]) for ln in test_diff.splitlines() if ln[:1] in ("+", " ") and not ln.startswith("+++")]
+
+    def block(i: int, start: int) -> tuple[int, list[str]]:
+        """The added literals of the list opened on line ``i`` at column ``start``, and the line that closes it."""
+        j, items = i, []
+        while j < len(lines):
+            new, text = lines[j]
+            body = text if j > i else text[start:]
+            if new:
+                items += [next((g for g in m.groups() if g is not None), "") for m in re.finditer(_LIT, body)]
+            if (j > i and re.search(r"^\s*[}\])]", text)) or (j == i and re.search(r"[}\])]\s*[:{,]?\s*$", body) and re.search(_LIT, body)):
+                break
+            j += 1
+        return j, items
+
+    for i, (new, ln) in enumerate(lines):
+        if new:
+            for rx in MESSAGE_CHECKS:
+                for m in rx.finditer(ln):
+                    add(next((g for g in m.groups() if g is not None), ""))
+            if (em := _EXPECT_ONE.search(ln)) and " " in (txt := next((g for g in em.groups() if g is not None), "")):
+                add(txt, strict=False)  # a sentence, not an identifier or a key
+        if el := _EXPECT_LIST.search(ln):
+            for txt in block(i, el.end())[1]:
+                if " " in txt:
+                    add(txt, strict=False)
         if lm := _LOOP_LIST.search(ln):
             var = next(g for g in lm.groups() if g)
-            j, items = i, []
-            while j < len(added):
-                body = added[j] if j > i else added[j][lm.end():]
-                items += [next((g for g in m.groups() if g is not None), "") for m in re.finditer(_LIT, body)]
-                if re.search(r"^\s*[}\])]", added[j]) or (j == i and re.search(r"[}\])]\s*[:{]?\s*$", body) and items):
-                    break
-                j += 1
-            if any(_checks_item(x, var) for x in added[j:j + 8]):
+            j, items = block(i, lm.end())
+            if any(_checks_item(t, var) for _, t in lines[j:j + 8]):
                 for it in items:
                     add(it)
     return out

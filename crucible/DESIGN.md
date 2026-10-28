@@ -1584,7 +1584,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     a literal list count too when a loop checks each one by containment (`for _, want := range []string{...}` then
     `strings.Contains(out, want)`; Python and JS loops alike). A second held-out milestone checked five structured-log
     keys this way; its report named none, and the student and DeepSeek failed it in all six runs. A text the start
-    tree's source already holds still counts: the first case's texts were used by other handlers.
+    tree's source already holds still counts: the first case's texts were used by other handlers. So does a sentence a
+    `want`/`expected` variable or field holds (`want := "..."`, a table row's `expectedErrors: []string{...}`), whose
+    comparison is often outside the hunk. The list's opener may be a kept line when the fix adds only a row. A word, a
+    format verb or an escape is left out. Two held-out analyzer milestones compared exact finding texts no
+    report stated, and every student and frontier run failed them.
   - **The report covers every case the hidden tests check** (2026-10-27, `swarm_prompts.WRITER_BRIEF`,
     `REVIEW_SYSTEM`). The writer is told that an input variant or edge case a test or table row names (a line ending
     such as CRLF, an empty or null value, a stale status, a boundary) must appear in its requirement as the user sees
