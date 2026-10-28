@@ -12,7 +12,8 @@ run configured, on either backend.
 
 ``sc_heads`` (score centering, ``topk``): with a ``TopKStore`` every sample also carries the sampler's top-k head at its
 trained positions as prime-rl ``SamplingMask`` bytes (``topk.encode_payload``) and its ``sc_coverage``; a step sends all
-of them or none (``topk.all_or_none``).
+of them or none (``topk.all_or_none``). The sequence's sampled logprobs pick each call's heads when two calls returned the
+same tokens (``topk.TopKStore``).
 
 ``pack``: prime-rl's own packer (``orchestrator/batch.py`` ``prepare_batch`` + ``build_bin_cost``: FLOP-balanced bins of
 ``seq_len`` tokens, one micro-batch list per trainer data rank) when prime-rl is installed; ``simple_pack`` (one sample
@@ -53,20 +54,21 @@ def to_sample(d: TokenDatum, *, temperature: float, env_name: str = "crucible", 
     if token_ids[1:] != list(d.target_ids):
         raise ValueError("target_ids must be input_ids shifted by one")
     mask = [False] + [bool(m) for m in d.mask]
-    return {"token_ids": token_ids, "mask": mask, "logprobs": [0.0] + [float(x) if m else 0.0 for x, m in zip(d.logprobs, d.mask, strict=True)],
+    logprobs = [0.0] + [float(x) if m else 0.0 for x, m in zip(d.logprobs, d.mask, strict=True)]
+    return {"token_ids": token_ids, "mask": mask, "logprobs": logprobs,
             "temperatures": [float(temperature)] * len(token_ids),
             "advantages": [0.0] + [float(a) * scale if m else 0.0 for a, m in zip(d.advantages, d.mask, strict=True)],
             "env_name": env_name, "trace_id": str(d.meta.get("rollout")) if d.meta.get("rollout") is not None else None,
             "branch_index": int(d.meta["segment"]) if isinstance(d.meta.get("segment"), int) else None, **_routes(d, token_ids, routing),
-            **_heads(d, token_ids, mask, topk)}
+            **_heads(d, token_ids, mask, logprobs, topk)}
 
 
-def _heads(d: TokenDatum, token_ids: list[int], mask: list[bool], store: Any) -> dict[str, Any]:
+def _heads(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list[float], store: Any) -> dict[str, Any]:
     if store is None:
         return {}
     from crucible.train.bridges.primerl.topk import encode_payload, stitch
 
-    ids, lps, present, cov = stitch(token_ids, call_ends(d), mask, store)
+    ids, lps, present, cov = stitch(token_ids, call_ends(d), mask, store, logprobs=logprobs)
     return {"sc_heads": encode_payload(ids, lps, present), "sc_coverage": cov}
 
 

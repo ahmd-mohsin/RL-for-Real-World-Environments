@@ -435,8 +435,9 @@ vanishes; on-policy, SC is plain PG.
     GRPO trainer picks the same default (below).
   - **k = 32:** in the paper's top-k sweep (App. A.4), k = 32 and k = 128 match full centering in every setting
     tested. 128 is the paper's "conservative default"; 32 costs a quarter of the server work.
-- **No PPO / CISPO clip with SC.** The paper composes SC with TIS or MIS only. It never adds a PPO clip, whose bounds are
-  meant for policy movement, not mismatch. TRL replaces its clipped objective when score centering is on. So
+- **No PPO / CISPO clip with SC.** The paper reports SC alone or composed with TIS or MIS. Its code can also compose SC
+  with PPO's advantage-signed band (one arm of the quantization/staleness sweep, in no figure), whose bounds are meant
+  for policy movement, not mismatch. TRL replaces its clipped objective when score centering is on. So
   `pg_correction != none` requires `--loss importance_sampling` (a test pins the refusal), and `ratio_low` /
   `ratio_high` are not used. `ppo` and `cispo` stay available with `--pg-correction none`, and `tis` / `mis` alone
   stay available too.
@@ -516,3 +517,112 @@ drops) are evicted with the oldest calls past `max_calls`, as routes are.
     flattest positions);
   - the trainer's peak memory and step time against a `--pg-correction mis` step;
   - `topk-bench` on the 35B server: tokens/s at k = 32 against k = 0.
+
+### 7.7 Audit against the paper, the reference code and TRL (2026-10-28)
+
+Read in full: the paper (16 pages with App. A-B and Tables 1-2), the reference repository at fdca22b (2026-10-27:
+`losses.py`, `tests/test_loss.py`, `train_rl.py`, `models/sampling.py`, `models/topk.py` and the five sweeps; the loss is
+unchanged since 6484296), TRL main at c886cf2 (2026-10-27, `trl/experimental/async_grpo`), prime-rl v0.10.0
+(`inference/vllm/serving_tokens.py`, `trainer/rl/{loss,train}.py`, `trainer/models/layers/lm_head.py`,
+`configs/inference.py`) and vLLM v0.31.0 (`v1/sample/sampler.py`, `v1/sample/ops/topk_topp_sampler.py`,
+`entrypoints/scale_out/token_in_token_out/`, `entrypoints/openai/completion/protocol.py`, `v1/core/kv_cache_utils.py`).
+The local TRL checkout (`RL-Environments/06-frameworks-and-env-code/infra-huggingface-trl`) predates score centering.
+
+**Equation by equation.** All hold. The tests are in `test_primerl_score_centering_paper.py`.
+
+| paper | what Crucible does | check |
+|---|---|---|
+| Eq. 4-6, 11: −A·(log p_y − Σ sg(q_v) log p_v), so ∇ = −A(s_y − s̄) | `token_objective` + `centering`: −A·w·e^(lp − sg lp) + A·Σ_H sg(residual)·(lp − sg lp) | the sign: A > 0 raises the sampled logit |
+| Eq. 7: q̂ = q on H, ρ·p on T, ρ = (1 − Σ_H q)/(1 − Σ_H p) | `centering`, both tails floored at 1e-6 (the App. A.3 code and the README; `losses.py` floors only p's and clamps q's at 0, so α moves by ≤ 1e-6/p_tail) | brute force over V with q̂ built explicitly, k = 1, 2, 4 |
+| Eq. 8: E_q̂[s] = Σ_H (q_v − ρ p_v) s_v | the head-only term; the tail needs no gradient | as above; exact when q_T ∝ p_T (k = 2 of 8) |
+| Eq. 9-10: E_q̂[ŵ s] = Σ_H (q_v w_v − α p_v) s_v, α = ρ·f(1/ρ) | `mass(lp, lq)` = q·w(p/q) in log space; α = `mass(0, log ρ)`: TIS min(1, 2ρ), MIS 𝟙[0.2 ≤ ρ ≤ 2] | brute force with ŵ = f(p/q̂), TIS and MIS |
+| Eq. 12: sg on w_y, on q·w and on α·p | `.detach()` on w, the residual and lq | gradient equal to the ported `losses.py` and to the README oracle |
+| f(r) = r gives α = 1 and no centering | `mass(..., "is")` | the exact-IS test |
+| Eq. 5: E_q[R·(w s − E_q[w s])] = Cov_q(R, w s) | | enumerated with token-dependent rewards; PG = drift + signal |
+| §4: the correction is deterministic given the prefix; IS adds variance | | Var_q(SC) = Var_q(PG) exactly at constant A; Var(naive IS) > 1.5 × that on a severe mismatch; both are drift-free |
+| App. A.3: the sampled token's own logprob when it is outside the head | `inference_logprobs`, never the head | the outside-head test against both oracles |
+| Eq. 13: Σ_i A_i Σ_t log p / Σ_i L_i, A = R − mean | per-token sums; prime-rl divides by the step's trained tokens and `wire` pre-multiplies by that count. `token_mean` gives Eq. 13 exactly; `sum` (the default) gives the same per-token weights times a step constant. Dr.GRPO: A = R − mean | the wire + divide path against the README token-mean loss; zero A and untrained (tool-output) positions give 0 |
+| q and p at one temperature | vLLM's `processed_logprobs` = log softmax(z/T) after top-k/top-p (`Sampler.sample`); the fused head scales z by 1/T per token | `HeadLogProbFn` with temperatures ≠ 1 against a full softmax |
+
+**Edge cases.**
+
+- An empty tail (k = V) is full centering whatever the floors give ρ, since Σ_V p s = 0.
+- ρ → 0 and ρ → ∞ stay finite and match the reference.
+- Head entries the sampler gave no mass (−9999) are head tokens with q̂ = 0, as Eq. 7 says. TRL instead moves them to
+  the tail by masking p where q = 0: a different model, also consistent.
+- Vanilla `sc` has α = ρ, unbounded. With q_tail ≫ p_tail (ρ up to 1e6 after the floor), the head gradient is a float32
+  cancellation of terms of size ρ·p_v, as in the reference. The default `sc+mis` has α ∈ {0, 1}, and TIS has α ≤ 1.
+  `sc/rho_max` shows it.
+
+**Discrepancies found and fixed.**
+
+1. **High, on the path without centering: the sampler was truncated.** vLLM's `/v1/completions` fills unset sampling
+   fields from the model's `generation_config.json`, and Qwen3.6-35B-A3B ships `top_k = 20` and `top_p = 0.95`. With
+   score centering and routing replay both off, the bridge sent only `temperature`. vLLM then sampled from a top-20,
+   top-p distribution that the trainer, scoring the full softmax, cannot replay (prime-rl's sampling-mask replay is not
+   used). Every ratio p/q was below 1: a persistent bias, the drift score centering exists to remove. The default path
+   (`/inference/v1/generate`) was not affected, since vLLM's scale-out handler defaults only `max_tokens`. Fix: every
+   call sends `backend.NEUTRAL_SAMPLING` (top_p 1, top_k 0, min_p 0, no penalties), and `inference_toml` sets
+   `generation_config = "vllm"`.
+2. **Medium, under async training: one head entry per key.** `TopKStore` keyed calls by the sha of prompt + completion
+   and kept one entry. Two calls with the same tokens overwrote each other: group members that open with the same
+   short tool call, or one task in two groups from different adapter versions. A sequence could then be centered with
+   another version's q. Training the first group also dropped the key the second still needed, so a later step lost a
+   head and fell back to MIS for every sequence. Fix: a list per key. Each call keeps its sampled-token logprobs, and
+   `stitch` and the post-step `drop` pick the call whose logprobs match the training sequence's (NaN at untrained
+   positions).
+3. **Low, latent: the training temperature was not tied to the sampling temperature.** `PrimeRLBackend.temperature`
+   (the per-token temperature the trainer scores at) defaulted to 1.0, and `delta_rl.py` never set it from the loop's
+   `temperature`. That is 1.0 today with no CLI flag, so no run was affected. Fix: `delta_rl` passes `cfg.temperature`.
+   A call sampled at another temperature keeps no heads (`stats["sc_heads_other_temperature"]`), so a step that would
+   train it falls back instead of centering on the wrong q. The smoke's greedy probe (T = 0, whose vLLM logprobs are the
+   untempered softmax) is such a call.
+4. **Doc.** "The paper never adds a PPO clip" was too strong: the reference sweep has an SC + PPO-band arm, in no figure.
+   Reworded. The anchor's doc now says that β > 0 adds back a fixed-strength drift toward the sampler.
+
+**Async settings.**
+
+- **One version per call.** `TinkerSampler.gen` pins the adapter per call, and vLLM serves each version under its own
+  LoRA name. A call's sampled logprobs and heads come from the same decode steps. A multi-turn episode that spans
+  versions gets each call's own q, and `stitch` gives each position the head of the call that sampled it.
+- **Prefix caching cannot mix versions.** vLLM's block hash includes the LoRA name and path
+  (`_gen_lora_extra_hash_keys`), and the heads are measured on decode steps, never read from the cache. The
+  per-episode salt is needed by routing replay (`routing.stitch`), not by the heads.
+- **A stale group** is dropped and refilled by the loop (`max_staleness`). Its heads stay in the store until `max_calls`
+  evicts them (§7.5). A kept group older than the trainer is centered under its own sampler q, which is the paper's
+  staleness setting (Fig. 4), where SC plus an IS correction (the default) did best.
+- `RoutingStore` has the same one-entry-per-key pattern (the routes of two equal calls from different versions). It is
+  outside this audit.
+
+**Defaults.**
+
+| | Crucible | paper / reference code | TRL async GRPO |
+|---|---|---|---|
+| correction | `sc+mis` | SC (quantization); SC + TIS or MIS under staleness (§5.3) | `score_centering = True` with MIS |
+| k | 32 | 128 ("conservative"); 32 on par in every setting (App. A.4, Fig. 5) | 8 (`num_sampler_logprobs`) |
+| MIS band | [0.5, 5], inclusive, drop | [0.5, 5], drop (IcePop, Table 1) | [0.5, 5] |
+| TIS | min(r, 2) | min(r, 2) (Table 1) | none |
+| tail floor | 1e-6, both tails | 1e-6 (App. A.3 code, README); `losses.py`: p only | 1e-6, both |
+| log-ratio clip | ±20 | ±20 (`is_weight`) | none |
+| PPO clip with SC | refused | none plotted | not applied |
+| temperature, top-p, top-k | the loop's T (1.0); 1.0 and 0, sent explicitly | 1.0 (log softmax of raw logits), no truncation | 1.0, 1.0, 0 |
+| advantage | Dr.GRPO R − mean (+ honesty, turn credit) | R ∈ {±1}, A = R − group mean (Eq. 13) | GRPO's |
+| aggregation | `sum` (default) or `token_mean` | token mean over the batch (Eq. 13) | global token mean |
+| group size | 4 (`TrainConfig`) | 8 | 8 |
+| optimizer | AdamW 4e-5 (LoRA), clip 1.0 | SGD 1e-2, full weights, one step per batch | AdamW 1e-6 |
+| staleness | `max_staleness` 0 by default | 0, or 64 (the code refreshes the sampler every 65 steps: `staleness` counts extra rollouts per refresh) | `max_staleness` 4 |
+| mismatch source | bf16 vLLM against prime-rl's bf16 FSDP model; MoE routing, replayed | weight noise 0.01-0.05; INT8 W/A + INT8 KV (0.6B); FP8 W/A + FP8 or FP4 KV, INT8 W/A + INT4 KV (30B); no router replay | |
+| batch, length | `groups_per_step` × 4, up to 262K tokens | 64 × 8 at 512 (0.6B), 16 × 8 at 1024 (30B) | |
+
+The paper's hyperparameters are for full-weight SGD on short sequences, and nothing in it ties k, the band or the cap to
+sequence length, so the defaults stand. k = 32 is the paper's smaller tested value, and `sc/head_mass_min` is the check:
+the paper's heads held more than 99.9% of the mass on average, 95.8% in its worst batch.
+
+**Not verifiable without a GPU.**
+
+- That vLLM v0.31 on the GH200 returns post-temperature logprobs on the generate path (`processed_logprobs` is prime-rl's
+  default; read, not run).
+- The 35B run's `sc/align_err`, `sc/head_mass` and `sc/rho`, and the float32 noise of the head gradient at the
+  student's real ρ.
+- Whether prime-rl's rl denominator counts each context-parallel rank's copy of the loss mask. Either way it is a
+  step-wide constant, with no effect on SC's per-token weights.

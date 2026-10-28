@@ -146,7 +146,10 @@ def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
     vllm: dict[str, Any] = {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
                             "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
                             "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),
-                            "enable_return_routed_experts": bool(d.router_replay)}
+                            "enable_return_routed_experts": bool(d.router_replay),
+                            # vLLM's sampling defaults, not the model's generation_config.json (top_k = 20, top_p = 0.95 for the
+                            # student): the trainer scores the full temperature-scaled softmax (``backend.NEUTRAL_SAMPLING``)
+                            "generation_config": "vllm"}
     if d.centered:
         # the top-k head on /inference/v1/generate (``topk_server``, loaded as vLLM middleware in the API server); vLLM caps
         # logprobs per token at max_logprobs (default 20); prime-rl already sets logprobs_mode = processed_logprobs

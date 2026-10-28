@@ -10,7 +10,10 @@ same path as the sampled-token logprobs and the routed experts:
   generate handler packs only the sampled entry; ``topk_server`` (loaded into vLLM's API server as a ``--middleware``
   import path) also packs the head as ``topk_ids`` (int32) and ``topk_logprobs`` (float32) arrays ``[n, k]``.
 - **Out of band** (``TopKStore``, as ``routing.RoutingStore`` holds routes): one ``Heads`` per call, keyed by the sha of
-  its prompt + completion ids; row i is the head of completion token i, at full-sequence position ``start + i``.
+  its prompt + completion ids; row i is the head of completion token i, at full-sequence position ``start + i``. Calls
+  that returned the same tokens keep one entry each, told apart by their sampled-token logprobs (``TopKStore`` doc).
+  Only calls sampled at the training temperature are kept (``backend._Sampler``): q must be the distribution the trainer
+  scores at that temperature.
 - **Stitched per training sequence** (``stitch``): every trained position takes the head of the call that sampled it.
   ``coverage`` is the share of trained positions that have one.
 - **On prime-rl's wire** (``encode_payload``): the heads ride in ``TrainingSample.sampling_mask`` (int32 rows that
@@ -45,11 +48,14 @@ SC_MAGIC = -1_234_567_890  # int32 in column 0 of a head row: never a token id, 
 
 @dataclass(frozen=True)
 class Heads:
-    """One call's heads: ``ids[i]`` / ``logprobs[i]`` (``[n, k]``) are the head of the token at position ``start + i``."""
+    """One call's heads: ``ids[i]`` / ``logprobs[i]`` (``[n, k]``) are the head of the token at position ``start + i``.
+    ``sampled`` (``[n]`` float32, optional): the logprobs of the call's sampled tokens, which tell apart two calls with
+    the same tokens (``TopKStore``)."""
 
     ids: np.ndarray
     logprobs: np.ndarray
     start: int
+    sampled: np.ndarray | None = None
 
     @property
     def end(self) -> int:
@@ -64,50 +70,104 @@ def _array(f: dict[str, Any]) -> np.ndarray:
     return np.frombuffer(base64.b64decode(f["data"]), dtype=np.dtype(f["dtype"])).reshape(f["shape"])
 
 
-def decode(ids_field: dict[str, Any] | None, logprobs_field: dict[str, Any] | None, *, start: int) -> Heads | None:
-    """``topk_server``'s ``topk_ids`` / ``topk_logprobs`` fields -> ``Heads`` (None when the server returned none)."""
+def decode(ids_field: dict[str, Any] | None, logprobs_field: dict[str, Any] | None, *, start: int, sampled: Sequence[float] | None = None) -> Heads | None:
+    """``topk_server``'s ``topk_ids`` / ``topk_logprobs`` fields -> ``Heads`` (None when the server returned none);
+    ``sampled``: the call's sampled-token logprobs."""
     if not ids_field or not logprobs_field:
         return None
     ids, lps = _array(ids_field).astype(np.int32), _array(logprobs_field).astype(np.float32)
     if ids.shape != lps.shape or ids.ndim != 2:
         raise ValueError(f"top-k ids {ids.shape} and logprobs {lps.shape} differ")
-    return Heads(ids=ids, logprobs=lps, start=int(start))
+    smp = None if sampled is None else np.asarray(sampled, dtype=np.float32)
+    if smp is not None and smp.shape != (ids.shape[0],):
+        raise ValueError(f"{smp.shape[0]} sampled logprobs for {ids.shape[0]} top-k rows")
+    return Heads(ids=ids, logprobs=lps, start=int(start), sampled=smp)
 
 
 @dataclass
 class TopKStore:
-    """Calls' heads by ``routing.key_of(prompt + completion)``, oldest dropped past ``max_calls`` (``RoutingStore``'s rule)."""
+    """Calls' heads by ``routing.key_of(prompt + completion)``, oldest dropped past ``max_calls`` (``RoutingStore``'s rule).
+
+    **Several calls per key.** Two calls can return the same tokens: group members that open with the same short tool
+    call, or the same task in two groups sampled from different adapter versions under async training. Each keeps its
+    own heads (the sampler q that produced it), and ``get`` / ``drop`` pick the call whose sampled-token logprobs
+    (``Heads.sampled``) match the training sequence's. One entry per key would hand one call another call's heads (from
+    another version, if the groups differ in version), and training the first group would drop the key the second still
+    needs, so a later step would lose a head and fall back to MIS for all its sequences."""
 
     k: int = DEFAULT_K
     max_calls: int = 200_000
-    by_key: OrderedDict[str, Heads] = field(default_factory=OrderedDict)
+    by_key: OrderedDict[str, list[Heads]] = field(default_factory=OrderedDict)
+    calls: int = 0
 
     def put(self, token_ids: Sequence[int], heads: Heads) -> None:
         if heads.k != self.k:
             raise ValueError(f"the server returned {heads.k} top-k logprobs per token, the run asked for {self.k}")
         key = key_of(token_ids)
-        self.by_key[key] = heads
+        self.by_key.setdefault(key, []).append(heads)
         self.by_key.move_to_end(key)
-        while len(self.by_key) > self.max_calls:
-            self.by_key.popitem(last=False)
+        self.calls += 1
+        while self.calls > self.max_calls:
+            _, old = self.by_key.popitem(last=False)
+            self.calls -= len(old)
 
-    def get(self, token_ids: Sequence[int]) -> Heads | None:
-        return self.by_key.get(key_of(token_ids))
+    def _pick(self, key: str, full_logprobs: Sequence[float] | None) -> int | None:
+        """The index of the call under ``key`` whose sampled logprobs are closest to ``full_logprobs`` (the training
+        sequence's sampled logprobs aligned with its token ids, NaN where untrained: ``trained_logprobs``) at that call's
+        completion positions; the newest call when there is one call or nothing to compare."""
+        hs = self.by_key.get(key)
+        if not hs:
+            return None
+        if full_logprobs is None or len(hs) == 1:
+            return len(hs) - 1
 
-    def drop(self, token_ids: Sequence[int]) -> None:
-        self.by_key.pop(key_of(token_ids), None)
+        def gap(h: Heads) -> float:
+            want = np.asarray(full_logprobs[h.start:h.end], dtype=np.float32)
+            ok = np.isfinite(want)
+            if h.sampled is None or h.sampled.shape != want.shape or not ok.any():
+                return float("inf")
+            return float(np.abs(h.sampled[ok] - want[ok]).max())
+
+        return int(np.argmin([gap(h) for h in hs]))
+
+    def get(self, token_ids: Sequence[int], *, full_logprobs: Sequence[float] | None = None) -> Heads | None:
+        """The heads of the call that returned ``token_ids`` (``full_logprobs``: ``_pick``)."""
+        key = key_of(token_ids)
+        i = self._pick(key, full_logprobs)
+        return None if i is None else self.by_key[key][i]
+
+    def drop(self, token_ids: Sequence[int], *, full_logprobs: Sequence[float] | None = None) -> None:
+        """Forget the call ``get`` would return; other calls with the same tokens stay."""
+        key = key_of(token_ids)
+        i = self._pick(key, full_logprobs)
+        if i is None:
+            return
+        hs = self.by_key[key]
+        hs.pop(i)
+        self.calls -= 1
+        if not hs:
+            del self.by_key[key]
 
 
-def stitch(full: Sequence[int], call_ends: Sequence[int], mask: Sequence[bool], store: TopKStore) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+def trained_logprobs(logprobs: Sequence[float], mask: Sequence[bool]) -> np.ndarray:
+    """A training sequence's sampled logprobs (aligned with its token ids, as ``wire.to_sample`` sends them) with NaN
+    at untrained positions, whose logprob the wire zeroes: what ``TopKStore`` compares calls on."""
+    return np.where(np.asarray(mask, dtype=bool), np.asarray(logprobs, dtype=np.float32), np.float32(np.nan))
+
+
+def stitch(full: Sequence[int], call_ends: Sequence[int], mask: Sequence[bool], store: TopKStore, *,
+           logprobs: Sequence[float] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """``ids`` / ``logprobs`` ``[len(full), k]`` (-1 / -inf where absent), ``present`` (a head at a trained position) and
     the coverage of the trained positions for one training sequence whose calls end at ``call_ends``. Each position takes
-    the head of the first call whose completion holds it (the call that sampled it)."""
+    the head of the first call whose completion holds it (the call that sampled it). ``logprobs``: the sequence's sampled
+    logprobs aligned with ``full``, which pick the right call when several returned the same tokens (``TopKStore``)."""
     n, k = len(full), store.k
+    picked = trained_logprobs(logprobs, mask) if logprobs is not None else None
     ids = np.full((n, k), -1, dtype=np.int32)
     lps = np.full((n, k), -np.inf, dtype=np.float32)
     have = np.zeros(n, dtype=bool)
     for end in sorted(call_ends):
-        h = store.get(full[:end])
+        h = store.get(full[:end], full_logprobs=picked)
         if h is None:
             continue
         lo, hi = max(0, h.start), min(n, h.end)
