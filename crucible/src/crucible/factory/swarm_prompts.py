@@ -35,15 +35,16 @@ Write `prompt.json` in the worktree root (when the hand-off gives a `format`, fo
  "requirements": {<one entry per milestone id listed in the hand-off>: "<what goes wrong, observed from the outside: inputs, outputs, error messages, and what must hold instead>"},
  "closing": "<optional one sentence>"}
 When the hand-off has a `revision`, this is a revised report: follow its `instruction`, and use its `current_report` (what the
-user's previous report said) for everything the instruction does not change. The hand-off's `forbidden_strings` must not appear anywhere in the file. When a milestone in the hand-off lists `messages`, the hidden checks look for each of those exact texts in the program's output (an error message, a printed line): quote every one word for word in that milestone's requirement, as what the program must print or return. Each requirement must be specific enough that a competent engineer can reproduce the symptom, and must only state
+user's previous report said) for everything the instruction does not change. The hand-off's `forbidden_strings` must not appear anywhere in the file. When a milestone in the hand-off lists `messages`, the hidden checks look for each of those exact texts in the program's output (an error message, a printed line): quote every one word for word in that milestone's requirement, as what the program must print or return. Cover every case the hidden tests check: an input variant or edge case a test or a table row names (a line ending such as CRLF, an empty or null value, a stale status, a boundary) must appear in its requirement as what the user sees. Each requirement must be specific enough that a competent engineer can reproduce the symptom, and must only state
 behaviour the hidden checks test. Use the repository (read the code, run what you can in the sandbox) to get the user's
 view right. Keep `STATUS.json` in the worktree root up to date: {"<milestone id>": <your probability that its requirement
 is right and complete>}. When the file is written, call rlm.finish("<one line>")."""
 
 REVIEW_SYSTEM = ("You review a bug report written for a debugging task. You see the maintainers' notes (the real fixes) and the "
                  "report. Block it when a requirement leaks the fix (names a faulty function, file, kernel or test, or says how to fix), "
-                 "when a requirement does not describe an observable symptom, or when it asks for behaviour the notes do not show is "
-                 "checked. Reply with one JSON object: {\"ok\": true|false, \"findings\": [\"<milestone id>: <problem>\", ...]}.")
+                 "when a requirement does not describe an observable symptom, when it asks for behaviour the notes do not show is "
+                 "checked, or when the notes' tests check a case the requirement never mentions (an input variant, a line ending, an "
+                 "edge case, a table row's condition): name the case. Reply with one JSON object: {\"ok\": true|false, \"findings\": [\"<milestone id>: <problem>\", ...]}.")
 
 
 def start_repo(tree: Path | str, dest: Path | str, *, tag: str = "A") -> Path:

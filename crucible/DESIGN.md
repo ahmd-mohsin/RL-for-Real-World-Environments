@@ -1579,6 +1579,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     `strings.Contains(out, want)`; Python and JS loops alike). A second held-out milestone checked five structured-log
     keys this way; its report named none, and the student and DeepSeek failed it in all six runs. A text the start
     tree's source already holds still counts: the first case's texts were used by other handlers.
+  - **The report covers every case the hidden tests check** (2026-10-27, `swarm_prompts.WRITER_BRIEF`,
+    `REVIEW_SYSTEM`). The writer is told that an input variant or edge case a test or table row names (a line ending
+    such as CRLF, an empty or null value, a stale status, a boundary) must appear in its requirement as the user sees
+    it. The reviewer blocks a report that leaves one out and names the case. A held-out milestone's table checked a
+    CRLF row its report never mentioned: DeepSeek and three student runs failed only that row.
 
 ## 8. Layer 4: verification and isolation
 

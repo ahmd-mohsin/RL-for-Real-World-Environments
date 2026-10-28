@@ -348,3 +348,16 @@ def test_a_stale_prompt_run_is_archived_never_resumed(tmp_path: Path) -> None:
     (tmp_path / "runs" / "prompt-x").mkdir()
     (tmp_path / "runs" / "prompt-x" / "journal.jsonl").write_text(_json.dumps({"event": "start", "machine_hash": "0" * 16}) + "\n")
     assert [p.name for p in archive_stale_run(tmp_path, "prompt-x", m)] == ["prompt-x.prev-2"]  # another machine
+
+
+def test_the_writer_and_reviewer_cover_every_case_the_hidden_tests_check():
+    """A held-out milestone's hidden table checked a CRLF case its report never mentioned; DeepSeek and three student
+    runs failed only that row. The writer is told to cover each case a test or table row names, and the reviewer
+    blocks a report that leaves one out (naming it). A new brief also starts a new run: the machine hash changes."""
+    from crucible.factory.machine import canonicalize, machine_hash
+    from crucible.factory.swarm_prompts import REVIEW_SYSTEM, WRITER_BRIEF, prompt_machine
+
+    assert "Cover every case the hidden tests check" in WRITER_BRIEF and "CRLF" in WRITER_BRIEF
+    assert "a case the requirement never mentions" in REVIEW_SYSTEM and "name the case" in REVIEW_SYSTEM
+    m = prompt_machine()
+    assert m["states"][0]["session"]["brief"] == WRITER_BRIEF and machine_hash(canonicalize(m))
