@@ -358,6 +358,9 @@ class GoProfile(CLikeProfile):
 
         out: dict[str, str] = {}
         build_failed: set[str] = set()
+        # a package whose every file is for another OS (golang/net's lif and route on Linux) has no tests here: never a failed
+        # build of A' (it fails the same way at B), so the precheck does not refuse the window for it
+        other_os: set[str] = set()
         killed: list[str] = []
         deaths: list[str] = []
         st = {"pass": "passed", "fail": "failed", "skip": "skipped"}
@@ -381,6 +384,9 @@ class GoProfile(CLikeProfile):
                     deaths.append(f"panic: {str(ev['Test']).split('/', 1)[0]} ({ev.get('Package') or ''})")
                 elif text.startswith("fatal error: "):
                     deaths.append(f"{text.strip()[:80]} ({ev.get('Package') or ''})")
+            if act == "build-output" and "build constraints exclude all Go files" in str(ev.get("Output") or ""):
+                other_os.add(str(ev.get("ImportPath") or "").split(" ", 1)[0])
+                continue
             if act == "build-fail" and ev.get("ImportPath"):
                 build_failed.add(ev["ImportPath"].split(" ", 1)[0])
                 continue
@@ -399,7 +405,7 @@ class GoProfile(CLikeProfile):
                 continue
             out[f"{f}::{ev['Test']}"] = st[act]
         notes = [f"killed: signal: killed ({p})" for p in sorted(set(killed))] + sorted(set(deaths))
-        for pkg in sorted(p for p in build_failed if p):
+        for pkg in sorted(p for p in build_failed - other_os if p):
             d = dir_of(pkg)
             if d is None:
                 continue

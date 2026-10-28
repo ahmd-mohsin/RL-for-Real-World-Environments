@@ -85,6 +85,23 @@ def test_go_parse_report(tmp_path: Path) -> None:
     assert GO.packages_of(["pkg/a_test.go", "x_test.go"]) == [".", "./pkg"]
 
 
+def test_go_a_package_for_another_os_is_no_failed_build(tmp_path: Path) -> None:
+    """golang/net (2026-10-28): lif and route build only on Solaris and BSD; on Linux every file is excluded, go test reports
+    build-fail at A' and at B alike, and the precheck refused the window as "the agent's start tree does not build"."""
+    (tmp_path / "go.mod").write_text("module example.com/m\n\ngo 1.22\n")
+    for d in ("route", "bad"):
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "x_test.go").write_text(f"package {d}\nfunc TestX(t *testing.T) {{}}\n")
+    evs = [{"ImportPath": "example.com/m/route", "Action": "build-output", "Output": "# example.com/m/route\n"},
+           {"ImportPath": "example.com/m/route", "Action": "build-output",
+            "Output": "package example.com/m/route: build constraints exclude all Go files in /w/route\n"},
+           {"ImportPath": "example.com/m/route", "Action": "build-fail"},
+           {"Action": "fail", "Package": "example.com/m/route", "FailedBuild": "example.com/m/route"},
+           {"Action": "build-fail", "ImportPath": "example.com/m/bad [example.com/m/bad.test]"}]
+    res, notes = GO.parse_report("\n".join(json.dumps(e) for e in evs), tmp_path, ["route/x_test.go", "bad/x_test.go"])
+    assert res == {"bad/x_test.go::TestX": "error"} and notes == ["build failed: example.com/m/bad"]  # a real failure still counts
+
+
 NODE_TEST = '''import { describe, it, expect } from "vitest";
 import { parse } from "../src/index";
 
