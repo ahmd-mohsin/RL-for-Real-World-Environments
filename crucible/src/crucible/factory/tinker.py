@@ -99,7 +99,9 @@ def _observe_cfg(observe: Any) -> Any:
 
 async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: Mapping[str, Mapping[str, Any]] | None = None, backend: Any = None,
                 codec: Any = None, phi_checkpoint: Any = None, tool_limit: int | None = None, timeouts: Timeouts | None = None,
-                mode: str = "workspace", observe: Any = None) -> dict[str, Any]:
+                mode: str = "workspace", observe: Any = None, model: Any = None) -> dict[str, Any]:
+    """``backend``: the Tinker service (default) or any ``train.bridges.tinker.backend.Backend``, e.g. the DeltaAI
+    ``train.bridges.primerl.PrimeRLBackend``; ``model``: that backend's model row (``primerl.local_model``)."""
     from dataclasses import asdict
 
     from crucible.factory.receipts import make_receipt, write_receipt
@@ -117,7 +119,7 @@ async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: 
                         extra={"tool_limit": tool_limit, "agent_s": t.agent_s, "rollout_s": t.rollout_s, "mode": mode,
                                "phi_checkpoint": asdict(phi_checkpoint) if phi_checkpoint is not None and hasattr(phi_checkpoint, "__dataclass_fields__") else None})
     tr = TinkerTrainer(envs, config=config, backend=_backend(backend), run_dir=Path(run_dir), codec=_codec(config.model, config.enable_thinking, codec),
-                       objective_id=objective_of(tasks), targeting=targeting, sinks=[obs] if obs is not None else [])
+                       objective_id=objective_of(tasks), targeting=targeting, sinks=[obs] if obs is not None else [], model=model)
     try:
         out = await tr.run()
     except BaseException:

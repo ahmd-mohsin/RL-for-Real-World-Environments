@@ -178,16 +178,11 @@ def _tasks_from_rows(args):
 
 def cmd_train(args) -> None:
     from crucible.factory.tinker import train
-    from crucible.train.bridges.tinker.trainer import TrainConfig
 
     need_key()
     tasks = _tasks_from_rows(args) if args.rows else [toy_task(Path(tempfile.mkdtemp(prefix="tinker-toy-")), args.image)]
     targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
-    cfg = TrainConfig(model=args.model, lora_rank=args.rank, group_size=args.group, groups_per_step=args.groups_per_step, steps=args.steps,
-                      loss_fn=args.loss, learning_rate=args.lr, turn_eta=args.eta, max_staleness=args.max_staleness, async_groups=args.async_groups,
-                      max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
-                      drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r,
-                      sampler=args.sampler, band_lo=args.band_lo, band_hi=args.band_hi, explore=args.explore, difficulty_decay=args.difficulty_decay)
+    cfg = train_config(args)
     try:
         out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), **_envs_kw(args)))
     finally:
@@ -397,51 +392,70 @@ def cmd_download(args) -> None:
     write(_out(args) / "download.json", asyncio.run(download_adapter(args.path, _out(args) / "adapter")))
 
 
+def add_common(p, *, model="Qwen/Qwen3.6-35B-A3B", cap=1.0) -> None:
+    """The flags every command shares (also used by ``delta_rl.py``)."""
+    p.add_argument("--model", default=model)
+    p.add_argument("--cap", type=float, default=cap, help="hard USD cap for this command")
+    p.add_argument("--out", default=str(ROOT / "data" / "tinker" / time.strftime("%Y%m%d-%H%M%S")))
+    p.add_argument("--image", default=DEFAULT_IMAGE)
+    p.add_argument("--max-tokens", type=int, default=None, help="per reply (default 1024; 8192 on --backend vllm, recorded in each arm)")
+    p.add_argument("--thinking", action="store_true", help="enable_thinking (default off; recorded)")
+    p.add_argument("--tool-limit", type=int, default=16)
+    p.add_argument("--agent-s", type=float, default=900.0)
+    p.add_argument("--rollout-s", type=float, default=1800.0)
+    p.add_argument("--ckpt-every", type=int, default=3)
+    p.add_argument("--rows")
+    p.add_argument("--prompts")
+    p.add_argument("--env-file", default=str(ROOT.parent / ".env"), help="dotenv file holding TINKER_API_KEY (read for that key only)")
+    p.add_argument("--no-observe", action="store_true", help="do not log to W&B / Weave (default: offline runs under data/observe; "
+                                                             "scripts/observe.py sync uploads them)")
+
+
+def add_train_flags(p) -> None:
+    """The RL flags of ``train`` and ``smoke-rl`` (``delta_rl.py train`` takes the same, unchanged)."""
+    p.add_argument("--steps", type=int, default=2)
+    p.add_argument("--group", type=int, default=4)
+    p.add_argument("--groups-per-step", type=int, default=1)
+    p.add_argument("--rank", type=int, default=32)
+    p.add_argument("--lr", type=float, default=4e-5)
+    p.add_argument("--loss", default="importance_sampling", choices=["importance_sampling", "ppo", "cispo"])
+    p.add_argument("--loss-scale", default="sum", choices=["sum", "token_mean"])
+    p.add_argument("--eta", type=float, default=0.1)
+    p.add_argument("--max-staleness", type=int, default=0)
+    p.add_argument("--async-groups", type=int, default=0)
+    p.add_argument("--targeting")
+    p.add_argument("--no-band", action="store_true", help="skip the per-model band check (smoke runs only)")
+    p.add_argument("--keep-flat", action="store_true", help="train zero-spread groups too")
+    p.add_argument("--quarantine-q", type=int, default=2, help="flat groups on this many consecutive steps quarantine a task (0: off)")
+    p.add_argument("--quarantine-r", type=int, default=3, help="steps a quarantined task is not sampled, then retried once")
+    p.add_argument("--sampler", default="round_robin", choices=["round_robin", "difficulty"],
+                   help="difficulty: online p̂ filtering and learnability weights (train.curriculum, swarm-pipeline/12)")
+    p.add_argument("--band-lo", type=float, default=0.1, help="difficulty sampler: lower edge of the p̂ band")
+    p.add_argument("--band-hi", type=float, default=0.7, help="difficulty sampler: upper edge of the p̂ band")
+    p.add_argument("--explore", type=float, default=0.1, help="difficulty sampler: share of picks that re-measure out-of-band tasks")
+    p.add_argument("--difficulty-decay", type=float, default=0.9, help="difficulty sampler: per-step decay of old p̂ evidence")
+
+
+def train_config(args):
+    """``TrainConfig`` from the train flags (shared with ``delta_rl.py``)."""
+    from crucible.train.bridges.tinker.trainer import TrainConfig
+
+    return TrainConfig(model=args.model, lora_rank=args.rank, group_size=args.group, groups_per_step=args.groups_per_step, steps=args.steps,
+                       loss_fn=args.loss, learning_rate=args.lr, turn_eta=args.eta, max_staleness=args.max_staleness, async_groups=args.async_groups,
+                       max_tokens=args.max_tokens, enable_thinking=args.thinking, cap_usd=args.cap, require_band=not args.no_band,
+                       drop_zero_spread=not args.keep_flat, loss_scale=args.loss_scale, quarantine_q=args.quarantine_q, quarantine_r=args.quarantine_r,
+                       sampler=args.sampler, band_lo=args.band_lo, band_hi=args.band_hi, explore=args.explore, difficulty_decay=args.difficulty_decay)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-
-    def common(p, *, model="Qwen/Qwen3.6-35B-A3B", cap=1.0):
-        p.add_argument("--model", default=model)
-        p.add_argument("--cap", type=float, default=cap, help="hard USD cap for this command")
-        p.add_argument("--out", default=str(ROOT / "data" / "tinker" / time.strftime("%Y%m%d-%H%M%S")))
-        p.add_argument("--image", default=DEFAULT_IMAGE)
-        p.add_argument("--max-tokens", type=int, default=None, help="per reply (default 1024; 8192 on --backend vllm, recorded in each arm)")
-        p.add_argument("--thinking", action="store_true", help="enable_thinking (default off; recorded)")
-        p.add_argument("--tool-limit", type=int, default=16)
-        p.add_argument("--agent-s", type=float, default=900.0)
-        p.add_argument("--rollout-s", type=float, default=1800.0)
-        p.add_argument("--ckpt-every", type=int, default=3)
-        p.add_argument("--rows")
-        p.add_argument("--prompts")
-        p.add_argument("--env-file", default=str(ROOT.parent / ".env"), help="dotenv file holding TINKER_API_KEY (read for that key only)")
-        p.add_argument("--no-observe", action="store_true", help="do not log to W&B / Weave (default: offline runs under data/observe; "
-                                                                 "scripts/observe.py sync uploads them)")
+    common = add_common
 
     for name, fn in (("train", cmd_train), ("smoke-rl", cmd_smoke_rl)):
         p = sub.add_parser(name)
         common(p)
-        p.add_argument("--steps", type=int, default=2)
-        p.add_argument("--group", type=int, default=4)
-        p.add_argument("--groups-per-step", type=int, default=1)
-        p.add_argument("--rank", type=int, default=32)
-        p.add_argument("--lr", type=float, default=4e-5)
-        p.add_argument("--loss", default="importance_sampling", choices=["importance_sampling", "ppo", "cispo"])
-        p.add_argument("--loss-scale", default="sum", choices=["sum", "token_mean"])
-        p.add_argument("--eta", type=float, default=0.1)
-        p.add_argument("--max-staleness", type=int, default=0)
-        p.add_argument("--async-groups", type=int, default=0)
-        p.add_argument("--targeting")
-        p.add_argument("--no-band", action="store_true", help="skip the per-model band check (smoke runs only)")
-        p.add_argument("--keep-flat", action="store_true", help="train zero-spread groups too")
-        p.add_argument("--quarantine-q", type=int, default=2, help="flat groups on this many consecutive steps quarantine a task (0: off)")
-        p.add_argument("--quarantine-r", type=int, default=3, help="steps a quarantined task is not sampled, then retried once")
-        p.add_argument("--sampler", default="round_robin", choices=["round_robin", "difficulty"],
-                       help="difficulty: online p̂ filtering and learnability weights (train.curriculum, swarm-pipeline/12)")
-        p.add_argument("--band-lo", type=float, default=0.1, help="difficulty sampler: lower edge of the p̂ band")
-        p.add_argument("--band-hi", type=float, default=0.7, help="difficulty sampler: upper edge of the p̂ band")
-        p.add_argument("--explore", type=float, default=0.1, help="difficulty sampler: share of picks that re-measure out-of-band tasks")
-        p.add_argument("--difficulty-decay", type=float, default=0.9, help="difficulty sampler: per-step decay of old p̂ evidence")
+        add_train_flags(p)
         p.set_defaults(fn=fn)
     p = sub.add_parser("eval")
     common(p)

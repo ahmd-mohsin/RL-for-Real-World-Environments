@@ -916,6 +916,52 @@ backend:
 - **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a network.
 - **The arms:** `tinker_rl.py eval/compare --backend vllm` and `lh_debug_target.py --backend vllm`.
 
+The DeltaAI trainer bridge (`train/bridges/primerl/`, `scripts/delta_rl.py`; `docs/research/swarm-pipeline/14`;
+2026-10-25; the user's decision: RL on DeltaAI GPUs, Tinker for task creation). prime-rl v0.10.0 (Apache-2.0; DEPEND on
+the cluster, imported lazily) was chosen over slime, verl, SkyRL and NeMo-RL. It models the student's `qwen3_5_moe`
+natively, has grouped-expert LoRA in vLLM's adapter format, ring CP for 100K+ sequences, aarch64 wheels, a Slurm
+launcher, filesystem transports and an import-path loss.
+- **Crucible keeps its loop.** `TinkerTrainer` runs unchanged over `PrimeRLBackend`, the `Backend` protocol over vLLM
+  `/v1/completions` (token ids in and out) and prime-rl's batch / broadcast handshake:
+  - `batches/step_<s>/rank_<i>.bin`, packed by prime-rl's `prepare_batch`;
+  - `broadcasts/step_<s>` (`.sender_ready` -> `.receiver_ready` -> `.finished`);
+  - `/load_lora_adapter`, one name per version, so stale groups keep their adapter;
+  - prime-rl's own checkpoint per step for resume.
+
+  So groups, filters, quarantine, the difficulty sampler, M6 credit, honesty and resume are shared code. A test pins that
+  the bridge trains the same datums, token for token, that Tinker receives. `TinkerTrainer(model=)` takes a row other
+  than the price table's: `local_model`, zero priced, since GPU hours are the cost.
+- **The loss** (`primerl/loss.crucible_loss`, prime-rl's custom loss): Tinker's `importance_sampling` / `ppo` / `cispo`
+  plus a stable_reinforce-style sampler anchor β·Σ(log q − log p_θ) (`--kl-coeff`). Advantages leave multiplied by the
+  step's trainable-token count (`wire.undo_token_mean`), cancelling prime-rl's division, so `loss_scale` is exact.
+- **Deployment** (`primerl/deploy.py`): `DeltaConfig` accepts account `bjhg-dtai-gh` only. The submit unsets the login
+  environment's `SBATCH_ACCOUNT`, and memory is requested per GPU. One node runs 2 trainer GPUs (`ep = 2`, `cp = 2`,
+  262K) and 2 vLLM GPUs (TP 2, about 31 concurrent 160K-token episodes). vLLM runs as one engine with no router
+  (`router = "None"`; the default `vllm-router` sits in prime-rl's `disagg` extra, which the build skips), so data-parallel
+  engines are refused. The trainer uses `attn = "flash_attention_2"`, the one prebuilt wheel installed (prime-rl's `auto`
+  picks FA3 on the GH200).
+- **The build** (`build_env.sh`, on the login node): the venv sits on a uv-managed CPython 3.12
+  (`UV_PYTHON_PREFERENCE=only-managed`), because Triton compiles its launcher against `Python.h` on the GPU node and the
+  system python has no headers. The build and the job both fail when `Python.h` is missing. The environment (prime-rl,
+  its venv, uv's cache, CPython) sits on `/work/nvme` (`DeltaConfig.envdir`), because a cold GPU node took over 13 min to
+  import from `/work/hdd`. Extras: `gpu`, `flash-attn`, `kernels` (the trainer imports `prime_kernels`). The build imports
+  every module the job imports, so a missing package fails on the login node.
+  The trainer runs under torchrun as prime-rl's `rl` launcher starts it (`deploy.trainer_command`), with prime-rl's
+  default trainer and common environment; its `trainer` console script sets up no distributed rank.
+- **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
+  recommended first run is 40 steps, about 165 of the 976 hours left.
+- **MoE routing replay** (`primerl/routing.py`, on by default):
+  - sampling goes through prime-rl's `/inference/v1/generate` with vLLM's routed-expert capture and a per-episode
+    prefix-cache salt;
+  - the routes are kept out of band per call (`RoutingStore`, keyed by the sha of prompt + completion), stitched per
+    training sequence (the first call that forwarded a position wins), and replayed by the trainer
+    (`enable_router_replay`);
+  - all or none per step, with incomplete coverage refused, as the torch trainer's R3 replay does;
+  - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off.
+- **CLI**: `delta_rl.py` takes `tinker_rl.py train`'s flags unchanged, through the shared builders `add_common` /
+  `add_train_flags` / `train_config`, plus the deployment's. The smoke runs on `ghx4-interactive`, since `test` is closed
+  to the account.
+
 Observability (`src/crucible/observe/`, `scripts/observe.py`; `docs/research/swarm-pipeline/11`; 2026-10-20). Every result,
 graph and agent trace goes to Weights & Biases through one module (an import-linter contract forbids `wandb` / `weave`
 anywhere else; the layer sits below `workflow`, above `connectors | signals`, so every producer reaches it):

@@ -295,14 +295,17 @@ def read_group(root: Path, run_id: str, k: int) -> list[RolloutRecord]:
 
 class TinkerTrainer:
     def __init__(self, envs: Sequence[TrainerEnv], *, config: TrainConfig, backend: Any, run_dir: Path, codec: Any, objective_id: str,
-                 targeting: Mapping[str, Mapping[str, Any]] | None = None, name: str | None = None, sinks: Sequence[Sink] = ()):
+                 targeting: Mapping[str, Mapping[str, Any]] | None = None, name: str | None = None, sinks: Sequence[Sink] = (),
+                 model: TinkerModel | None = None):
         self.envs, self.cfg, self.backend, self.codec = list(envs), config, backend, codec
         self.tracking = Tracking(sinks)
         self._last_tokens: dict[str, int] = {}
         self._last_usd = 0.0
         self._last_step_t: float | None = None
         self.dir = Path(run_dir)
-        self.model: TinkerModel = resolve(config.model)
+        # ``model``: a row other than the Tinker price table's, e.g. the DeltaAI bridge's zero-priced row with its own
+        # context (``bridges.primerl.backend.local_model``): the meter then books tokens at 0 USD (GPU hours are the cost)
+        self.model: TinkerModel = model if model is not None else resolve(config.model)
         self.objective_id = objective_id
         self.objective = {str(e.task.task_id): str(getattr(e.task, "verifier_version", "") or "") for e in self.envs}
         self.name = name or self.dir.name
