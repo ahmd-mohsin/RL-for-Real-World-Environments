@@ -178,3 +178,11 @@ def test_a_ggml_kdspec_s_harness_table_is_not_a_profile_name():
     recs = list(kd.records(store)) if store.exists() else []
     for rec in recs[:5]:
         assert kp.of_spec(kd.kdspec(rec)) is kp.GGML
+
+
+def test_a_ggml_spec_whose_harness_is_the_op_test_descriptor_is_a_ggml_task():
+    """DeltaAI smoke 3462338: calibrated ggml specs carry ``harness: {"dialect", "file"}`` (the op test's descriptor, older
+    than profiles); ``of_spec`` read it as a profile name and failed every episode grade with an unhashable dict."""
+    spec = {"harness": {"dialect": "ggml-2025", "file": "tests/test-backend-ops.cpp"}}
+    assert kp.of_spec(spec) is kp.profile("ggml")
+    assert kp.of_spec({}) is kp.profile("ggml")

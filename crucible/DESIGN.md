@@ -894,6 +894,28 @@ non-Claude model (difficulty ladder, cross-family roles):
   `gen` await, so concurrent episodes reset it (prefix breaks, masked episodes); `LLMToolPolicy._final_status_turn`
   ignored the engine's new-segment flag, so every limit-stopped episode on an "interleaved" template was masked.
 
+The DeltaAI inference path (`train/bridges/vllm/`, `world/lockdown.py`, `scripts/deltaai/`; `docs/research/swarm-pipeline/14`;
+2026-10-25). The user moved the before/after benchmark and the RL run to DeltaAI GH200s; Tinker stays the task-creation
+backend:
+- **The student on our own vLLM** (`vllm`, a final backend like `tinker`): NCSA LLMHub's vLLM v0.28.0 arm64 container
+  (pinned by sha256), `ServeSpec` for the command line (262144 context, prefix caching, runtime LoRA, the repo's
+  generation config off). `VLLMBackend` is the Tinker bridge's `sampler(model, path)` contract over `/v1/completions`
+  with token ids in and out (`return_tokens_as_token_ids`), so `TinkerSampler`, the codec, TITO and the per-episode log are
+  unchanged; `vllm_model` is the Tinker row's renderer facts at no per-token price. A trained arm is a PEFT adapter loaded
+  into the same server. Every arm records `backend` and the engine (`arm_settings`), so `check_protocol` refuses arms on
+  different engines; policy ids are `solver:vllm:<model>@vllm[-adapter]`.
+- **Worlds without Docker:** `scripts/deltaai/docker` (a stdlib shim) runs the lanes' own `docker run/exec/rm/inspect/ps/cp`
+  as Apptainer instances with one lockdown on every container (offline, `--containall --cleanenv --no-home`, binds only
+  under the job's scratch, a per-container fuse-overlay layer and `/tmp`, `--fakeroot`, GPUs on request); other
+  networks and binds of the home or the shared trees are refused. The SIFs are the Mac's arm64 images (`docker save`,
+  `apptainer build docker-archive://`), so the measured Worlds are the ones that run.
+- **The lockdown probe** (`world/lockdown.py`) runs inside a World before any model episode and refuses on network,
+  visible secrets (home, `~/.ssh`, the HF token, `/u`, `/projects`, `/work`, `/sw`, the munge socket), sensitive
+  environment, fabric devices, host processes or shared mounts. Measured clean on gh152 (job 3455864). What stays
+  unprotected (one uid, no per-container cgroups) is listed in doc 14 §3.
+- **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a network.
+- **The arms:** `tinker_rl.py eval/compare --backend vllm` and `lh_debug_target.py --backend vllm`.
+
 Observability (`src/crucible/observe/`, `scripts/observe.py`; `docs/research/swarm-pipeline/11`; 2026-10-20). Every result,
 graph and agent trace goes to Weights & Biases through one module (an import-linter contract forbids `wandb` / `weave`
 anywhere else; the layer sits below `workflow`, above `connectors | signals`, so every producer reaches it):

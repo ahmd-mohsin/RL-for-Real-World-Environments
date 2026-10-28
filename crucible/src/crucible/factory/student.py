@@ -32,8 +32,11 @@
   ``scripts/lh_run.py`` stamps the backend into the policy id (``solver:student:<model>@mlx``) and writes the run's
   ``student.json``, so every record, trace bundle and metric row carries it.
 - **Dev-only numerics.** The numbers that count come from the trained model's own sampler: ``FINAL_BACKENDS`` is
-  ``tinker`` (or a backend registered ``final=True``). Local serving (MLX: other kernels, sampler and bf16 accumulation;
-  vLLM: not Tinker's either) is dev and calibration only (``DEV_BACKENDS``), as is the stand-in model.
+  ``tinker`` and ``vllm`` (our own engine on DeltaAI, ``train/bridges/vllm``: the user's backend for the before/after
+  benchmark and the RL run, 2026-10-25), or a backend registered ``final=True``. Both arms of one comparison must share
+  the backend and its engine build (``factory.tinker.check_protocol`` compares ``arm_settings``). Local serving on the Mac
+  (MLX: other kernels, sampler and bf16 accumulation) is dev and calibration only (``DEV_BACKENDS``), as is the
+  stand-in model.
   ``is_dev_policy`` reads the stamp; ``assert_countable`` raises ``DevOnlyNumerics`` where a number would count
   (``targeting.target_verdict`` refuses an S15 verdict, ``benchmark.report`` a benchmark report, ``lh_run`` metrics give
   the window ``dev_only``). An unknown backend is dev: numerics nobody recorded never reach a final number.
@@ -58,13 +61,14 @@ STUDENT_PROVIDER = "student"  # the local dev server's provider entry
 DEV_MODEL = "Qwen/Qwen3.5-4B"  # harness development and the pipeline smoke on the local server
 # dev models: their episodes are dev-only whatever engine served them (Qwen3-4B-2507 was retired on Tinker in June 2026)
 DEV_STANDINS: frozenset[str] = frozenset({DEV_MODEL, "Qwen/Qwen3-4B-Instruct-2507"})
-STUDENT_PROVIDERS: frozenset[str] = frozenset({STUDENT_PROVIDER, TARGET_BACKEND})  # provider prefixes that name a student rung
+STUDENT_PROVIDERS: frozenset[str] = frozenset({STUDENT_PROVIDER, TARGET_BACKEND, "vllm"})  # provider prefixes that name a student rung
 STUDENT_PORT = 8100
 STUDENT_BASE_URL = f"http://127.0.0.1:{STUDENT_PORT}/v1"
-# The numbers that count come from the sampler of the trained model (Tinker). Local serving (MLX on the Mac, vLLM on a
-# CUDA box) is dev and calibration only: its kernels, sampler and accumulation are not Tinker's.
-DEV_BACKENDS: frozenset[str] = frozenset({"mlx", "vllm", "sglang", "unknown"})
-FINAL_BACKENDS: frozenset[str] = frozenset({"tinker"})
+# The numbers that count come from the sampler of the trained model: Tinker, or our own vLLM engine on DeltaAI (the
+# user's backend for the benchmark and the RL run, 2026-10-25; both arms on one backend). MLX on the Mac and an
+# unrecorded engine are dev and calibration only.
+DEV_BACKENDS: frozenset[str] = frozenset({"mlx", "sglang", "unknown"})
+FINAL_BACKENDS: frozenset[str] = frozenset({"tinker", "vllm"})
 THINKING_DEFAULT = False  # Qwen3.5/3.6 hybrid thinking: off for the debugging agent; recorded per run (``thinking_of``)
 STUDENT_MAX_TOKENS = 4096  # per reply: a 4B model that loops on a tool call should not fill the context in one turn
 

@@ -1,0 +1,4 @@
+#!/bin/bash
+# `docker` on DeltaAI compute nodes: the Apptainer shim (docker_shim.py, doc 14-deltaai §3) under a modern Python (the
+# node's /usr/bin/python3 is 3.6). Put this directory first on PATH.
+exec "${CRUCIBLE_SHIM_PYTHON:-/sw/spack/v1/apps/python/3.11.9-gcc-13.2.1-ufgfz3k/bin/python3}" "$(dirname "$(readlink -f "$0")")/docker_shim.py" "$@"

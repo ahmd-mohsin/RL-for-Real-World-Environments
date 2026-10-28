@@ -35,8 +35,10 @@ GPU episode:
   World while the host is known to be down, and ``launch_gate`` holds a measurement's next job (fleet stop).
 
 DeltaAI (GH200, Apptainer, user-mode, ``trusted: false``) needs the runner on the compute node itself (no Docker daemon to
-reach from here); ``GpuHost.runtime == "apptainer"`` is declared for it and refused by ``open`` until that path is built
-(swarm-pipeline/10 §9.4).
+reach from here): ``gh200`` (from the Mac) stays declared and refused by ``open``; ``gh200-node`` is the host as seen from a
+job on the node (``local``: every host command runs in a local shell, the World's ``docker`` is the Apptainer shim of
+``scripts/deltaai``, the grader runs in its Apptainer mode, the work directory is the job's node-local scratch,
+``CRUCIBLE_KERNEL_WORK``; swarm-pipeline/14).
 """
 
 from __future__ import annotations
@@ -90,8 +92,12 @@ class GpuHost:
     template_memory: str = "40g"
     max_worlds: int = 2  # Worlds open at once (each may run nvcc); the shared 5090 has 93 GB
     key: str = "~/.ssh/id_ed25519"
+    local: bool = False  # this process runs on the host itself (a DeltaAI job): host commands run in a local shell
+    grade_mode: str = ""  # the grader runner's --mode (default: ``runtime``); a shimmed World on Apptainer grades with "apptainer"
 
     def ssh_argv(self, script: str) -> list[str]:
+        if self.local:
+            return ["bash", "-c", script]
         # 2026-10-26: a connect fails within 15 s and a live session within 60 s of the host going quiet (it took 180 s)
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
                 "-i", os.path.expanduser(self.key), self.ssh, "bash -c " + shlex.quote(script)]
@@ -105,6 +111,11 @@ HOSTS: dict[str, GpuHost] = {
     "gh200": GpuHost(name="gh200", ssh="deltaai", arch="90", gpu="NVIDIA GH200 120GB", docker_host="", bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle",
                      migration_bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle/migration", work="/work/hdd/bjhg/mahmedmohsin/crucible/episodes",
                      runtime="apptainer"),
+    # the same GH200 seen from a job on the node: the World through the docker shim, the grader in Apptainer mode
+    "gh200-node": GpuHost(name="gh200-node", ssh="local", arch="90", gpu="NVIDIA GH200 120GB", docker_host="",
+                          bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle", migration_bundle="/work/hdd/bjhg/mahmedmohsin/crucible/bundle/migration",
+                          work=os.environ.get("CRUCIBLE_KERNEL_WORK") or "/tmp/crucible-kernel-ep", runtime="docker", local=True, grade_mode="apptainer",
+                          world_cpus="16", world_memory="64g"),
 }
 
 
@@ -273,7 +284,10 @@ async def ensure_episode_bundle(host: GpuHost, *, migration: bool = False) -> st
         if r.rc != 0:
             raise RuntimeError(f"episode bundle on {host.name}: {r.err[-400:]}")
         here = Path(__file__).resolve().parents[3]  # .../src
-        kit = _kit_tar(kit_files(r.out.split(), key[1]), here)
+        # the gate kit's files and the runner's modules, plus every kernel-lane module of this checkout: a gate bundle staged
+        # before a module existed does not list it, and this checkout's runner imports it (DeltaAI smoke 3461769)
+        lanes = sorted(f"crucible/factory/lanes/{p.name}" for p in (here / "crucible" / "factory" / "lanes").glob("kernel_*.py"))
+        kit = _kit_tar(sorted(set(kit_files(r.out.split(), key[1])) | set(lanes)), here)
         runner = Path(__file__).resolve().parents[4] / "scripts" / ("lh_kernel_gpu.py" if migration else "lh_kernel_debug_gpu.py")
         script = (f"set -e; rm -rf {shlex.quote(dest)}/kit.new; mkdir -p {shlex.quote(dest)}/kit.new; tar -xf - -C {shlex.quote(dest)}/kit.new; "
                   f"rm -rf {shlex.quote(dest)}/kit; mv {shlex.quote(dest)}/kit.new {shlex.quote(dest)}/kit")
@@ -321,7 +335,8 @@ class HostGrader:
             kind = HOST_UNREACHABLE if host_unreachable_cause(e) is not None else "gpu_host"
             return {"infra": {"status": "masked", "failure_kind": kind, "reason": f"{type(e).__name__}: {e}"[:400]}}
         runner = "stage_gpu.py" if mig else "run_gpu.py"
-        cmd = f"cd {shlex.quote(bundle)} && python3 {runner} --arch {self.host.arch} --mode {self.host.runtime} --grade-one {shlex.quote(str(rec['id']))}"
+        mode = self.host.grade_mode or self.host.runtime
+        cmd = f"cd {shlex.quote(bundle)} && python3 {runner} --arch {self.host.arch} --mode {mode} --grade-one {shlex.quote(str(rec['id']))}"
         try:
             r = await remote(self.host, GpuLock(self.host).wrap(cmd, exclusive=has_perf(rec)), stdin=patch, timeout=self.timeout_s)
         except Exception as e:  # the host did not come back within the pause budget (hostreach): masked, the patch regraded later

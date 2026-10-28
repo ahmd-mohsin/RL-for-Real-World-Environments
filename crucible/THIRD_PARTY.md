@@ -15,6 +15,7 @@ Crucible builds on open-source RL and agent frameworks. This file records exactl
 | weave 0.53.12 (W&B Weave) | PyPI | — | Apache-2.0 | agent traces: `WeaveClient.create_call` / `finish_call` (with `_call_id_override`, `started_at`, `ended_at`) replay our local spans in `observe/weave_sync.py`; no offline mode, so nothing is sent before a key exists | extra `observe` |
 | wandb-workspaces 0.4.13 | PyPI | — | Apache-2.0 | the W&B Report template (`observe/report.py`: `Report`, `PanelGrid`, `Runset`, `MediaBrowser`, `WeavePanelSummaryTable`, `ScalarChart`, `LinePlot`); built offline, saved only with a key | extra `observe` |
 | fastapi-mcp 0.4, SQLAlchemy 2.1, huggingface-hub 2.2 | PyPI | — | MIT | running OpenEnv AWM services (M1 generality) | extra `openenv-awm` |
+| vLLM v0.28.0 (NCSA LLMHub build for DeltaAI) | `/sw/llmhub/vllm-v0.28.0-slingshot-deltaai.sif` on DeltaAI (upstream `vllm/vllm-openai:v0.28.0` arm64, commit 2cf0a69, plus the site's Slingshot libfabric and aws-ofi-nccl) | sha256 4395a0c6… (2026-09-21) | Apache-2.0 | serving the student on GH200 for the benchmark and RL episodes: the OpenAI-compatible `/v1/completions` with token ids, runtime LoRA (`/v1/load_lora_adapter`), behind `train/bridges/vllm` (DEPEND: the container is run, nothing imported; doc 14) | none (a site container) |
 
 ## Code ported into `src/crucible/_vendor/` (each folder has `ORIGIN.md`; changed lines are tagged `# [crucible]`)
 

@@ -53,13 +53,13 @@ NOT_VERIFIED_TRAIN = [
 ]
 
 
-def _codec(model: str, enable_thinking: bool, codec: Any = None) -> Any:
+def _codec(model: Any, enable_thinking: bool, codec: Any = None) -> Any:
     if codec is not None:
         return codec
     from crucible.train.bridges.tinker.codec import TinkerChatCodec, load_tokenizer
-    from crucible.train.bridges.tinker.models import resolve
+    from crucible.train.bridges.tinker.models import TinkerModel, resolve
 
-    m = resolve(model)
+    m = model if isinstance(model, TinkerModel) else resolve(model)  # a model row (a ``vllm_model``) as it is
     return TinkerChatCodec(load_tokenizer(m), m, enable_thinking=enable_thinking)
 
 
@@ -206,24 +206,43 @@ def metrics(episodes: Sequence[Any], *, k: int, usd_total: float) -> dict[str, A
     return base
 
 
-def policy_id(model: str, checkpoint: str | None = None) -> str:
-    """A benchmark arm's policy id: ``solver:tinker:<model>@tinker`` (base) or ``...@tinker-adapter`` (sampler weights).
+def split_of(task: Any) -> str | None:
+    w = getattr(task, "window", None)
+    return getattr(task, "split", None) or (w.get("split") if isinstance(w, Mapping) else None)
+
+
+def require_offline(task: Any) -> None:
+    """A held-out task's World is offline (``--network none``): the public repository holds some benchmark tasks' reports
+    and hidden test ids (the lead accepted that exposure on 2026-10-25 *because* the benchmark World has no network).
+    A held-out task whose World declares another network is refused before any episode."""
+    net = getattr(task, "world_network", "none")
+    if split_of(task) == "heldout" and net not in (None, "none"):
+        raise ValueError(f"{getattr(task, 'task_id', task)}: a held-out task's World must be offline, not {net!r}")
+
+
+def policy_id(model: str, checkpoint: str | None = None, provider: str = "tinker") -> str:
+    """A benchmark arm's policy id: ``solver:<provider>:<model>@<provider>`` (base) or ``...@<provider>-adapter`` (sampler
+    weights or a LoRA adapter); ``provider`` is the sampler's backend (``tinker``, or ``vllm`` on our own GPUs).
     ``audit.policy_model`` / ``factory.student.student_model_of`` read the model back, so the family rule and the
     dev-numerics check see it."""
-    return f"solver:tinker:{model}@tinker{'-adapter' if checkpoint else ''}"
+    return f"solver:{provider}:{model}@{provider}{'-adapter' if checkpoint else ''}"
 
 
 PURPOSES = ("selection", "baseline", "control", "trained", "smoke", "fairness")  # fairness: S15's frontier solvers (a strong solver passes)
 
 
 def arm_settings(*, model: str, k: int, temperature: float, max_tokens: int, enable_thinking: bool, tool_limit: int | None, timeouts: Timeouts | None,
-                 system: str | None, harness: str, context: int, codec: Mapping[str, Any] | None) -> dict[str, Any]:
-    """What must be identical across the arms of one comparison (the harness, tool caps, context, thinking, sampling):
-    everything but the checkpoint, the seed and the purpose."""
+                 system: str | None, harness: str, context: int, codec: Mapping[str, Any] | None, backend: str = "tinker",
+                 engine: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """What must be identical across the arms of one comparison (the harness, tool caps, context, thinking, sampling, the
+    sampler backend and its engine build): everything but the checkpoint, the seed and the purpose."""
     t = timeouts or Timeouts()
-    return {"model": model.split(":", 1)[0], "context": context, "k": k, "temperature": temperature, "max_tokens": max_tokens,
-            "enable_thinking": enable_thinking, "tool_limit": tool_limit, "agent_s": t.agent_s, "rollout_s": t.rollout_s, "system": system or "default",
-            "harness": harness, "codec": {k_: v for k_, v in (codec or {}).items() if k_ != "model"}}
+    out = {"model": model.split(":", 1)[0], "context": context, "k": k, "temperature": temperature, "max_tokens": max_tokens,
+           "enable_thinking": enable_thinking, "tool_limit": tool_limit, "agent_s": t.agent_s, "rollout_s": t.rollout_s, "system": system or "default",
+           "harness": harness, "codec": {k_: v for k_, v in (codec or {}).items() if k_ != "model"}, "backend": backend}
+    if engine:
+        out["engine"] = dict(engine)
+    return out
 
 
 async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Path, cap_usd: float, checkpoint: str | None = None, backend: Any = None,
@@ -248,6 +267,8 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
 
     if purpose not in PURPOSES:
         raise ValueError(f"purpose is one of {PURPOSES}")
+    for t in tasks:
+        require_offline(t)
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     shared = meter is not None
@@ -261,8 +282,8 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
         harness = getattr(env.harness, "id", type(env.harness).__name__)
         # the factory's policy-id form (``solver:<provider>:<model>@<backend>``): the trace audit reads the model and its family
         # from it (``audit.policy_model``), so a same-family auditor is refused; ``bench-<model>`` read as family "bench"
-        pol = sampler.policy_ref(pid=policy_id(sampler.model.name, checkpoint), temperature=temperature, max_tokens=max_tokens,
-                                 system=system, llm=llm, **env.policy_kwargs())
+        pol = sampler.policy_ref(pid=policy_id(sampler.model.name, checkpoint, sampler.model.provider), temperature=temperature,
+                                 max_tokens=max_tokens, system=system, llm=llm, **env.policy_kwargs())
         rid = f"bench-{purpose}-s{seed}-{t.task_id}"
         spec = env.run_spec(run_id=rid, policies=[pol], k=k, concurrency=concurrency, retry=RetryRule(max_attempts=2), breaker=None, run_seed=seed,
                             sampling={"temperature": temperature, "max_tokens": max_tokens})
@@ -291,7 +312,8 @@ async def benchmark(tasks: Sequence[Any], *, model: str, k: int = 8, run_dir: Pa
                          "turns": len(ro.turns), "stop": ro.stop})
     settings = arm_settings(model=sampler.model.name, k=k, temperature=temperature, max_tokens=max_tokens, enable_thinking=enable_thinking,
                             tool_limit=tool_limit, timeouts=timeouts, system=system, harness=harness, context=sampler.model.context,
-                            codec=(sampler.settings().get("codec") if isinstance(sampler.settings().get("codec"), dict) else None))
+                            codec=(sampler.settings().get("codec") if isinstance(sampler.settings().get("codec"), dict) else None),
+                            backend=sampler.model.provider, engine=getattr(sampler.backend, "engine", None))
     out = {"model": sampler.model.name, "checkpoint": checkpoint, "purpose": purpose, "seed": seed, "k": k, "temperature": temperature,
            "enable_thinking": enable_thinking, "tasks": [str(t.task_id) for t in tasks], "settings": settings,
            "metrics": metrics(episodes, k=k, usd_total=sampler.usd if shared else meter.spent), "spend": meter.summary(), "codec": sampler.settings(),
