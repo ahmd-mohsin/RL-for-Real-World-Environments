@@ -361,3 +361,4 @@ def test_the_writer_and_reviewer_cover_every_case_the_hidden_tests_check():
     assert "a case the requirement never mentions" in REVIEW_SYSTEM and "name the case" in REVIEW_SYSTEM
     m = prompt_machine()
     assert m["states"][0]["session"]["brief"] == WRITER_BRIEF and machine_hash(canonicalize(m))
+    assert m["states"][0]["retries"] == 1  # a session that ended without prompt.json gets one fresh session, not a pause

@@ -1604,7 +1604,9 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     `REVIEW_SYSTEM`). The writer is told that an input variant or edge case a test or table row names (a line ending
     such as CRLF, an empty or null value, a stale status, a boundary) must appear in its requirement as the user sees
     it. The reviewer blocks a report that leaves one out and names the case. A held-out milestone's table checked a
-    CRLF row its report never mentioned: DeepSeek and three student runs failed only that row.
+    CRLF row its report never mentioned: DeepSeek and three student runs failed only that row. The write state has
+    one retry: a writer that answers in prose ends its session (the harness reads it as done) without `prompt.json`;
+    two held-out runs paused there ("missing declared output 'prompt'") and now get one fresh session.
 
 ## 8. Layer 4: verification and isolation
 

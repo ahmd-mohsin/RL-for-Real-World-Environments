@@ -68,7 +68,9 @@ def prompt_machine(*, budget_usd: float = 1.5, max_turns: int = 60, max_writes: 
     j = "json"
     v = [{"name": "verdict", "type": j}]
     states = [
-        {"id": "write", "entry": True, "role": "prompt_author", "mutates": True, "recovery": "reconcile", "max_entries": max_writes + 1,
+        # retries 1: a session that ends without its file (the writer answered in prose, which the harness reads as done:
+        # two held-out runs, 2026-10-27, "missing declared output 'prompt'") gets one fresh session, not a paused run
+        {"id": "write", "entry": True, "role": "prompt_author", "mutates": True, "recovery": "reconcile", "max_entries": max_writes + 1, "retries": 1,
          "inputs": [{"name": "brief", "type": j, "from": "params.spec"}],
          "session": {"brief": WRITER_BRIEF, "captures": [{"output": "prompt", "kind": "json", "path": "prompt.json"}], "potential": "prompt_draft",
                      "max_turns": max_turns, "checkpoint_every": checkpoint_every, "checkpoint_cap": 12, "settle_on_budget": True},
