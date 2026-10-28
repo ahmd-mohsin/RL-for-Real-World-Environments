@@ -36,16 +36,73 @@ def git_shell(root: str, git_dir: str | None = None, extra_env: str = "") -> str
             f"git -c safe.directory='*' -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.quotepath=off {loc}")
 
 
-def git_diff_command(root: str, ref: str = "base", stat: bool = False, git_dir: str | None = None, *, config: dict[str, str] | None = None) -> str:
+def plain_git() -> str:
+    """A git command line with no system or global config, for reading one config file (``git config --file``)."""
+    return f"env -i PATH={SAFE_PATH} HOME=/nonexistent LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git"
+
+
+def filter_overrides_sh(git_dir: str = ".git", names: str = '"$W/f"', git: str = "git") -> str:
+    """Shell that sets the positional parameters to ``-c`` overrides making each filter driver of the repository's own
+    config files a pass-through (``verify.collect.filter_flags``, read inside the exec, since the repository may be in a
+    container), and exits 3 on a driver name no ``-c`` can name exactly. ``names`` is a scratch file. One copy for the
+    in-container snapshot (``verify.collect.snapshot_command``) and the verifier view (``FsGitAdapter.q_git_diff``)."""
+    return (f": > {names}; for c in {git_dir}/config {git_dir}/config.worktree; do if [ -f \"$c\" ]; then {git} config --file \"$c\" --includes --name-only "
+            f"--get-regexp '^filter[.]' >> {names} 2>/dev/null || true; fi; done; set --; "
+            "while IFS= read -r k; do n=$(printf '%s' \"$k\" | sed 's/^filter[.]//; s/[.][^.]*$//'); "
+            "case \"$n\" in ''|*[!A-Za-z0-9._+-]*) echo \"a filter driver git cannot override: $n\" >&2; exit 3;; esac; "
+            f"set -- \"$@\" -c \"filter.$n.clean=\" -c \"filter.$n.smudge=\" -c \"filter.$n.process=\" -c \"filter.$n.required=false\"; done < {names}; ")
+
+
+# the exit status of a refusal by ``repo_guard_sh`` or ``filter_overrides_sh`` (git itself exits 0, 1, 128 or 129)
+REFUSED_RC = 3
+
+
+def repo_guard_sh(root: str, git: str | None = None) -> str:
+    """Shell that exits ``REFUSED_RC`` with the reason when the repository at ``root`` was redirected: the rules of
+    ``verify.collect.repo_hazards``, read inside the exec. ``.git`` a symlink or a ``gitdir:`` file, a ``commondir``,
+    ``core.bare`` set, or ``core.worktree`` naming another tree (resolved from ``.git``, as git resolves it): git would read
+    another repository or tree. A missing ``.git`` passes (git then fails, as before)."""
+    git = git or plain_git()
+    g, r, q = shlex.quote(root) + "/.git", REFUSED_RC, shlex.quote(root)
+    no = "echo 'the repository is refused:"
+    return (f"if [ -L {g} ]; then {no} the workspace .git is a symlink (the repository was redirected)' >&2; exit {r}; fi; "
+            f"if [ -e {g} ] && [ ! -d {g} ]; then {no} the workspace .git is a file, not the repository (a gitdir redirect)' >&2; exit {r}; fi; "
+            f"if [ -e {g}/commondir ]; then {no} the workspace repository has a commondir redirect' >&2; exit {r}; fi; "
+            f"for c in {g}/config {g}/config.worktree; do if [ -f \"$c\" ]; then "
+            f"if [ \"$({git} config --file \"$c\" --includes --bool --get core.bare 2>/dev/null)\" = true ]; then "
+            f"{no} core.bare is set in the workspace repository' >&2; exit {r}; fi; "
+            f"w=$({git} config --file \"$c\" --includes --get core.worktree 2>/dev/null || true); "
+            f"if [ -n \"$w\" ]; then case \"$w\" in /*) p=\"$w\";; *) p={g}/\"$w\";; esac; "
+            f"if [ \"$(cd \"$p\" 2>/dev/null && pwd -P)\" != \"$(cd {q} && pwd -P)\" ]; then "
+            f"{no} core.worktree points outside the workspace' >&2; exit {r}; fi; fi; fi; done; ")
+
+
+def refusal(out: Any) -> str | None:
+    """The reason a guarded git command was refused (its last stderr line), or None."""
+    return ((out.stderr or "").strip().splitlines() or ["the repository is refused"])[-1] if out.rc == REFUSED_RC else None
+
+
+def git_diff_command(root: str, ref: str = "base", stat: bool = False, git_dir: str | None = None, *, config: dict[str, str] | None = None,
+                     guard: bool = False) -> str:
     """Working tree (incl. untracked, minus ignored) vs ``ref`` through a throwaway index; the repo's index is untouched.
     ``config``: extra settings at command scope (``GIT_CONFIG_COUNT``, above the repository's own config): the checkpoint
-    sidecar passes empty commands for the repository's filter drivers (harness-reward audit R6, 2026-10-28)."""
+    sidecar passes empty commands for the repository's filter drivers (harness-reward audit R6, 2026-10-28). ``guard``
+    (the repository is the agent's own, no trusted copy stands in for it: ``FsGitAdapter.q_git_diff``): a redirected
+    repository is refused (``repo_guard_sh``) and its own filter drivers are pass-throughs (``filter_overrides_sh``), both
+    read inside the exec. Without ``guard`` the command is unchanged."""
     ref = shlex.quote(check_ref(ref))
     flag = "--stat" if stat else "--binary"
     cfg = dict(config or {})
     env = "".join(f" GIT_CONFIG_KEY_{i}={shlex.quote(k)} GIT_CONFIG_VALUE_{i}={shlex.quote(v)}" for i, (k, v) in enumerate(cfg.items()))
     g = git_shell(root, git_dir, 'GIT_INDEX_FILE="$T"' + (f" GIT_CONFIG_COUNT={len(cfg)}{env}" if cfg else ""))
-    return (f'set -e; T=$(mktemp); trap \'rm -f "$T"\' EXIT; {g} read-tree {ref}; {g} add -A -- . 2>/dev/null || true; '
+    if not guard:
+        return (f'set -e; T=$(mktemp); trap \'rm -f "$T"\' EXIT; {g} read-tree {ref}; {g} add -A -- . 2>/dev/null || true; '
+                f"{g} diff --cached --no-ext-diff --no-textconv {flag} {ref}")
+    if git_dir:
+        raise ValueError("guard is for the agent's own repository; a trusted git dir needs none")
+    pre = repo_guard_sh(root) + filter_overrides_sh(shlex.quote(root) + "/.git", '"$F"', plain_git())
+    g = f'{g} "$@"'
+    return (f'set -e; T=$(mktemp); F=$(mktemp); trap \'rm -f "$T" "$F"\' EXIT; {pre}{g} read-tree {ref}; {g} add -A -- . 2>/dev/null || true; '
             f"{g} diff --cached --no-ext-diff --no-textconv {flag} {ref}")
 
 
@@ -186,7 +243,12 @@ class FsGitAdapter(FsAdapter):
         except Exception:  # noqa: BLE001 - no such file now
             now = None
         g = git_shell(self.params["root"], self.trusted_git_dir)
-        out = await self.exec.run(f"{g} show {shlex.quote(check_ref(ref) + ':' + path)}", timeout_s=120)
+        # without a trusted copy the repository is the agent's (as in q_git_diff): a redirected one would answer from another
+        # repository's ``ref``, and its own textconv driver would run and rewrite the base text
+        pre, opt = ("", "") if self.trusted_git_dir else (repo_guard_sh(self.params["root"]), "--no-textconv ")
+        out = await self.exec.run(f"{pre}{g} show {opt}{shlex.quote(check_ref(ref) + ':' + path)}", timeout_s=120)
+        if pre and (why := refusal(out)) is not None:
+            return QueryResult(ok=False, exit_code=out.rc, stderr=out.stderr[-4000:], error=why)
         base = out.stdout if out.ok else None
         if now is None or base is None:
             return QueryResult(ok=True, value={"changed": now != base, "found": False})
@@ -194,11 +256,18 @@ class FsGitAdapter(FsAdapter):
         return QueryResult(ok=True, value={"changed": b0 != b1, "found": b1 is not None})
 
     async def q_git_diff(self, ref: str = "base", stat: bool = False) -> Any:
+        """The verifier's view of the working tree against ``ref``. Without a ``trusted_git_dir`` the repository is the
+        agent's own (2026-10-28, the item harness-reward audit R6 left open): its filter drivers ran at ``git add`` (a
+        command the policy chose, and any content it liked in the diff) and a redirected ``.git`` made git diff another
+        repository or tree. The drivers are now pass-throughs and a redirected repository is refused
+        (``git_diff_command(guard=True)``): an error, never a diff."""
         from crucible.core.schema.state import QueryResult
 
         try:
-            cmd = git_diff_command(self.params["root"], ref, stat, self.trusted_git_dir)
+            cmd = git_diff_command(self.params["root"], ref, stat, self.trusted_git_dir, guard=self.trusted_git_dir is None)
         except ValueError as e:
             return QueryResult(ok=False, error=str(e))
         out = await self.exec.run(cmd, timeout_s=600)
-        return QueryResult(ok=out.ok, exit_code=out.rc, stdout=out.stdout, stderr=out.stderr[-4000:], duration_s=out.duration_s)
+        why = refusal(out) if self.trusted_git_dir is None else None
+        return QueryResult(ok=out.ok, exit_code=out.rc, stdout=out.stdout if why is None else "", stderr=out.stderr[-4000:], duration_s=out.duration_s,
+                           error=why)

@@ -674,9 +674,11 @@ def export_harbor(task: Any, out_dir: Path, *, timeouts: Timeouts | None = None,
 class RowTask:
     """The ``module:Class`` an agentenv ``crucible_world`` step loads for a published row: the row's task, resolved."""
 
+    BACKENDS = ("local",)  # the backends a row's World opens on (``agentenv_blockers``)
+
     def __init__(self, *, backend: str = "local", row: Mapping[str, Any] | None = None, prompts: str | None = None):
-        if backend != "local":
-            raise NotImplementedError(f"backend {backend!r}: window Worlds run on Docker exec, not the agentenv gateway yet")
+        if backend not in self.BACKENDS:
+            raise NotImplementedError(f"backend {backend!r}: {_NO_GATEWAY}")
         self.task = resolve_ref((row or {})["args"]["ref"], prompts=Path(prompts) if prompts else None)
         self.world_id = getattr(self.task, "world_id", "")
 
@@ -684,11 +686,34 @@ class RowTask:
         return await self.task.open(workdir)
 
 
+_NO_GATEWAY = "window Worlds run on Docker exec, not behind the agentenv gateway (no gateway_url or agent MCP URL for deploy_agent)"
+
+
+def agentenv_blockers(row: Mapping[str, Any]) -> list[str]:
+    """Why the agentenv Task published for ``row`` could not run (empty: it can). The ``crucible_world`` step opens the
+    row's World with ``backend="agentenv"`` and hands the agent its gateway; ``crucible_verify`` grades that World in place
+    (``task.grade(world, dir)``) and replays it on the local backend. harness-reward audit §5 (2026-10-28): every row failed
+    here at run time, after it was published."""
+    out = []
+    if "agentenv" not in RowTask.BACKENDS:
+        out.append(f"RowTask opens its World on {'/'.join(RowTask.BACKENDS)} only: {_NO_GATEWAY}")
+    ref = LongTaskRef.from_json(row["args"]["ref"])
+    if ref.lane == "window":
+        out.append("a window task is graded from its collected patch (grade_patch); crucible_verify grades the World in place")
+        out.append("a window task resolves only with its prompts directory, which the row's step arguments do not carry")
+    return out
+
+
 def export_agentenv(cards: Sequence[Any], rows: Mapping[str, Mapping[str, Any]], splits: Mapping[str, Sequence[str]]) -> Any:
     """Publish accepted cards (``factory.publish.publish_family``) with each card's portable row as its World step's
-    arguments (``crucible.factory.envs:RowTask``). ``rows``: card id -> ``task_row``."""
+    arguments (``crucible.factory.envs:RowTask``). ``rows``: card id -> ``task_row``. A row whose Task could not run
+    (``agentenv_blockers``) is refused before anything is published (harness-reward audit §5, 2026-10-28: such Tasks were
+    published and failed in the World step of every run)."""
     from crucible.factory.publish import PublishError, publish_eval, publish_task
 
+    for c in cards:
+        if blockers := agentenv_blockers(rows[c.id]):
+            raise PublishError(f"card {c.id!r}: its agentenv Task could not run: {'; '.join(blockers)}")
     owner: dict[str, str] = {}
     for s, ids in splits.items():
         for i in ids:

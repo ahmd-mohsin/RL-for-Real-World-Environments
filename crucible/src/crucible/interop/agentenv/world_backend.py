@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import datetime
 import hashlib
 import hmac
 import json
@@ -48,14 +49,16 @@ import os
 import secrets
 import sys
 import time
+import zlib
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from crucible.core.schema.actions import Inbound, ToolResult, ToolSpec
 from crucible.core.schema.world import AppSpec, EventSpec, SandboxSpec
+from crucible.core.triggers import exp_interval, exp_stream
 from crucible.world.backends.base import Backend, BackendCapabilities, ToolRouter
-from crucible.world.clock import parse_duration
+from crucible.world.clock import parse_duration, parse_time
 from crucible.world.exec import Exec, LocalExec, safe_environ, spawn_logged
 from crucible.world.packaging.app_server import AppMcpServer
 from crucible.world.packaging.sidecar import free_port
@@ -72,6 +75,163 @@ HOST_PROCESS_TEMPLATES = ("common/mcp_server", "common/website", "common/browser
 
 def gw_name(app: str, tool: str) -> str:
     return f"{app}__{tool}"
+
+
+# ---- restoring delegated triggers (harness-reward audit §5, 2026-10-28) -------------------------------------------------------
+# agentenv has no trigger import API: a restore clears the engine and registers the triggers again, and a fresh registration
+# starts from nothing (no fires, no mark, a fresh RNG, marks resolved against the restored clock's t0). Each trigger of the
+# original body is therefore re-planned from its *progress* (fires so far, its next mark, the draw its seeded stream is at),
+# and the gateway triggers standing in for it ("parts") are remembered, so a later snapshot reads its progress whatever
+# registration it is on (a restore of a restore). The mark arithmetic is agentenv's (``triggers.py`` ``_resolve_first_mark``,
+# ``_advance_marks``, ``_next_interval_seconds``): the first mark of an ``every`` with no ``at`` is t0 + one interval, each
+# fire advances the mark by the next draw of ``random.Random(seed)``.
+MAX_EXPAND = 512  # arrivals of a seeded exponential recurrence registered one by one; past them it continues on a derived seed
+
+
+def _iso(dt: Any) -> str:
+    """agentenv's RFC 3339 rendering (``clock._iso``: microseconds kept, ``Z``)."""
+    return dt.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+def _instant(text: str, t0: Any) -> Any:
+    """An ``at`` / ``until`` value as an instant: RFC 3339, or a P-duration from ``t0`` (agentenv ``_time_mark_spec``)."""
+    return t0 + parse_duration(text) if text.startswith("P") else parse_time(text)
+
+
+def _mean_s(every: dict[str, Any]) -> float:
+    return parse_duration(every["mean"]).total_seconds()
+
+
+def _first_mark(when: dict[str, Any], t0: Any) -> tuple[str | None, int | None]:
+    """The first mark of a registered, not yet evaluated time trigger and the draw that follows it (None: not stochastic)."""
+    stoch = isinstance(when.get("every"), dict)
+    if "at" in when:
+        return (_iso(_instant(when["at"], t0)) if t0 is not None or not when["at"].startswith("P") else None), (0 if stoch else None)
+    if t0 is None or "every" not in when:
+        return None, None
+    if stoch:
+        return _iso(t0 + datetime.timedelta(seconds=exp_interval(int(when["seed"]), _mean_s(when["every"]), 0))), 1
+    return _iso(t0 + parse_duration(when["every"])), None
+
+
+def native_plan(t: dict[str, Any]) -> dict[str, Any]:
+    """A trigger registered as itself (a fresh registration of the original body)."""
+    return {"fired": 0, "parts": [{"gid": t["id"], "kind": "native", "when": t["when"]}]}
+
+
+def trigger_progress(body: list[dict[str, Any]], plan: dict[str, dict[str, Any]], states: list[dict[str, Any]], t0: Any) -> dict[str, dict[str, Any]]:
+    """Per trigger of the original ``body`` (by id), its progress over every registration so far, from the engine's settled
+    state (``/triggers/state`` rows) and ``plan`` (id -> {"fired": fires before this registration, "parts": the gateway
+    triggers standing in for it}; absent: registered as itself). A row: ``fired`` and ``done``, and while it can still fire
+    ``next_mark`` (with ``draw``, the index of the stream draw that follows it, and ``seed`` for a seeded recurrence), or
+    ``after`` (an anchored trigger whose anchor has not fired)."""
+    st = {s.get("id"): s for s in states}
+    out = {}
+    for t in body:
+        p = plan.get(t["id"]) or native_plan(t)
+        parts = p["parts"]
+        fired = int(p.get("fired") or 0) + sum(int((st.get(x["gid"]) or {}).get("fire_count") or 0) for x in parts)
+        out[t["id"]] = {"fired": fired, "done": True}
+        if any((st.get(x["gid"]) or {}).get("status") == "failed" for x in parts):
+            continue  # a failed fire retires the trigger (``_fire`` / ``_fire_time``): it never fires again
+        for x in parts:
+            s = st.get(x["gid"]) or {}
+            n, status = int(s.get("fire_count") or 0), s.get("status")
+            if x["kind"] == "arrival":
+                if status == "fired" or n:
+                    continue
+                out[t["id"]] = {"fired": fired, "done": False, "next_mark": x["mark"], "draw": x["draw"], "seed": x["seed"]}
+                break
+            w = x["when"]
+            if status == "fired" or (n and "every" not in w and not w.get("repeat")):
+                continue  # retired: a one-shot that fired, a recurrence past its count or until
+            if w["type"] != "time":
+                out[t["id"]] = {"fired": fired, "done": False}
+                break
+            stoch = isinstance(w.get("every"), dict)
+            mark, draw = s.get("next_mark"), ((n + (0 if "at" in w else 1)) if stoch else None)
+            if mark is None and status in ("firing", "queued"):
+                continue  # its last arrivals are firing: it retires when they land
+            if mark is None and "after" in w:
+                out[t["id"]] = {"fired": fired, "done": False, "after": t["when"].get("after", w["after"]), "offset": w["offset"]}
+                break
+            if mark is None:  # registered, not evaluated yet (no clock tick since): its first mark, as agentenv resolves it
+                mark, draw = _first_mark(w, t0)
+            if mark is None:
+                continue
+            out[t["id"]] = {"fired": fired, "done": False, "next_mark": mark, "draw": draw, "seed": w.get("seed")}
+            break
+    return out
+
+
+def plan_restore(body: list[dict[str, Any]], progress: dict[str, dict[str, Any]], t0: Any) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """The gateway triggers that continue every trigger of ``body`` from ``progress`` (``trigger_progress``), and the plan
+    that maps them back. A one-shot or anchored trigger waiting on its mark is registered at that mark (an anchored one
+    used to wait for an anchor that had already fired, and was lost); a fixed recurrence restarts at its next mark with
+    the rest of its ``count`` (it used to restart one interval after the restore); a seeded exponential recurrence is
+    expanded into its next arrivals, each at the mark its own stream gives (``core.triggers.exp_stream``; it used to draw
+    from the start of the stream again), up to ``MAX_EXPAND``, then continues on a seed derived from the stream's position.
+    A trigger that fired its last time, failed, or waits on an anchor that can no longer fire is not registered."""
+    specs: dict[str, list[dict[str, Any]]] = {}
+    plan: dict[str, dict[str, Any]] = {}
+    todo = list(body)
+    while todo:  # anchors before the triggers anchored on them (an anchored trigger names its anchor's first part)
+        later = [t for t in todo if (progress.get(t["id"]) or {}).get("after") in {x["id"] for x in todo if x is not t}]
+        if len(later) == len(todo):
+            later = []  # an anchor cycle: agentenv never resolves it either
+        for t in (t for t in todo if t not in later):
+            tid, w0 = t["id"], t["when"]
+            pr = progress.get(tid) or {"fired": 0, "done": False}
+            fired = int(pr.get("fired") or 0)
+            plan[tid] = {"fired": fired, "parts": []}
+            specs[tid] = []
+            if pr.get("done"):
+                continue
+            if w0["type"] != "time":
+                specs[tid] = [t]
+                plan[tid]["parts"] = [{"gid": tid, "kind": "native", "when": w0}]
+                continue
+            if pr.get("after") is not None:
+                anchor = (plan.get(pr["after"]) or {}).get("parts") or []
+                if not anchor:
+                    continue  # its anchor will never fire again
+                when = {**w0, "after": anchor[0]["gid"]}
+                specs[tid] = [{**t, "when": when}]
+                plan[tid]["parts"] = [{"gid": tid, "kind": "native", "when": when}]
+                continue
+            if pr.get("next_mark") is None:
+                continue
+            base = {"type": "time", "at": pr["next_mark"]}
+            if "every" not in w0:  # a one-shot (``at``, or an anchored trigger whose anchor fired): at its mark
+                specs[tid] = [{**t, "when": base}]
+                plan[tid]["parts"] = [{"gid": tid, "kind": "native", "when": base}]
+                continue
+            left = int(w0["count"]) - fired if "count" in w0 else None
+            if left is not None and left <= 0:
+                continue
+            until = _instant(w0["until"], t0) if "until" in w0 and (t0 is not None or not w0["until"].startswith("P")) else None
+            bound = {**({"count": left} if left is not None else {}), **({"until": _iso(until)} if until is not None else {})}
+            if not isinstance(w0["every"], dict):
+                when = {**base, "every": w0["every"], **bound}
+                specs[tid] = [{**t, "when": when}]
+                plan[tid]["parts"] = [{"gid": tid, "kind": "native", "when": when}]
+                continue
+            seed, k = int(pr["seed"]), int(pr["draw"])
+            m, draws, n = parse_time(pr["next_mark"]), exp_stream(seed, _mean_s(w0["every"]), k), 0
+            while (left is None or n < left) and (until is None or m <= until) and n < MAX_EXPAND:
+                gid = f"{tid}~{fired + n}"
+                specs[tid].append({**t, "id": gid, "when": {"type": "time", "at": _iso(m)}})
+                plan[tid]["parts"].append({"gid": gid, "kind": "arrival", "mark": _iso(m), "draw": k + n, "seed": seed})
+                m, n = m + datetime.timedelta(seconds=next(draws)), n + 1
+            if n == MAX_EXPAND and (left is None or n < left) and (until is None or m <= until):
+                tail_seed = zlib.crc32(f"{seed}:{k + n}".encode())
+                when = {"type": "time", "at": _iso(m), "every": w0["every"], "seed": tail_seed,
+                        **({"count": left - n} if left is not None else {}), **({"until": _iso(until)} if until is not None else {})}
+                gid = f"{tid}~{fired + n}+"
+                specs[tid].append({**t, "id": gid, "when": when})
+                plan[tid]["parts"].append({"gid": gid, "kind": "native", "when": when})
+        todo = later
+    return [s for t in body for s in specs.get(t["id"], [])], plan
 
 
 # set while the World steps for an outside agent's call: the gateway already holds that call (and its consistent-mode tool
@@ -137,6 +297,9 @@ class AgentEnvBackend(Backend):
         self.delegate = bool(params.get("delegate_events", clock_wall))
         self._delegated: set[str] = set()
         self._trigger_body: dict[str, Any] | None = None
+        # the gateway triggers standing in for each delegated trigger since the last restore (``plan_restore``); empty: each
+        # is registered as itself
+        self._trigger_plan: dict[str, dict[str, Any]] = {}
         self._keepalive: asyncio.Task | None = None
         self._keepalive_stop = asyncio.Event()
         self._secret = secrets.token_bytes(32)  # signs the actor identity carried to App servers (spoof-proof __actor)
@@ -561,6 +724,7 @@ class AgentEnvBackend(Backend):
             await self._set_clock(world.spec.clock.t0, world.spec.clock.rate)
         if self._trigger_body is not None:
             (await self.http.post("/triggers/clear")).raise_for_status()
+            self._trigger_plan = {}  # registered as itself again
             r = await self.http.post("/triggers/register", json=self._trigger_body)
             if r.status_code != 200:
                 raise RuntimeError(f"trigger re-registration failed: {r.text[:500]}")
@@ -568,28 +732,27 @@ class AgentEnvBackend(Backend):
         await self._refresh_allowed(world)
         self._acl_changed.clear()
 
-    async def _restore_triggers(self, snap: dict[str, Any]) -> None:
-        """Triggers as they stood in the snapshot: one-shots that had fired stay fired, bounded recurrences keep only
-        their remaining arrivals (from their next mark). agentenv has no import API, so the set is re-registered."""
+    def _clock_t0(self) -> Any:
+        """The spec clock's t0: what the original registration's marks resolve against (``on_reset`` arms the clock there)."""
+        c = self._world.spec.clock if self._world is not None else None
+        return parse_time(c.t0) if c is not None and c.mode == "wall" else None
+
+    def trigger_progress(self, snap: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Every delegated trigger's progress in an engine state (``/triggers/state``), across the registrations so far."""
         assert self._trigger_body is not None
-        seen = {t["id"]: t for t in snap.get("triggers", [])}
-        keep = []
-        for t in self._trigger_body["triggers"]:
-            s = seen.get(t["id"], {})
-            fired = int(s.get("fire_count") or 0)
-            when = dict(t["when"])
-            recurring = bool(when.get("every")) or bool(when.get("repeat"))
-            if fired and not recurring:
-                continue
-            if when.get("count"):
-                left = int(when["count"]) - fired
-                if left <= 0:
-                    continue
-                when["count"] = left
-            if when.get("every") and fired and s.get("next_mark"):
-                when["at"] = s["next_mark"]
-            keep.append({**t, "when": when})
+        return trigger_progress(self._trigger_body["triggers"], self._trigger_plan, snap.get("triggers", []), self._clock_t0())
+
+    async def _restore_triggers(self, snap: dict[str, Any], progress: dict[str, dict[str, Any]] | None = None) -> None:
+        """Triggers as they stood in the snapshot (``plan_restore``): what fired for the last time stays fired, what waits
+        on a mark fires at that mark, a recurrence continues its count and its seeded stream. agentenv has no import API,
+        so the set is re-registered. ``progress``: the snapshot's own (``snapshot_state``); a snapshot taken before it was
+        recorded is read as a registration of the original body."""
+        assert self._trigger_body is not None
+        if progress is None:
+            progress = trigger_progress(self._trigger_body["triggers"], {}, snap.get("triggers", []), self._clock_t0())
+        keep, plan = plan_restore(self._trigger_body["triggers"], progress, self._clock_t0())
         (await self.http.post("/triggers/clear")).raise_for_status()
+        self._trigger_plan = plan
         if keep:
             r = await self.http.post("/triggers/register", json={**self._trigger_body, "triggers": keep})
             if r.status_code != 200:
@@ -638,6 +801,8 @@ class AgentEnvBackend(Backend):
         trig = await self._settled_trigger_state()
         if trig is not None:
             st["triggers"] = trig
+            if self._trigger_body is not None:  # harness-reward audit §5: what a restore continues from, whatever is registered now
+                st["trigger_progress"] = self.trigger_progress(trig)
         for a in self._allowed:
             st.setdefault("allowed", {})[a] = sorted(self._allowed[a])
         return st
@@ -653,7 +818,7 @@ class AgentEnvBackend(Backend):
         if clock.get("armed") and clock.get("virtual_time"):
             await self._set_clock(clock["virtual_time"], clock.get("virtual_seconds_per_real_second", 1))
         if self._trigger_body is not None and state.get("triggers") is not None:
-            await self._restore_triggers(state["triggers"])
+            await self._restore_triggers(state["triggers"], state.get("trigger_progress"))
         # Role rules: restore exactly the allowed tool sets captured with the snapshot.
         for actor, names in (state.get("allowed") or {}).items():
             await self._toggle("disable", actor, "*")
