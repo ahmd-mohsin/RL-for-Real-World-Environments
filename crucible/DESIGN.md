@@ -926,6 +926,11 @@ launcher, filesystem transports and an import-path loss.
   every module the job imports, so a missing package fails on the login node.
   The trainer runs under torchrun as prime-rl's `rl` launcher starts it (`deploy.trainer_command`), with prime-rl's
   default trainer and common environment; its `trainer` console script sets up no distributed rank.
+- **Step numbering** follows prime-rl v0.10.0: steps count from 1 (`backend.FIRST_STEP`). The startup broadcast of a
+  fresh run is `broadcasts/step_0`, and step s writes `broadcasts/step_<s>` and `checkpoints/step_<s>`, so Crucible's
+  version v is prime-rl's step v. A checkpoint counts once DCP has written `trainer/.metadata`. The base model is sampled
+  as `<model>-base`, the name prime-rl serves under LoRA. Every wait on the trainer is bounded, including prime-rl's
+  unbounded batch-request wait (`FileIO.send_timeout_s`).
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

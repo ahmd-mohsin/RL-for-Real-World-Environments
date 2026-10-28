@@ -85,9 +85,14 @@ scripted groups run through Tinker's fake and through the bridge's fake trainer,
   - **Verification so far:** unit tests with a faked server. The smoke model is dense (Qwen3-0.6B), so replay is off
     there. The 2-step run of the real 35B is the first live check: replayed share 1.0, coverage 1.0, and `kl/mismatch`
     compared with a `--no-router-replay` step.
-- **Step numbering.** Crucible's version v (after v optimizer steps) is prime-rl's policy `v{v-1}`: prime-rl's step index
-  starts at 0, and its startup broadcast is policy `v-1`, acknowledged by `trainer()`. A resumed run relaunches the trainer
-  with `resume.step = s` and continues at batch step s + 1.
+- **Step numbering** (prime-rl v0.10.0, `trainer/ckpt.Progress.step = 1`). A fresh trainer's first step is 1
+  (`backend.FIRST_STEP`). Before it, the trainer broadcasts its startup policy to `broadcasts/step_0`, and `trainer()`
+  acknowledges it. Step s reads `batches/step_<s>` and writes `broadcasts/step_<s>` and `checkpoints/step_<s>`, so
+  Crucible's version v (after v optimizer steps) is prime-rl's step v. A resumed run relaunches the trainer with
+  `resume.step = s`, acknowledges the startup broadcast `step_<s>`, and continues at batch step s + 1. A checkpoint counts
+  once torch DCP has written its `trainer/.metadata`.
+- **The base model's served name** is `<model>-base`: with LoRA on, prime-rl serves it so, because vLLM rejects an adapter
+  named like a served base model (`InferenceConfig.to_namespace`).
 
 ## 3. Memory and parallelism on GH200
 
@@ -230,6 +235,22 @@ changes under the new adapter (LoRA sync), and the checkpoint. Results: §5.1.
   with its default trainer environment. Fixed: `deploy.trainer_command` builds that command, with a rendezvous port and
   id per launch, for the real job and both smoke launches. The job sets prime-rl's common environment (`COMMON_ENV`, a
   per-user Triton cache on node-local /tmp), and torchrun's workers are stopped before the trainer is relaunched.
+- **Attempt 8** (job 3473175, 2026-10-27): it hit the 1:55 time limit, 3.83 GPU-hours. vLLM was healthy after 180 s.
+  **The kernel check passed on the GH200**: `chunk_gated_delta_rule` (output `[1, 64, 2, 32]`) and fla's `causal_conv1d`
+  ran forward and backward with gradients, and vLLM supports `Qwen3_5MoeForConditionalGeneration` (fla 0.5.2, Triton
+  3.7.1, torch 2.13.0+cu130, CPython 3.12.15). No RL step ran. The trainer wrote `broadcasts/step_0/.sender_ready` and
+  waited 3600 s for `.receiver_ready`. The bridge waited for `broadcasts/step_-1`, which prime-rl never writes: in v0.10.0,
+  steps count from 1 (`Progress.step = 1`), not 0, so the startup broadcast is `step_0`. Then nothing failed until the
+  time limit: prime-rl's batch sender waits for the trainer's request with no bound, and the smoke's own bounds were
+  hours. Fixed:
+  - `backend.FIRST_STEP = 1` (§2). The smoke resumes from checkpoint step 2, and a fresh run loads no startup adapter
+    (the zero-initialised LoRA is the base model);
+  - every wait is bounded: `FileIO.send_timeout_s` around prime-rl's sender, and the smoke's step and startup bounds are
+    15 and 20 min (`SMOKE_TIMEOUTS`);
+  - a checkpoint counts only after DCP has written `trainer/.metadata`, so stopping the trainer after phase 1 cannot
+    leave a half-written checkpoint;
+  - two problems that had not surfaced yet, found by reading prime-rl: the base model is sampled as `<model>-base`, the
+    name prime-rl serves under LoRA, and the metrics reader skips undecodable chunks.
 - **Driver**: the compute nodes run NVIDIA **595.71.05** (`nvidia-smi` in jobs 3455884 and 3462156, GH200 120GB). That
   is above 580, the minimum for CUDA 13.0, so the cu130 torch build runs as is.
 - **The student's linear attention**: its config.json is `Qwen3_5MoeForConditionalGeneration`, 30 Gated DeltaNet layers

@@ -18,6 +18,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from crucible.core.schema.rollout import RolloutRecord
+from crucible.train.bridges.primerl import backend as backend_mod
 from crucible.train.bridges.primerl import deploy, smoke, wire
 from crucible.train.bridges.primerl.backend import FileIO, PrimeRLBackend, local_model, parse_ckpt, parse_completion
 from crucible.train.bridges.primerl.loss import LossOutputsMirror, crucible_loss, token_objective
@@ -107,15 +108,19 @@ class FakeHttp:
 
 
 class FakeIO:
-    """The prime-rl trainer: every batch sent is 'trained' and broadcast at the same step; checkpoints every step."""
+    """The prime-rl trainer: every batch sent is 'trained' and broadcast at the same step; checkpoints every step. Its
+    numbering is prime-rl v0.10.0's: steps count from 1, the startup broadcast of a fresh run is step_0, and no step_-1
+    exists (smoke attempt 8 waited for it)."""
 
     def __init__(self, root: Path):
         self.root, self.sent, self.waited = root, [], []
 
     async def send(self, step, rows):
+        assert step >= 1, f"prime-rl's first batch step is 1, not {step}"
         self.sent.append((step, [dict(r) for r in rows]))
 
     async def wait_broadcast(self, step, *, timeout_s):
+        assert step >= 0, f"prime-rl never broadcasts step_{step}"
         self.waited.append(step)
         d = self.root / "broadcasts" / f"step_{step}"
         d.mkdir(parents=True, exist_ok=True)
@@ -139,29 +144,30 @@ def test_the_backend_handshake_steps_and_resume(tmp_path: Path) -> None:
 
     async def go():
         tr = await b.trainer(MODEL, rank=32)
-        assert b.io.waited == [-1] and tr.step == 0  # the startup broadcast (policy v-1) is acknowledged first
+        assert b.io.waited == [0] and tr.step == 1 == backend_mod.FIRST_STEP  # the startup broadcast (step_0) is acknowledged first
+        assert not b.http.posts  # a fresh run's startup adapter is the base model: nothing to load
         s = await b.sampler(MODEL, None)
         out = await s.sample([1, 2, 3], max_tokens=8, temperature=1.0, stop=[7], seed=3)
-        assert out.tokens == [100, 101, 102] and out.cached_prompt_tokens == 2 and b.http.posts[-1][1]["model"] == MODEL
+        assert out.tokens == [100, 101, 102] and out.cached_prompt_tokens == 2 and b.http.posts[-1][1]["model"] == f"{MODEL}-base"  # prime-rl serves the base as <model>-base under LoRA
         assert b.http.posts[-1][1]["prompt"] == [1, 2, 3] and b.http.posts[-1][1]["stop_token_ids"] == [7]
         fb = await tr.forward_backward([_datum([1, 2], [3, 4], [-1.0, -1.0], 1.0)], loss_fn="importance_sampling", config=None)
-        assert b.io.sent[0][0] == 0 and fb.metrics["primerl/step"] == 0.0 and fb.metrics["primerl/loss/mean"] == -0.25
-        assert b.http.posts[-1] == ("/load_lora_adapter", {"lora_name": "crucible-s000000", "lora_path": str(tmp_path / "broadcasts" / "step_0")})
+        assert b.io.sent[0][0] == 1 and fb.metrics["primerl/step"] == 1.0 and fb.metrics["primerl/loss/mean"] == -0.25
+        assert b.http.posts[-1] == ("/load_lora_adapter", {"lora_name": "crucible-s000001", "lora_path": str(tmp_path / "broadcasts" / "step_1")})
         assert await tr.optim_step(learning_rate=4e-5) == {}
         path = await tr.save_for_sampler("x", ttl_s=None)
         s2 = await b.sampler(MODEL, path)
         await s2.sample([1], max_tokens=2, temperature=0.0, stop=None, seed=None)
-        assert b.http.posts[-1][1]["model"] == "crucible-s000000"
+        assert b.http.posts[-1][1]["model"] == "crucible-s000001"
         ref = await tr.save_state("x", ttl_s=None)
-        assert parse_ckpt(ref)[0] == 0
+        assert parse_ckpt(ref)[0] == 1
         with pytest.raises(ValueError, match="launched with loss"):
             await tr.forward_backward([], loss_fn="ppo", config=None)
         with pytest.raises(ValueError, match="launched with lr"):
             await tr.optim_step(learning_rate=1e-3)
-        # resume: a new process (the trainer relaunched with resume.step = 0) continues at batch step 1
+        # resume: a new process (the trainer relaunched with resume.step = 1) acknowledges step_1 and continues at batch step 2
         b2 = _backend(tmp_path / "r2")
         tr2 = await b2.trainer(MODEL, rank=32, resume=ref)
-        assert tr2.step == 1 and b2.io.waited == [0] and b2.http.posts[-1][1]["lora_name"] == "crucible-s000000"
+        assert tr2.step == 2 and b2.io.waited == [1] and b2.http.posts[-1][1]["lora_name"] == "crucible-s000001"
         s3 = await b2.sampler(MODEL, str(tmp_path / "elsewhere" / "step_9"))  # a version this process never loaded
         assert s3.name == "crucible-step_9" and b2.http.posts[-1][0] == "/load_lora_adapter"
 
@@ -234,13 +240,13 @@ def test_the_tinker_loop_trains_the_same_datums_on_prime_rl_as_on_tinker(tmp_pat
                      model=local_model(MODEL, context=262_144))
     out2 = asyncio.run(t2.run())
     assert out1["stop"] == out2["stop"] == "done" and out2["steps_done"] == 2
-    assert [s for s, _ in b.io.sent] == [0, 1] and out2["spend"]["usd"] == 0.0
+    assert [s for s, _ in b.io.sent] == [1, 2] and out2["spend"]["usd"] == 0.0
     fb = [c for c in fake.calls if c["op"] == "forward_backward"]
     for call, (_, rows) in zip(fb, b.io.sent, strict=True):
         assert rows == wire.samples(call["datums"], temperature=cfg.temperature)  # the same credit, token for token
     assert any(a != 0.0 for r in b.io.sent[0][1] for a in r["advantages"])
     state = json.loads((tmp_path / "run" / "state.json").read_text())
-    assert parse_ckpt(state["state_path"])[0] == 1 and state["sampler_path"].endswith("step_1")
+    assert parse_ckpt(state["state_path"])[0] == 2 and state["sampler_path"].endswith("step_2")
 
 
 def test_a_reply_cut_at_the_token_limit_is_a_limit_stop_in_the_curriculum_and_still_trains() -> None:
@@ -315,7 +321,7 @@ def test_the_smoke_reward_has_spread_and_its_loop_runs_on_fakes(tmp_path: Path) 
     b = _backend(tmp_path)
     out = asyncio.run(smoke.run(b, encode=lambda s: [ord(c) % 50 for c in s[:12]], decode=lambda ids: "x", model=MODEL, steps=2, prompts=2, group=2,
                                 learning_rate=4e-5))
-    assert [r["trainer_step"] for r in out["steps"]] == [0, 1] and parse_ckpt(out["last_checkpoint"])[0] == 1
+    assert [r["trainer_step"] for r in out["steps"]] == [1, 2] and parse_ckpt(out["last_checkpoint"])[0] == 2
 
 
 def _load(name):
@@ -379,6 +385,7 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
     stage = tmp_path / "smoke"
     dr.cmd_render_smoke(SimpleNamespace(base_model="Qwen/Qwen3-0.6B", partition="ghx4-interactive", time="01:55:00", workdir="/w", envdir="/n", lr=1e-4, gpus=2,
                                         mem_gb=120, run_name="smoke1", stage=str(stage)))
+    assert tomllib.loads((stage / "trainer_resume.toml").read_text())["resume"] == {"step": 2}  # phase 1 trained steps 1 and 2
     for name in ("trainer.toml", "trainer_resume.toml"):
         assert tomllib.loads((stage / name).read_text())["model"]["attn"] == "flash_attention_2"
     assert tomllib.loads((stage / "inference.toml").read_text())["router"] == "None"
@@ -389,3 +396,46 @@ def test_the_build_uses_a_managed_python_with_headers_and_the_job_runs_one_engin
     assert "uv run trainer" not in job and job.count("torchrun --role=trainer") == 2 and "-m prime_rl.trainer.rl.train @ /w/runs/smoke1/trainer_resume.toml" in job
     assert "crucible-$SLURM_JOB_ID-resume" in job and "TRITON_CACHE_DIR=/tmp/triton-$UID" in job and "expandable_segments:True" in job
     assert "torchrun --role=trainer" in job_real and f"--nproc-per-node={d.train_gpus}" in job_real
+
+
+def test_the_smoke_bounds_every_wait_and_a_trainer_that_never_requests_fails_the_send(tmp_path: Path, monkeypatch) -> None:
+    # attempt 8 (job 3473175) held 2 GPUs to the time limit on an unanswered handshake; prime-rl's own sender has no bound
+    import sys
+    import types
+
+    class NeverRequested:  # prime-rl's FileSystemBatchSender when no trainer rank writes its request marker
+        def __init__(self, *a, **k):
+            pass
+
+        async def send(self, grid):
+            await asyncio.sleep(3600)
+
+    mod = types.ModuleType("prime_rl.transports.batch.filesystem")
+    mod.FileSystemBatchSender = NeverRequested
+    for name in ("prime_rl", "prime_rl.transports", "prime_rl.transports.batch"):
+        monkeypatch.setitem(sys.modules, name, sys.modules.get(name) or types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "prime_rl.transports.batch.filesystem", mod)
+    monkeypatch.setattr(wire, "pack", lambda rows, **k: [[rows]])
+    io = FileIO(tmp_path, ranks=1, seq_len=64, model=MODEL)
+    io.send_timeout_s = 0.3
+    with pytest.raises(TimeoutError, match="requested no batch for step 1"):
+        asyncio.run(io.send(1, wire.samples([_datum([1, 2], [3], [-1.0], 1.0)], temperature=1.0)))
+
+
+def test_the_smoke_backend_uses_short_timeouts() -> None:
+    dr = _load("delta_rl")
+    b = dr._backend(SimpleNamespace(primerl_out="/tmp/x", base_model=MODEL, port=8000), lr=1e-4, loss="importance_sampling", ranks=1, seq_len=64,
+                    timeouts=dr.SMOKE_TIMEOUTS)
+    assert b.step_timeout_s == b.io.send_timeout_s == 900.0 and b.startup_timeout_s == 1200.0
+    assert dr._backend(SimpleNamespace(primerl_out="/tmp/x", base_model=MODEL, port=8000), lr=1e-4, loss="importance_sampling", ranks=1,
+                       seq_len=64).step_timeout_s == 6 * 3600.0
+
+
+def test_a_checkpoint_counts_only_once_dcp_wrote_its_metadata(tmp_path: Path) -> None:
+    io = FileIO(tmp_path, ranks=1, seq_len=64, model=MODEL)
+    d = tmp_path / "checkpoints" / "step_2" / "trainer"
+    d.mkdir(parents=True)
+    (d / "__0_0.distcp").write_bytes(b"x")
+    assert io.checkpoint(2) is None  # prime-rl made the directory; DCP is still writing
+    (d / ".metadata").write_bytes(b"m")
+    assert io.checkpoint(2) == tmp_path / "checkpoints" / "step_2"

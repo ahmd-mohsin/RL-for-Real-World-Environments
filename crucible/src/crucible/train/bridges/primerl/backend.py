@@ -20,8 +20,11 @@ the two remote calls change: sampling and the optimizer step go to processes pri
   no-op (prime-rl's step already ran; the learning rate is the trainer's configuration and is checked equal).
 - **Checkpoints**: ``save_state`` is prime-rl's own checkpoint of that step (``<out>/checkpoints/step_<s>``, weights +
   optimizer + scheduler; ``ckpt.interval = 1``); a resumed run relaunches the trainer with ``resume.step = s`` and the
-  bridge continues at batch step s + 1. Step numbering: Crucible's version v (after v optimizer steps) is prime-rl's
-  policy ``v{v-1}`` (its step index starts at 0).
+  bridge continues at batch step s + 1. Step numbering (prime-rl v0.10.0, ``trainer/ckpt.Progress.step = 1``): a fresh
+  trainer's first step is 1 (``FIRST_STEP``), and before it the trainer broadcasts its startup policy ``v{first - 1}`` to
+  ``broadcasts/step_0``. Step s reads ``batches/step_<s>``, then writes ``broadcasts/step_<s>`` and
+  ``checkpoints/step_<s>``. So Crucible's version v (after v optimizer steps) is prime-rl's step v. Smoke attempt 8
+  (job 3473175) waited for ``step_-1``, on the earlier belief that the first step was 0, and timed out.
 
 The process boundary is ``io`` (``FileIO``: the shared filesystem; a fake in the tests) and ``http`` (``HttpClient``:
 httpx), so the protocol is tested without GPUs. Nothing here prices tokens: ``local_model`` is the student's row with zero
@@ -44,6 +47,7 @@ from crucible.train.bridges.tinker.backend import FBOut, SampleOut, TokenDatum, 
 from crucible.train.bridges.tinker.models import Prices, TinkerModel, resolve
 
 SENDER_READY, RECEIVER_READY, FINISHED = ".sender_ready", ".receiver_ready", ".finished"
+FIRST_STEP = 1  # a fresh prime-rl trainer's first step (``Progress.step``, v0.10.0); its startup broadcast is step_0
 
 
 def local_model(name: str, *, context: int) -> TinkerModel:
@@ -99,6 +103,7 @@ class FileIO:
     model: str
     poll_s: float = 1.0
     simple_pack: bool = False  # tests and dry runs only: prime-rl's packer otherwise
+    send_timeout_s: float = 6 * 3600.0  # prime-rl's sender waits for every trainer rank's request with no bound of its own
 
     async def send(self, step: int, rows: Sequence[dict[str, Any]]) -> None:
         if self.simple_pack:
@@ -111,7 +116,10 @@ class FileIO:
 
         grid = wire.pack(rows, seq_len=self.seq_len, ranks=self.ranks, model=self.model)
         # prime-rl's own sender: msgpack per rank, written to a temporary name and renamed (filesystem.py:17-35)
-        await FileSystemBatchSender(self.output_dir, self.ranks, current_step=step).send(grid)
+        try:
+            await asyncio.wait_for(FileSystemBatchSender(self.output_dir, self.ranks, current_step=step).send(grid), self.send_timeout_s)
+        except TimeoutError:
+            raise TimeoutError(f"the prime-rl trainer requested no batch for step {step} in {self.send_timeout_s:.0f}s") from None
 
     async def wait_broadcast(self, step: int, *, timeout_s: float) -> Path:
         d = self.output_dir / "broadcasts" / f"step_{step}"
@@ -132,7 +140,7 @@ class FileIO:
         out: dict[str, float] = {}
         root = self.output_dir / "monitors" / "file"
         for p in sorted(root.rglob("*.jsonl")) if root.exists() else []:
-            for line in p.read_text().splitlines():
+            for line in p.read_text(errors="replace").splitlines():  # best effort: a compressed episode chunk is skipped, never fatal
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError:
@@ -142,8 +150,11 @@ class FileIO:
         return out
 
     def checkpoint(self, step: int) -> Path | None:
+        """The step's checkpoint once it is complete: prime-rl creates ``checkpoints/step_<s>`` before torch DCP saves into
+        ``trainer/``, and DCP writes ``.metadata`` last. A directory alone may be half written, and a trainer stopped then
+        (the smoke stops it after phase 1) would leave a checkpoint that cannot resume."""
         d = self.output_dir / "checkpoints" / f"step_{step}"
-        return d if d.exists() else None
+        return d if (d / "trainer" / ".metadata").exists() else None
 
 
 @dataclass
@@ -277,7 +288,7 @@ class PrimeRLBackend:
 
     io: IO
     http: Http
-    base_model: str  # the HF name vLLM serves (``vllm.model``)
+    base_model: str  # the HF name vLLM loads (``vllm.model``)
     learning_rate: float
     loss_kind: str = "importance_sampling"
     temperature: float = 1.0
@@ -291,6 +302,12 @@ class PrimeRLBackend:
     routing: RoutingStore | None = None  # MoE router replay (``routing``): None samples over /v1/completions without routes
     last: tuple[int, Path, str] | None = None
 
+    @property
+    def served_base(self) -> str:
+        """The name the base model is served under. With LoRA on (always, here) prime-rl serves it as ``<model>-base``
+        (``InferenceConfig.to_namespace``, v0.10.0), because vLLM rejects an adapter named like a served base model."""
+        return f"{self.base_model}-base"
+
     async def load_adapter(self, name: str, path: Path) -> None:
         await with_retries("vllm load_lora_adapter", lambda: self.http.post("/load_lora_adapter", {"lora_name": name, "lora_path": str(path)},
                                                                           timeout_s=600.0), stats=self.stats)
@@ -298,7 +315,7 @@ class PrimeRLBackend:
 
     async def sampler(self, model: str, path: str | None = None) -> _Sampler:
         if path is None:
-            return _Sampler(self.http, self.base_model, None, self.stats, routing=self.routing)
+            return _Sampler(self.http, self.served_base, None, self.stats, routing=self.routing)
         name = self.adapters.get(str(path))
         if name is None:  # a resumed run samples from a version this process never loaded
             name = f"{self.adapter_prefix}-{Path(path).name}"
@@ -309,9 +326,9 @@ class PrimeRLBackend:
         """The trainer process is already running (``deploy``); its first step is 0, or the checkpoint step + 1 for
         ``resume`` (``primerl-ckpt:<s>:<dir>``, written by ``save_state``). Its startup broadcast (policy v{first-1}) is
         acknowledged here, or the trainer would wait for a consumer forever."""
-        first = 0 if resume is None else parse_ckpt(resume)[0] + 1
+        first = FIRST_STEP if resume is None else parse_ckpt(resume)[0] + 1
         d = await self.io.wait_broadcast(first - 1, timeout_s=self.startup_timeout_s)
-        if first > 0:
+        if resume is not None:  # a fresh run's startup adapter is the zero-initialised LoRA: the base model
             await self.load_adapter(f"{self.adapter_prefix}-s{first - 1:06d}", d)
         return _Trainer(self, first)
 
