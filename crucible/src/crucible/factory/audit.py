@@ -116,6 +116,14 @@ def _fold(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+def _words(s: str) -> str:
+    """Letters and digits only: a quote whose words are the trace's, in order, with its punctuation re-typed (the
+    auditor wrote ``failing hidden tests: [...]`` for the trace's ``[failing hidden tests] [...]``, 2026-10-28: six of
+    eight held-out labels rejected and the task's intent share unmeasured). Joined spans still fail: the words between
+    them are missing."""
+    return re.sub(r"[\W_]+", "", s.lower())
+
+
 class Auditor:
     """The failure auditor role. ``label`` never raises on a bad reply: it rejects it with a reason."""
 
@@ -160,7 +168,7 @@ def validate(t: Trace, reply: dict, *, config: AuditConfig | None = None) -> Aud
         cause = None  # a passing trace needs no cause, only the correctness judgement
     elif cause not in CAUSES:
         return AuditLabel(t.id, None, None, ev, rat, status="rejected", why=f"cause {cause!r} is not in the closed taxonomy")
-    if len(ev.strip()) < c.min_evidence_chars or _fold(ev) not in _fold(t.text):
+    if len(ev.strip()) < c.min_evidence_chars or (_fold(ev) not in _fold(t.text) and (len(_words(ev)) < c.min_evidence_chars or _words(ev) not in _words(t.text))):
         return AuditLabel(t.id, None, None, ev, rat, status="rejected", why="the evidence is not a verbatim quote of the trace")
     return AuditLabel(t.id, cause, sc, ev, rat)
 

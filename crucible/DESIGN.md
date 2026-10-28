@@ -1496,6 +1496,11 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     (`n_differs`; the flip counts read all of them, not the first 10) and its output tail; `masked_why` lists the mask
     reasons. Two kept tasks failed S3 on one rerun in 60 each: one sandbox did not start (exit 125), and one root
     package failed as a whole with infra ok.
+  - **An audit quote is checked on its words** (2026-10-28, `audit.validate`, `_words`): evidence passes when it is
+    in the trace with whitespace and case folded, or when its letters and digits appear in order (punctuation
+    re-typed). Joined spans and invented words still fail. A held-out task's auditor wrote `failing hidden tests:
+    [...]` for the trace's `[failing hidden tests] [...]`; six of eight labels were rejected and the intent share went
+    unmeasured.
   - **A slow Docker daemon is asked again** (2026-10-28, `windows_world.image_id`): `docker image inspect` gets 60,
     180, then 600 s, and the last timeout raises, so a slow daemon is never read as a missing image. Under load the
     first timeout crashed two kept tasks' S3 re-gates.

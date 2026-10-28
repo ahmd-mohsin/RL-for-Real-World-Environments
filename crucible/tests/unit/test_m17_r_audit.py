@@ -124,3 +124,13 @@ def test_human_sample_is_ten_percent_reproducible():
     s = human_sample(ids)
     assert len(s) == 3 and s == human_sample(list(reversed(ids)))
     assert len(human_sample(ids[:3])) == 1 and human_sample([]) == []
+
+
+def test_a_quote_with_the_traces_words_in_order_and_retyped_punctuation_is_verbatim():
+    """A held-out task's auditor quoted ``failing hidden tests: [...]`` for the trace's ``[failing hidden tests] [...]``:
+    six of eight labels were rejected and the intent share went unmeasured (2026-10-28). Words in order count; joined
+    spans and invented words do not."""
+    t = Trace("t", "step 9 ran go test\n[failing hidden tests] ['pkg/a_test.go::TestA', 'pkg/b_test.go::TestB']\nend", False)
+    assert validate(t, {"cause": "skill_gap", "evidence": "failing hidden tests: ['pkg/a_test.go::TestA', 'pkg/b_test.go::TestB']"}).status == "labelled"
+    assert validate(t, {"cause": "skill_gap", "evidence": "ran go test ... TestB"}).status == "rejected"  # joined spans
+    assert validate(t, {"cause": "skill_gap", "evidence": "failing hidden tests: ['pkg/c_test.go::TestC']"}).status == "rejected"
