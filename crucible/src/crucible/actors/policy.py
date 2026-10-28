@@ -23,6 +23,7 @@ from crucible.core.ids import sha256_text
 from crucible.core.schema.actions import Action, Done, Message, Observation, ToolCall, openai_name
 from crucible.core.schema.state import WorldRef
 from crucible.core.schema.trace import Trace
+from crucible.world import hostreach
 from crucible.world.world import World, WorldError
 
 
@@ -797,7 +798,10 @@ async def run_episode(world: World, policies: dict[str, Policy], *, max_steps: i
                 break
 
     try:
-        await asyncio.wait_for(loop(), timeout=limits.timeout_s)
+        # the agent clock stands still while a remote host's outage pauses the episode (``world.hostreach``, 2026-10-26)
+        async with asyncio.timeout(limits.timeout_s) as agent_clock:
+            with hostreach.clock(agent_clock):
+                await loop()
     except TimeoutError:
         state["stop"] = "timeout"
     observed = []

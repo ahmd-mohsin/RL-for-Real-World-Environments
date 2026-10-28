@@ -1060,7 +1060,8 @@ build tasks that target its failures):
   - **Journal, credit, diagnosis** (`factory/swarm_journal.py`, `scripts/swarm.py`): sessions, verdicts and failures are
     logged with provenance. A failure is blamed on the producing role, and a harness stop on `harness`. Per-turn
     builder credit runs through `credit.compose.turn_credit` over each state's attempts. Yield and cost are tabulated per
-    role and model. `diagnose` ranks the bottlenecks and lists proposals, never applied.
+    role and model. `diagnose` ranks the bottlenecks and lists proposals, never applied. A remote host's outages
+    (`hosts.jsonl`, fed by `world.hostreach.listen`) are counted per host (`tables()["hosts"]`), never blamed on a role.
   - **Lanes:** `write-prompts` in `lh_debug.py`, `lh_kernel_debug.py` and `lh_kernel_debug_migrate.py`
     (`factory/swarm_prompts.py`). Per window, a `prompt_author` session drafts the report, the lane's own lint and
     ledger decide, and the reviewer reads it once. `lh_swarm.py --preset swarm` fills `SwarmRunner`'s slots (now also
@@ -1105,7 +1106,9 @@ build tasks that target its failures):
       (core toolchain against convenience tools), host resources, token truncation, provider errors, nondeterministic
       grades, the sidecar and final grader disagreeing, re-pathed false positives, stale visible tests, protected-edit
       consensus, unreachable milestones, spec defects, codec suspects, S9b false fails, trainer numerics, job-log
-      errors and unreadable attempts.
+      errors and unreadable attempts. A remote host that stopped answering (`host_unreachable`, 2026-10-26) is one
+      sandbox cluster per host: HIGH for the attempts it masked (in place of the generic mask), LOW for those that paused
+      and resumed (`meta.host_outages`); a call it cut is not counted as a tool error.
     - **Clusters:** grouped by a normalized signature, each with episodes, tasks, first occurrence, a reproduction, an
       impact and a severity.
       - **Impact:** the reward moved or at risk, the advantage distortion per rollout group (`sum |Δ advantage|`, sign
@@ -1309,6 +1312,26 @@ $0, no model calls, no GPU; student Qwen/Qwen3.6-35B-A3B; builder `claude-code:o
     `envs.make_env`). Grades and template builds take the build lock one at a time, because parallel nvcc builds ran
     the shared 5090 out of memory.
   - **Masking:** an unreachable host or a missing spec masks the grade (V8).
+  - **Host outages (2026-10-26, `world/hostreach.py`):** when this Mac lost its network, every in-flight episode's tool
+    calls hung until the 9,000 s attempt clock, and all 8 episodes of a measurement were masked after $29.5 of sampling.
+    Every call to a remote host now runs under that host's `HostReach`, shared by the process (every `DockerExec` on a
+    remote daemon, so the lab's task sandboxes too, `SSHExec`, `kernel_episode.remote`, the workspace pull, the liveness
+    check). The local daemon's calls are unchanged.
+    - **Fail fast:** a call still running after 15 s has the host probed (`docker version` through the shared tunnel, or
+      `ssh ... true`), and two failed probes in a row cut it with the typed `HostUnreachable` (at most 50 s). A transport
+      error the call reports itself (no daemon, no tunnel, ssh rc 255) is confirmed by one probe, never read from its words
+      alone. SSH options are `ConnectTimeout=15`, `ServerAliveInterval=15`, `ServerAliveCountMax=4`. The workspace pull
+      runs off the event loop and is killed after 60 s without data (on the loop, one stalled stream held every episode).
+    - **Pause, then retry:** the episode pauses with every registered clock held (the Runner's attempt clock, the agent
+      clock, the World's tool deadline, a grade's scoring budget), and probes with backoff for up to 30 min per attempt,
+      never past 30 min after the host went down. Back: the call runs again if nothing reached the host or it is
+      replayable (framework calls, read-only tools); a policy's write or shell call cut mid-way returns `interrupted` to
+      the agent. Model calls already made are never sampled again. Still down: `transport_unreachable` with detail
+      `host_unreachable`, an infra mask (a masked final grade is regraded from the stored patch, never re-sampled).
+    - **Fleet stop:** `open` starts no World while the host is known to be down, and `lh_kernel_target.py` launches no job
+      (`launch_gate`; skipped with the reason, picked up by the next run of the stage).
+    - **Diagnostics:** each attempt's outages are in `record.meta.host_outages` and a `host_outage` run-journal event; the
+      host's events go to `<out>/journal/hosts.jsonl` (swarm journal); framework health clusters them per host.
   - **Targeting:** `lh_kernel_target.py` runs the debug lane's targeting stages (pilot, student, frontier, audit, mine,
     report; the same meter, keep rule, trace audit and presets) over these tasks, and records per-GPU grade minutes. The
     `fairness` (S9b), `disclose`, `worldfix` and `regrade` stages are refused for kernel tasks: there is no CUDA

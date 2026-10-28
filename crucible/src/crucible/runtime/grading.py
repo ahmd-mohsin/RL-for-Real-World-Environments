@@ -81,6 +81,7 @@ from typing import Any
 
 from crucible.core.schema.run import NON_RETRYABLE_KINDS, Failure
 from crucible.runtime.infra import NORMALIZE, StageFailure, _causes, classify_exception, classify_verifier, failure
+from crucible.world import hostreach
 
 HANDOFF_REF = "handoff_ref.json"
 # grade failures the answer itself can cause: a hang of the tests on this answer, a checker or judge that fails only on it
@@ -315,7 +316,8 @@ async def grade_in_place(grade: Callable[[Path], Awaitable[Any]], gdir: Path, *,
         try:
             try:
                 async with cm:
-                    rep = await grade(try_dir(gdir, i))
+                    with hostreach.clock(cm):  # a remote grader host's outage holds this try's budget too (world.hostreach)
+                        rep = await grade(try_dir(gdir, i))
             except StageFailure:
                 raise
             except Exception as ex:

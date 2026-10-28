@@ -36,9 +36,9 @@ from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.grading import answer_sensitive, decided, deciding_record, grade_in_place, grade_summary, grading_window, seen_before, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
 from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, _take_findings, episode_sidecar, probed, save_episode
-from crucible.runtime.infra import StageFailure, boundary, episode_failure
+from crucible.runtime.infra import StageFailure, boundary, classify_exception, episode_failure
 from crucible.verify.patchio import read_patch, write_patch
-from crucible.world.exec import _run_subprocess
+from crucible.world.exec import HostUnreachable, _run_subprocess
 
 
 class WorkspaceHarness(NativeHarness):
@@ -207,7 +207,7 @@ class WorkspaceHarness(NativeHarness):
             t0 = time.monotonic()
             # the commit the agent starts from, recorded before it runs: the ``base`` tag is in the agent's own repository
             # and can be deleted or moved (M7 audit)
-            base_sha = await _base_sha(attempt.task.workspace(world))
+            base_sha = await _base_sha(await _workspace(attempt.task, world, "seed"))
             if base_sha:
                 (attempt.dir / "base_sha").write_text(base_sha + "\n")
             with boundary("agent"):
@@ -231,7 +231,7 @@ class WorkspaceHarness(NativeHarness):
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
-            ws = attempt.task.workspace(world)
+            ws = await _workspace(attempt.task, world, "collect")
             broken += [b for b in await repo_broken(ws, base_sha) if b not in broken]
             if broken:
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
@@ -278,6 +278,16 @@ class WorkspaceHarness(NativeHarness):
                 settle_usage(res, res.calls or {a: list(getattr(p, "model_calls", [])) for a, p in policies.items()})
             res.timings = {k: round(v, 3) for k, v in t.items()}
         return res
+
+
+async def _workspace(task: Any, world: Any, stage: str) -> Any:
+    """The task's workspace directory for ``world``: ``await task.aworkspace(world)`` when the task has one (a remote World
+    mirrors its repository here off the event loop and pauses for its host: ``kernel_episode``), else ``task.workspace(world)``.
+    A host that did not come back is the typed infrastructure failure of ``stage`` (``world.hostreach``), not a harness crash."""
+    try:
+        return await task.aworkspace(world) if callable(getattr(task, "aworkspace", None)) else task.workspace(world)
+    except HostUnreachable as e:
+        raise StageFailure(classify_exception(e, stage)) from e
 
 
 async def _base_sha(ws) -> str | None:

@@ -15,6 +15,11 @@ Tasks: ``--tasks`` (default: every kernel task the lane's funnel lists as passin
 What differs from the debug lane: no ``worldfix``, ``disclose``, ``regrade`` or ``fairness`` stage (S9b's alternatives and
 second verifier have no CUDA writer yet: 10 §9.3); the honest-trace checks protect the grader's op test, not a test tree;
 a failure's skill is the kernel intent's (``kernel_debug.task_intent``), on intent when the judges label it a skill gap.
+
+Host outages (``world.hostreach``, 2026-10-26): an episode pauses while the GPU host is unreachable and resumes when it is
+back; one still down after the pause budget is masked ``host_unreachable``. No job starts while the host is down
+(``kernel_episode.launch_gate``: skipped with that reason, picked up by the next run of the stage), and the host's events
+go to ``<out>/journal/hosts.jsonl``.
 """
 
 from __future__ import annotations
@@ -91,6 +96,11 @@ class KernelPhase(T.Phase):
         finally:
             T.Tasks = orig
         self.slots = T.Slots(min(a.slots, self.host.max_worlds))
+        from crucible.factory.swarm_journal import SwarmJournal
+
+        # the GPU host's outages (down, each paused operation, up, held launches): <out>/journal/hosts.jsonl, read by
+        # swarm_journal.tables (``scripts/swarm.py diagnose``); each episode's own outages are in its record (meta.host_outages)
+        self.journal = SwarmJournal(self.out / "journal")
 
     def settings(self) -> dict[str, Any]:
         s = super().settings()
@@ -100,6 +110,16 @@ class KernelPhase(T.Phase):
         return s
 
     async def job(self, model: str, tid: str, *, k: int, seed: int, purpose: str, concurrency: int, tag: str) -> dict[str, Any]:
+        from crucible.factory.lanes import kernel_episode as ke
+
+        done = T.jload(self.run_dir(tag, tid) / "done.json")
+        if not (done and done.get("k") == k) and not await ke.launch_gate(self.host):
+            # fleet stop (2026-10-26): the GPU host has been unreachable for the whole pause budget: no job starts (no World, no
+            # model call, nothing reserved on the meter); a later run of the stage picks it up
+            why = f"host_unreachable: {self.host.name} did not answer within the pause budget; not started"
+            self.journal.host({"event": "launch_held", "host": self.host.name, "why": why, "task": tid, "arm": tag})
+            print(f"[{tag}] {tid}: {why}", flush=True)
+            return {"task": tid, "arm": tag, "skipped": why}
         t0 = time.time()
         row = await super().job(model, tid, k=k, seed=seed, purpose=purpose, concurrency=concurrency, tag=tag)
         task = self.tasks.task(tid)
@@ -208,7 +228,10 @@ async def amain(a: argparse.Namespace) -> None:
     T.PREFIX = PREFIX
     T.honest_of = kernel_honest_of  # the audit stage's honest-trace checks
     gd.failure_skill, gd.task_intent = kernel_failure_skill, kd.task_intent  # the mine stage's skill of a kernel failure (this process only)
+    from crucible.world import hostreach
+
     ph = KernelPhase(a)
+    unlisten = hostreach.listen(ph.journal.host)
     tids = sorted(ph.tasks.rows)
     print(f"[kernel] host {ph.host.name} ({ph.host.gpu}); tasks {tids}", flush=True)
     if any(s in a.stages for s in ("pilot", "student", "frontier", "arms")) and not a.no_preflight:
@@ -235,6 +258,7 @@ async def amain(a: argparse.Namespace) -> None:
             else:
                 raise SystemExit(f"unknown stage {st}")
     finally:
+        unlisten()
         print(f"spent {ph.meter.spent:.4f} of {ph.meter.cap_usd}", flush=True)
 
 

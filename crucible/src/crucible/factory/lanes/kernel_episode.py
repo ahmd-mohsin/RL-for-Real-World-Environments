@@ -27,6 +27,12 @@ GPU episode:
   during the episode). Grades and template builds also take the host's build lock one at a time: concurrent nvcc builds ran
   the shared 5090 out of memory (2026-10-23).
 - **Masking** (V8): a grade that cannot run (host unreachable, no calibrated spec, no reward document) is masked, never 0.
+- **Host outages** (2026-10-26, ``world.hostreach``): every call to the host (the World's ``DockerExec``, ``remote``, the
+  workspace pull, the liveness check) runs under the host's ``HostReach`` (``host_reach``): a hung call is cut within about
+  50 s once the host stops answering, the episode then pauses with its clocks held and resumes when the host is back (a
+  replayable call runs again, a policy's cut write or shell call comes back to it as interrupted), and a host still down
+  after the pause budget (30 min) masks the attempt as ``transport_unreachable`` / ``host_unreachable``. ``open`` starts no
+  World while the host is known to be down, and ``launch_gate`` holds a measurement's next job (fleet stop).
 
 DeltaAI (GH200, Apptainer, user-mode, ``trusted: false``) needs the runner on the compute node itself (no Docker daemon to
 reach from here); ``GpuHost.runtime == "apptainer"`` is declared for it and refused by ``open`` until that path is built
@@ -36,6 +42,7 @@ reach from here); ``GpuHost.runtime == "apptainer"`` is declared for it and refu
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -85,7 +92,8 @@ class GpuHost:
     key: str = "~/.ssh/id_ed25519"
 
     def ssh_argv(self, script: str) -> list[str]:
-        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=6",
+        # 2026-10-26: a connect fails within 15 s and a live session within 60 s of the host going quiet (it took 180 s)
+        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
                 "-i", os.path.expanduser(self.key), self.ssh, "bash -c " + shlex.quote(script)]
 
 
@@ -106,6 +114,23 @@ def host_of(name: str) -> GpuHost:
     return HOSTS[name]
 
 
+def host_reach(host: GpuHost) -> Any:
+    """The host's reachability (``world.hostreach``), shared with the World's ``DockerExec`` on the same daemon: probed with
+    ``docker version`` through the shared tunnel (the World's own path), or with ``ssh ... true`` for a host without a daemon.
+    Named after the host, so records, journals and the health report group its outages by ``rtx5090``."""
+    from crucible.world import hostreach
+
+    if host.docker_host:
+        return hostreach.for_docker_host(host.docker_host, name=host.name)
+    return hostreach.for_ssh(host.ssh, host.ssh_argv("true"), name=host.name)
+
+
+async def launch_gate(host: GpuHost, *, max_s: float | None = None) -> bool:
+    """Fleet stop (2026-10-26): before a measurement launches new episodes on ``host``, wait while the host is known to be
+    down (``HostReach.wait_up``, at most ``max_s``, default the pause budget). False: still down, launch nothing."""
+    return await host_reach(host).wait_up(max_s)
+
+
 @dataclass
 class Remote:
     rc: int
@@ -114,20 +139,44 @@ class Remote:
     seconds: float
 
 
-async def remote(host: GpuHost, script: str, *, stdin: str | None = None, timeout: float = 7200, retries: int = 2) -> Remote:
-    """``script`` on the host over SSH. An SSH failure (rc 255: the host or the network dropped) is retried with a backoff;
-    a script's own failure is returned as it is."""
-    for attempt in range(retries + 1):
-        t0 = time.monotonic()
-        p = await asyncio.create_subprocess_exec(*host.ssh_argv(script), stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        try:
-            out, err = await asyncio.wait_for(p.communicate(stdin.encode() if stdin is not None else None), timeout)
-        except TimeoutError:
+async def _ssh_once(host: GpuHost, script: str, stdin: bytes | None, timeout: float) -> Remote:
+    """One SSH call; cancelled (``HostReach.guard`` cut it), it kills its ssh."""
+    t0 = time.monotonic()
+    p = await asyncio.create_subprocess_exec(*host.ssh_argv(script), stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+                                             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(p.communicate(stdin), timeout)
+    except TimeoutError:
+        p.kill()
+        await p.wait()
+        return Remote(124, "", f"timed out after {timeout:.0f}s", time.monotonic() - t0)
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
             p.kill()
-            await p.wait()
-            return Remote(124, "", f"timed out after {timeout:.0f}s", time.monotonic() - t0)
-        r = Remote(p.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace"), time.monotonic() - t0)
+        raise
+    return Remote(p.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace"), time.monotonic() - t0)
+
+
+async def remote(host: GpuHost, script: str, *, stdin: str | bytes | None = None, timeout: float = 7200, retries: int = 2) -> Remote:
+    """``script`` on the host over SSH, under the host's ``HostReach`` (2026-10-26). An SSH failure (rc 255) the host's probe
+    confirms is an outage: the call pauses the episode's clocks, waits for the host and runs the script again once it is
+    back (every script this module sends is the same when repeated: a grade, a template build, the bundle), or raises
+    ``HostUnreachable`` once the pause budget is spent. A call that hangs is cut once the host stops answering probes, the
+    same way. An SSH failure the probe does not confirm (a dropped session) is retried with a backoff; a script's own
+    failure is returned as it is."""
+    from crucible.world.exec import SSH_NOT_DISPATCHED, HostUnreachable
+
+    reach = host_reach(host)
+    data = stdin.encode() if isinstance(stdin, str) else stdin
+
+    async def once() -> Remote:
+        r = await _ssh_once(host, script, data, timeout)
+        if r.rc == 255 and await reach.confirm(r.err.strip()[-300:] or "ssh exited 255"):
+            raise HostUnreachable(reach.name, f"ssh to {host.name}: {r.err.strip()[-300:]}", dispatched=not SSH_NOT_DISPATCHED.search(r.err))
+        return r
+
+    for attempt in range(retries + 1):
+        r = await reach.call(once, what=f"ssh to {host.name}", replay=True)
         if r.rc != 255 or attempt == retries:
             return r
         await asyncio.sleep(15 * (attempt + 1))
@@ -228,11 +277,9 @@ async def ensure_episode_bundle(host: GpuHost, *, migration: bool = False) -> st
         runner = Path(__file__).resolve().parents[4] / "scripts" / ("lh_kernel_gpu.py" if migration else "lh_kernel_debug_gpu.py")
         script = (f"set -e; rm -rf {shlex.quote(dest)}/kit.new; mkdir -p {shlex.quote(dest)}/kit.new; tar -xf - -C {shlex.quote(dest)}/kit.new; "
                   f"rm -rf {shlex.quote(dest)}/kit; mv {shlex.quote(dest)}/kit.new {shlex.quote(dest)}/kit")
-        p = await asyncio.create_subprocess_exec(*host.ssh_argv(script), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.PIPE)
-        _, err = await p.communicate(kit)
-        if p.returncode != 0:
-            raise RuntimeError(f"episode kit on {host.name}: {err.decode(errors='replace')[-400:]}")
+        r = await remote(host, script, stdin=kit, timeout=300)  # bounded, and paused for the host like every other call (it was unbounded)
+        if r.rc != 0:
+            raise RuntimeError(f"episode kit on {host.name}: {r.err[-400:]}")
         name_on_host = "stage_gpu.py" if migration else "run_gpu.py"
         r = await remote(host, f"cat > {shlex.quote(dest + '/' + name_on_host)}", stdin=runner.read_text(), timeout=120)
         if r.rc != 0:
@@ -264,15 +311,24 @@ class HostGrader:
     grades: list[dict[str, Any]] = field(default_factory=list)
 
     async def grade(self, rec: Mapping[str, Any], patch: str) -> dict[str, Any]:
+        from crucible.world.exec import HOST_UNREACHABLE, host_unreachable_cause
+
         mig = is_migration(rec)
         t0 = time.time()
         try:
             bundle = await ensure_episode_bundle(self.host, migration=mig)
         except Exception as e:  # noqa: BLE001 - the host or its bundle is unreachable: masked, never 0 (V8)
-            return {"infra": {"status": "masked", "failure_kind": "gpu_host", "reason": f"{type(e).__name__}: {e}"[:400]}}
+            kind = HOST_UNREACHABLE if host_unreachable_cause(e) is not None else "gpu_host"
+            return {"infra": {"status": "masked", "failure_kind": kind, "reason": f"{type(e).__name__}: {e}"[:400]}}
         runner = "stage_gpu.py" if mig else "run_gpu.py"
         cmd = f"cd {shlex.quote(bundle)} && python3 {runner} --arch {self.host.arch} --mode {self.host.runtime} --grade-one {shlex.quote(str(rec['id']))}"
-        r = await remote(self.host, GpuLock(self.host).wrap(cmd, exclusive=has_perf(rec)), stdin=patch, timeout=self.timeout_s)
+        try:
+            r = await remote(self.host, GpuLock(self.host).wrap(cmd, exclusive=has_perf(rec)), stdin=patch, timeout=self.timeout_s)
+        except Exception as e:  # the host did not come back within the pause budget (hostreach): masked, the patch regraded later
+            if (gone := host_unreachable_cause(e)) is None:
+                raise
+            self.grades.append({"task": rec["id"], "seconds": round(time.time() - t0, 1), "grade_s": None, "rc": None, "at": time.time(), "infra": HOST_UNREACHABLE})
+            return {"infra": {"status": "masked", "failure_kind": HOST_UNREACHABLE, "reason": str(gone)[:400]}}
         doc = last_json(r.out)
         row = {"task": rec["id"], "seconds": round(time.time() - t0, 1), "grade_s": (doc or {}).get("grade_s"), "rc": r.rc, "at": time.time()}
         self.grades.append(row)
@@ -429,20 +485,31 @@ class KernelEpisodeTask(kd.KernelDebugTask):
         if self.host.runtime != "docker":
             raise RuntimeError(f"GPU host {self.host.name}: the {self.host.runtime} World runs on the compute node itself; not built yet (10 §9.4)")
         from crucible.core.store import Store
+        from crucible.world.exec import HostUnreachable
         from crucible.world.world import World
 
+        # fleet stop (2026-10-26): no World starts while its host is known to be down; the episode pauses for it (its clocks
+        # held), and a host that does not come back masks the attempt as host_unreachable before any model call is made
+        reach = host_reach(self.host)
+        await reach.ready(what="opening a GPU World")
         template = await ensure_template(self.host, self.rec)
         workdir = Path(workdir).resolve()
         workdir.mkdir(parents=True, exist_ok=True)
         name = f"{PREFIX}{uuid.uuid4().hex[:12]}"
         env = await asyncio.to_thread(docker_env, self.host)
         hold = GpuLock(self.host).hold_exclusive() if has_perf(self.rec) else None
-        r = await asyncio.to_thread(subprocess.run, world_run_argv(self.host, name, template, world_image(self.host, self.rec)), capture_output=True, text=True, env=env, timeout=300,
-                                    check=False)
+        try:
+            r = await asyncio.to_thread(subprocess.run, world_run_argv(self.host, name, template, world_image(self.host, self.rec)), capture_output=True, text=True,
+                                        env=env, timeout=300, check=False)
+        except subprocess.TimeoutExpired as e:
+            r = subprocess.CompletedProcess(e.cmd, 124, "", f"docker run timed out after {e.timeout}s")
         if r.returncode != 0:
             if hold is not None:
                 hold.terminate()
-            raise RuntimeError(f"GPU World did not start on {self.host.name}: {r.stderr[-500:]}")
+            why = f"GPU World did not start on {self.host.name}: {(r.stderr or '')[-500:]}"
+            if await reach.confirm(why):  # the host does not answer a probe either: an outage, not a broken World
+                raise HostUnreachable(reach.name, why, dispatched=True)
+            raise RuntimeError(why)
 
         async def remove() -> None:
             await asyncio.to_thread(subprocess.run, ["docker", "rm", "-f", name], capture_output=True, text=True, env=env, timeout=300, check=False)
@@ -456,7 +523,10 @@ class KernelEpisodeTask(kd.KernelDebugTask):
             cp = await asyncio.to_thread(subprocess.run, ["docker", "exec", name, "bash", "-c", seed], capture_output=True, text=True, env=env, timeout=1800,
                                          check=False)
             if cp.returncode != 0:
-                raise RuntimeError(f"GPU World seed copy failed: {cp.stderr[-400:]}")
+                why = f"GPU World seed copy failed: {cp.stderr[-400:]}"
+                if await reach.confirm(why):
+                    raise HostUnreachable(reach.name, why, dispatched=True)
+                raise RuntimeError(why)
             w = World(world_spec(), instructions={"agent": self.instruction}, store=Store(workdir / "s"), workdir=workdir / "w", backend="container_exec",
                       backend_params={"container": name, "docker_host": self.host.docker_host or None, "base": WORLD_ROOT, "gpus": True, "network_enforced": True})
             await w.start()
@@ -466,6 +536,7 @@ class KernelEpisodeTask(kd.KernelDebugTask):
             raise
         w._crucible_container = name
         w._crucible_env = env
+        w._crucible_reach = reach  # envs.world_alive pauses for the host instead of reading an outage as a dead World
         w._crucible_mirror = workdir / "mirror"
         inner = w.close
 
@@ -481,11 +552,39 @@ class KernelEpisodeTask(kd.KernelDebugTask):
     def workspace(self, world: Any) -> Path:
         """A local mirror of the container's repository (tracked and untracked, not ignored, files and ``.git``), refreshed
         on every call: what the episode harness collects, checks and reads the base commit from."""
+        return self._pull(world, [])
+
+    async def aworkspace(self, world: Any) -> Path:
+        """``workspace`` off the event loop (the harness prefers it, ``harness.workspace._workspace``): a pull that stalls is
+        killed, and a pull the host's outage broke pauses the episode and pulls again once the host is back (a pull is the
+        same when repeated); a host that does not come back raises ``HostUnreachable`` (2026-10-26: the pull ran on the
+        event loop, so one stalled stream held every episode of the process)."""
+        from crucible.world.exec import HostUnreachable
+
+        reach = getattr(world, "_crucible_reach", None) or host_reach(self.host)
+
+        async def once() -> Path:
+            procs: list[subprocess.Popen] = []
+            try:
+                return await asyncio.to_thread(self._pull, world, procs)
+            except asyncio.CancelledError:
+                for p in procs:
+                    with contextlib.suppress(OSError):
+                        p.kill()
+                raise
+            except RuntimeError as e:
+                if await reach.confirm(str(e)):
+                    raise HostUnreachable(reach.name, f"pulling the workspace: {e}", dispatched=True) from e
+                raise
+
+        return await reach.call(once, what="pulling the workspace", replay=True)
+
+    def _pull(self, world: Any, procs: list[subprocess.Popen]) -> Path:
         mirror = Path(world._crucible_mirror)
         if mirror.exists():
             shutil.rmtree(mirror)
         mirror.mkdir(parents=True)
-        pull_tree(world._crucible_container, WORLD_ROOT, mirror, env=world._crucible_env)
+        pull_tree(world._crucible_container, WORLD_ROOT, mirror, env=world._crucible_env, procs=procs)
         return mirror
 
     async def snapshot_patch(self, world: Any) -> str:
@@ -573,19 +672,59 @@ PULL = ("cd {root} && {{ git -c safe.directory='*' ls-files -co --exclude-standa
         "tar --null --no-recursion -T - -cf -")
 
 
-def pull_tree(container: str, root: str, dest: Path, *, env: Mapping[str, str] | None = None, timeout: float = 900) -> None:
-    """The container repository's tracked and untracked, not ignored, files and its ``.git``, streamed into ``dest``."""
+class _Watched:
+    """A pipe whose reads note the time of the last byte (``pull_tree``'s stall watchdog)."""
+
+    def __init__(self, f: Any):
+        self.f, self.last = f, time.monotonic()
+
+    def read(self, n: int = -1) -> bytes:
+        b = self.f.read(n)
+        if b:
+            self.last = time.monotonic()
+        return b
+
+
+def pull_tree(container: str, root: str, dest: Path, *, env: Mapping[str, str] | None = None, timeout: float = 900, stall_s: float = 60.0,
+              procs: list[subprocess.Popen] | None = None) -> None:
+    """The container repository's tracked and untracked, not ignored, files and its ``.git``, streamed into ``dest``. The
+    stream is killed when no byte arrives for ``stall_s`` or the pull runs past ``timeout`` (2026-10-26: a stream that a lost
+    network stalled was read forever); ``procs`` gets the process, so an async caller can kill it when it is cancelled."""
+    import threading
+
     p = subprocess.Popen(["docker", "exec", container, "bash", "-c", PULL.format(root=root)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          env=dict(env) if env is not None else None)
+    if procs is not None:
+        procs.append(p)
+    assert p.stdout is not None
+    src = _Watched(p.stdout)
+    t0, cut = time.monotonic(), []
+
+    def watch() -> None:
+        while p.poll() is None:
+            now = time.monotonic()
+            if now - src.last > stall_s or now - t0 > timeout:
+                cut.append(f"no data for {now - src.last:.0f}s" if now - src.last > stall_s else f"past {timeout:.0f}s")
+                with contextlib.suppress(OSError):
+                    p.kill()
+                return
+            time.sleep(0.5)
+
+    threading.Thread(target=watch, daemon=True).start()
     try:
-        assert p.stdout is not None
-        with tarfile.open(fileobj=p.stdout, mode="r|") as tf:
+        with tarfile.open(fileobj=src, mode="r|") as tf:  # type: ignore[call-overload]
             tf.extractall(dest, filter="data")
+    except tarfile.TarError as e:
+        if not cut:
+            raise
+        raise RuntimeError(f"pulling the workspace from {container} stalled ({cut[0]}): {e}") from e
     finally:
         try:
-            p.wait(timeout=timeout)
+            p.wait(timeout=max(1.0, timeout - (time.monotonic() - t0)))
         except subprocess.TimeoutExpired:
             p.kill()
+    if cut:
+        raise RuntimeError(f"pulling the workspace from {container} stalled ({cut[0]})")
     if p.returncode not in (0, None):
         err = p.stderr.read().decode(errors="replace") if p.stderr is not None else ""
         raise RuntimeError(f"pulling the workspace from {container} failed: {err[-300:]}")

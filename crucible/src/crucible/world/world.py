@@ -43,11 +43,11 @@ from crucible.core.schema.trace import Trace, TraceActor, TraceEvent, TraceOutco
 from crucible.core.schema.world import ActorSpec, EventSpec, WorldSpec
 from crucible.core.store import Store, get_store
 from crucible.core.text import safe_json, safe_text, unencodable
-from crucible.world import lifecycle
+from crucible.world import hostreach, lifecycle
 from crucible.world.apps.base import App, AppContext
 from crucible.world.backends.base import Backend
 from crucible.world.clock import AccessControl, EventScheduler, Fired, VirtualClock, parse_duration
-from crucible.world.exec import container_lost_cause
+from crucible.world.exec import HOST_UNREACHABLE, container_lost_cause, host_unreachable_cause
 
 MAX_INNER_TURNS = 8  # tool calls a responder may make while handling one inbound batch
 
@@ -570,12 +570,25 @@ class World:
             coro = (router.call(actor, app_id, tool, call.arguments, call.tool_call_id, system=system) if router is not None
                     else self.apps[app_id].call(tool, call.arguments, actor=actor, call_id=call.tool_call_id))
             # a tool's own deadline is at most tool_timeout_s (App.deadline); the World waits TOOL_GRACE_S longer, so it ends
-            # only a tool hung past its own deadline (infrastructure), never a policy's slow command (M1 audit R-4)
-            result = await asyncio.wait_for(coro, timeout=self.spec.limits.tool_timeout_s + TOOL_GRACE_S)
+            # only a tool hung past its own deadline (infrastructure), never a policy's slow command (M1 audit R-4). A remote
+            # host's outage holds this deadline with the episode's clocks (``hostreach``, 2026-10-26), and replays a call it cut
+            # once the host is back only when the tool is read-only (a write or a shell command may have partly run)
+            async with asyncio.timeout(self.spec.limits.tool_timeout_s + TOOL_GRACE_S) as deadline:
+                with hostreach.clock(deadline), hostreach.replayable(bool(spec.read_only)):
+                    result = await coro
         except TimeoutError:
             self._infra("transport_timeout", f"{qualified} hung past its own deadline ({self.spec.limits.tool_timeout_s}s + {TOOL_GRACE_S:g}s)")
             return fail(qualified, f"{qualified} timed out", "timeout", "infra")
         except Exception as e:  # noqa: BLE001 - an App crashing is an environment bug: contain it, record it, mask the episode
+            if (gone := host_unreachable_cause(e)) is not None:
+                if gone.resumed:  # the host came back after the pause; the call was cut mid-way: the agent decides, the episode goes on
+                    self._log("state", actor, "host_outage", text=str(gone)[:2000], data={"host": gone.host, "tool": qualified, "paused_s": round(gone.paused_s, 3),
+                                                                                         "resumed": True})
+                    return fail(qualified, f"{qualified} was interrupted: {hostreach.INTERRUPTED} and came back after {gone.paused_s:.0f}s. The call may "
+                                           "have partly run: check the state before you repeat it.", "interrupted", "tool")
+                # the host did not come back within the pause budget: infrastructure, masked (V8), with the reason the health report groups
+                self._infra("transport_unreachable", f"{qualified}: {gone}", failure_detail=HOST_UNREACHABLE)
+                return fail(qualified, f"{qualified}: the environment's host is unreachable", "transport", "infra")
             if (lost := container_lost_cause(e)) is not None:  # the host confirmed the container is gone: an outage, not a tool bug (M1 R-1)
                 self._infra("crucible:env_container_lost", f"{qualified}: {lost}")
                 return fail(qualified, f"{qualified}: the environment's container was lost", "transport", "infra")
@@ -595,9 +608,10 @@ class World:
                 self._log("state", actor, "noise", data={"ops": ops, "tool": qualified})
         return self._bound(result)
 
-    def _infra(self, kind: str, reason: str, detail: str | None = None) -> None:
-        """An infrastructure fault during the episode: run_episode masks the sample (DESIGN P16)."""
-        self.failures.append(Failure(kind=kind, stage="agent", reason=reason[:500]))
+    def _infra(self, kind: str, reason: str, detail: str | None = None, *, failure_detail: str | None = None) -> None:
+        """An infrastructure fault during the episode: run_episode masks the sample (DESIGN P16). ``detail`` is the
+        traceback for the trace; ``failure_detail`` the failure's sub-kind (``host_unreachable``)."""
+        self.failures.append(Failure(kind=kind, stage="agent", reason=reason[:500], detail=failure_detail))
         self._log("state", None, "infra_fault", text=reason[:2000], data={"kind": kind, **({"traceback": detail} if detail else {})})
 
     def _bound(self, r: ToolResult) -> ToolResult:

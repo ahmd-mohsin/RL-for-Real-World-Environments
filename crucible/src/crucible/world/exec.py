@@ -77,6 +77,42 @@ def container_lost_cause(e: BaseException | None) -> EnvContainerLost | None:
     return None
 
 
+HOST_UNREACHABLE = "host_unreachable"  # the Failure detail (and reason prefix) of a remote host that stopped answering
+# what the Docker CLI prints when it never reached the daemon (nothing was dispatched), and any transport failure of a call
+DOCKER_NOT_DISPATCHED = re.compile(r"Cannot connect to the Docker daemon|dial unix [^\n]*connect: (?:connection refused|no such file)", re.IGNORECASE)
+DOCKER_TRANSPORT = re.compile(DOCKER_NOT_DISPATCHED.pattern + r"|error during connect|unexpected EOF|connection reset by peer|broken pipe"
+                              r"|use of closed network connection|i/o timeout|context deadline exceeded", re.IGNORECASE)
+SSH_NOT_DISPATCHED = re.compile(r"Connection (?:timed out|refused)|Could not resolve hostname|No route to host|Network is unreachable"
+                                r"|Operation timed out|connect to host", re.IGNORECASE)
+
+
+class HostUnreachable(ExecError):
+    """A remote host (a GPU World's Docker daemon, an SSH target) stopped answering, as its probe confirmed
+    (``world.hostreach``, 2026-10-26). Infrastructure: the World and the Runner record it as ``transport_unreachable`` with
+    detail ``host_unreachable`` and mask the attempt (V8). ``dispatched``: the operation may have reached the host before it
+    was cut, so running it again could repeat it; ``resumed``: the host came back after the pause, but the operation was cut
+    mid-way and is not replayable (a policy's shell or write call): the World tells the agent and the episode goes on;
+    ``paused_s``: how long the episode was paused for it."""
+
+    failure_kind = "transport_unreachable"
+    detail = HOST_UNREACHABLE
+
+    def __init__(self, host: str, why: str, *, dispatched: bool = False, resumed: bool = False, paused_s: float = 0.0):
+        super().__init__(why if why.startswith(HOST_UNREACHABLE) else f"{HOST_UNREACHABLE}: {why}")
+        self.host, self.why, self.dispatched, self.resumed, self.paused_s = host, why, dispatched, resumed, paused_s
+
+
+def host_unreachable_cause(e: BaseException | None) -> HostUnreachable | None:
+    """The ``HostUnreachable`` that is ``e`` or sits in its cause / context chain (an App wrapped it in a ToolError), or None."""
+    seen: set[int] = set()
+    while e is not None and id(e) not in seen:
+        if isinstance(e, HostUnreachable):
+            return e
+        seen.add(id(e))
+        e = e.__cause__ or e.__context__
+    return None
+
+
 class Exec(ABC):
     name: str = "exec"
     is_local: bool = False
@@ -392,16 +428,56 @@ class DockerExec(Exec):
 
     name = "docker"
 
-    def __init__(self, container: str, *, docker_host: str | None = None, default_user: str | None = None, python: str = "python3"):
+    def __init__(self, container: str, *, docker_host: str | None = None, default_user: str | None = None, python: str = "python3",
+                 reach: Any = None):
         self.container = container
         self.docker_host = docker_host
         self.default_user = default_user
         self.python = python
         self.since = time.time()  # the container's events are read from here (a removed one has no StartedAt left)
         self.expires_at: float | None = None  # set by the sandbox that runs it for a fixed lifetime (sandbox.DockerSandbox)
+        self._reach = reach  # a remote daemon's ``hostreach.HostReach`` (None: the process's one for ``docker_host``, on first use)
 
     def _env(self) -> dict[str, str] | None:
         return {"DOCKER_HOST": self.docker_host} if self.docker_host else None
+
+    @property
+    def reach(self) -> Any:
+        """The remote daemon's reachability (``world.hostreach``), shared by every exec on that ``DOCKER_HOST``; None for the
+        local daemon, whose calls run as before."""
+        if self._reach is None and self.docker_host:
+            from crucible.world import hostreach
+
+            self._reach = hostreach.for_docker_host(self.docker_host)
+        return self._reach
+
+    async def _cli(self, argv: list[str], *, timeout_s: float | None, stdin: bytes | None) -> ExecOut:
+        """One Docker CLI call (the transport seam a test replaces with a fake)."""
+        return await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s, stdin=stdin)
+
+    async def _remote(self, argv: list[str], *, timeout_s: float | None, stdin: bytes | None, what: str, replay: bool | None = None) -> ExecOut:
+        """``argv`` on a remote daemon under its ``HostReach`` (2026-10-26): a hung call is cut once the host stops answering its
+        probes, a transport failure the probe confirms is ``HostUnreachable``, and either pauses the episode (its clocks held)
+        until the host is back. Then the call runs again when nothing reached the daemon or the call is replayable, else the
+        typed error goes up (``hostreach.HostReach.call``). The local daemon (no reach): the call as it was."""
+        reach = self.reach
+        if reach is None:
+            return await self._cli(argv, timeout_s=timeout_s, stdin=stdin)
+
+        async def once() -> ExecOut:
+            try:
+                out = await self._cli(argv, timeout_s=timeout_s, stdin=stdin)
+            except RuntimeError as e:  # the shared SSH tunnel did not come up (``docker_tunnel.local_docker_host``): nothing was sent
+                if await reach.confirm(str(e)):
+                    raise HostUnreachable(reach.name, f"{what}: {e}", dispatched=False) from e
+                raise
+            if not out.ok:
+                tail = (out.stdout + out.stderr)[-2000:].strip()
+                if (out.timed_out or DOCKER_TRANSPORT.search(tail)) and await reach.confirm(tail[-300:] or "the call timed out"):
+                    raise HostUnreachable(reach.name, f"{what}: {tail[-300:] or 'the call timed out'}", dispatched=not DOCKER_NOT_DISPATCHED.search(tail))
+            return out
+
+        return await reach.call(once, what=what, replay=replay)
 
     async def run(self, cmd, *, cwd=None, env=None, timeout_s=None, user=None, stdin=None) -> ExecOut:
         argv = ["docker", "exec"]
@@ -415,7 +491,7 @@ class DockerExec(Exec):
         if u:
             argv += ["-u", u]
         argv += [self.container, "bash", "-c", with_deadline(cmd, timeout_s)]
-        out = await _run_subprocess(argv, cwd=None, env=self._env(), timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin)
+        out = await self._remote(argv, timeout_s=timeout_s + 15 if timeout_s else None, stdin=stdin, what=f"docker exec in {self.container}")
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
         return await self._unless_lost(out)
@@ -463,13 +539,15 @@ class DockerExec(Exec):
     async def push_file(self, src: Path, dest: str) -> None:
         parent = str(Path(dest).parent)
         await self.run(f"mkdir -p {shlex.quote(parent)}")
-        out = await _run_subprocess(["docker", "cp", str(src), f"{self.container}:{dest}"], cwd=None, env=self._env(), timeout_s=600, stdin=None)
+        out = await self._remote(["docker", "cp", str(src), f"{self.container}:{dest}"], timeout_s=600, stdin=None, what=f"docker cp into {self.container}",
+                                 replay=True)  # the same copy again
         if not (await self._unless_lost(out)).ok:
             raise ExecError(f"docker cp to {dest} failed: {out.stderr[-500:]}", out)
 
     async def pull_file(self, src: str, dest: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        out = await _run_subprocess(["docker", "cp", f"{self.container}:{src}", str(dest)], cwd=None, env=self._env(), timeout_s=600, stdin=None)
+        out = await self._remote(["docker", "cp", f"{self.container}:{src}", str(dest)], timeout_s=600, stdin=None, what=f"docker cp from {self.container}",
+                                 replay=True)
         if not (await self._unless_lost(out)).ok:
             raise ExecError(f"docker cp from {src} failed: {out.stderr[-500:]}", out)
 
@@ -491,10 +569,23 @@ class SSHExec(Exec):
         self.rlimits, self.known_hosts = dict(rlimits or {}), known_hosts
         cd = Path(control_dir or tempfile.gettempdir())
         self.control = str(cd / f"crucible-ssh-{hashlib.sha256(f'{target}:{port}'.encode()).hexdigest()[:12]}")
+        self._reach: Any = None
+
+    @property
+    def reach(self) -> Any:
+        """The host's reachability (``world.hostreach``), probed with ``ssh ... true`` over the same options."""
+        if self._reach is None:
+            from crucible.world import hostreach
+
+            self._reach = hostreach.for_ssh(f"{self.target}:{self.port or 22}", ["ssh", *self._opts(), *(["-p", str(self.port)] if self.port else []),
+                                                                                 self.target, "true"], name=self.target)
+        return self._reach
 
     def _opts(self) -> list[str]:
-        o = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30", "-o", "ControlMaster=auto",
-             "-o", f"ControlPath={self.control}", "-o", "ControlPersist=120"]
+        # 2026-10-26: a host that stops answering fails a connect within ConnectTimeout and a live session within
+        # ServerAliveInterval x ServerAliveCountMax (60 s); without them a lost network held a call until the attempt clock
+        o = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15",
+             "-o", "ServerAliveCountMax=4", "-o", "ControlMaster=auto", "-o", f"ControlPath={self.control}", "-o", "ControlPersist=120"]
         if self.key:
             o += ["-i", self.key, "-o", "IdentitiesOnly=yes"]
         if self.known_hosts:
@@ -520,9 +611,18 @@ class SSHExec(Exec):
         lim = self._limits()
         script = " && ".join([*pre, *([lim] if lim else []), inner]) if (pre or lim) else inner
         argv = ["ssh", *self._opts(), *(["-p", str(self.port)] if self.port else []), self.target, f"bash -c {shlex.quote(script)}"]
-        out = await _run_subprocess(argv, cwd=None, env=None, timeout_s=timeout_s + 30 if timeout_s else None, stdin=stdin)
-        if out.rc == 255 and ("Connection" in out.stderr or "ssh:" in out.stderr):
-            raise ExecError(f"ssh to {self.target} failed: {out.stderr[-300:]}", out)
+        reach = self.reach
+
+        async def once() -> ExecOut:
+            out = await _run_subprocess(argv, cwd=None, env=None, timeout_s=timeout_s + 30 if timeout_s else None, stdin=stdin)
+            if out.rc == 255 and ("Connection" in out.stderr or "ssh:" in out.stderr):
+                why = f"ssh to {self.target} failed: {out.stderr[-300:]}"
+                if await reach.confirm(why):  # the host does not answer a probe either: an outage, paused for (hostreach)
+                    raise HostUnreachable(reach.name, why, dispatched=not SSH_NOT_DISPATCHED.search(out.stderr))
+                raise ExecError(why, out)
+            return out
+
+        out = await reach.call(once, what=f"ssh to {self.target}")
         if deadline_hit(out.rc, out.duration_s, timeout_s):
             out.timed_out, out.rc = True, -9
         return out

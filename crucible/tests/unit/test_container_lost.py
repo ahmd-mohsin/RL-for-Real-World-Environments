@@ -90,7 +90,17 @@ async def test_paused_and_unreachable_daemons_are_lost(monkeypatch):
         await DockerExec("c1").run("true")
     down = ExecOut(1, "", "error during connect: Get \"http://docker.example/v1.47/containers/c1/json\": EOF")
     fake_docker(monkeypatch, out=down, inspect=down)
+    from crucible.world import hostreach
+    from crucible.world.exec import HostUnreachable
+
+    async def answers() -> bool:
+        return True
+
+    hostreach.register("docker:ssh://lab", hostreach.HostReach("lab", answers))  # the host answers: the daemon's own failure, as before
     with pytest.raises(EnvContainerLost, match="daemon cannot be reached"):
+        await DockerExec("c1", docker_host="ssh://lab").run("true")
+    hostreach.reset()  # 2026-10-26: a host that does not answer its probe either is an outage (world.hostreach), paused for, then typed
+    with pytest.raises(HostUnreachable, match="host_unreachable"):
         await DockerExec("c1", docker_host="ssh://lab").run("true")
 
 
