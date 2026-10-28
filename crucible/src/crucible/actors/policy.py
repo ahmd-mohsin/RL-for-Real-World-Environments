@@ -354,6 +354,7 @@ class LLMToolPolicy(Policy):
         if strategy in ("discard_all", "hybrid:discard_all"):
             self._new_segment(strategy, before, self._rebuild(0, None, keep_summary=strategy == "hybrid:discard_all"))
             return
+        attempts: list[dict[str, Any]] = []
         for attempt in range(2):  # an empty summary (a reasoning model that spent its budget thinking) is resampled once
             r = await self.llm.complete([*self.messages, {"role": "user", "content": COMPACT}], tools=None, max_tokens=cfg.summary_max_tokens,
                                         temperature=self.temperature, sample_key=f"{self.sample_key}:summary{attempt}" if attempt and self.sample_key else self.sample_key,
@@ -361,14 +362,26 @@ class LLMToolPolicy(Policy):
             self._count_reply(r.usage or {}, [{"role": "assistant", "content": r.text or ""}])
             if (r.tokens or {}).get("new_segment") and self.model_calls:  # a thinking-template re-render: a segment, not a prefix break (M14 H3 V9)
                 self._new_segment("rerender", before, len(self.messages))
-            self.model_calls.append({"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
-                                     "model": r.model, **r.finish_fields(), "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
-                                     "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before,
-                                     "sampling": getattr(r, "sampling", None) or {}})
+            # harness-reward audit 2026-10-28: a resample has the first attempt's prompt, which never extends that attempt's prompt +
+            # completion, so as a link of the segment's chain it was a prefix break and train mode masked the whole rollout
+            # (capture_incomplete). It is a tree node (edge ``compaction_attempt``, ``Turn.node``): its own sequence, whole prompt
+            call = {"call_id": f"{self.actor_id}:c{len(self.model_calls) + 1}", "kind": "compaction", "segment": self.segment,
+                    "model": r.model, **r.finish_fields(), "usage": r.usage, "cost_usd": r.cost_usd, "latency_s": round(r.latency_s, 3),
+                    "cached": r.cached, "actions": [], "tokens": self._compress(r.tokens), "context_tokens": before,
+                    "sampling": getattr(r, "sampling", None) or {}, **({"edge": "compaction_attempt"} if attempt else {})}
+            self.model_calls.append(call)
+            attempts.append(call)
             if (r.text or "").strip():
+                # only the summary the episode continued from is trained (M16 §3.6, verifiers trace.py:515-553): a blank attempt
+                # that was discarded is recorded with ``accepted`` False (context, loss mask 0), so an episode's advantage never
+                # reinforces an empty summary that was not part of its trajectory
+                for a in attempts:
+                    a["accepted"] = a is call
                 note = "\n[this summary was cut off at its length limit]" if r.finish == "length" else ""
-                self._new_segment(strategy, before, self._rebuild(cfg.keep_recent_turns, r.text + note), summary_call=self.model_calls[-1]["call_id"])
+                self._new_segment(strategy, before, self._rebuild(cfg.keep_recent_turns, r.text + note), summary_call=call["call_id"])
                 return
+        for a in attempts:
+            a["accepted"] = False
         # no usable summary: an empty one used to replace the whole history (M2 audit); keep the recent turns instead
         self._new_segment(f"{strategy}:summary_failed", before, self._rebuild(cfg.keep_recent_turns, None, keep_summary=True))
 

@@ -836,7 +836,9 @@ P6, the sealed benchmark and the slime bridge (`factory/benchmark.py`, `factory/
   - `objective_id`;
   - two timeouts;
   - whole-group drop on any infra failure;
-  - `InfraWatch`, which masks a lost World container.
+  - `InfraWatch`, which masks a lost World container;
+  - `mode="rlm"` is refused for a patch-graded task (`grade_patch`): `RLMHarness` grades the World in place, and every
+    grade of a WindowTask raised there (harness-reward audit 2026-10-28).
 - **slime bridge:** JSONL rows, slime's 4-method Sandbox protocol over our World (ported, Apache-2.0), a `generate`
   function, turn-credit convert and advantage functions, the staleness filter, and a field-list patch for slime's
   `batch_builder.py`.
@@ -901,7 +903,9 @@ backend:
   (pinned by sha256), `ServeSpec` for the command line (262144 context, prefix caching, runtime LoRA, the repo's
   generation config off). `VLLMBackend` is the Tinker bridge's `sampler(model, path)` contract over `/v1/completions`
   with token ids in and out (`return_tokens_as_token_ids`), so `TinkerSampler`, the codec, TITO and the per-episode log are
-  unchanged; `vllm_model` is the Tinker row's renderer facts at no per-token price. A trained arm is a PEFT adapter loaded
+  unchanged (`SamplerLLM.context_window` is the served model's context, so `LLMToolPolicy` fits each reply's `max_tokens`
+  to the room left; harness-reward audit 2026-10-28: unfitted, `gen` refused prompt + `max_tokens` over the context and the
+  episode ended `context_overflow` with room left); `vllm_model` is the Tinker row's renderer facts at no per-token price. A trained arm is a PEFT adapter loaded
   into the same server. Every arm records `backend` and the engine (`arm_settings`), so `check_protocol` refuses arms on
   different engines; policy ids are `solver:vllm:<model>@vllm[-adapter]`.
 - **Worlds without Docker:** `scripts/deltaai/docker` (a stdlib shim) runs the lanes' own `docker run/exec/rm/inspect/ps/cp`
@@ -1228,6 +1232,10 @@ build tasks that target its failures):
       disagreed on one episode's end patch, so Φ and per-turn credit missed +0.5 the outcome counted.
       - `CheckpointSidecar.reconcile` makes the final grade's vector the end state's one verdict (`WorkspaceHarness` by
         patch, `NativeHarness` for the end checkpoint), rebuilding the series, rows and summary.
+      - The patch is matched by the change it makes, not only its bytes (`checkpoint.same_change`; harness-reward audit
+        2026-10-28). The windows lane's end snapshot and the harness's collect render one change two ways: the collect
+        drops derived files such as an unignored `__pycache__`, and quotes non-ASCII paths. A byte match then missed the end
+        checkpoint and the sidecar's own verdict stood.
       - A test run killed from outside is masked, never a failure of the tests it did not reach (`executable.killed`,
         the Go profile's package-level `signal: killed`).
       - `tests/unit/test_credit_grade_agreement.py`.
@@ -1551,7 +1559,7 @@ We record the oracle false-negative rate. It must be 0 over the calibration set,
 | Artifacts extracted into the attempt dir with root-only modes, `O_EXCL`/`O_NOFOLLOW` and an openat walk, with a Harbor-style `manifest.json` | a hand-off that writes outside its directory |
 | Shared state roots refused: two worlds on one host whose App state resolves to one absolute path | separation in name only |
 
-A custody violation, like an unkillable process at quiesce, is `crucible:policy_misbehavior`: scored 0, never masked, and the grader never runs.
+A custody violation, like an unkillable process at quiesce, is `crucible:policy_misbehavior`: scored 0, never masked, and the grader never runs. Harness-reward audit 2026-10-28: only the multi-step path enforced this for the final quiesce in `run_episode`. A single-step native or workspace episode with survivors was graded as usual, while the survivors could still write the tree being graded or collected. Both now stop at `native.misbehaved`.
 
 **Built in M7 (2026-10-09): the grader-side trusted channels (layer 7), `crucible.verify.runtime`, standard library only, staged read-only into any verifier image and run as root with `--network none`. Tested by `tests/redteam/test_grader_attacks.py`: the honest solution scores 1, 11 cheat mutants score 0 at their intended gate, and 6 of them are shown to beat a seed-style grader (exit-code verdicts, candidate-first `PYTHONPATH`, one shared HOME, no sealing):**
 
@@ -1712,7 +1720,7 @@ Run records carry `task_steps` (per-step reward, gate and abort reason) and `ste
     - the first version omitted both, so stock steps such as `modify_env_tool_access` and `deploy_agent` failed;
     - a stock `modify_env_tool_access` step is now tested against it;
     - the gateway bind host is `gateway_bind`;
-  - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows and raises; **Fixed (C3):** boolean gate results (agentenv aggregators test `is True`), replay of only this episode's slice of the gateway trajectory, the router's signed `__actor` argument stripped, the replay task rebuilt with its kwargs.
+  - a `crucible_verify` step: the single reward producer, unclamped; steps from replaying the gateway's own trajectory; a masked grade records skipped rows with no score and raises (harness-reward audit 2026-10-28: the row carried `score: 0.0`, which a tolerant run's aggregate scored); **Fixed (C3):** boolean gate results (agentenv aggregators test `is True`), replay of only this episode's slice of the gateway trajectory, the router's signed `__actor` argument stripped, the replay task rebuilt with its kwargs.
   - a `crucible_ref` artifact type.
 - **MiMo round trip** (`interop/mimo/{verify,export}.py`):
   - The import records a sha256 manifest of the source env.
@@ -2126,7 +2134,8 @@ image as one loopback-published container per World.
 - **Tools:** they come from the MCP interface the card names. Every tool the card advertises must be served (a
   drifted image fails at start). Served but uncarded tools are reported, and hidden with `card_tools_only`.
 - **State (adapter `agentenv_data`):** the fingerprint and snapshot are `data/get`'s parts as canonical JSON.
-  Restore is `data/reset` + `data/add` of those parts, verified by fingerprint. The env must advertise all three
+  Restore is `data/reset` + `data/add` of those parts (any kind of agentenv's `Part` union; a text part was read as a file
+  part and failed, harness-reward audit 2026-10-28), verified by fingerprint. The env must advertise all three
   operations.
 - **Seed:** `seed` parts or `seed_file`, loaded at start.
 - **Not covered:** the legacy `base_mcp` images (`slack_mcp`, `email_mcp`) have no v1 card or data plane. Their
@@ -3074,7 +3083,9 @@ stuck engine pinned the pool's version (audit 05 H4).
 
 **C-8 (2026-10-10): shaping (A2-19, A2-21, A2-24..26).**
 - **Incomplete trajectories:** `LimitPolicy` takes `"penalty:<c>"` for a limit stop (steps, timeout, context window);
-  the reward becomes c in the M10 harness and in M12's `world_rollout(limit_policy=...)`.
+  the reward becomes c in the M10 harness and in M12's `world_rollout(limit_policy=...)`. Harness-reward audit
+  2026-10-28: `WorkspaceHarness` (the coding lanes' harness) applied neither `mask` nor `penalty:<c>`, though its id digests
+  the limit policy. It applies both now, and its re-grade of a stored patch keeps the agent attempt's penalty.
 - **Tool-format penalty:** `credit/shaping.format_errors_by_call` joins each model call's `actions` (`tool:<id>`) to
   the World's `tool_result` errors (`invalid_arguments`, `unknown_tool`, `bad_tool_name`, `unknown_app`) and stores the
   count on that call (`Turn.format_errors`). `TrainerConfig.tool_format_penalty` subtracts penalty × count from *that
@@ -3485,6 +3496,7 @@ The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M
 3. **Context compaction inside the episode** (`actors/policy.ContextConfig`).
    - At 80% of the context budget **the policy writes the summary itself**, as a recorded model call (CompactionRL, verifiers, MiMo). The new context is system + the task verbatim + the summary + the last k complete turns; no fabricated turns.
    - Each compaction opens a segment, recorded in the rollout record. The summary call is trained with the episode's advantage. Group statistics stay on whole rollouts.
+   - **Only the accepted summary trains** (harness-reward audit 2026-10-28, `docs/research/harness-reward-audit.md`). A blank first attempt is resampled once. The resample is a tree node (edge `compaction_attempt`) with its own whole prompt. As a chain link it never extended the first attempt's prompt + completion, so the record saw a prefix break and train mode masked the whole rollout. The attempt the episode continued from is `accepted`; a discarded blank one stays in the record as context with loss mask 0 (M16 §3.6, verifiers `trace.py:515-553`).
    - Cross-segment GAE for the critic mode is M12 work (no framework has it).
 4. **Linear token storage** (`train/rollout.Turn`). Within a segment a call stores only the prompt tokens it adds. The first call of a segment stores its compacted prompt. A prompt that does not extend the previous one is a `prefix_break`, which masks the rollout for training. Full prompt ids per call would be quadratic (2×10⁸ ints for 1,000 calls at 200k context).
 5. **Checkpoint and resume** (`runtime/checkpoint.py`).
@@ -3517,6 +3529,11 @@ The survey's first two findings are that trajectories got long (Kimi K3 RL at 1M
 5. **Child agents** (`tree.py`). Persistent children up to depth 3 (default 1) with their own kernel, ledger and context; World access only when granted, then serialized through the root's action queue. One supervisor enforces tree-wide budgets with concurrency reserved per depth, so nesting cannot deadlock.
 6. **Records that stay correct.** Chains are keyed `(actor, agent, segment)`. Sub-calls and summary attempts are nodes that never break a chain (the m14 records forwarded 7–20× the entered tokens; now 1×). A summary is trained only when accepted. A resume opens a segment on every agent, so a resumed rollout trains. Loss weight is per logical rollout, whatever the number of segments. Over-length rows are dropped and counted, never cut.
 7. **Stops are typed.** Outcome: `agent_done`, `agent_gave_up`, `stalled`, and `context_overflow` when compaction is off. Truncation: `compaction_failed`, `budget:<kind>`. Masked: infra faults with their kind. Stall detection is windowed and uses only what the policy observes, never Φ.
+
+Harness-reward audit 2026-10-28 (`docs/research/harness-reward-audit.md` §6) fixed three things:
+- **CONTINUE nudges are counted across rerender segments.** An "interleaved" template (Qwen3.5 / 3.6) re-renders at each nudge, and the reset gave a tool-less model unlimited nudges. It then ran to `budget:turns` instead of the scored `agent_done`.
+- **A malformed python call is answered and not run.** Arguments that did not parse, or carry no `code` string, used to run an empty cell.
+- **A summary the run never continued from is not trained.** When the rebuilt context leaves no room, the stop is `compaction_failed`, and the accepted attempt is now `accepted` False and `trainable` False with no `summary_call`.
 
 **Gate** (`docs/research/long-horizon-rlm/06-validation.md`): on the backlog ladder with a 32k window and real Qwen2.5 tokens, a scripted model that keeps no hidden memory scores 1.0 at 5,000 World calls with the default config (m14: 0.227). No call goes above the window (m14: 237). Restore takes 0.69 s (m14: 9.8 s), and the checkpoints total 1.9 MB (m14: 44.8 MB). A model whose summary drops a rule still loses 15–27% of the reward, so the ladder measures summary quality. Every injected fault is scored and train-valid.
 

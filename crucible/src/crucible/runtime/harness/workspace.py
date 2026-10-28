@@ -35,7 +35,7 @@ from crucible.core.schema.run import Failure
 from crucible.runtime.collect import Collected, classify, collect, repo_broken
 from crucible.runtime.grading import answer_sensitive, decided, deciding_record, grade_in_place, grade_summary, grading_window, seen_before, settle, write_reports
 from crucible.runtime.harness.base import Attempt, HarnessResult, settle_usage
-from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, _take_findings, episode_sidecar, probed, save_episode
+from crucible.runtime.harness.native import LIMIT_STOPS, NativeHarness, _keep_tries, _take_findings, episode_sidecar, misbehaved, probed, save_episode
 from crucible.runtime.infra import StageFailure, boundary, classify_exception, episode_failure
 from crucible.verify.patchio import read_patch, write_patch
 from crucible.world.exec import HostUnreachable, _run_subprocess
@@ -80,6 +80,15 @@ class WorkspaceHarness(NativeHarness):
                 return "regrade", d
         return None
 
+    def _limit_penalty(self, res: HarnessResult, stop: str | None) -> None:
+        """m13 C-8 (A2-24): a limit stop under ``penalty:<c>`` gets the configured reward instead of its partial grade, as
+        ``NativeHarness.run`` applies it (harness-reward audit 2026-10-28: the workspace harness never did, though its id
+        digests the limit policy)."""
+        pen = self.limit_policy.penalty(stop) if stop in LIMIT_STOPS else None
+        if pen is not None and res.reward is not None:
+            res.grade["limit_penalty"] = pen
+            res.reward = pen
+
     async def regrade(self, attempt: Attempt, prior) -> HarnessResult:
         """Grade the patch stored by an earlier attempt (no agent, no spend)."""
         attempt.phase = "verification"  # M10 lab audit R-3: no agent here; an attempt clock firing is this grade's (run.py)
@@ -92,6 +101,7 @@ class WorkspaceHarness(NativeHarness):
             # a repeat here is decided by the control (an answer-sensitive failure graded once was left regradable)
             await self._grade(attempt, Collected(patch=patch, mode="stored", tree_changed=bool(meta.get("tree_changed", True))), res, t,
                               seen=seen_before(attempt.dir.parent, attempt.n))
+            self._limit_penalty(res, meta.get("stop"))  # the agent attempt's limit stop keeps its penalty (NativeHarness.regrade does the same)
         except StageFailure as sf:
             res.failure = sf.failure
         self._inherit_calls(res, prior)
@@ -230,11 +240,16 @@ class WorkspaceHarness(NativeHarness):
             pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
+            if (mb := misbehaved(ep)) is not None:  # its processes survived the quiesce and could still write the tree collected next
+                raise mb
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
             ws = await _workspace(attempt.task, world, "collect")
             broken += [b for b in await repo_broken(ws, base_sha) if b not in broken]
             if broken:
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))
+            if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
+                # harness-reward audit 2026-10-28: the limit policy is part of this harness's id, but only NativeHarness applied it
+                raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=ep.stop_condition, mask=True, blame="harness"))
             t0 = time.monotonic()
             attempt.phase = "collect"  # M10 lab audit R-3: the agent phase is over (run.py reads it when its attempt clock fires)
             c = await collect(ws, base=base_sha or "base", mode=self.collect_mode)
@@ -259,6 +274,7 @@ class WorkspaceHarness(NativeHarness):
                 got = side.reconcile(c.patch, fm)
                 if got is not None:
                     res.grade["progress"] = got
+            self._limit_penalty(res, ep.stop_condition)
         except StageFailure as sf:
             res.failure = sf.failure
         finally:
