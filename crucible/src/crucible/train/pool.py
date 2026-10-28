@@ -186,6 +186,12 @@ class DataPool:
         if not t.versions or t.versions[-1] != version:
             t.versions.append(version)
             self._g_oldest.pop(t.group, None)
+            g = self.groups.get(t.group)
+            if g is not None and version < g.submit_version and g.gid in self._live_groups:
+                # a call served by a version older than the group's submit version (a remote engine still on the previous
+                # weights after the publish returned): the heap's lower bound must fall with it, or ``wait`` misses the
+                # group and trains it at τ + 1 (async-RL audit)
+                heapq.heappush(self._live_heap.setdefault(g.source, []), (int(version), g.submit_index, g.gid))
         t.length += tokens
 
     def finish(self, rid: str, *, reward: float | None, status: str = "finished", value: Any = None, now: float = 0.0) -> None:

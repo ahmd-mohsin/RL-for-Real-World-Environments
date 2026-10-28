@@ -93,7 +93,8 @@ def test_entropy_adaptive_bounds():
     tr = _trainer(correction=Correction("mimo4"), entropy_adaptive={"low": 2.0, "high": 3.0, "rate": 0.25})
     low = [_rec(f"r{i}", float(i % 2)) for i in range(4)]  # behaviour logprob −1 → entropy 1 < low
     m = tr.step(low, ["g", "g", "h", "h"])
-    p = tr.cfg.correction.params
+    p = tr.bands  # trainer state (saved by state.capture), never the configuration (async-RL audit: that broke resume)
+    assert tr.cfg.correction.params == {} and tr._correction().params == p
     assert m["entropy_adaptive/entropy"] == pytest.approx(1.0)
     assert p["pos_high"] == pytest.approx(6.25) and p["pos_low"] == pytest.approx(0.16) and p["neg_high"] == pytest.approx(4.0) and p["neg_low"] == pytest.approx(0.25)
     for _ in range(40):

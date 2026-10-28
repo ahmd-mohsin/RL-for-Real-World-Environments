@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
@@ -70,6 +71,11 @@ NEUTRAL_SAMPLING = {"top_p": 1.0, "top_k": 0, "min_p": 0.0, "repetition_penalty"
 def local_model(name: str, *, context: int) -> TinkerModel:
     """The student's model row with zero prices and the trainer's ``seq_len`` as its context (module doc)."""
     return replace(resolve(name), prices=Prices(0.0, 0.0, 0.0, 0.0), list_prices=None, context=int(context))
+
+
+class StartupMismatch(RuntimeError):
+    """The prime-rl trainer and Crucible's state disagree on where the run resumes (``FileIO.prepare_resume`` /
+    ``wait_startup``)."""
 
 
 class HttpFailure(Exception):
@@ -143,23 +149,89 @@ class FileIO:
         (``.sender_ready`` without ``.receiver_ready``): a relaunched trainer re-offers its resume step in a directory that
         still holds the previous trainer's answered markers until it deletes and recreates it (smoke attempt 11, job
         3474615: the bridge took the stale markers, and the new trainer waited for a receiver that had gone)."""
+        return await self._handshake(step, timeout_s=timeout_s, startup=False)
+
+    async def wait_startup(self, step: int, *, timeout_s: float) -> Path:
+        """``wait_broadcast`` for the trainer's startup offer of ``step`` (the version Crucible resumes from, 0 fresh). A
+        trainer that offers another step after this wait began was launched at another resume point than Crucible's
+        state: that fails at once (``StartupMismatch``), never after ``timeout_s`` of held GPUs. Offers older than the
+        wait are a dead trainer's and are left to the new trainer, which prunes them before its own offer."""
+        return await self._handshake(step, timeout_s=timeout_s, startup=True)
+
+    async def _handshake(self, step: int, *, timeout_s: float, startup: bool) -> Path:
         d = self.output_dir / "broadcasts" / f"step_{step}"
-        t0 = time.monotonic()
+        t0, wall0 = time.monotonic(), time.time() - 5.0
         while True:
-            if (d / SENDER_READY).exists() and not (d / RECEIVER_READY).exists():
-                try:
-                    (d / RECEIVER_READY).touch()  # unblocks the trainer's broadcast
-                    break
-                except FileNotFoundError:  # the trainer was recreating the directory
-                    pass
-            if time.monotonic() - t0 > timeout_s:
-                raise TimeoutError(f"prime-rl trainer published no weights for step {step} in {timeout_s:.0f}s ({d})")
-            await asyncio.sleep(self.poll_s)
-        while not (d / FINISHED).exists():
-            if time.monotonic() - t0 > timeout_s:
-                raise TimeoutError(f"prime-rl weights for step {step} not finished in {timeout_s:.0f}s ({d})")
-            await asyncio.sleep(self.poll_s)
-        return d
+            while True:
+                if (d / SENDER_READY).exists() and not (d / RECEIVER_READY).exists():
+                    try:
+                        (d / RECEIVER_READY).touch()  # unblocks the trainer's broadcast
+                        break
+                    except FileNotFoundError:  # the trainer was recreating the directory
+                        pass
+                if startup and (other := self._fresh_offer(other_than=step, since=wall0)) is not None:
+                    raise StartupMismatch(f"the prime-rl trainer offers its startup policy at step {other}, but Crucible resumes from step "
+                                          f"{step}: the trainer was launched at another resume point (deploy.resume_toml derives it from "
+                                          "Crucible's state.json)")
+                if time.monotonic() - t0 > timeout_s:
+                    raise TimeoutError(f"prime-rl trainer published no weights for step {step} in {timeout_s:.0f}s ({d})")
+                await asyncio.sleep(self.poll_s)
+            while not (d / FINISHED).exists():
+                if not (d / RECEIVER_READY).exists():  # the trainer deleted and re-offered the step after the answer (a stale
+                    break  # offer answered, then the relaunched trainer's own): answer the new offer
+                if time.monotonic() - t0 > timeout_s:
+                    raise TimeoutError(f"prime-rl weights for step {step} not finished in {timeout_s:.0f}s ({d})")
+                await asyncio.sleep(self.poll_s)
+            else:
+                return d
+
+    def _fresh_offer(self, *, other_than: int, since: float) -> int | None:
+        root = self.output_dir / "broadcasts"
+        for p in sorted(root.glob("step_*")) if root.exists() else []:
+            try:
+                k = int(p.name.removeprefix("step_"))
+                fresh = (p / SENDER_READY).stat().st_mtime >= since and not (p / RECEIVER_READY).exists()
+            except (ValueError, OSError):
+                continue
+            if k != other_than and fresh:
+                return k
+        return None
+
+    def prepare_resume(self, step: int) -> list[str]:
+        """Resume hygiene, before the startup handshake (``step``: the version Crucible resumes from, 0 for a fresh run).
+        prime-rl's ``rl`` launcher does this (``utils/pathing.clean_future_steps``, run by ``entrypoints/rl.py``); the
+        bridge launches the trainer under torchrun itself (``deploy.trainer_command``), so it does it here:
+
+        - ``batches/step_<k>`` for k > ``step`` are deleted. prime-rl's receiver reads a batch file as soon as it exists, so
+          a batch the previous job sent but whose step Crucible never recorded would be trained in place of the new one.
+        - ``checkpoints/step_<k>`` for k > ``step`` (prime-rl checkpointed the step, Crucible's state never recorded it) are
+          moved to ``stale/<time>/``. DCP rewrites a checkpoint in place and writes ``.metadata`` last, so the stale
+          ``.metadata`` would count the re-trained step's checkpoint (``checkpoint``) before it is written.
+        - A fresh run refuses an output directory that already holds checkpoints (prime-rl's launcher refuses it too):
+          Crucible's state for them is lost, and training from the base model again is not done silently.
+
+        The trainer reads no batch before the startup handshake completes, so this cannot race it. Returns what it did."""
+        out: list[str] = []
+        ck = sorted((p for p in (self.output_dir / "checkpoints").glob("step_*") if p.name.removeprefix("step_").isdigit()),
+                    key=lambda p: int(p.name.removeprefix("step_"))) if (self.output_dir / "checkpoints").exists() else []
+        if step == 0 and ck:
+            raise StartupMismatch(f"a fresh Crucible run, but {self.output_dir / 'checkpoints'} holds prime-rl checkpoints "
+                                  f"({', '.join(p.name for p in ck[-3:])}): resume with the run directory that wrote them, or use a new output directory")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for p in ck:
+            if int(p.name.removeprefix("step_")) > step:
+                dest = self.output_dir / "stale" / stamp / "checkpoints" / p.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                p.rename(dest)
+                out.append(f"moved {p} -> {dest}")
+        root = self.output_dir / "batches"
+        for p in sorted(root.glob("step_*")) if root.exists() else []:
+            if p.name.removeprefix("step_").isdigit() and int(p.name.removeprefix("step_")) > step:
+                shutil.rmtree(p, ignore_errors=True)
+                out.append(f"deleted {p}")
+        for line in out:
+            log.warning("prime-rl resume at step %d: %s", step, line)
+        return out
 
     def metrics(self, step: int) -> dict[str, float]:
         """The trainer's logged numbers for ``step`` from prime-rl's file monitor (best effort: {} when absent)."""
@@ -228,12 +300,15 @@ class _Sampler:
             sp["seed"] = int(seed)
         body: dict[str, Any] = {"model": self.name, "token_ids": list(prompt_ids), "sampling_params": sp}
         if (ep := _EPISODE.get()) is not None:
-            body["cache_salt"] = f"crucible-{ep}"
+            # per episode (``routing.stitch``) and per adapter: vLLM already keys prefix blocks by the LoRA name, and the
+            # name in the salt keeps KV computed under one weight version from ever serving another (prime-rl salts per
+            # weight version for the same reason: ``orchestrator/clients.load_lora_adapter``)
+            body["cache_salt"] = f"crucible-{ep}-{self.name}"
         out = await with_retries("vllm generate", lambda: self.http.post("/inference/v1/generate", body, timeout_s=self.timeout_s), stats=self.stats)
         res, routes, heads = parse_generate(out, prompt_len=len(prompt_ids))
         full = list(prompt_ids) + list(res.tokens)
-        if routes is not None and self.routing is not None:
-            self.routing.put(full, routes)
+        if routes is not None and self.routing is not None:  # kept with the call's sampled logprobs (``RoutingStore``: equal calls)
+            self.routing.put(full, replace(routes, sampled=np.asarray(res.logprobs, dtype=np.float32), sampled_start=len(prompt_ids)))
         if heads is not None and self.topk is not None:
             if heads.ids.shape[0] != len(res.tokens):
                 raise ValueError(f"vLLM generate returned {heads.ids.shape[0]} top-k rows for {len(res.tokens)} tokens")
@@ -337,10 +412,12 @@ class _Trainer:
         for dt, row in zip(datums, rows, strict=True):  # trained: their calls' routes and heads are no longer needed (``d`` is the broadcast)
             full = wire.full_ids(dt)
             for end in wire.call_ends(dt):
+                # this sequence's own call: another call with the same tokens keeps its routes and heads
+                own = topk_mod.trained_logprobs(row["logprobs"], row["mask"])
                 if b.routing is not None:
-                    b.routing.drop(full[:end])
-                if b.topk is not None:  # this sequence's own call: another call with the same tokens keeps its heads
-                    b.topk.drop(full[:end], full_logprobs=topk_mod.trained_logprobs(row["logprobs"], row["mask"]))
+                    b.routing.drop(full[:end], full_logprobs=own)
+                if b.topk is not None:
+                    b.topk.drop(full[:end], full_logprobs=own)
         b.last = (self.step, d, name)
         self.step += 1
         return FBOut(target_logprobs=[], metrics=m)
@@ -435,9 +512,14 @@ class PrimeRLBackend:
     async def trainer(self, model: str, *, rank: int, resume: str | None = None, seed: int | None = None) -> _Trainer:
         """The trainer process is already running (``deploy``); its first step is 1 (``FIRST_STEP``), or the checkpoint step + 1 for
         ``resume`` (``primerl-ckpt:<s>:<dir>``, written by ``save_state``). Its startup broadcast (policy v{first-1}) is
-        acknowledged here, or the trainer would wait for a consumer forever."""
+        acknowledged here, or the trainer would wait for a consumer forever. Before that, the IO's resume hygiene
+        (``FileIO.prepare_resume``: stale future batches and checkpoints) runs, and the startup wait fails at once when the
+        trainer offers another step (``FileIO.wait_startup``). IOs without them (test fakes) use ``wait_broadcast``."""
         first = FIRST_STEP if resume is None else parse_ckpt(resume)[0] + 1
-        d = await self.io.wait_broadcast(first - 1, timeout_s=self.startup_timeout_s)
+        if (prep := getattr(self.io, "prepare_resume", None)) is not None:
+            prep(first - 1)
+        wait = getattr(self.io, "wait_startup", None) or self.io.wait_broadcast
+        d = await wait(first - 1, timeout_s=self.startup_timeout_s)
         if resume is not None:  # a fresh run's startup adapter is the zero-initialised LoRA: the base model
             await self.load_adapter(f"{self.adapter_prefix}-s{first - 1:06d}", d)
         return _Trainer(self, first)

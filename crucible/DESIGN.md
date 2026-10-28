@@ -925,7 +925,8 @@ launcher, filesystem transports and an import-path loss.
   `/v1/completions` (token ids in and out) and prime-rl's batch / broadcast handshake:
   - `batches/step_<s>/rank_<i>.bin`, packed by prime-rl's `prepare_batch`;
   - `broadcasts/step_<s>` (`.sender_ready` -> `.receiver_ready` -> `.finished`);
-  - `/load_lora_adapter`, one name per version, so stale groups keep their adapter;
+  - `/load_lora_adapter`, one name per version, so a call in flight finishes on the adapter it started with, and the
+    episode's next call uses the new one (call-level switching: one version per call, recorded per turn);
   - prime-rl's own checkpoint per step for resume.
 
   So groups, filters, quarantine, the difficulty sampler, M6 credit, honesty and resume are shared code. A test pins that
@@ -960,7 +961,25 @@ launcher, filesystem transports and an import-path loss.
   strings as text prompts.
   The loss is tested forward and backward on an accelerator device as well as the CPU.
   The bridge answers only an unanswered broadcast offer (`.sender_ready` without `.receiver_ready`), so a relaunched
-  trainer's re-offer of its resume step is never confused with the previous trainer's answered markers.
+  trainer's re-offer of its resume step is never confused with the previous trainer's answered markers. If the trainer
+  recreates the directory after the bridge answered, the bridge answers the new offer.
+- **Resume (async-RL audit, `docs/research/async-rl-audit.md`).**
+  - The job derives the trainer's resume step from Crucible's `state.json` each time it starts (`deploy.launch_toml` →
+    `trainer_run.toml`), so the same job file resubmits safely. A pinned `--resume-step` that disagrees fails before any
+    GPU work.
+  - Before the startup handshake, `FileIO.prepare_resume` does what prime-rl's `rl` launcher does (`clean_future_steps`),
+    because the bridge bypasses that launcher:
+    - it deletes `batches/step_{>s}` (prime-rl's receiver reads a batch file as soon as it exists, so a stale one would
+      be trained);
+    - it moves `checkpoints/step_{>s}` to `stale/` (a stale DCP `.metadata` would count the re-trained checkpoint
+      early);
+    - it refuses a fresh run in an output directory that already holds checkpoints.
+  - `wait_startup` fails at once when the trainer offers another startup step.
+- **Sampling matches what the trainer scores** (the neutral sampling fields and the trainer's temperature are under the
+  score-centering audit below; the async audit found them independently):
+  - `TinkerTrainer` refuses a backend whose training temperature differs from the groups' sampling temperature.
+  - The prefix-cache salt names the episode and the adapter.
+  - An asynchronous run gets `max_loras = 2`.
 - **The GPU smoke passed** (2026-10-28, job 3474848, 6:25 on 2 GH200): two RL steps, a relaunch from checkpoint 2, and a
   third step, all through the bridge on Qwen3-0.6B, plus the student's Gated DeltaNet kernels on the GPU (doc 14 §5.1).
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
@@ -971,6 +990,8 @@ launcher, filesystem transports and an import-path loss.
   - the routes are kept out of band per call (`RoutingStore`, keyed by the sha of prompt + completion), stitched per
     training sequence (the first call that forwarded a position wins), and replayed by the trainer
     (`enable_router_replay`);
+  - calls that returned the same tokens keep one entry each, picked by the training sequence's sampled logprobs
+    (`closest_call`), so one never replays another's experts, and training one never drops another's routes;
   - all or none per step, with incomplete coverage refused, as the torch trainer's R3 replay does;
   - `routing/coverage_*` and `routing/replayed_share` are logged; `kl/mismatch` is the signal with replay off.
   - The broadcast directory is no longer shadowed by the datum loop that drops trained routes (with replay on,
@@ -4046,6 +4067,20 @@ checkpoint garbage collection. The verl, TRL, SkyRL and rLLM bridges are tested 
 (none ran before); turn credit reaches verl through a `verl.plugins` entry point and `rm_scores`. QDQ keeps an fp32
 master. Corrections: MiMo's T = 4 is Crucible τ = 3; AReaL's η is S − 1 and bounds capacity, not staleness; the
 §9 items 25–28 rested on vacuous tests. Details: `docs/audit/2026-10-12/M12-train.md`.
+
+**Async-RL audit (2026-10-28, `docs/research/async-rl-audit.md`).** The loop was compared, setting by setting, with
+prime-rl, AReaL, slime, SkyRL, verl, NeMo-RL, TRL async GRPO, ROLL and OpenRLHF (the matrix is in that doc). Fixed in
+the torch loop:
+- **One group, once per batch.** The scheduler's relaxed fill no longer re-adds groups it already picked, and the tail
+  of finite prompt sources trains short instead of blocking.
+- **Implicit π_θold needs on-policy rollouts.** `TorchTrainer.policy_version` is set by the runtime. A stale
+  single-version rollout needs an explicit `old_logprob_source`, because a recompute with the current weights would
+  silently drop its off-policy correction.
+- **The staleness heap** follows a call served by a version older than its group's submit version.
+- **mimo4's entropy-adaptive bands** are trainer state (`TorchTrainer.bands`, saved in run checkpoints), never written
+  into the configuration (that refused every resume).
+
+The DeltaAI bridge's fixes are listed under the bridge above.
 
 ## 14. Repository layout
 

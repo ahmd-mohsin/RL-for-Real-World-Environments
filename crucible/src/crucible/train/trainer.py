@@ -149,6 +149,8 @@ class TorchTrainer:
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
         self.tokenizer_id = None  # the policy's tokenizer (core.schema.rollout.TokenizerId): records of another one are refused (R-17)
         self.updates = 0
+        self.bands: dict[str, float] | None = None  # mimo4's entropy-adaptive bands once they moved (``_adapt_entropy``)
+        self.policy_version: int | None = None  # the version the engines serve, set by the runtime before each step
         self.critic = critic
         if critic is not None:
             from crucible.train.critic import CriticConfig
@@ -456,6 +458,13 @@ class TorchTrainer:
                 out[(r.rollout_id, t.call_id)] = [G - b] * len(t.completion_token_ids or [])
         return out
 
+    def _correction(self) -> Correction:
+        """The correction this step trains with: the configured one, with the entropy-adaptive bands when they moved."""
+        c = self.cfg.correction
+        if not self.bands:
+            return c
+        return Correction(c.name, {**c.params, **self.bands}, c.old_logprob_source)
+
     def _adapt_entropy(self, records: Sequence[RolloutRecord]) -> dict[str, float]:
         """MiMo's entropy-adaptive four-bound mask: move the mimo4 bands from the batch's behaviour entropy."""
         ea = self.cfg.entropy_adaptive
@@ -466,7 +475,11 @@ class TorchTrainer:
             return {}
         ent = -sum(lps) / len(lps)
         f = 1.0 + float(ea.get("rate", 0.1))
-        p = self.cfg.correction.params
+        # the moving bands are trainer state (``bands``, saved by ``state.capture``), never written into the config: the
+        # config is the run's identity, so mutating it refused every resume and lost the bands (async-RL audit)
+        if self.bands is None:
+            self.bands = {k: float(v) for k, v in self.cfg.correction.params.items()}
+        p = self.bands
         get = lambda k, d: float(p.get(k, d))
         if ent < float(ea["low"]):  # entropy collapsing: let positive-advantage tokens move more, negative ones less
             p.update(pos_low=get("pos_low", 0.2) / f, pos_high=get("pos_high", 5.0) * f, neg_low=get("neg_low", 0.2) * f, neg_high=get("neg_high", 5.0) / f)
@@ -846,10 +859,20 @@ class TorchTrainer:
         old = None
         src = self.cfg.correction.old_logprob_source
         if self.cfg.correction.name in NEEDS_OLD and src is None:  # checklist #34: implicit recompute only for single-version rollouts
-            multi = [r.rollout_id for r in records if not r.mask_sample and len({v for t in r.turns for v in (t.versions() or [t.policy_version])}) > 1]
+            vs = {r.rollout_id: {v for t in r.turns for v in (t.versions() or [t.policy_version])} for r in records if not r.mask_sample}
+            multi = [rid for rid, s in vs.items() if len(s) > 1]
             if multi:
                 raise ValueError(f"correction {self.cfg.correction.name!r} needs π_θold but rollouts {multi[:3]} span several policy versions; "
                                  "set old_logprob_source='recompute_current' (recompute with the current weights) or 'rollout'")
+            # async-RL audit: a single-version rollout is on-policy only at the version the trainer serves. A stale one
+            # recomputed with the current weights makes π_θold = π_θ: PPO / CISPO / GSPO then ignore its behaviour logprob
+            # (no off-policy correction at all), so it needs the same explicit choice
+            cur = getattr(self, "policy_version", None)
+            stale = [rid for rid, s in vs.items() if cur is not None and s and s != {cur}]
+            if stale:
+                raise ValueError(f"correction {self.cfg.correction.name!r} needs π_θold but rollouts {stale[:3]} were sampled by versions "
+                                 f"{sorted({v for rid in stale for v in vs[rid]})[:4]}, not the served version {cur}; set "
+                                 "old_logprob_source='recompute_current' (proximal = current weights) or 'rollout'")
         if self.cfg.correction.name in NEEDS_OLD and src in (None, "recompute_current"):
             self._gather_params()
             with torch.no_grad():  # π_θold for this rank's items only, with the pre-update weights
@@ -869,7 +892,7 @@ class TorchTrainer:
                 lp, roll, adv, mask, old_t = self._padded(items, idx, old)
                 local = {k: j for j, k in enumerate(dict.fromkeys(items[i].seq for i in idx))}
                 sid = torch.tensor([local[items[i].seq] for i in idx], device=lp.device)
-                terms = correct(self.cfg.correction, logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t, seq_ids=sid)
+                terms = correct(self._correction(), logp=lp, rollout_logp=roll, adv=adv, mask=mask, old_logp=old_t, seq_ids=sid)
                 extra = self._extra_terms(items, idx, lp, mask)
                 if extra is not None:  # m13 C-5: k3 KL to the reference, full-vocabulary OPD (trained positions only)
                     terms = dataclasses.replace(terms, objective=terms.objective - extra * mask.to(extra.dtype))

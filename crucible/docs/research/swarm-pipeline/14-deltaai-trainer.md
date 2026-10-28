@@ -61,8 +61,13 @@ scripted groups run through Tinker's fake and through the bridge's fake trainer,
 - **The loss scale stays exact.** prime-rl divides the rl loss by the step's trainable-token count; the bridge sends the
   advantages multiplied by that count (`wire.undo_token_mean`), so `loss_scale = sum` or `token_mean` trains exactly what
   it does on Tinker.
-- **Off-policy.** Each weight version is served under its own adapter name, so groups still sampling from an older version
-  keep it, and `--max-staleness` / `--async-groups` are the trainer's bound, as on Tinker.
+- **Off-policy.** Each weight version is served under its own adapter name, so a call in flight at a hot-load finishes on
+  the adapter it started with. The episode's next call uses the new one, and each turn records its version.
+  `--max-staleness` / `--async-groups` are the trainer's bound, as on Tinker. The async-RL audit
+  (`docs/research/async-rl-audit.md`) has:
+  - the comparison with prime-rl, AReaL, slime, SkyRL, verl, NeMo-RL, TRL and ROLL;
+  - the fixes: neutral sampling fields against the repo's `generation_config.json`, the trainer's temperature, and
+    resume hygiene, with the resume step derived from `state.json` at job start.
 - **MoE routing replay** (`primerl/routing.py`; on by default, `--no-router-replay` turns it off). The student routes
   every token to 8 of 256 experts on all 40 layers. A trainer that recomputes the router can pick another expert set for
   a token whose scores are close, so its logprob comes from a different sub-network than the one that sampled it. That

@@ -45,14 +45,46 @@ def key_of(token_ids: Sequence[int]) -> str:
 
 @dataclass(frozen=True)
 class Routes:
-    """One call's routing rows: ``rows[i]`` are the experts of token position ``start + i`` (``[rows, layers, top_k]``)."""
+    """One call's routing rows: ``rows[i]`` are the experts of token position ``start + i`` (``[rows, layers, top_k]``).
+    ``sampled`` (``[n]`` float32, optional): the logprobs of the call's n sampled tokens, at positions ``sampled_start``
+    .. ``sampled_start + n``; they tell apart two calls with the same tokens (``RoutingStore``)."""
 
     rows: np.ndarray
     start: int
+    sampled: np.ndarray | None = None
+    sampled_start: int | None = None
 
     @property
     def end(self) -> int:
         return self.start + int(self.rows.shape[0])
+
+
+def masked_logprobs(logprobs: Sequence[float], mask: Sequence[bool]) -> np.ndarray:
+    """A training sequence's sampled logprobs (aligned with its token ids, as ``wire.to_sample`` sends them) with NaN at
+    untrained positions, whose logprob the wire zeroes: what the stores compare calls on (``closest_call``)."""
+    return np.where(np.asarray(mask, dtype=bool), np.asarray(logprobs, dtype=np.float32), np.float32(np.nan))
+
+
+def closest_call(calls: Sequence[tuple[np.ndarray | None, int | None]], full_logprobs: np.ndarray | None) -> int | None:
+    """Which of several calls with the same tokens a training sequence holds: ``calls`` are (sampled logprobs, position of
+    the first sampled token) per call, ``full_logprobs`` the sequence's ``masked_logprobs``. The call whose sampled
+    logprobs are closest (max abs gap over the trained positions) wins; with one call, or nothing to compare, the newest."""
+    if not calls:
+        return None
+    if full_logprobs is None or len(calls) == 1:
+        return len(calls) - 1
+
+    def gap(c: tuple[np.ndarray | None, int | None]) -> float:
+        smp, s0 = c
+        if smp is None or s0 is None:
+            return float("inf")
+        want = np.asarray(full_logprobs[s0:s0 + len(smp)], dtype=np.float32)
+        ok = np.isfinite(want)
+        if want.shape != smp.shape or not ok.any():
+            return float("inf")
+        return float(np.abs(smp[ok] - want[ok]).max())
+
+    return int(np.argmin([gap(c) for c in calls]))
 
 
 def decode(field_: dict[str, Any] | None) -> Routes | None:
@@ -65,12 +97,20 @@ def decode(field_: dict[str, Any] | None) -> Routes | None:
 
 @dataclass
 class RoutingStore:
-    """Calls' routes by ``key_of(prompt + completion)``, in memory, oldest dropped past ``max_calls`` (a resumed run
-    re-samples the groups it had not trained, so nothing is lost by not persisting them)."""
+    """Calls' routes by ``key_of(prompt + completion)``, in memory, oldest dropped past ``max_calls`` calls (a resumed run
+    re-samples the groups it had not trained, so nothing is lost by not persisting them).
+
+    **Several calls per key** (as ``topk.TopKStore``): two calls can return the same tokens, e.g. group members that open
+    with the same short tool call, or one task in two groups sampled from different adapter versions under async
+    training. With one entry per key the second call overwrote the first's routes (another version's experts replayed
+    for the first group), and training one group dropped the key the other still needed, so its step lost coverage and
+    replayed nothing. Each call keeps its own entry, and ``get`` / ``drop`` pick it by the training sequence's sampled
+    logprobs (``closest_call``)."""
 
     max_calls: int = 200_000
-    by_key: OrderedDict[str, Routes] = field(default_factory=OrderedDict)
+    by_key: OrderedDict[str, list[Routes]] = field(default_factory=OrderedDict)
     shape: tuple[int, int] | None = None  # (layers, top_k), from the first call
+    calls: int = 0
 
     def put(self, token_ids: Sequence[int], routes: Routes) -> None:
         lk = (int(routes.rows.shape[1]), int(routes.rows.shape[2]))
@@ -79,30 +119,52 @@ class RoutingStore:
         elif lk != self.shape:
             raise ValueError(f"routing shape {lk} differs from the run's {self.shape}")
         k = key_of(token_ids)
-        self.by_key[k] = routes
+        self.by_key.setdefault(k, []).append(routes)
         self.by_key.move_to_end(k)
-        while len(self.by_key) > self.max_calls:
-            self.by_key.popitem(last=False)
+        self.calls += 1
+        while self.calls > self.max_calls:
+            _, old = self.by_key.popitem(last=False)
+            self.calls -= len(old)
 
-    def get(self, token_ids: Sequence[int]) -> Routes | None:
-        return self.by_key.get(key_of(token_ids))
+    def _index(self, key: str, full_logprobs: np.ndarray | None) -> int | None:
+        rs = self.by_key.get(key)
+        return None if not rs else closest_call([(r.sampled, r.sampled_start) for r in rs], full_logprobs)
 
-    def drop(self, token_ids: Sequence[int]) -> None:
-        self.by_key.pop(key_of(token_ids), None)
+    def get(self, token_ids: Sequence[int], *, full_logprobs: np.ndarray | None = None) -> Routes | None:
+        """The routes of the call that returned ``token_ids``; ``full_logprobs`` (``masked_logprobs`` of the training
+        sequence) picks among calls with the same tokens."""
+        key = key_of(token_ids)
+        i = self._index(key, full_logprobs)
+        return None if i is None else self.by_key[key][i]
+
+    def drop(self, token_ids: Sequence[int], *, full_logprobs: np.ndarray | None = None) -> None:
+        """Forget the call ``get`` would return; other calls with the same tokens stay."""
+        key = key_of(token_ids)
+        i = self._index(key, full_logprobs)
+        if i is None:
+            return
+        rs = self.by_key[key]
+        rs.pop(i)
+        self.calls -= 1
+        if not rs:
+            del self.by_key[key]
 
 
-def stitch(full: Sequence[int], call_ends: Sequence[int], store: RoutingStore) -> tuple[np.ndarray | None, float]:
+def stitch(full: Sequence[int], call_ends: Sequence[int], store: RoutingStore, *, logprobs: Sequence[float] | None = None,
+           mask: Sequence[bool] | None = None) -> tuple[np.ndarray | None, float]:
     """``[len(full), layers, top_k]`` routing for one training sequence whose sampled calls end at ``call_ends``
     (``full[:end]`` is each call's prompt + completion), and the share of positions covered. The first call that forwarded
     a position wins (later calls of the episode served it from the prefix cache, or recomputed the same input). None when
-    no call has routes."""
+    no call has routes. ``logprobs`` / ``mask`` (aligned with ``full``): the sequence's sampled logprobs, which pick the
+    sequence's own call when several returned the same tokens (``RoutingStore``)."""
     if store.shape is None:
         return None, 0.0
     layers, k = store.shape
+    picked = masked_logprobs(logprobs, mask) if logprobs is not None and mask is not None else None
     out: np.ndarray | None = None
     have = np.zeros(len(full), dtype=bool)
     for end in sorted(call_ends):
-        r = store.get(full[:end])
+        r = store.get(full[:end], full_logprobs=picked)
         if r is None:
             continue
         if out is None:

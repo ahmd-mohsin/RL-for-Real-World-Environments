@@ -62,6 +62,8 @@ def capture(rt: Any, step: int) -> dict:
     else:
         trainer = {"model": {k: v.detach().cpu().clone() for k, v in tr.model.state_dict().items()},
                    "opt": copy.deepcopy(tr.opt.state_dict()), "updates": tr.updates}
+    if getattr(tr, "bands", None):
+        trainer["bands"] = dict(tr.bands)  # mimo4's entropy-adaptive bands: trainer state, not configuration
     if getattr(tr, "critic", None) is not None:
         trainer.update(critic={k: v.detach().cpu().clone() for k, v in tr.critic.state_dict().items()}, critic_opt=copy.deepcopy(tr.critic_opt.state_dict()),
                        critic_updates=tr.critic_updates)
@@ -184,6 +186,8 @@ def apply_trainer_state(tr: Any, t: dict, path: str | Path | None = None) -> Non
         tr.model.load_state_dict(t["model"])
         tr.opt.load_state_dict(t["opt"])
     tr.updates = t["updates"]
+    if t.get("bands"):
+        tr.bands = dict(t["bands"])
     if "critic" in t:
         tr.critic.load_state_dict(t["critic"])
         tr.critic_opt.load_state_dict(t["critic_opt"])

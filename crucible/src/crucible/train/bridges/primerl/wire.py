@@ -59,8 +59,8 @@ def to_sample(d: TokenDatum, *, temperature: float, env_name: str = "crucible", 
             "temperatures": [float(temperature)] * len(token_ids),
             "advantages": [0.0] + [float(a) * scale if m else 0.0 for a, m in zip(d.advantages, d.mask, strict=True)],
             "env_name": env_name, "trace_id": str(d.meta.get("rollout")) if d.meta.get("rollout") is not None else None,
-            "branch_index": int(d.meta["segment"]) if isinstance(d.meta.get("segment"), int) else None, **_routes(d, token_ids, routing),
-            **_heads(d, token_ids, mask, logprobs, topk)}
+            "branch_index": int(d.meta["segment"]) if isinstance(d.meta.get("segment"), int) else None,
+            **_routes(d, token_ids, mask, logprobs, routing), **_heads(d, token_ids, mask, logprobs, topk)}
 
 
 def _heads(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list[float], store: Any) -> dict[str, Any]:
@@ -72,12 +72,12 @@ def _heads(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list
     return {"sc_heads": encode_payload(ids, lps, present), "sc_coverage": cov}
 
 
-def _routes(d: TokenDatum, token_ids: list[int], routing: Any) -> dict[str, Any]:
+def _routes(d: TokenDatum, token_ids: list[int], mask: list[bool], logprobs: list[float], routing: Any) -> dict[str, Any]:
     if routing is None:
         return {}
     from crucible.train.bridges.primerl.routing import encode_for_wire, stitch
 
-    arr, cov = stitch(token_ids, call_ends(d), routing)
+    arr, cov = stitch(token_ids, call_ends(d), routing, logprobs=logprobs, mask=mask)  # the logprobs pick this sequence's own calls
     return {"routed_experts": encode_for_wire(arr) if arr is not None else None, "routing_coverage": cov}
 
 
