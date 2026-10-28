@@ -34,7 +34,7 @@ import time
 import tomllib
 import uuid
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -133,13 +133,17 @@ NOT_PROJECT_MODULES = {"setup", "conftest", "noxfile", "tasks", "fabfile", "test
                        "benchmarks", "benchmark", "bench", "scripts", "script", "tools", "ci", "build", "dist", "site", "src", "release", "bootstrap"}
 
 
-def workspace_modules(tree: Path) -> list[str]:
+def workspace_modules(tree: Path, touched: Collection[str] | None = None) -> list[str]:
     """A's own top-level importable names (packages with ``__init__.py`` and modules) at the root, under ``src/``, and in
     each sub-project of a multi-repository workspace (a stitched World's ``host/`` and ``consumer/``); tests, build
-    scripts and docs left out. The leak probe finds an installed copy through them when the packaging hides its name."""
+    scripts and docs left out. The leak probe finds an installed copy through them when the packaging hides its name.
+    ``touched``: the paths the window changes between A and B; a sub-project none of them lies in is left out, since A and
+    B hold the same files there and its installed copy cannot carry the fix (isort's example plugins, separate
+    distributions in the repository root, come from PyPI as test dependencies). None keeps every sub-project."""
     tree = Path(tree)
     roots = [tree, tree / "src"]
-    roots += [d for d in sorted(tree.iterdir()) if d.is_dir() and any((d / f).exists() for f in PACKAGING)] if tree.is_dir() else []
+    subs = [d for d in sorted(tree.iterdir()) if d.is_dir() and any((d / f).exists() for f in PACKAGING)] if tree.is_dir() else []
+    roots += [d for d in subs if touched is None or any(p.startswith(f"{d.name}/") for p in touched)]
     roots += [d / "src" for d in list(roots[2:])]
     out: set[str] = set()
     for r in roots:
@@ -152,6 +156,14 @@ def workspace_modules(tree: Path) -> list[str]:
             if (c.is_file() and c.name.endswith(".py")) or (c.is_dir() and (c / "__init__.py").is_file()):
                 out.add(stem)
     return sorted(out)
+
+
+def window_touched(rec: Mapping[str, Any]) -> list[str] | None:
+    """Every path a window changes between A and B (``windows.window_files``: oracle files, test files written or deleted);
+    None for a record without them, which keeps every sub-project in ``workspace_modules``."""
+    if "oracle_files" not in rec:
+        return None
+    return [*(rec.get("oracle_files") or {}), *(rec.get("tests_b") or {}), *(rec.get("tests_deleted") or [])]
 
 
 # ---- packaging ---------------------------------------------------------------------------------------------------------
@@ -660,9 +672,11 @@ def judge_leak(fields: dict[str, str], *, version: str | None) -> dict[str, Any]
 
 
 async def leak_probes(image: str, base_dir: Path, *, package: str | None, version: str | None, new_test_names: set[str],
-                      name_prefix: str = f"{PREFIX}leak-", installed: Sequence[str] | None = None) -> dict[str, Any]:
+                      name_prefix: str = f"{PREFIX}leak-", installed: Sequence[str] | None = None,
+                      touched: Collection[str] | None = None) -> dict[str, Any]:
     """The leak probes (module doc). ``installed``: the distributions whose installed copy must hold no Python source
-    (``no_installed_project_source``); default ``package`` alone (a stitched World names host and consumer)."""
+    (``no_installed_project_source``); default ``package`` alone (a stitched World names host and consumer).
+    ``touched``: the window's changed paths (``window_touched``), which sub-projects' modules count (``workspace_modules``)."""
     if not name_prefix.startswith(PREFIX):
         raise ValueError(f"World containers are named {PREFIX}*, got prefix {name_prefix!r}")
     with tempfile.TemporaryDirectory(prefix="lhleak-") as td:
@@ -674,7 +688,7 @@ async def leak_probes(image: str, base_dir: Path, *, package: str | None, versio
         name = f"{name_prefix}{uuid.uuid4().hex[:10]}"
         args = ["run", "--rm", "--name", name, "--network", "none", "-v", f"{probe.resolve()}:/probe:ro", "-e", f"LH_PKG={package or 'none-such-package'}",
                 "-e", f"LH_VER={version or '0'}", "-e", f"LH_DIST={dist}", "-e", f"LH_COUNT={LEAK_COUNT}", "-e", f"LH_ASRC={LEAK_ASRC}",
-                "-e", "LH_ASRC_PKGS=" + " ".join([*(x for x in (installed or [package]) if x), *(f"mod:{x}" for x in workspace_modules(base_dir))]),
+                "-e", "LH_ASRC_PKGS=" + " ".join([*(x for x in (installed or [package]) if x), *(f"mod:{x}" for x in workspace_modules(base_dir, touched))]),
                 image, "bash", "-c", LEAK_SCRIPT]
         r = await asyncio.to_thread(docker, *args, timeout=600)
     if r.returncode not in (0, 1) and "PIP_RC" not in r.stdout:

@@ -39,7 +39,7 @@ from typing import Any
 from crucible.factory.lanes.windows import grader_tests, passed_group, run_tests, sandbox_factory, suite_targets
 from crucible.factory.lanes.windows_git import _defs
 from crucible.factory.lanes.windows_timing import timing_tests
-from crucible.factory.lanes.windows_world import _DIST_SEL, IMAGE_RECIPE, PREFIX, ImageBook, image_id, leak_probes, workspace_modules
+from crucible.factory.lanes.windows_world import _DIST_SEL, IMAGE_RECIPE, PREFIX, ImageBook, image_id, leak_probes, window_touched, workspace_modules
 
 S3_PREFIX = f"{PREFIX}p4-"  # World containers of this phase (P4): crucible-lh-p4-*
 
@@ -138,7 +138,8 @@ async def world_s3(rec: Mapping[str, Any], base_dir: Path, image: str, *, reruns
     from crucible.factory.langs.base import active
 
     leak = await (lang.leak_probes if (lang := active()) is not None else leak_probes)(image, base_dir, package=w.get("project") or rec.get("repo"), version=rec.get("b_version"),
-                             new_test_names=new_names(rec, base_dir), name_prefix=f"{name_prefix}leak-", installed=w.get("projects"))
+                             new_test_names=new_names(rec, base_dir), name_prefix=f"{name_prefix}leak-", installed=w.get("projects"),
+                             touched=window_touched(rec))
     out["leak"] = leak
     out["checks"]["leak_probes_hold"] = bool(leak.get("ok"))
     # reruns of the existing suite: half alone, half ``concurrency`` at a time
