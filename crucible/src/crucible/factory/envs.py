@@ -235,6 +235,13 @@ def make_env(task: Any, *, mode: str = "workspace", checkpoint: CheckpointConfig
     elif mode == "rlm":
         from crucible.runtime.harness.rlm import RLMHarness
 
+        if callable(getattr(task, "grade_patch", None)):
+            # harness-reward audit 2026-10-28: RLMHarness grades the World in place (``task.grade(world, workdir)``, NativeHarness);
+            # a patch-graded task (WindowTask: ``grade(solution, *, run, checks)``) raised TypeError in every grade, so every
+            # attempt ended masked at verification. Refused here until an RLM workspace harness collects and grades the patch
+            raise ValueError(f"mode='rlm' grades the World in place; {type(task).__name__} is graded from a collected patch (grade_patch): "
+                             "use mode='workspace'")
+
         harness = RLMHarness(rlm_config, limits=limits, sidecar=sidecar)
     else:
         raise ValueError(f"mode is workspace or rlm, got {mode!r}")

@@ -21,7 +21,7 @@ family's tool parser, ``enable_thinking`` explicit and recorded). Each call:
 weights they started with (call-level switching: one version per call, exactly what ``Turn.policy_version`` records).
 
 **``SamplerLLM``** (``llm()``) is the ``LLMClient``-shaped object a ``LLMToolPolicy`` drives (``complete``, ``spend``,
-``lock_settings``): every booked dollar is attributed to the episode (``sample_key``) that spent it (``per_episode``).
+``lock_settings``, ``context_window``: the model's context, so each reply is fitted to the room left): every booked dollar is attributed to the episode (``sample_key``) that spent it (``per_episode``).
 ``policy_ref(...)`` wraps it as the runtime's ``PolicyRef`` with its declared config (the run identity).
 
 **``TinkerChatClient``** is a factory role on a Tinker model: ``complete`` and ``complete_json`` (JSON parsed from the
@@ -159,6 +159,14 @@ class SamplerLLM:
 
     def lock_settings(self) -> dict[str, Any]:
         return self.sampler.settings()
+
+    async def context_window(self) -> int:
+        """The served model's context (``LLMClient.context_window``'s surface). ``LLMToolPolicy`` fits each reply's
+        ``max_tokens`` to the room this leaves (M2 R-1) and sizes its compaction budget by it. Harness-reward audit
+        2026-10-28: without it the policy sent ``max_tokens`` unfitted, ``gen`` refused prompt + ``max_tokens`` over the
+        context, and the episode ended ``context_overflow`` with room left for a shorter reply; a ``ContextConfig``
+        without ``budget_tokens`` compacted at 0.8 x 128k, past a 64k model's context."""
+        return int(self.sampler.model.context)
 
     async def complete(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, temperature: float = 1.0,
                        max_tokens: int = 1024, sample_key: str | None = None, seed: int | None = None, **kw: Any) -> LLMResponse:

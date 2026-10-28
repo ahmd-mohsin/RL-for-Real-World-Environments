@@ -86,6 +86,18 @@ from crucible.world.verifier import hand_off, verifier_world, wants_separate
 LIMIT_STOPS = {"max_steps", "timeout", "context_overflow", "too_many_errors"}
 
 
+def misbehaved(ep: Any, prefix: str = "") -> StageFailure | None:
+    """The policy defeated the verification boundary (``run_episode``: its processes survived the final quiesce): its
+    outcome, scored 0 and never masked, as ``crucible:policy_misbehavior`` is declared (``core.schema.run``). Harness-reward
+    audit 2026-10-28: only the multi-step path enforced it; a single-step episode (native or workspace) went on to be
+    graded while the survivors could still change the work being graded or collected."""
+    f = next((x for x in ep.failures if x.get("kind") == "crucible:policy_misbehavior"), None)
+    if f is None:
+        return None
+    return StageFailure(Failure(kind="crucible:policy_misbehavior", stage="agent", reason=(prefix + str(f.get("reason", "")))[:500], blame="policy",
+                                mask=False))
+
+
 @dataclass
 class TaskStep:
     """One step of a multi-step task (M1 item 4; Harbor ``StepConfig``). ``min_reward``: a float gates the step's
@@ -658,8 +670,8 @@ class NativeHarness:
             total_steps += ep.steps
             if ep.masked:
                 raise StageFailure(await _masked_episode(attempt.task, world, ep, prefix=f"step {st.name}: "))
-            if any(f.get("kind") == "crucible:policy_misbehavior" for f in ep.failures):
-                raise StageFailure(Failure(kind="crucible:policy_misbehavior", stage="agent", reason=f"step {st.name}", blame="policy", mask=False))
+            if (mb := misbehaved(ep, prefix=f"step {st.name}: ")) is not None:
+                raise mb
             if ep.stop_condition in LIMIT_STOPS and self.limit_policy.for_stop(ep.stop_condition) == "mask":
                 raise StageFailure(Failure(kind="agent_timeout", stage="agent", reason=f"step {st.name}: {ep.stop_condition}", mask=True, blame="harness"))
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") else []
@@ -907,6 +919,8 @@ class NativeHarness:
             pe = next((x for x in ep.failures if x.get("kind") == "crucible:policy_error"), None)
             if pe is not None:  # the policy's own code or output raised: its outcome, scored 0 (M10 audit V6)
                 raise StageFailure(Failure(kind="crucible:policy_error", stage="agent", reason=pe.get("reason", "")))
+            if (mb := misbehaved(ep)) is not None:  # processes survived the quiesce: scored 0, never graded (as _run_steps does)
+                raise mb
             broken = await attempt.task.broken(world) if hasattr(attempt.task, "broken") and res.grade.get("steps") is None else []
             if broken:  # the policy broke its environment: its own outcome, scored 0, never masked
                 raise StageFailure(Failure(kind="crucible:agent_broke_env", stage="agent", reason="; ".join(broken)[:400]))

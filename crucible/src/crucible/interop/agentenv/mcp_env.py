@@ -101,11 +101,14 @@ class AgentEnvMcpApp(McpServerApp):
 
     async def load(self, parts: list[dict]) -> None:
         from agentenv_protocol.client import add_data, reset_data
-        from agentenv_protocol.types import DataPart, FilePart
+        from agentenv_protocol.types import Part
+        from pydantic import TypeAdapter
 
         await reset_data(self.base_url)
         if parts:
-            typed = [DataPart.model_validate(p) if p.get("kind") == "data" else FilePart.model_validate(p) for p in parts]
+            # agentenv's ``Part`` union, discriminated by ``kind`` (harness-reward audit 2026-10-28: every non-data part was read as
+            # a file part, so a ``text`` part that ``data/get`` returned raised a ValidationError in restore)
+            typed = [TypeAdapter(Part).validate_python(p) for p in parts]
             await add_data(self.base_url, typed)
 
     def _seed(self) -> list[dict]:

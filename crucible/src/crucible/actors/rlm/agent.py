@@ -1562,7 +1562,11 @@ class AgentLoop:
         after = self.meter.tokens(msgs)
         if self._size_of(msgs) + self._summary_overhead() >= self.threshold:
             self.counters["compaction_failures"] += 1
-            self.tree.segments.append({**seg, "boundary_reason": "compaction_failed", "failed": True, "context_after": after})
+            # harness-reward audit 2026-10-28: the run never continued from this summary, so it is not trained (it stayed
+            # accepted and trainable, and the failed segment named it as its summary call, which kept it trained on resume)
+            for a in attempts:
+                a["accepted"], a["trainable"] = False, False
+            self.tree.segments.append({**seg, "boundary_reason": "compaction_failed", "failed": True, "context_after": after, "summary_call": None})
             self._end("compaction_failed", f"the rebuilt context ({after} tokens: system, task, summary and state) and the next summary request "
                                            f"leave no room under the compaction threshold ({self.threshold}); raise window_tokens")
             return False
@@ -1589,7 +1593,11 @@ class AgentLoop:
         """A new token sequence for this agent: its first call stores its whole prompt; continuations are per segment."""
         self.segment = seg["index"]
         self.tree.segments.append(seg)
-        self._continuations = 0
+        if seg.get("boundary_reason") != "rerender":
+            # harness-reward audit 2026-10-28: a CONTINUE nudge is a user row, so an "interleaved" template (Qwen3.5 / 3.6)
+            # re-renders at it and opens a rerender segment; resetting here gave a tool-less model unlimited nudges and the
+            # episode ran to budget:turns (a truncation) instead of the scored agent_done after max_continuations
+            self._continuations = 0
         self._last_full = None
         self._chain_calls_in_segment = 0
         self._prev_total = None
@@ -1733,6 +1741,22 @@ class AgentLoop:
             self.answer = r.text or ""
             self._end("agent_done", (r.text or "")[:2000])
             return True
+        raw = r.tool_calls[py[0]].get("arguments")
+        bad = not isinstance(raw, dict) or "__unparseable__" in raw or not isinstance(raw.get("code"), str)
+        if bad:
+            # harness-reward audit 2026-10-28: arguments that did not parse (a reply cut at max_tokens) or carry no code string
+            # ran as an empty cell that printed "(no output)": the model was never told its call was malformed, and the stall
+            # detector read it as a cell. Every call of the reply gets its tool row, and nothing runs
+            self.counters["malformed_calls"] = self.counters.get("malformed_calls", 0) + 1
+            call["malformed_call"] = True
+            cut = " The reply was cut off at its length limit." if r.finish == "length" else ""
+            for k, tid in enumerate(ids):
+                why = ("[not run: the python call's arguments did not parse as {\"code\": \"<python source>\"}." + cut + " Send the call again.]"
+                       if k == py[0] else self._correction(r.tool_calls[k]) if r.tool_calls[k].get("name") != "python" else
+                       "[not run: one python call per reply]")
+                self.messages.append({"role": "tool", "tool_call_id": tid, "content": why})
+            self.stall.on_cell("<malformed python call>", False)
+            return self._check_stall()
         # one python call per reply; the others are kept in the message (they are in the sampled tokens and in the model's
         # context) and answered, never silently dropped (G1 D14)
         done = await self._run_cell(call, ids[py[0]], code)

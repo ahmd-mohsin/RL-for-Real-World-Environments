@@ -164,8 +164,10 @@ class CrucibleVerifyStep(TaskStep):
             q = receipt(world, cut, d / f"verify-{self.verifier_id}" / "quiesce.json")
             flag = late_call_flag(q)
             # agentenv's reward-mode verifier row (G4 D7); agentenv's aggregators test ``result is True`` (C3)
-            results = [{"id": "reward", "score": 0.0 if masked else reward, "result": bool(not masked and reward >= 1.0), "weight": 1.0,
-                        **({"skipped": True} if masked else {})}]
+            # a masked grade's row carries no score, as agentenv's own skipped rows do (verify_sandbox.py:144-148): V8, a grade that
+            # cannot run is never 0 (harness-reward audit 2026-10-28: it carried 0.0, which a tolerant run's aggregate scored)
+            results = [{"id": "reward", "result": False, "weight": 1.0, "skipped": True} if masked else
+                       {"id": "reward", "score": reward, "result": bool(reward >= 1.0), "weight": 1.0}]
             context.metadata.setdefault("verifications", {})[self.verifier_id] = {
                 "results": results, "score": reward, "actions_replayed": len(actions),
                 "crucible": {"reward_json": doc, "masked": masked, "failure_kind": infra.get("failure_kind") if masked else None, "steps": rows,

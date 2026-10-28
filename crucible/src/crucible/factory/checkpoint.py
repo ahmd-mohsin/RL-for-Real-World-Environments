@@ -168,6 +168,59 @@ def root_compactions(policy: Any) -> int:
     return sum(1 for s in segs if isinstance(s, dict) and not s.get("agent") and (s.get("boundary_reason") or s.get("strategy")) != "resume")
 
 
+# ---- one change, two renderings ----------------------------------------------------------------------------------------------
+_DIFF_HEAD = re.compile(r"(?m)^diff --git ")
+
+
+def _unquote(p: str) -> str:
+    """A path as git prints it, unquoted (``core.quotepath``: ``"b/caf\\303\\251.txt"`` -> ``b/café.txt``)."""
+    p = p.rstrip("\t")
+    if len(p) >= 2 and p[0] == '"' and p[-1] == '"':
+        import codecs
+
+        raw = codecs.escape_decode(p[1:-1].encode("latin-1", "backslashreplace"))[0]
+        return raw.decode("utf-8", "replace")
+    return p
+
+
+def _block_path(block: str) -> str:
+    lines = block.split("\n")
+    for prefix, side in (("+++ ", "b/"), ("--- ", "a/")):
+        line = next((ln for ln in lines[1:] if ln.startswith(prefix)), None)
+        if line is not None and line[4:].strip() != "/dev/null":
+            return _unquote(line[4:]).removeprefix(side)
+    head = lines[0]
+    cut = head.rfind(' "b/') if head.endswith('"') else head.rfind(" b/")
+    return _unquote(head[cut + 1:]).removeprefix("b/") if cut >= 0 else head
+
+
+def canonical_change(patch: str) -> list[tuple[str, tuple[str, ...]]] | None:
+    """A git patch as the change it makes: per file (unquoted path), its lines without the path lines (``diff --git``,
+    ``---``, ``+++``), sorted by path; files the harness's collect drops as derived (``verify.collect.is_derived``) left out.
+    None for text that is not a git patch (no ``diff --git`` block and not empty): it has no canonical form."""
+    from crucible.verify.collect import is_derived
+
+    parts = _DIFF_HEAD.split(patch or "")
+    if parts[0].strip():
+        return None  # text before the first block (or no block at all): not a git patch
+    out = []
+    for block in parts[1:]:
+        path = _block_path(block)
+        if is_derived(path):
+            continue
+        body = tuple(ln for ln in block.split("\n")[1:] if not ln.startswith(("--- ", "+++ ")))
+        out.append((path, body))
+    return sorted(out)
+
+
+def same_change(a: str | bytes, b: str | bytes) -> bool:
+    """Whether two renderings of a workspace's diff make the same change (``canonical_change``)."""
+    da = a.decode("utf-8", "replace") if isinstance(a, bytes) else a
+    db = b.decode("utf-8", "replace") if isinstance(b, bytes) else b
+    ca, cb = canonical_change(da), canonical_change(db)
+    return ca is not None and cb is not None and ca == cb
+
+
 # ---- snapshots ---------------------------------------------------------------------------------------------------------------
 
 
@@ -567,10 +620,16 @@ class CheckpointSidecar:
         masked final grade is never a vector of zeros), no checkpoint holds this patch, or the vectors already agree."""
         if not self._ended or not isinstance(final, Mapping) or not all(isinstance(final.get(i), bool) for i in self.ids):
             return None
+        end_sha = self.cps[-1].sha if self.cps and "end" in self.cps[-1].triggers else None
         if patch is None:
-            sha = self.cps[-1].sha if self.cps and "end" in self.cps[-1].triggers else None
+            sha = end_sha
         else:
             sha = hashlib.sha256(patch if isinstance(patch, bytes) else patch.encode()).hexdigest()
+            if sha not in self.slots and end_sha in self.slots and same_change(self.slots[end_sha].patch, patch):
+                # harness-reward audit 2026-10-28: the end snapshot and the harness's collect build the same change with other
+                # flags (the collect drops derived files such as an unignored __pycache__, quotes non-ASCII paths), so a byte
+                # match missed the end checkpoint and its sidecar verdict stood against the final grade
+                sha = end_sha
         slot = self.slots.get(sha) if sha else None
         if slot is None:
             return None
