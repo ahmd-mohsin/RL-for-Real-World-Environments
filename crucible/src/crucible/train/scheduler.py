@@ -293,7 +293,10 @@ class Scheduler:
         off_left = None
         if c.max_offpolicy_frac is not None:
             off_left = max(0, math.floor(c.max_offpolicy_frac * c.B) - sum(1 for g in batch if st[g.gid] > 0))
-        batch += self._pick(rest, c.B - len(batch), taken, st, done_at, off_left)
+        picked = self._pick(rest, c.B - len(batch), taken, st, done_at, off_left)
+        batch += picked
+        taken |= {g.gid for g in picked}  # async-RL audit: the relaxed fill below re-added groups already picked (a group
+        # trained twice in one batch, and the held-back group it should have added never trained)
         if len(batch) < need and self._admission_closed() and self.pool.live_count() == 0:
             # nothing can arrive: the groups the window / off-policy cap held back fill the batch (they occupy the slots
             # that on-policy work would need: G3 D2, every buffered group off-policy deadlocked disaggregated_stream)
@@ -301,6 +304,11 @@ class Scheduler:
             batch += extra
             taken |= {g.gid for g in extra}
             self.counters["preference_relaxed"] = self.counters.get("preference_relaxed", 0) + len(extra)
+            if batch and len(batch) < need and self.sources and all(s in self.exhausted for s in self.sources):
+                # the tail of finite prompt sources: every group that can ever exist is here; train it short rather than
+                # block until max_wall_s (the duplicate above used to pad it)
+                need = len(batch)
+                self.counters["short_tail_batches"] = self.counters.get("short_tail_batches", 0) + 1
         if len(batch) < need:
             return Selection([], evicted, blocked="need_more")
         over = forced[c.B:]

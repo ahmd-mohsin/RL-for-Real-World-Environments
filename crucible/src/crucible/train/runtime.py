@@ -872,6 +872,8 @@ class Runtime:
                     continue
                 recs.append(r)
                 groups.append(g.gid)
+        if hasattr(self.trainer, "step"):
+            self.trainer.policy_version = self.version  # the served version: the trainer's on-policy test (implicit π_θold)
         if self.cfg.topology in ("disaggregated_stream", "elastic"):
             m = await asyncio.to_thread(self.trainer.step, recs, groups)  # (resident) engines keep generating meanwhile
         else:

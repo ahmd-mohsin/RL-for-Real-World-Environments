@@ -94,7 +94,7 @@ def test_router_replay_samples_over_generate_keeps_routes_and_sends_them(tmp_pat
         finally:
             _EPISODE.reset(tok)
         path, body = b.http.posts[-1]
-        assert path == "/inference/v1/generate" and body["token_ids"] == [1, 2, 3] and body["cache_salt"] == "crucible-ep-1"
+        assert path == "/inference/v1/generate" and body["token_ids"] == [1, 2, 3] and body["cache_salt"] == f"crucible-ep-1-{MODEL}-base"
         assert out.tokens == [50, 51] and out.logprobs == [-0.1, -0.2] and store.get([1, 2, 3, 50, 51]) is not None
         d = smoke.datum([1, 2, 3], out.tokens, out.logprobs, 1.0, rollout="r", segment=0)
         fb = await tr.forward_backward([d], loss_fn="importance_sampling", config=None)

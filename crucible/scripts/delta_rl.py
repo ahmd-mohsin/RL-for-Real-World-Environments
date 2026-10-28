@@ -14,6 +14,9 @@ Commands:
 - ``render --rows ROWS.jsonl --targeting T.json --run-name NAME --stage DIR [--resume-step S]``: ``trainer.toml``,
   ``inference.toml``, ``job.sbatch``, ``deploy.json`` in ``DIR``; prints the submit command (``deploy.submit_command``:
   ``env -u SBATCH_ACCOUNT ... sbatch --account=bjhg-dtai-gh``). Held-out tasks and tasks without a band are refused.
+  The job derives the trainer's resume step from the loop's ``state.json`` each time it starts (``deploy.launch_toml``),
+  so the same job file resubmits safely; ``--resume-step`` only pins it, and a pin that disagrees with the state fails
+  the job before any GPU work.
 - ``render-smoke --stage DIR --run-name NAME``: the plumbing smoke on a small model (default ``Qwen/Qwen3-0.6B``, 1 GPU
   trainer + 1 GPU vLLM on the ``test`` partition): install prime-rl at the pin, two RL steps, the trainer killed and
   relaunched from its checkpoint, one more step (``smoke``).
@@ -381,7 +384,7 @@ def main() -> None:
     add_deploy_flags(p)
     p.add_argument("--run-name", required=True)
     p.add_argument("--stage", required=True, help="local directory the files are written to (rsync it to the run directory)")
-    p.add_argument("--resume-step", type=int, help="the prime-rl checkpoint step to resume from (steps count from 1)")
+    p.add_argument("--resume-step", type=int, help="pin the prime-rl resume step (steps count from 1); by default the job derives it from Crucible's state.json")
     p.set_defaults(fn=cmd_render)
     p = sub.add_parser("render-smoke")
     p.add_argument("--base-model", default="Qwen/Qwen3-0.6B")

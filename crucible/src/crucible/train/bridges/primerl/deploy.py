@@ -22,6 +22,7 @@ max 217K; median 73K sampled tokens per episode) and GH200 peak numbers; it is s
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -134,18 +135,55 @@ def trainer_toml(train: Any, d: DeltaConfig, out: Path, *, resume_step: int | No
     return doc
 
 
+def resume_step_of(state_path: Path) -> int | None:
+    """The step Crucible's loop resumes from (``state.json``'s ``resume.step``, written by ``TinkerTrainer._checkpoint``
+    once prime-rl's checkpoint of that step is complete), or None for a fresh run."""
+    p = Path(state_path)
+    if not p.exists():
+        return None
+    s = (json.loads(p.read_text()).get("resume") or {}).get("step")
+    return int(s) if s else None
+
+
+def launch_toml(base: Path, state_path: Path, out: Path) -> int | None:
+    """Write the trainer config of this launch: ``base`` (the rendered ``trainer.toml``) with ``[resume] step`` set from
+    Crucible's state, so a requeued or resubmitted job relaunches the trainer exactly where Crucible's loop resumes. Before
+    this the resume step was fixed at render time (``render --resume-step``), and a job that disagreed with the state
+    (killed between prime-rl's checkpoint of step s and Crucible's record of it, or a stale flag) offered another startup
+    step than the loop awaited and held the GPUs to ``startup_timeout_s``. A base that already names a different resume
+    step is refused. Returns the step (None: fresh)."""
+    import tomllib
+
+    text = Path(base).read_text()
+    pinned = (tomllib.loads(text).get("resume") or {}).get("step")
+    step = resume_step_of(state_path)
+    if pinned is not None and pinned != step:
+        raise ValueError(f"{base} resumes at step {pinned}, Crucible's state ({state_path}) at {step}: drop the rendered resume step")
+    if step is not None and pinned is None:
+        text = text.rstrip("\n") + f"\n\n[resume]\nstep = {int(step)}\n"
+    Path(out).write_text(text)
+    return step
+
+
 def inference_toml(train: Any, d: DeltaConfig) -> dict[str, Any]:
     """The prime-rl ``InferenceConfig`` (``prime_rl/configs/inference.py``, v0.10.0): vLLM with LoRA hot-loading.
 
     One engine, no router (``router = "None"``, prime-rl's own null for TOML): the engine serves ``server.port`` itself, as
     prime-rl's per-rank engines do. The default ``vllm-router`` lives in prime-rl's ``disagg`` extra with deep-ep, deep-gemm
     and nixl, which the build does not install (smoke attempt 5, job 3467688: ``FileNotFoundError: 'vllm-router'``); it only
-    adds session-affine routing across data-parallel engines, so more than one engine is refused here."""
+    adds session-affine routing across data-parallel engines, so more than one engine is refused here.
+
+    ``generation_config = "vllm"``: the model repo's ``generation_config.json`` never fills a sampling field (its top_k /
+    top_p would truncate q under ``processed_logprobs``; the bridge also sends neutral values, ``backend.NEUTRAL_SAMPLING``), as
+    the inference bridge's ``vllm/serve.py`` does. ``max_loras``: the bridge serves each weight version under its own
+    adapter name, so an asynchronous run (``async_groups > 0``) has calls of the previous version in flight when the next
+    adapter loads; with prime-rl's single slot vLLM would hold every new-version call until the old ones drained."""
     if d.infer_gpus // d.infer_tp != 1:
         raise ValueError("one vLLM engine per job (infer_gpus == infer_tp): data-parallel engines need prime-rl's vllm-router (disagg extra)")
     vllm: dict[str, Any] = {"model": d.base_model, "max_model_len": d.seq_len, "tensor_parallel_size": d.infer_tp,
                             "data_parallel_size": d.infer_gpus // d.infer_tp, "gpu_memory_utilization": d.gpu_memory_utilization,
                             "enable_prefix_caching": True, "enable_lora": True, "max_lora_rank": int(train.lora_rank),
+                            "max_loras": 2 if int(getattr(train, "async_groups", 0) or 0) > 0 else 1,
                             "enable_return_routed_experts": bool(d.router_replay),
                             # vLLM's sampling defaults, not the model's generation_config.json (top_k = 20, top_p = 0.95 for the
                             # student): the trainer scores the full temperature-scaled softmax (``backend.NEUTRAL_SAMPLING``)
@@ -184,8 +222,11 @@ def submit_command(script: Path, d: DeltaConfig) -> list[str]:
     return ["env", "-u", "SBATCH_ACCOUNT", "-u", "SLURM_ACCOUNT", "sbatch", f"--account={d.account}", str(script)]
 
 
-def sbatch_script(d: DeltaConfig, *, out: Path, run_name: str, crucible_cmd: str, setup: str = "") -> str:
-    """The job (module doc): trainer on the first ``train_gpus`` GPUs, vLLM on the rest, Crucible's loop on the CPUs."""
+def sbatch_script(d: DeltaConfig, *, out: Path, run_name: str, crucible_cmd: str, setup: str = "", state: Path | None = None) -> str:
+    """The job (module doc): trainer on the first ``train_gpus`` GPUs, vLLM on the rest, Crucible's loop on the CPUs. The
+    trainer's resume step comes from Crucible's ``state`` (default ``<out>/crucible/state.json``, the loop's run directory)
+    when the job starts (``launch_toml``), so every submission of the same job resumes both halves at one step."""
+    state = state or out / "crucible" / "state.json"
     tr = ",".join(str(i) for i in range(d.train_gpus))
     inf = ",".join(str(i) for i in range(d.train_gpus, d.train_gpus + d.infer_gpus))
     env = "".join(f"export {k}={v}\n" for k, v in sorted(d.extra_env.items()))
@@ -203,9 +244,10 @@ set -euo pipefail
 unset SBATCH_ACCOUNT SLURM_ACCOUNT
 {env}{setup}
 mkdir -p {out}
+uv run python -c "from crucible.train.bridges.primerl.deploy import launch_toml; print('trainer resume step:', launch_toml('{out}/trainer.toml', '{state}', '{out}/trainer_run.toml'))" || exit 12
 CUDA_VISIBLE_DEVICES={inf} uv run inference @ {out}/inference.toml > {out}/inference.log 2>&1 &
 INF=$!
-CUDA_VISIBLE_DEVICES={tr} {trainer_command(f"{out}/trainer.toml", gpus=d.train_gpus, port="$((29500 + SLURM_JOB_ID % 1000))")} > {out}/trainer.log 2>&1 &
+CUDA_VISIBLE_DEVICES={tr} {trainer_command(f"{out}/trainer_run.toml", gpus=d.train_gpus, port="$((29500 + SLURM_JOB_ID % 1000))")} > {out}/trainer.log 2>&1 &
 TRN=$!
 until curl -sf localhost:{d.port}/health > /dev/null; do sleep 10; kill -0 $INF || exit 3; done
 {crucible_cmd} > {out}/crucible.log 2>&1

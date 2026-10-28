@@ -494,8 +494,13 @@ class TinkerTrainer:
 
     # ---- the loop ----
     async def run(self) -> dict[str, Any]:
-        self._open()
         cfg = self.cfg
+        # a backend that scores the batch at its own temperature (``primerl.PrimeRLBackend.temperature``: every trained
+        # token's ``temperatures`` entry) must score at the one the groups sample with, or every ratio is off
+        bt = getattr(self.backend, "temperature", None)
+        if isinstance(bt, int | float) and abs(float(bt) - float(cfg.temperature)) > 1e-9:
+            raise RunRefused(f"the backend trains at temperature {bt}, the groups sample at {cfg.temperature}")
+        self._open()
         self.meter = SpendMeter(cfg.cap_usd, path=self.dir / "spend.jsonl")
         t = self.meter.totals  # a resumed run's per-step deltas start from what earlier processes booked
         self._last_usd, self._last_tokens = self.meter.spent, {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample,

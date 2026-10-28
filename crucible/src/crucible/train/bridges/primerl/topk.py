@@ -40,7 +40,7 @@ from typing import Any
 
 import numpy as np
 
-from crucible.train.bridges.primerl.routing import key_of
+from crucible.train.bridges.primerl.routing import closest_call, key_of, masked_logprobs
 
 DEFAULT_K = 32  # matches full centering in the paper's top-k sweep (App. A.4: k = 32 and 128 on par with full)
 SC_MAGIC = -1_234_567_890  # int32 in column 0 of a head row: never a token id, never prime-rl's -1 padding
@@ -115,20 +115,8 @@ class TopKStore:
         """The index of the call under ``key`` whose sampled logprobs are closest to ``full_logprobs`` (the training
         sequence's sampled logprobs aligned with its token ids, NaN where untrained: ``trained_logprobs``) at that call's
         completion positions; the newest call when there is one call or nothing to compare."""
-        hs = self.by_key.get(key)
-        if not hs:
-            return None
-        if full_logprobs is None or len(hs) == 1:
-            return len(hs) - 1
-
-        def gap(h: Heads) -> float:
-            want = np.asarray(full_logprobs[h.start:h.end], dtype=np.float32)
-            ok = np.isfinite(want)
-            if h.sampled is None or h.sampled.shape != want.shape or not ok.any():
-                return float("inf")
-            return float(np.abs(h.sampled[ok] - want[ok]).max())
-
-        return int(np.argmin([gap(h) for h in hs]))
+        hs = self.by_key.get(key)  # the rule is ``routing.closest_call``, shared with ``RoutingStore``
+        return None if not hs else closest_call([(h.sampled, h.start) for h in hs], None if full_logprobs is None else np.asarray(full_logprobs))
 
     def get(self, token_ids: Sequence[int], *, full_logprobs: Sequence[float] | None = None) -> Heads | None:
         """The heads of the call that returned ``token_ids`` (``full_logprobs``: ``_pick``)."""
@@ -149,10 +137,7 @@ class TopKStore:
             del self.by_key[key]
 
 
-def trained_logprobs(logprobs: Sequence[float], mask: Sequence[bool]) -> np.ndarray:
-    """A training sequence's sampled logprobs (aligned with its token ids, as ``wire.to_sample`` sends them) with NaN
-    at untrained positions, whose logprob the wire zeroes: what ``TopKStore`` compares calls on."""
-    return np.where(np.asarray(mask, dtype=bool), np.asarray(logprobs, dtype=np.float32), np.float32(np.nan))
+trained_logprobs = masked_logprobs  # a training sequence's sampled logprobs, NaN where untrained (``routing.masked_logprobs``)
 
 
 def stitch(full: Sequence[int], call_ends: Sequence[int], mask: Sequence[bool], store: TopKStore, *,
