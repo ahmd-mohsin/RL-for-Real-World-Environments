@@ -332,9 +332,13 @@ def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
     """``text`` without the changelog entries that cite one of ``refs`` (``fix_refs``): a list item with its wrapped lines,
     else the line. A changelog written at release time names the fixes after the fact, so the fixes' own diffs never
     added these lines (``strip_added_lines`` cannot see them): mvdan-sh's "as well as ``$-`` - #1398", h3's "Call
-    ``onError`` for stream errors in Node.js handlers (#1571)". Returns the text and the number of lines removed."""
+    ``onError`` for stream errors in Node.js handlers (#1571)". Returns the text and the number of lines removed.
+    A subject of 6 or more distinct words also cites the entries holding all of its words but one: release notes reword a
+    fix slightly (isort 9f56767 "Fix pylint disable-next comments at top of imports" is "... at the start of imports" in
+    its changelog), and an entry removed by mistake costs nothing while one left in announces the fix."""
     refs = list(refs)
     subjects = [r[len(SUBJECT_REF):] for r in refs if r.startswith(SUBJECT_REF)]
+    loose = [w for x in subjects if len(w := set(x.split())) >= 6]
     pats = [re.compile(rf"(?<![\w/])#{re.escape(r[1:])}(?!\d)|/(?:pull|issues)/{re.escape(r[1:])}(?!\d)") if r.startswith("#")
             else re.compile(rf"(?<![0-9a-fA-F]){re.escape(r)}(?![0-9a-fA-F])") for r in refs if not r.startswith(SUBJECT_REF)]
     lines = text.splitlines(keepends=True)
@@ -347,7 +351,8 @@ def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
                 end += 1
         chunk = lines[k:end]
         prose = f" {_prose(''.join(chunk))} "
-        if any(p.search(ln) for ln in chunk for p in pats) or any(f" {x} " in prose for x in subjects):
+        if (any(p.search(ln) for ln in chunk for p in pats) or any(f" {x} " in prose for x in subjects)
+                or any(len(w - set(prose.split())) <= 1 for w in loose)):
             removed += len(chunk)
         else:
             out += chunk

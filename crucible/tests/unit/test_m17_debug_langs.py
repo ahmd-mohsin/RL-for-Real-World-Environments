@@ -265,6 +265,21 @@ def test_a_changelog_entry_that_repeats_the_fix_subject_is_removed() -> None:
     assert subject_ref("Fix the parser for nested heredocs (#1404)") == "subject:fix the parser for nested heredocs"
 
 
+def test_a_slightly_reworded_changelog_entry_of_a_long_subject_is_removed() -> None:
+    """isort 9f56767 (2026-10-28): "Fix pylint disable-next comments at top of imports" has no PR number, and the release
+    notes say "at the start of imports", so the exact subject match missed it and the start tree announced the fix."""
+    ref = subject_ref("Fix pylint disable-next comments at top of imports")
+    log = ("### 9.0.3\n   - Fix pylint disable-next comments at the start of imports by @x in https://github.com/PyCQA/isort/pull/2628\n"
+           "   - Fix preservation of form-feed blank lines by @y in https://github.com/PyCQA/isort/pull/2599\n"
+           "   - Keep pylint disable comments with the imports they guard\n")
+    kept = ("### 9.0.3\n   - Fix preservation of form-feed blank lines by @y in https://github.com/PyCQA/isort/pull/2599\n"
+            "   - Keep pylint disable comments with the imports they guard\n")
+    assert strip_ref_entries(log, {ref}) == (kept, 1)
+    # a subject under 6 distinct words still needs every word in order (the 404 pages entry above stays)
+    short = subject_ref("fix(static): preserve matched handler 404s")
+    assert strip_ref_entries("- Preserve matched handler 404 pages\n", {short}) == ("- Preserve matched handler 404 pages\n", 0)
+
+
 def test_go_strip_mode_removes_the_fixes_table_entries() -> None:
     """mvdan-sh dc951aeb-e1 (2026-10-24): strip mode removed the changed test functions, but the fixes' new entries in
     package-level tables stayed readable in the agent's tree. Whole entries the fix added go; braces inside string
