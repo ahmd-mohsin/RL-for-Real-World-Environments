@@ -62,7 +62,13 @@ def test_keep_rule_benchmark_ceiling_on_held_out_tasks() -> None:
     fr = {"deepseek-ai/DeepSeek-V4.1-Flash": [True, True]}
     assert keep_verdict(split="heldout", passes=0, n=8, on_intent=8, labelled=8, frontier=fr)["verdict"] == "bench"  # below band is fine
     assert keep_verdict(split="heldout", passes=2, n=8, on_intent=6, labelled=6, frontier=fr)["verdict"] == "bench"
-    assert keep_verdict(split="heldout", passes=3, n=8, on_intent=5, labelled=5, frontier=fr)["verdict"] == "out_of_band"  # 0.375 >= 0.3
+    # the bar is 0.5, inclusive (the lead raised it from 0.3, 2026-10-27: pass@1 is reported either way)
+    assert keep_verdict(split="heldout", passes=3, n=8, on_intent=5, labelled=5, frontier=fr)["verdict"] == "bench"
+    assert keep_verdict(split="heldout", passes=4, n=8, on_intent=4, labelled=4, frontier=fr)["verdict"] == "bench"  # 4/8: kept
+    five = keep_verdict(split="heldout", passes=5, n=8, on_intent=3, labelled=3, frontier=fr)
+    assert five["verdict"] != "bench" and not five["keep"]  # 5/8 = 0.625: not a benchmark task
+    assert keep_verdict(split="heldout", passes=5, n=10, on_intent=5, labelled=5, frontier=fr)["verdict"] == "bench"  # 0.5 exactly
+    assert keep_verdict(split="heldout", passes=6, n=10, on_intent=4, labelled=4, frontier=fr)["verdict"] == "out_of_band"  # 0.6
     assert keep_verdict(split="heldout", passes=0, n=8, on_intent=8, labelled=8, frontier={"x": [False, False]})["verdict"] == "unfair"
     assert keep_verdict(split="heldout", passes=1, n=8, on_intent=7, labelled=7, frontier=fr, rule=KeepRule(bench_hi=0.1))["verdict"] == "out_of_band"
 

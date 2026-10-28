@@ -1467,7 +1467,7 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
   honest-trace checks (`traceaudit.honest_trace_facts`: STATUS over-claims, claimed-but-unrun tests, protected or hidden
   paths), the GLM-5.3 auditor's and GLM-5.3-Flash judge's labels with seeded controls, and its intent skill
   (`generators.debug.failure_skill`); the contract's keep rule is `targeting.keep_verdict` (training: pass rate in
-  [0.1, 0.6], >= 50% on-intent skill gap (70% until the lead lowered it, 2026-10-27; `targeting.SKILL_MIN`), a frontier pass; benchmark: < 0.3, same conditions; an open World issue sends
+  [0.1, 0.6], >= 50% on-intent skill gap (70% until the lead lowered it, 2026-10-27; `targeting.SKILL_MIN`), a frontier pass; benchmark: <= 0.5 (< 0.3 until the lead raised it, 2026-10-27: pass@1 is reported either way; `targeting.BENCH_HI`), same conditions; an open World issue sends
   the task back). Builder-intent requests come from training tasks only. Result: no task kept: the 150-call budget binds
   (67 of 104 student and 21 of 52 frontier episodes stop there, routed as `budget`; DeepSeek solves a "hard" task 2/2
   at 300 calls), echo is too easy, h3 has an open World issue. Fixed on the way: two path-check false positives (heredoc

@@ -173,9 +173,13 @@ def test_keep_verdict_reports_whether_the_band_decision_is_powered() -> None:
     assert not undecided["decided"] and undecided["crosses"] == [0.1] and (undecided["n_needed"] is None or undecided["n_needed"] > 8)
     mid = band_power(3, 8, split="train", rule=r)  # 0.375, [0.14, 0.69]: crosses train_hi 0.6
     assert mid["crosses"] == [0.6] and not mid["decided"]
-    held = band_power(0, 8, split="heldout", rule=r)  # 0, [0, 0.32]: crosses bench_hi 0.3
+    old = KeepRule(bench_hi=0.3)  # the bar before the lead raised it to 0.5 (2026-10-27)
+    held = band_power(0, 8, split="heldout", rule=old)  # 0, [0, 0.32]: crosses bench_hi 0.3
     assert held["crosses"] == [0.3] and held["n_needed"] == 9
-    sure = band_power(0, 16, split="heldout", rule=r)  # [0, 0.19]
+    sure = band_power(0, 16, split="heldout", rule=old)  # [0, 0.19]
     assert sure["decided"] and sure["n_needed"] == 16 and sure["crosses"] == []
+    assert band_power(0, 8, split="heldout", rule=r)["decided"]  # [0, 0.32] is below 0.5
+    four = band_power(4, 8, split="heldout", rule=r)  # 0.5, [0.22, 0.78]: crosses bench_hi 0.5
+    assert four["crosses"] == [0.5] and not four["decided"]
     v = keep_verdict(split="train", passes=1, n=8, on_intent=6, labelled=7, frontier={"f": [True]})
     assert v["verdict"] == "train" and v["power"]["decided"] is False  # a flag, never a gate

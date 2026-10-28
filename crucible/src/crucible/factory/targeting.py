@@ -465,6 +465,9 @@ NOT_LABELS = ("abstain", "env_flake")
 # the keep rule's on-intent bar: a majority of the labelled failures are the intended skill gap (the lead lowered it
 # from 0.7, 2026-10-27: with 8 attempts, 0.7 dropped a task whose failures were 4 skill gaps and 3 budget stops)
 SKILL_MIN = 0.5
+# the keep rule's benchmark bar: a held-out task with the student's pass rate at or below it is a benchmark task when it is
+# fair and on intent (the lead raised it from 0.3, 2026-10-27: pass@1 is reported either way)
+BENCH_HI = 0.5
 
 
 def cause_mix(labels: Mapping[str, int] | Sequence[str], *, skill_min: float = SKILL_MIN, min_labels: int = 3) -> dict[str, Any]:
@@ -483,13 +486,13 @@ def cause_mix(labels: Mapping[str, int] | Sequence[str], *, skill_min: float = S
 class KeepRule:
     """The task-factory contract's keep rule (user, 2026-10-20). A **training** task: the target student's pass rate over
     its k attempts in [``train_lo``, ``train_hi``], >= ``skill_min`` of its failures a skill gap on the task's intended
-    intent, and a frontier solver passes it. A **benchmark** (held-out) task: pass rate < ``bench_hi`` with the same intent
+    intent, and a frontier solver passes it. A **benchmark** (held-out) task: pass rate <= ``bench_hi`` with the same intent
     and fairness conditions. Flags: 0 and frontier-solvable -> ``simplify(locate|prerequisites)``; above ``train_hi`` ->
     too easy."""
 
     train_lo: float = 0.1
     train_hi: float = 0.6
-    bench_hi: float = 0.3
+    bench_hi: float = BENCH_HI
     skill_min: float = SKILL_MIN
     min_labels: int = 3  # fewer labelled failures: the intent share is unmeasured (never a pass)
 
@@ -547,7 +550,7 @@ def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: i
     if intent_ok is None and n - passes > 0:
         flags.append(f"intent share unmeasured: {labelled} labelled failure(s) < {r.min_labels}")
     in_train = r.train_lo - 1e-9 <= p <= r.train_hi + 1e-9
-    in_bench = p < r.bench_hi - 1e-9
+    in_bench = p <= r.bench_hi + 1e-9
     base = {"pass_rate": round(p, 4), "passes": passes, "n": n, "ci": [round(lo, 4), round(hi, 4)], "on_intent": on_intent, "labelled": labelled,
             "intent_share": None if share is None else round(share, 4), "intent_ok": intent_ok, "fair": fair, "frontier": fr, "split": split,
             "rule": asdict(r), "flags": flags, "power": band_power(passes, n, split=split, rule=r)}
@@ -561,7 +564,7 @@ def keep_verdict(*, split: str, passes: int, n: int, on_intent: int, labelled: i
         return {**base, "verdict": "too_easy", "keep": False, "why": f"pass rate {p:.2f} above {r.train_hi}"}
     if split == "heldout":
         if not in_bench:
-            return {**base, "verdict": "out_of_band", "keep": False, "why": f"held out, pass rate {p:.2f} not below {r.bench_hi}"}
+            return {**base, "verdict": "out_of_band", "keep": False, "why": f"held out, pass rate {p:.2f} above {r.bench_hi}"}
     elif not in_train:
         return {**base, "verdict": "too_hard" if p == 0 else "out_of_band", "keep": False,
                 "why": f"pass rate {p:.2f} outside [{r.train_lo}, {r.train_hi}]"}
