@@ -1,0 +1,1747 @@
+[
+ {
+  "group": 1,
+  "ids": [
+   {
+    "id": "2602.06820",
+    "note": "01",
+    "context": "- The paper: `crucible/docs/research/papers/2602.06820.pdf`, all 27 pages read. Pages 1\u201310 are the body and references; pages 11\u201327 are appendices A\u2013E."
+   },
+   {
+    "id": "2610.37648",
+    "note": "01",
+    "context": "1. **Domain diversity, not task count, drives transfer.** ScaleEnv, Apple's SynthAPI (2610.37648) and AWM (2602.10090) all point this way, so a 500\u20131000-task po"
+   },
+   {
+    "id": "2602.10090",
+    "note": "01",
+    "context": "1. **Domain diversity, not task count, drives transfer.** ScaleEnv, Apple's SynthAPI (2610.37648) and AWM (2602.10090) all point this way, so a 500\u20131000-task po"
+   },
+   {
+    "id": "2604.18292",
+    "note": "01",
+    "context": "- Citing papers (EnvCraft, SETA) list ScaleEnv as a baseline with 16 environments, 2,560 tasks and a rule-check reward. Agent-World (2604.18292) reports beating"
+   },
+   {
+    "id": "2603.00540",
+    "note": "01",
+    "context": "- **LOGIGEN (2603.00540) shows the failure directly.** Training against a low-temperature DeepSeek-V3.2 simulator (T = 0.1) gave higher and faster training rewa"
+   },
+   {
+    "id": "2512.22857",
+    "note": "01",
+    "context": "- **The simulator can leak or garble the hidden intent.** AutoForge (2512.22857) found enough simulated-user errors to justify an LLM judge that masks those tra"
+   },
+   {
+    "id": "2601.05808",
+    "note": "01",
+    "context": "| **EnvScaler \u2731** 2601.05808 (Song et al., Renmin, Jan 2026) | SkelBuilder mines stateful task skeletons from API-Bank and ToolACE, plans state, rules and tools"
+   },
+   {
+    "id": "2509.13311",
+    "note": "01",
+    "context": "| **AgentScaler \u2731** 2509.13311 (Fang et al., Tongyi, Sep 2025), \"Towards General Agentic Intelligence via Environment Scaling\" | 30K+ real APIs are clustered by"
+   },
+   {
+    "id": "2510.01179",
+    "note": "01",
+    "context": "| **Toucan \u2731** 2510.01179 (Xu et al., UW/MIT-IBM, Oct 2025) (ScaleEnv's \"real-world\" category) | Real remote MCP servers. Five open LLMs synthesise tasks. Three"
+   },
+   {
+    "id": "2601.08276",
+    "note": "01",
+    "context": "| **ToolACE-MCP / ACE-Router** 2601.08276 (Yao et al., ZJU/SJTU/Huawei, Jan 2026; retitled in v2) | Graph over 627 MCP tools; LLM mutation grows it to 2,005 var"
+   },
+   {
+    "id": "2409.00920",
+    "note": "01",
+    "context": "| **ToolACE** 2409.00920 (Liu et al., Huawei Noah's Ark, Sep 2024) (ScaleEnv's \"LLM-simulated\" category) | API context tree mined from pretraining text, with sp"
+   },
+   {
+    "id": "2511.03773",
+    "note": "01",
+    "context": "| **DreamGym \u2731** 2511.03773 (Chen et al., Meta, Nov 2025) | A reasoning \"experience model\" (Llama-3.1-8B), trained on offline transitions, predicts the next abs"
+   },
+   {
+    "id": "2511.01824",
+    "note": "01",
+    "context": "| **Simia \u2731** 2511.01824 (Li et al., UW/Microsoft/CMU, Nov 2025) | GPT-5 or o4-mini simulates whole trajectories (SFT) or each tool step plus a final 0/1 judgem"
+   },
+   {
+    "id": "2508.08791",
+    "note": "01",
+    "context": "| **FTRL** 2508.08791 (Ye et al., Fudan/ByteDance Seed, Aug 2025) | Questions are split into sub-questions. GPT-4o writes a tool per sub-question and scales com"
+   },
+   {
+    "id": "2504.03601",
+    "note": "01",
+    "context": "| **APIGen-MT \u2731** 2504.03601 (Prabhakar et al., Salesforce, Apr 2025) | Blueprints (instruction, gold actions, gold outputs) from API-graph walks plus policy, d"
+   },
+   {
+    "id": "2507.20534",
+    "note": "01",
+    "context": "| **Kimi K2** 2507.20534 (Moonshot, Jul 2025) | 3K+ real MCP tools plus 20K+ synthetic tools. Thousands of synthetic agents, tasks with rubrics, persona users, "
+   },
+   {
+    "id": "2509.26490",
+    "note": "01",
+    "context": "| Benchmarks: **VitaBench** 2509.26490 (Meituan) | Delivery, in-store and OTA life-service tasks; 66 tools in the cross-scenario set; 100 cross-scenario and 300"
+   },
+   {
+    "id": "2506.07982",
+    "note": "01",
+    "context": "| **\u03c4\u00b2-Bench \u2731** 2506.07982 (Sierra) | Dual control: both the user and the agent act. | Airline 50, Retail 115, Telecom 114 tasks | DB state, assertions, NL ass"
+   },
+   {
+    "id": "2504.21798",
+    "note": "01",
+    "context": "| **SWE-smith** 2504.21798 (Yang et al., Stanford, Apr 2025) | One environment per repo, many bugs per environment: LM modify or rewrite, 13 AST mutations, bug "
+   },
+   {
+    "id": "2412.21139",
+    "note": "01",
+    "context": "| **SWE-Gym** 2412.21139 (Pan et al., Berkeley, Dec 2024) | Real PRs with environments set up by hand. | 2,438 executable instances, 11 repos | F2P harness. | A"
+   },
+   {
+    "id": "2504.07164",
+    "note": "01",
+    "context": "| **R2E-Gym** 2504.07164 (Jain et al., Berkeley, Apr 2025) | Mines commits, generates F2P tests where missing, and writes issues back from the commit. | 8,135 t"
+   },
+   {
+    "id": "2505.20411",
+    "note": "01",
+    "context": "| **SWE-rebench** 2505.20411 (Nebius, May 2025) | Automatic install recipes (an LLM writes up to 3 per task), execution validation, LLM quality labels, rolling "
+   },
+   {
+    "id": "2506.10954",
+    "note": "01",
+    "context": "| **SWE-Factory** 2506.10954 (SYSU/Huawei, Jun 2025) | Four-agent environment builder with a memory pool; grading by exit code. | 671 issues (eval) | Exit-code "
+   },
+   {
+    "id": "2510.10197",
+    "note": "01",
+    "context": "| **Environment Tuning** 2510.10197 (Ant Group, Oct 2025) | Tunes the environment instead of synthesising tasks: a 4-stage curriculum, LLM hint feedback checked"
+   },
+   {
+    "id": "2506.10055",
+    "note": "01",
+    "context": "| **TaskCraft** 2506.10055 (Shi et al.; OPPO UNVERIFIED, Jun 2025) | Atomic tasks from documents, extended in depth (more hops) and width (merged subtasks). | A"
+   },
+   {
+    "id": "2511.19304",
+    "note": "01",
+    "context": "| **AutoEnv** 2511.19304 (HKUST-GZ/DeepWisdom, Nov 2025) | Theme \u2192 three-layer YAML DSL \u2192 code. Coding agents build the environment, a level generator and a val"
+   },
+   {
+    "id": "2510.01051",
+    "note": "01",
+    "context": "| **GEM** 2510.01051 (Sea AI Lab, Oct 2025) | Gym API for agentic LLMs across 24 environments. | 24 envs | Rewards per environment. | ReBN (REINFORCE with batch"
+   },
+   {
+    "id": "2505.24760",
+    "note": "01",
+    "context": "| **Reasoning Gym** 2505.24760 (Oct 2025 v2) | 102 procedural generator\u2013verifier pairs with difficulty set by parameters. | Unlimited | Algorithmic. | Curriculu"
+   },
+   {
+    "id": "2409.15637",
+    "note": "01",
+    "context": "| **Synatra** 2409.15637 (CMU, Sep 2024) | Turns wikiHow and web snapshots into synthetic demonstrations. | 100K | Nothing executed. | $0.031 per demonstration."
+   }
+  ]
+ },
+ {
+  "group": 2,
+  "ids": [
+   {
+    "id": "2410.12952",
+    "note": "01",
+    "context": "| **BUTTON** 2410.12952 (Baichuan, Oct 2024) | Atomic tasks composed bottom-up; multi-agent playback top-down with simulated tools. | 8K trajectories | An LLM c"
+   },
+   {
+    "id": "2506.01716",
+    "note": "01",
+    "context": "| **Self-Challenging Agents** 2506.01716 (Zhou et al., Meta, Jun 2025) | The agent explores the tools, then writes a Code-as-Task: instruction, verifier, exampl"
+   },
+   {
+    "id": "2505.03335",
+    "note": "01",
+    "context": "| **Absolute Zero** 2505.03335 (Tsinghua, May 2025) | One model proposes and solves code reasoning tasks. | Unlimited | Executor plus a determinism check (run t"
+   },
+   {
+    "id": "2609.33665",
+    "note": "01",
+    "context": "| **CompoWorld** 2609.33665 (AllSpark, Sep 2026) | Composes verified services into cross-service tasks by walks over dependency graphs. A world model stands in "
+   },
+   {
+    "id": "2605.18703",
+    "note": "01",
+    "context": "| **EnvFactory** 2605.18703 (HKUST-GZ/Huawei, May 2026) | Explores real resources into stateful tool environments; topology-aware sampling of trajectories with "
+   },
+   {
+    "id": "2609.05576",
+    "note": "01",
+    "context": "| **EnvCraft** 2609.05576 (HIT, Sep 2026) | Sandboxed workspace environments for claw-style agents; topology-aware task generation. | 139 envs, about 20K tasks "
+   },
+   {
+    "id": "2607.10891",
+    "note": "01",
+    "context": "| **SETA** 2607.10891 (CAMEL-AI, Jul 2026) | SETA-Synth turns sources into terminal environments; SETA-Evol expands difficulty under one shared verifier. | 4,50"
+   },
+   {
+    "id": "2608.05466",
+    "note": "01",
+    "context": "| **RST** 2608.05466 (UGA/Tencent, Aug 2026) | Recursively lengthens verified seed tasks, realigns verifier and instruction, and re-validates in a fresh sandbox"
+   },
+   {
+    "id": "2610.04906",
+    "note": "01",
+    "context": "| **WorkForge** 2610.04906 (Tencent/Fudan, Oct 2026) | Expert workflows plus real files. Checkable \"factual anchors\" yield programmatic and semantic verifiers. "
+   },
+   {
+    "id": "2610.14163",
+    "note": "01",
+    "context": "| **AutoEnvScaling** 2610.14163 (Northeastern/Microsoft/Stanford/UW/UNC, Oct 2026) | A proposer agent builds environments from the solver's rollouts, closing th"
+   },
+   {
+    "id": "2610.16523",
+    "note": "01",
+    "context": "| **EAU** 2610.16523 (Alberta/NUS/Kuaishou, Oct 2026) | A meta-agent diagnoses failures **during RL** and hot-swaps fixes to the user simulator, environment, re"
+   },
+   {
+    "id": "2606.19047",
+    "note": "01",
+    "context": "| **RODS** 2606.19047 (Ant Group/Westlake, Jun 2026) | Uses GRPO reward variance to find tasks at the capability boundary and synthesises matched variants onlin"
+   },
+   {
+    "id": "2610.21656",
+    "note": "01",
+    "context": "| **Data World** 2610.21656 (Meituan LongCat/NJU, Oct 2026) | World mechanisms first, then files. An audit checks that targets can be recovered; rubric reward. "
+   },
+   {
+    "id": "2610.18868",
+    "note": "01",
+    "context": "| **Tev** 2610.18868 (Adobe/UCLA, Oct 2026) | A hidden latent-world spec, then tasks rendered from it. Progress-potential dense reward. | 1,170 envs | Spec-deri"
+   },
+   {
+    "id": "2609.27321",
+    "note": "01",
+    "context": "| **VHD-Play** 2609.27321 (Qwen, Sep 2026) | Solves a mathematical model first, then renders it as stateful tools, so the dynamics and the reference come from o"
+   },
+   {
+    "id": "2512.19682",
+    "note": "01",
+    "context": "| **GenEnv** 2512.19682 (Dec 2025) | Agent and environment simulator co-evolve; an \u03b1-curriculum reward keeps tasks in the agent's zone of proximal development. "
+   },
+   {
+    "id": "2601.16443",
+    "note": "01",
+    "context": "| **Endless Terminals** 2601.16443 (Jan 2026) | Four-stage pipeline: task, container, tests, solvability filter. PPO with binary reward. | 3,255 tasks | Tests p"
+   },
+   {
+    "id": "2601.04126",
+    "note": "01",
+    "context": "| **InfiniteWeb** 2601.04126 (MSRA, Jan 2026; ACL 2026) | Test-driven synthesis of functional websites, with task evaluators that give a dense reward. | n/r | G"
+   },
+   {
+    "id": "2605.02964",
+    "note": "01",
+    "context": "| **Reward Hacking Benchmark** 2605.02964 (May 2026; ICML 2026) | Tool tasks with natural shortcuts. | n/r | n/r | Exploit rates 0\u201313.9%; environment hardening "
+   },
+   {
+    "id": "2610.33568",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.33817",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.33149",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.27781",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.23194",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.19686",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.17953",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.16397",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.14774",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2610.14118",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   }
+  ]
+ },
+ {
+  "group": 3,
+  "ids": [
+   {
+    "id": "2610.08048",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2609.36887",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2609.32750",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2609.08404",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2609.05837",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2608.27260",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2608.06197",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2607.05943",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2606.24597",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2606.09032",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2605.27209",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2604.05336",
+    "note": "01",
+    "context": "**Other ScaleEnv citers whose titles were confirmed but whose mechanisms were not read:** Trajectory2Gym 2610.33568, EnvLunch 2610.33817, WebUniverse 2610.33149"
+   },
+   {
+    "id": "2509.08755",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2509.17158",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2501.10893",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2412.19723",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2503.07826",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2506.11045",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2510.24684",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2511.16043",
+    "note": "01",
+    "context": "**Older and adjacent work** (verified, outside the window): AgentGym-RL 2509.08755, ARE 2509.17158, Learn-by-Interact 2501.10893, OS-Genesis 2412.19723, Magnet "
+   },
+   {
+    "id": "2410.15226",
+    "note": "02",
+    "context": "cluster-agent\" metric of 2410.15226), and gradient-space diversity (G-Vendi, Spearman \u03c1 \u2248 0.9 with out-of-distribution"
+   },
+   {
+    "id": "2310.13032",
+    "note": "02",
+    "context": "| 2310.13032 | QDAIF | LLM mutates and LLM judges quality and diversity axes | Creative writing | Covers more of the target space than non-QD controls |"
+   },
+   {
+    "id": "2402.16822",
+    "note": "02",
+    "context": "| 2402.16822 | Rainbow Teaming | QD archive (risk category \u00d7 attack style) for adversarial prompts | Llama 2/3 targets | Attack success > 90% on all tested mode"
+   },
+   {
+    "id": "2003.08536",
+    "note": "02",
+    "context": "| 2003.08536 | Enhanced POET | Domain-general novelty measure (PATA-EC) and a universal progress measure | 2D walker | Removes POET's domain-specific novelty me"
+   },
+   {
+    "id": "2306.01711",
+    "note": "02",
+    "context": "| 2306.01711 | OMNI | FM as model of interestingness on top of learning-progress filtering | Crafter-like task spaces | Learnable but boring tasks are filtered "
+   },
+   {
+    "id": "2405.15568",
+    "note": "02",
+    "context": "| 2405.15568 | OMNI-EPIC | FM writes environment and reward code for the next learnable and interesting task; archive of past tasks | Simulated robotics | Tasks"
+   },
+   {
+    "id": "2309.16797",
+    "note": "02",
+    "context": "| 2309.16797 | Promptbreeder | Evolves task prompts and the mutation prompts that mutate them | Reasoning, classification | Self-referential mutation operator |"
+   },
+   {
+    "id": "2402.13064",
+    "note": "02",
+    "context": "| 2402.13064 | GLAN | Taxonomy of human knowledge \u2192 subjects \u2192 syllabi \u2192 concepts \u2192 instructions | All disciplines | Taxonomy is the only input; no seed example"
+   },
+   {
+    "id": "2406.20094",
+    "note": "02",
+    "context": "| 2406.20094 | Persona Hub | Condition generation on 1B web-mined personas | 1B personas | Personas as \"distributed carriers\" of perspective |"
+   }
+  ]
+ },
+ {
+  "group": 4,
+  "ids": [
+   {
+    "id": "2212.10560",
+    "note": "02",
+    "context": "| 2212.10560 | Self-Instruct | Seed pool, generate, filter by surface similarity | GPT-3 | +33% absolute on Super-NaturalInstructions |"
+   },
+   {
+    "id": "2304.12244",
+    "note": "02",
+    "context": "| 2304.12244 | WizardLM / Evol-Instruct | In-depth and in-breadth rewrite operators raise complexity | Open-domain instructions | Used later by WebRL for task e"
+   },
+   {
+    "id": "2406.08464",
+    "note": "02",
+    "context": "| 2406.08464 | Magpie | Sample user queries from an aligned model's template prefix | 4M generated, 300K kept | Diversity from the model's own prior |"
+   },
+   {
+    "id": "2308.07074",
+    "note": "02",
+    "context": "| 2308.07074 | InsTag | Open-set intent tags define diversity and complexity | 6.6K tags; 6K selected samples | Tag-selected 6K beats larger SFT sets on MT-Benc"
+   },
+   {
+    "id": "2210.02410",
+    "note": "02",
+    "context": "| 2210.02410 | Vendi Score | exp(entropy of similarity-matrix eigenvalues) | Any domain | Reference-free diversity metric |"
+   },
+   {
+    "id": "2505.20161",
+    "note": "02",
+    "context": "| 2505.20161 | Prismatic Synthesis (G-Vendi) | Diversity in proxy-model gradient space; synthesise toward sparse regions | 300+ runs | \u03c1 \u2248 0.9 with OOD accuracy"
+   },
+   {
+    "id": "2303.09540",
+    "note": "02",
+    "context": "| 2303.09540 | SemDeDup | Embedding-cluster semantic dedup | LAION, C4 | Removes 50% of LAION with minimal loss |"
+   },
+   {
+    "id": "2504.05228",
+    "note": "02",
+    "context": "| 2504.05228 | NoveltyBench | Measures distinct, high-quality outputs per prompt | 20 models | Larger models often less diverse |"
+   },
+   {
+    "id": "2510.22954",
+    "note": "02",
+    "context": "| 2510.22954 | Artificial Hivemind | Intra-model repetition and inter-model homogeneity | 26K queries, 31,250 annotations | Judges and reward models miscalibrat"
+   },
+   {
+    "id": "2510.01171",
+    "note": "02",
+    "context": "| 2510.01171 | Verbalized Sampling | Ask for k candidates with probabilities | Training-free | 1.6\u20132.1\u00d7 diversity in creative writing |"
+   },
+   {
+    "id": "2010.03934",
+    "note": "02",
+    "context": "| 2010.03934 | Prioritized Level Replay | Replay levels by estimated learning potential | Procgen | Emergent curriculum from replay priorities |"
+   },
+   {
+    "id": "2012.02096",
+    "note": "02",
+    "context": "| 2012.02096 | PAIRED | Adversary rewarded by regret (antagonist minus protagonist) | Grid, driving | Fixes minimax's unsolvable-worst-case failure |"
+   },
+   {
+    "id": "2203.01302",
+    "note": "02",
+    "context": "| 2203.01302 | ACCEL | Evolve levels by small edits; keep high-regret ones | Mazes, walkers | Complexity compounds by editing |"
+   },
+   {
+    "id": "2502.07709",
+    "note": "02",
+    "context": "| 2502.07709 | MAGELLAN | LLM agent learns to predict its own competence and learning progress over goals | Large evolving goal space | Only method to master th"
+   },
+   {
+    "id": "2411.01775",
+    "note": "02",
+    "context": "| 2411.01775 | Eurekaverse | LLM writes environment code as a curriculum | Quadruped parkour | Environment-curriculum by code generation |"
+   },
+   {
+    "id": "2602.21193",
+    "note": "02",
+    "context": "| 2602.21193 | Nemotron-Terminal (Terminal-Task-Gen) | Seed-based and skill-based generation; 3\u20135 skills per task; domain prompt modules | 264K synthetic tasks "
+   },
+   {
+    "id": "2606.24855",
+    "note": "02",
+    "context": "| 2606.24855 | OpenThoughts-Agent | Ablates 95 task-generation strategies and source mixing | 100K traces | Rollouts per task plateau 31.6K\u2192100K; top-16 mix wor"
+   },
+   {
+    "id": "2511.14460",
+    "note": "02",
+    "context": "plus hint-giving environment feedback. Agent-R1 (2511.14460), named in the brief, is a modular agentic-RL training"
+   },
+   {
+    "id": "2506.14205",
+    "note": "02",
+    "context": "| Number of composed subtasks | AgentSynth (2506.14205) | Frontier success 18% at level 1 \u2192 4% at level 6 |"
+   },
+   {
+    "id": "2507.15061",
+    "note": "02",
+    "context": "| Hop depth and width | TaskCraft (2506.10055), WebShaper (2507.15061) | Depth extension pass rate 41\u201351% per attempt; controlled multi-hop structure |"
+   },
+   {
+    "id": "2507.02592",
+    "note": "02",
+    "context": "| Information obfuscation | WebSailor (2507.02592) | High-uncertainty questions; entity names blurred |"
+   },
+   {
+    "id": "2605.26494",
+    "note": "02",
+    "context": "| Hint removal | MiniMax-M2 Terminal-Gym (2605.26494) | Prefers variants with fewer hints and lower zero-shot pass rate |"
+   },
+   {
+    "id": "2510.24695",
+    "note": "02",
+    "context": "| Escalation along named axes until a no-tool model fails | AgentFrontier (2510.24695) | 7.81 refinement rounds on average, cap 30 |"
+   },
+   {
+    "id": "2512.18552",
+    "note": "02",
+    "context": "| Bug count, linked bugs, higher-order bugs | SWE-smith combine-bugs (2504.21798); SSR (2512.18552) | Combined bugs have median 15 F2P tests vs 4 for single LM "
+   },
+   {
+    "id": "2510.19898",
+    "note": "02",
+    "context": "| Realistic bug origin | BugPilot (2510.19898) | Bugs from agents adding features; 1.2K beats 3K injected bugs by 2% |"
+   },
+   {
+    "id": "2512.02556",
+    "note": "02",
+    "context": "| Iterative \"make it harder, update solution and verifier\" | DeepSeek-V3.2 (2512.02556) | Agent adds tools when the toolset cannot support the harder task |"
+   },
+   {
+    "id": "2507.13266",
+    "note": "02",
+    "context": "| Partial solutions as hints (makes hard tasks learnable) | QuestA (2507.13266) | 1.5B: AIME24 72.50% (+10.73) |"
+   },
+   {
+    "id": "2402.05808",
+    "note": "02",
+    "context": "| Start from late states (reverse curriculum) | R\u00b3 (2402.05808) | Start-state position is a continuous difficulty dial |"
+   },
+   {
+    "id": "2412.02674",
+    "note": "02",
+    "context": "- Mind the Gap (2412.02674): the generation-verification gap that powers self-improvement scales with pretraining"
+   }
+  ]
+ },
+ {
+  "group": 5,
+  "ids": [
+   {
+    "id": "2402.03300",
+    "note": "02",
+    "context": "| 2402.03300 | DeepSeekMath (GRPO) | Group-relative advantage | 7B | Zero-variance groups give no signal (motivates filters) |"
+   },
+   {
+    "id": "2503.14476",
+    "note": "02",
+    "context": "| 2503.14476 | DAPO | Dynamic sampling: drop groups with accuracy 0 or 1 | Qwen2.5-32B | 50 on AIME 2024 |"
+   },
+   {
+    "id": "2504.03380",
+    "note": "02",
+    "context": "| 2504.03380 | Online Difficulty Filtering | Bound: improvement \u2265 variance of success; balanced filtering | Math RL | Up to +12% in under half the steps |"
+   },
+   {
+    "id": "2502.12272",
+    "note": "02",
+    "context": "| 2502.12272 | Frontier of Learnability | Sample by p(1\u2212p) | PPO, VinePPO | Consistent gains across algorithms |"
+   },
+   {
+    "id": "2501.12599",
+    "note": "02",
+    "context": "| 2501.12599 | Kimi k1.5 | Pass@10 difficulty, sample \u221d 1\u2212s_i, remove guessable prompts (8 tries) | Production | Curriculum then hard-only phase |"
+   },
+   {
+    "id": "2505.14970",
+    "note": "02",
+    "context": "| 2505.14970 | SEC | Non-stationary bandit over categories, reward = mean absolute advantage | Math, code | Learned curriculum |"
+   },
+   {
+    "id": "2504.09710",
+    "note": "02",
+    "context": "| 2504.09710 | DUMP | UCB over distributions by advantage magnitude | Mixed sources | Distribution-level scheduling |"
+   },
+   {
+    "id": "2504.05520",
+    "note": "02",
+    "context": "| 2504.05520 | AdaRFT | Moves target difficulty with recent reward | Math | Faster convergence |"
+   },
+   {
+    "id": "2411.02337",
+    "note": "02",
+    "context": "| 2411.02337 | WebRL | New tasks evolved from failures; critic filter 0.05\u20130.75; 500 per phase | WebArena-Lite | 4.8% \u2192 42.4% (Llama-3.1-8B) |"
+   },
+   {
+    "id": "2508.05004",
+    "note": "02",
+    "context": "| 2508.05004 | R-Zero | Challenger reward 1\u22122\\|p\u0302\u2212\u00bd\\| minus BLEU-cluster penalty; keep \\|p\u0302\u2212\u00bd\\| \u2264 0.25 | Qwen3, OctoThinker | Label accuracy 79\u219263%; collapse af"
+   },
+   {
+    "id": "2506.24119",
+    "note": "02",
+    "context": "| 2506.24119 | SPIRAL | Zero-sum game self-play, role-conditioned advantages | 4 models | Up to +10% on 8 benchmarks |"
+   },
+   {
+    "id": "2502.18449",
+    "note": "02",
+    "context": "| 2502.18449 | SWE-RL | Rule-based patch-similarity reward on software history | Llama 3 70B | 41.0% SWE-bench Verified |"
+   },
+   {
+    "id": "2505.17063",
+    "note": "02",
+    "context": "| 2505.17063 | Synthetic Data RL | Generate from task definition, adapt difficulty by solvability, select by pass rate | Qwen2.5-7B | +29.2 GSM8K, +13.7 CFA |"
+   },
+   {
+    "id": "2506.08989",
+    "note": "02",
+    "context": "| 2506.08989 | SwS | Mine consistently failed problems, extract concepts, synthesise new problems | Math RL | Weakness-driven synthesis |"
+   },
+   {
+    "id": "2508.03682",
+    "note": "02",
+    "context": "| 2508.03682 | Self-Questioning LMs | Proposer rewarded when problem is neither too easy nor too hard | Arithmetic, algebra, code | Unit tests as verifier for c"
+   },
+   {
+    "id": "2509.07414",
+    "note": "02",
+    "context": "| 2509.07414 | Language Self-Play | Competitive self-play without data | Llama-3.2-3B | Improves IF, math, code |"
+   },
+   {
+    "id": "2511.10395",
+    "note": "02",
+    "context": "| 2511.10395 | AgentEvolver | Self-questioning task generation, self-navigating, self-attributing | Tool environments | Curiosity-driven tasks in new environmen"
+   },
+   {
+    "id": "2505.24864",
+    "note": "02",
+    "context": "| 2505.24864 | ProRL | Prolonged RL with KL control and reference resets, diverse tasks | 1.5B | Gains where base fails at any k |"
+   },
+   {
+    "id": "2509.16941",
+    "note": "02",
+    "context": "| 2509.16941 | SWE-Bench Pro | Human-verified long-horizon enterprise tasks | 1,865 tasks, 41 repos | Public, held-out and commercial splits |"
+   },
+   {
+    "id": "2601.11868",
+    "note": "02",
+    "context": "| 2601.11868 | Terminal-Bench 2.0 | Human-written solution and tests per task | 89 tasks | Frontier agents < 65% |"
+   },
+   {
+    "id": "2503.15223",
+    "note": "02",
+    "context": "passing in SWE-bench and changed 40.9% of Lite and 24.4% of Verified leaderboard entries; PatchDiff (2503.15223) found"
+   },
+   {
+    "id": "2511.18397",
+    "note": "02",
+    "context": "pass is a shortcut (for example, deleting failing tests). Anthropic's 2511.18397 shows that learning to hack"
+   },
+   {
+    "id": "2503.11926",
+    "note": "02",
+    "context": "the hacks, more diverse safety training, and inoculation prompting. OpenAI's 2503.11926 shows a weaker model can"
+   },
+   {
+    "id": "2509.24726",
+    "note": "02",
+    "context": "| 2509.24726 | Socratic-Zero | Teacher, Solver, Generator co-evolve from few seeds | Math | Generator distils the Teacher's question design |"
+   },
+   {
+    "id": "2510.18821",
+    "note": "02",
+    "context": "| 2510.18821 | Search Self-play | Proposer writes deep-search queries; ground truth checked from its own search results | Search agents | Self-play without supe"
+   },
+   {
+    "id": "2506.03136",
+    "note": "02",
+    "context": "| 2506.03136 | CURE | Coder and unit tester co-evolve | 4B\u201314B | +5.3% code generation, +9.0% Best-of-N |"
+   },
+   {
+    "id": "2406.13542",
+    "note": "02",
+    "context": "| 2406.13542 | AutoIF | Instruction + checker code + checker unit tests, execution rejection sampling | Qwen2, Llama3 | Verification as code |"
+   },
+   {
+    "id": "2506.09289",
+    "note": "02",
+    "context": "| 2506.09289 | UTBoost | LLM test generation exposes weak tests | SWE-bench | 345 wrong patches; 24.4% of Verified entries change |"
+   },
+   {
+    "id": "2510.20270",
+    "note": "02",
+    "context": "| 2510.20270 | ImpossibleBench | Spec-test conflicts make any pass a cheat | LiveCodeBench, SWE-bench | Cheating rate as a metric |"
+   }
+  ]
+ },
+ {
+  "group": 6,
+  "ids": [
+   {
+    "id": "2507.17746",
+    "note": "02",
+    "context": "| 2507.17746 | Rubrics as Rewards | Instance rubrics aggregated as reward | Medical, science | Up to +31% HealthBench vs Likert judge |"
+   },
+   {
+    "id": "2406.12045",
+    "note": "02",
+    "context": "| 2406.12045 | \u03c4-bench | Final DB state vs annotated goal state; pass^k | Retail, airline | gpt-4o < 50%, pass^8 < 25% (retail) |"
+   },
+   {
+    "id": "2512.20856",
+    "note": "02",
+    "context": "| 2512.20856 | Nemotron 3 | All RL environments trained at once | Nano/Super/Ultra | Simultaneous training less prone to hacking than staged |"
+   },
+   {
+    "id": "2509.08724",
+    "note": "02",
+    "context": "| 2509.08724 | SWE-Mirror | Port a real issue's essence into a repo that already has a gym | 60,671 tasks, 40 repos, 4 languages | Reuses environments |"
+   },
+   {
+    "id": "2502.13681",
+    "note": "02",
+    "context": "| 2502.13681 | Repo2Run | Agent writes Dockerfile until tests run | 420-repo benchmark | Environment build is the bottleneck |"
+   },
+   {
+    "id": "2505.23419",
+    "note": "02",
+    "context": "| 2505.23419 | SWE-bench-Live | Automated curation of post-2024 issues | 1,319 tasks, 93 repos | Live, contamination-aware |"
+   },
+   {
+    "id": "2506.04178",
+    "note": "02",
+    "context": "| 2506.04178 | OpenThoughts (reasoning) | 1,000+ controlled experiments per pipeline stage | 1.2M examples | Template for stage-wise ablation |"
+   },
+   {
+    "id": "2012.07805",
+    "note": "02",
+    "context": "private synthetic text with only API access to an LLM; Carlini et al. (2012.07805) show that language models can"
+   },
+   {
+    "id": "2412.09605",
+    "note": "02",
+    "context": "| 2412.09605 | AgentTrek | Web tutorials \u2192 task specs \u2192 VLM agent replay \u2192 VLM judge | Web | $0.55 per trajectory |"
+   },
+   {
+    "id": "2502.11357",
+    "note": "02",
+    "context": "| 2502.11357 | Explorer | Exploration and refinement \u2192 task intents | 94K trajectories, 49K URLs | 28\u00a2 per successful trajectory |"
+   },
+   {
+    "id": "2410.02907",
+    "note": "02",
+    "context": "| 2410.02907 | NNetNav | Retroactive labelling; prune unlabellable episodes | 10K demos | WebArena 16%, WebVoyager 35% (Llama-3.1-8B) |"
+   },
+   {
+    "id": "2403.08140",
+    "note": "02",
+    "context": "| 2403.08140 | BAGEL | Labeller \u2194 agent round trips | ToolQA, MiniWob++ | +2\u201313% absolute |"
+   },
+   {
+    "id": "2502.06776",
+    "note": "02",
+    "context": "| 2502.06776 | InSTA | LLM annotates 150K sites; agents attempt; LLM judge filters | 150K sites | Judge 82.6%; harmful-content detection 97%; 1.7B agent 56.9% |"
+   },
+   {
+    "id": "2506.03533",
+    "note": "02",
+    "context": "| 2506.03533 | Go-Browse | Exploration as graph search | 10K trajectories, 100 URLs | 7B: 21.7% WebArena |"
+   },
+   {
+    "id": "2505.22648",
+    "note": "02",
+    "context": "| 2505.22648 | WebDancer | Browsing data construction \u2192 trajectory sampling \u2192 SFT \u2192 RL | GAIA, WebWalkerQA | Four-stage recipe |"
+   },
+   {
+    "id": "2308.06259",
+    "note": "02",
+    "context": "| 2308.06259 | Instruction Backtranslation | Label human text with instructions, self-curate | LLaMa | Origin of reverse instruction |"
+   },
+   {
+    "id": "2412.13678",
+    "note": "02",
+    "context": "| 2412.13678 | Clio | Privacy-preserving aggregated analysis of conversations | 1M conversations | No human reads raw text |"
+   },
+   {
+    "id": "2403.01749",
+    "note": "02",
+    "context": "| 2403.01749 | Aug-PE | DP synthetic text via API-only Private Evolution | 3 datasets | No model training needed |"
+   },
+   {
+    "id": "2606.16062",
+    "note": "03",
+    "context": "- 28.5% of a SWE-bench Verified sample and 25.0% of an R2E-Gym sample accept a Docker-verified wrong patch (2606.16062) [abs]."
+   },
+   {
+    "id": "2603.00520",
+    "note": "03",
+    "context": "- SWE-ABS rejects 19.71% of previously passing patches (2603.00520) [abs]."
+   },
+   {
+    "id": "2605.12673",
+    "note": "03",
+    "context": "- BenchJack (2605.12673) found 219 flaws across 10 benchmarks [abs]."
+   },
+   {
+    "id": "2507.02825",
+    "note": "03",
+    "context": "2. **Intent alignment is a validity claim.** ABC (2507.02825) phrases task validity as solvable iff the agent \"possesses the target capability\". It needs **posi"
+   },
+   {
+    "id": "2606.26300",
+    "note": "03",
+    "context": "2. **Intent alignment is a validity claim.** ABC (2507.02825) phrases task validity as solvable iff the agent \"possesses the target capability\". It needs **posi"
+   },
+   {
+    "id": "2605.26079",
+    "note": "03",
+    "context": "2. **Intent alignment is a validity claim.** ABC (2507.02825) phrases task validity as solvable iff the agent \"possesses the target capability\". It needs **posi"
+   },
+   {
+    "id": "2610.11464",
+    "note": "03",
+    "context": "- \"Who Verifies the Verifier?\" (2610.11464) shows a collapsed, always-pass verifier trains skills just as well as a good one [abs]. So downstream gains cannot c"
+   },
+   {
+    "id": "2609.24972",
+    "note": "03",
+    "context": "- RRSI (2609.24972), SEAGym (2606.17546) and the Recoverability paper (2610.27465) all add frozen validation, held-out OOD, measured verifier strength and kept "
+   },
+   {
+    "id": "2606.17546",
+    "note": "03",
+    "context": "- RRSI (2609.24972), SEAGym (2606.17546) and the Recoverability paper (2610.27465) all add frozen validation, held-out OOD, measured verifier strength and kept "
+   },
+   {
+    "id": "2610.27465",
+    "note": "03",
+    "context": "- RRSI (2609.24972), SEAGym (2606.17546) and the Recoverability paper (2610.27465) all add frozen validation, held-out OOD, measured verifier strength and kept "
+   },
+   {
+    "id": "2411.12990",
+    "note": "03",
+    "context": "- BetterBench (2411.12990) is the earlier 46-item lifecycle checklist [abs]."
+   }
+  ]
+ },
+ {
+  "group": 7,
+  "ids": [
+   {
+    "id": "2410.06992",
+    "note": "03",
+    "context": "- **SWE-Bench+ (2410.06992)**: in SWE-Agent+GPT-4 passes, 32.67% had the solution leaked in the issue text and 31.08% passed on weak tests. Resolution fell from"
+   },
+   {
+    "id": "2610.09142",
+    "note": "03",
+    "context": "- **\"Finding Side-Effect Loopholes\" (2610.09142)** [abs, pdf]:"
+   },
+   {
+    "id": "2608.12635",
+    "note": "03",
+    "context": "- **GateTruth (2608.12635)**: brings hardware mutation-kill scores to RTL benchmarks with a 95% kill floor [abs]."
+   },
+   {
+    "id": "2501.12862",
+    "note": "03",
+    "context": "- **Meta's mutation-guided test generation (2501.12862)** is the industrial precedent for LLM-written tests targeted at surviving mutants [abs]."
+   },
+   {
+    "id": "2604.15149",
+    "note": "03",
+    "context": "- **Isomorphic Perturbation Testing (2604.15149)** is metamorphic testing of verifiers [abs]. One output is checked under both extensional and isomorphic verifi"
+   },
+   {
+    "id": "2604.21579",
+    "note": "03",
+    "context": "- **Metamorphic testing for memorization (2604.21579)**: semantics-preserving rewrites of Defects4J and GitBug-Java drop repair rates by 4.1\u201315.98%, correlated "
+   },
+   {
+    "id": "2505.24098",
+    "note": "03",
+    "context": "- HardTests (2505.24098): +11.3 pp precision and +17.5 pp recall, up to +40 pp precision on hard problems [abs]."
+   },
+   {
+    "id": "2603.12698",
+    "note": "03",
+    "context": "- EvolveCoder (2603.12698): adversarial, solution-conditioned test evolution lowers pass@1 from 43.80 to 31.22 [abs]."
+   },
+   {
+    "id": "2207.10397",
+    "note": "03",
+    "context": "- CodeT (2207.10397) uses dual execution agreement [abs]."
+   },
+   {
+    "id": "2502.01619",
+    "note": "03",
+    "context": "- UTGen (2502.01619) names the trade-off between error-revealing inputs and correct expected outputs [abs]."
+   },
+   {
+    "id": "2502.13820",
+    "note": "03",
+    "context": "- Scoring Verifiers (2502.13820) gives the metrics for judging a synthetic verifier [abs]."
+   },
+   {
+    "id": "2505.22203",
+    "note": "03",
+    "context": "- 2505.22203: rule-based math verifiers give false negatives, and model-based verifiers are hacked during RL [abs]."
+   },
+   {
+    "id": "2507.08794",
+    "note": "03",
+    "context": "- \"One Token to Fool LLM-as-a-Judge\" (2507.08794): \"master keys\" such as \":\" or \"Let's solve this step by step\" elicit false positives from frontier judges [abs"
+   },
+   {
+    "id": "2610.24206",
+    "note": "03",
+    "context": "- **SWE-Bench Pro V2 (2610.24206)** [abs]:"
+   },
+   {
+    "id": "2609.08149",
+    "note": "03",
+    "context": "- **SWE-Bench Pro Verified (2609.08149)**: closes gold-solution and hidden-information leakage and refines flawed instances. Some models score much lower afterw"
+   },
+   {
+    "id": "2609.06780",
+    "note": "03",
+    "context": "- **\"Shortcutting the Fix\" (2609.06780)** [abs]:"
+   },
+   {
+    "id": "2608.14940",
+    "note": "03",
+    "context": "- **\"Outcome finality and cross-unit separation\" (2608.14940)** [abs]:"
+   },
+   {
+    "id": "2609.11028",
+    "note": "03",
+    "context": "- **BenchShield (2609.11028)** [abs]:"
+   },
+   {
+    "id": "2511.04703",
+    "note": "03",
+    "context": "- Construct validity is now an explicit field concern. A review of 445 LLM benchmarks by 29 experts (2511.04703) gives eight recommendations [abs]."
+   },
+   {
+    "id": "2607.22368",
+    "note": "03",
+    "context": "- \"Do Agent Benchmarks Measure Capability?\" (2607.22368) defines **protocol validity**: success must require the intended capability [abs]. HackDetect quantifie"
+   },
+   {
+    "id": "2609.01519",
+    "note": "03",
+    "context": "- 2609.01519 proposes a **construct-validity contract** that returns INVALID or INCONCLUSIVE before any substantive claim [abs]."
+   },
+   {
+    "id": "2609.12191",
+    "note": "03",
+    "context": "- GAUGE (2609.12191) separates **ranking validity** from **construct validity** [abs]."
+   },
+   {
+    "id": "2506.12286",
+    "note": "03",
+    "context": "- **SWE-Bench Illusion (2506.12286)**: models name the buggy file from the issue text alone 76% of the time, against up to 53% on repositories outside SWE-bench"
+   },
+   {
+    "id": "2610.17747",
+    "note": "03",
+    "context": "- **Auditing Failure Attribution (2610.17747)** gives four tests for any label-producing judge [abs]:"
+   },
+   {
+    "id": "2610.22243",
+    "note": "03",
+    "context": "- **Shortcut sensitivity (2610.22243)**: label predictability from surface cues, such as shorter shell commands in LinuxArena. It recommends domain-group holdou"
+   },
+   {
+    "id": "2510.08996",
+    "note": "03",
+    "context": "- **Saving SWE-Bench (2510.08996)**: mutating formal issues into realistic user queries exposed >50% overestimation for some models [abs]. The prompt form is pa"
+   },
+   {
+    "id": "2605.12925",
+    "note": "03",
+    "context": "- **AgentLens (2605.12925)** [abs]:"
+   },
+   {
+    "id": "2607.28802",
+    "note": "03",
+    "context": "- **\"Model or Harness?\" (2607.28802)** [abs]:"
+   },
+   {
+    "id": "2505.00212",
+    "note": "03",
+    "context": "- **Who&When (2505.00212)**: the best automatic method finds the responsible agent 53.5% of the time but the decisive step only 14.2% [abs]. First-wrong-step la"
+   }
+  ]
+ },
+ {
+  "group": 8,
+  "ids": [
+   {
+    "id": "2503.13657",
+    "note": "03",
+    "context": "- **MAST (2503.13657)** [abs]:"
+   },
+   {
+    "id": "2505.08638",
+    "note": "03",
+    "context": "- **TRAIL (2505.08638)**: 148 annotated traces with a formal error taxonomy. The best model (Gemini 2.5 Pro) scored only 11% at localizing issues [abs]."
+   },
+   {
+    "id": "2509.25370",
+    "note": "03",
+    "context": "- **AgentErrorTaxonomy / AgentDebug (2509.25370)** [abs]:"
+   },
+   {
+    "id": "2604.20779",
+    "note": "03",
+    "context": "- **SWE-chat (2604.20779)** gives real-user failure evidence [abs]:"
+   },
+   {
+    "id": "2602.16666",
+    "note": "03",
+    "context": "- **Rabanser et al. (2602.16666)**: 12 reliability metrics across consistency, robustness, predictability and safety. Capability gains gave only small reliabili"
+   },
+   {
+    "id": "2509.03312",
+    "note": "03",
+    "context": "- **AgenTracer (2509.03312)**: counterfactual replay plus programmed fault injection builds labelled data. An 8B tracer beats large proprietary models by up to "
+   },
+   {
+    "id": "2610.01256",
+    "note": "03",
+    "context": "- **DeFA (2610.01256)**: an event-dependency graph plus a failure-propagation graph gives the best exact-step accuracy on Who&When and Who&When Pro [abs]."
+   },
+   {
+    "id": "2608.29646",
+    "note": "03",
+    "context": "- **DuoTrace (2608.29646)**: detect anomalies first, then attribute. +11.2% agent-level and +7.7% step-level [abs]."
+   },
+   {
+    "id": "2603.25001",
+    "note": "03",
+    "context": "- **MP-Bench (2603.25001)**: failures often have several valid attributions. Single-root-cause benchmarks understate LLM attributors [abs]."
+   },
+   {
+    "id": "2502.10325",
+    "note": "03",
+    "context": "- **Process reward models for tool agents**: AgentPRM (2502.10325) and ToolPRMBench (2601.12294) give step-level correct-vs-plausible-wrong pairs [abs]."
+   },
+   {
+    "id": "2601.12294",
+    "note": "03",
+    "context": "- **Process reward models for tool agents**: AgentPRM (2502.10325) and ToolPRMBench (2601.12294) give step-level correct-vs-plausible-wrong pairs [abs]."
+   },
+   {
+    "id": "2609.02783",
+    "note": "03",
+    "context": "- **EarlyEval (2609.02783)**: LightGBM classifiers on intermediate behaviour predict outcomes at 89\u201397% accuracy and cut 13\u201326% of steps [abs]. It is a cheap tr"
+   },
+   {
+    "id": "2510.11977",
+    "note": "03",
+    "context": "- HAL (2510.11977) used LLM-aided log inspection over 21,730 rollouts and 2.5B tokens [abs]. It found agents searching HuggingFace for the benchmark instead of "
+   },
+   {
+    "id": "2209.13085",
+    "note": "03",
+    "context": "- Skalse et al. (2209.13085) define a proxy as unhackable when improving it never lowers the true reward. That is rare for non-trivial policy sets [abs]."
+   },
+   {
+    "id": "2310.09144",
+    "note": "03",
+    "context": "- Goodhart's Law in RL (2310.09144) measures the effect and gives a provable early-stopping rule [abs]."
+   },
+   {
+    "id": "2210.10760",
+    "note": "03",
+    "context": "- Gao et al. (2210.10760) give scaling laws for reward-model over-optimization [abs]."
+   },
+   {
+    "id": "2609.14998",
+    "note": "03",
+    "context": "- **\"Shallow Beliefs\" (2609.14998)**: synthetic-document midtraining that frames hacking as acceptable does *not* inoculate. Inoculation prompting in the same s"
+   },
+   {
+    "id": "2510.05024",
+    "note": "03",
+    "context": "- **Inoculation prompting** (2510.05024, 2510.04340): asking for the undesired trait at train time suppresses it at test time [abs]."
+   },
+   {
+    "id": "2510.04340",
+    "note": "03",
+    "context": "- **Inoculation prompting** (2510.05024, 2510.04340): asking for the undesired trait at train time suppresses it at test time [abs]."
+   },
+   {
+    "id": "2508.17511",
+    "note": "03",
+    "context": "- **School of Reward Hacks (2508.17511)**: SFT on harmless hacks generalizes to new hacks, to preferring weaker graders, and, for GPT-4.1, to broader misalignme"
+   },
+   {
+    "id": "2406.10162",
+    "note": "03",
+    "context": "- **Sycophancy to Subterfuge (2406.10162)**: a gameable curriculum generalizes zero-shot to rewriting the model's own reward function, a small but nonzero fract"
+   },
+   {
+    "id": "2511.21654",
+    "note": "03",
+    "context": "- **EvilGenie (2511.21654)**: three detectors are compared: held-out tests, LLM judges and test-file-edit detection. The judge works well on unambiguous cases; "
+   },
+   {
+    "id": "2605.21384",
+    "note": "03",
+    "context": "- **SpecBench (2605.21384)**: visible feature tests against held-out composition tests. The gap grows 28 pp per 10\u00d7 code size; one example is a 2,900-line \"comp"
+   },
+   {
+    "id": "2605.20744",
+    "note": "03",
+    "context": "- **Hack-Verifiable Environments (2605.20744) and HVTB on Terminal-Bench (2608.22103)**: plant hacks whose use is detectable by construction, for deterministic "
+   },
+   {
+    "id": "2608.22103",
+    "note": "03",
+    "context": "- **Hack-Verifiable Environments (2605.20744) and HVTB on Terminal-Bench (2608.22103)**: plant hacks whose use is detectable by construction, for deterministic "
+   },
+   {
+    "id": "2608.30724",
+    "note": "03",
+    "context": "- **BaitBench (2608.30724)**: optional shortcuts in ML tasks. 57.1% of runs hack, and still above 50% when told not to [abs]."
+   },
+   {
+    "id": "2507.11473",
+    "note": "03",
+    "context": "- **CoT Monitorability (2507.11473)**: a fragile opportunity; development choices should preserve it [abs]."
+   },
+   {
+    "id": "2505.05410",
+    "note": "03",
+    "context": "- **\"Reasoning Models Don't Always Say What They Think\" (2505.05410)**: hint use is verbalized in \u2265 1% but often < 20% of cases. RL that increases hint use does"
+   },
+   {
+    "id": "2610.03055",
+    "note": "03",
+    "context": "- **hacktrace (2610.03055)**: a monitor on the agent's own internal states, trained on shortcut *attempts* rather than successes, reaches per-problem AUC 0.997 "
+   }
+  ]
+ },
+ {
+  "group": 9,
+  "ids": [
+   {
+    "id": "2604.23488",
+    "note": "03",
+    "context": "- **Trace-and-Amplify (2604.23488)**: monitors trained on prompt-elicited hacks generalize poorly to training-time hacks. Curate monitor data from real RL runs "
+   },
+   {
+    "id": "2606.09711",
+    "note": "03",
+    "context": "- **PRIME (2606.09711)**: a probe-measured \"proxy internalization\" capability emerges *before* visible hacking and forecasts its onset [abs]."
+   },
+   {
+    "id": "2610.12822",
+    "note": "03",
+    "context": "- **Transmissible hacking (2610.12822)**: hacks propagate between agents through code, memory and plans. Code review by a separate verifier reduces delivered ha"
+   },
+   {
+    "id": "2606.04455",
+    "note": "03",
+    "context": "- **Meta-Agent Challenge (2606.04455)**: multi-layer anti-hacking defences. High optimization pressure still surfaced ground-truth exfiltration [abs]."
+   },
+   {
+    "id": "2408.08435",
+    "note": "03",
+    "context": "- **ADAS (2408.08435)**: a meta-agent programs new agents from an archive, and they transfer across domains [abs]."
+   },
+   {
+    "id": "2410.04444",
+    "note": "03",
+    "context": "- **G\u00f6del Agent (2410.04444)** [abs] and **STOP (2310.02304)** [abs]. STOP measured how often generated code bypassed its sandbox."
+   },
+   {
+    "id": "2310.02304",
+    "note": "03",
+    "context": "- **G\u00f6del Agent (2410.04444)** [abs] and **STOP (2310.02304)** [abs]. STOP measured how often generated code bypassed its sandbox."
+   },
+   {
+    "id": "2505.22954",
+    "note": "03",
+    "context": "- **Darwin G\u00f6del Machine (2505.22954)**: archive-based open-ended self-modification. SWE-bench 20.0% to 50.0%, Polyglot 14.2% to 30.7% [abs]."
+   },
+   {
+    "id": "2506.13131",
+    "note": "03",
+    "context": "- **AlphaEvolve (2506.13131)**: evolutionary code search with automatic evaluators [abs]."
+   },
+   {
+    "id": "2605.13821",
+    "note": "03",
+    "context": "- **AEvo (2605.13821)**: a meta-agent edits the *procedure* that drives evolution rather than proposing candidates. It reports a 26% relative improvement over t"
+   },
+   {
+    "id": "2509.22624",
+    "note": "03",
+    "context": "- **SPARK (2509.22624)**: policy and reward co-evolve [abs]."
+   },
+   {
+    "id": "2301.09633",
+    "note": "03",
+    "context": "- **Prediction-Powered Inference (2301.09633)**: valid CIs for a population quantity, such as a hack rate, from many judge predictions plus a small human-labell"
+   },
+   {
+    "id": "2407.18370",
+    "note": "03",
+    "context": "- **Trust or Escalate (2407.18370)**: selective evaluation with a provable human-agreement level. Cheap judges escalate low-confidence items to stronger ones [a"
+   },
+   {
+    "id": "2411.00640",
+    "note": "03",
+    "context": "- **Adding Error Bars to Evals (2411.00640)**: clustered standard errors when items share a cluster (a task, a repo), plus paired differences and power planning"
+   },
+   {
+    "id": "2402.14992",
+    "note": "03",
+    "context": "- **Item response models**: tinyBenchmarks (2402.14992) and Fluid Benchmarking (2509.11106) use IRT to choose informative items and raise validity [abs]."
+   },
+   {
+    "id": "2509.11106",
+    "note": "03",
+    "context": "- **Item response models**: tinyBenchmarks (2402.14992) and Fluid Benchmarking (2509.11106) use IRT to choose informative items and raise validity [abs]."
+   },
+   {
+    "id": "2410.10934",
+    "note": "03",
+    "context": "- **Agent-as-a-Judge (2410.10934)**: an agentic judge on DevAI (55 tasks, 365 requirements) matched human reliability and beat LLM-as-a-judge [abs]."
+   },
+   {
+    "id": "2504.08942",
+    "note": "03",
+    "context": "- **AgentRewardBench (2504.08942)**: 1302 web trajectories with 12 judges; none best everywhere. Rule-based checks *under*-report success [abs]."
+   },
+   {
+    "id": "2406.18403",
+    "note": "03",
+    "context": "- **JUDGE-BENCH (2406.18403)**: validate judges against humans per task and property [abs]."
+   },
+   {
+    "id": "2404.12272",
+    "note": "03",
+    "context": "- **EvalGen (2404.12272)**: **criteria drift**. People refine criteria while grading, so the rubric must be versioned [abs]."
+   },
+   {
+    "id": "2609.12439",
+    "note": "03",
+    "context": "- **TraceJudgeBench (2609.12439)**: debiasing prompts can destroy the judge's ability to resolve real quality gaps. Report bias suppression and resolution loss "
+   },
+   {
+    "id": "2607.28685",
+    "note": "03",
+    "context": "- **\"Safety, or Just Capability?\" (2607.28685)**: under F1, an always-positive policy scores 2\u03c0/(1+\u03c0), which beat 5 of 21 models on R-Judge [abs]. **Always repo"
+   },
+   {
+    "id": "2608.03744",
+    "note": "03",
+    "context": "- **\"Agents Catching Agents\" (2608.03744)**: a gate judge could not separate shortcut adoption from honest agreement (100% FPR). A referee that privately re-que"
+   },
+   {
+    "id": "2607.26819",
+    "note": "03",
+    "context": "- **Not found or not pursued**: a primary SWE-bench maintainer note on the `git log --all` leak. The mechanism is documented in 2607.26819 and in Cursor's audit"
+   },
+   {
+    "id": "2602.16179",
+    "note": "03",
+    "context": "Not counted above: papers cited only through 2606.16062's references. EnterpriseBench Corecraft 2602.16179, BugPilot 2510.19898 and online difficulty filtering "
+   },
+   {
+    "id": "2407.18901",
+    "note": "04",
+    "context": "| `2407.18901.pdf` | AppWorld | Dense DB world, in-memory reset, collateral-damage tests |"
+   },
+   {
+    "id": "2412.14161",
+    "note": "04",
+    "context": "| `2412.14161.pdf` | TheAgentCompany | Real self-hosted apps plus LLM colleagues; checkpoints |"
+   },
+   {
+    "id": "2510.25726",
+    "note": "04",
+    "context": "| `2510.25726.pdf` | Toolathlon | Local containers instead of SaaS; state-init scripts |"
+   },
+   {
+    "id": "2408.04682",
+    "note": "04",
+    "context": "| `2408.04682.pdf` | ToolSandbox | Stateful tools, milestones and minefields, user knowledge boundary |"
+   }
+  ]
+ },
+ {
+  "group": 10,
+  "ids": [
+   {
+    "id": "2604.17739",
+    "note": "04",
+    "context": "2. **Executable beats simulated wherever the domain is CRUD-like.** AWM's matched ablation (same tasks and tools, GPT-5 as the simulator) lost at every model si"
+   },
+   {
+    "id": "2603.11245",
+    "note": "04",
+    "context": "- \u03c4\u00b2 simulator critical-error rates are 13% (airline), 12% (retail) and 6% (telecom) [paper]. A large human study (2603.11245, 451 people) finds LLM users over-"
+   },
+   {
+    "id": "2510.19286",
+    "note": "04",
+    "context": "| TheMCPCompany (2510.19286) | Same apps as MCP (18,505 tools from REST); real Azure | R | Pre-loaded Docker apps; Terraform per Azure task | TAC checkpoints | "
+   },
+   {
+    "id": "2403.07718",
+    "note": "04",
+    "context": "| WorkArena (2403.07718) / ++ (2407.05291) | Real ServiceNow developer instances | R | Installer pins instance config; fresh user per task, deleted after; 10 fi"
+   },
+   {
+    "id": "2407.05291",
+    "note": "04",
+    "context": "| WorkArena (2403.07718) / ++ (2407.05291) | Real ServiceNow developer instances | R | Installer pins instance config; fresh user per task, deleted after; 10 fi"
+   },
+   {
+    "id": "2411.02305",
+    "note": "04",
+    "context": "| CRMArena (2411.02305) / Pro (2505.18878) | Real Salesforce org filled with LLM data | R | Data generated with latent variables, uploaded once | Exact match on"
+   },
+   {
+    "id": "2505.18878",
+    "note": "04",
+    "context": "| CRMArena (2411.02305) / Pro (2505.18878) | Real Salesforce org filled with LLM data | R | Data generated with latent variables, uploaded once | Exact match on"
+   },
+   {
+    "id": "2509.26506",
+    "note": "04",
+    "context": "| SCUBA (2509.26506) | Real Salesforce sandbox org | R | Config snapshot, diff after each run, revert only what changed | Rule-based checks via Metadata/Tooling"
+   },
+   {
+    "id": "2603.13594",
+    "note": "04",
+    "context": "| EnterpriseOps-Gym (2603.13594) | Email, Calendar, Teams, Drive, CSM, HR, ITSM, Hybrid | M (Docker MCP per domain) | One SQL snapshot per DB | SQL verifiers: g"
+   },
+   {
+    "id": "2510.27287",
+    "note": "04",
+    "context": "| EnterpriseBench, Fujitsu (2510.27287) | Chat, mail, code, CRM, ITSM, forum, HR, policies | M | JSON/DB records, about 46.9k; RBAC levels 9\u201314 | LLM judge, 1\u20135"
+   },
+   {
+    "id": "2407.19056",
+    "note": "04",
+    "context": "| OfficeBench (2407.19056) | Word, Excel, PDF, .ics calendar, .eml email, OCR, shell | M (Docker + Python libs) | Per-task synthetic files | Exact, fuzzy and ex"
+   },
+   {
+    "id": "2405.00823",
+    "note": "04",
+    "context": "| WorkBench (2405.00823) | 5 sandbox DBs (email, calendar...) | M | DB reset | Outcome-centric DB comparison | 26 tools, 690 tasks | GPT-4 43% [paper] |"
+   },
+   {
+    "id": "2604.05172",
+    "note": "04",
+    "context": "| ClawsBench (2604.05172) | Mock Gmail, Slack, Calendar, Docs, Drive | M (REST) | Deterministic snapshot/restore; conformance tests against the real APIs | Task"
+   },
+   {
+    "id": "2604.10866",
+    "note": "04",
+    "context": "| OccuBench (2604.10866) | 100 scenarios, 10 industries | L | LLM is the environment; fault injection | Judge | 100 scenarios | Finds good agents are not good s"
+   },
+   {
+    "id": "2606.23654",
+    "note": "04",
+    "context": "| EnterpriseClawBench (2606.23654) | Tasks recovered from proprietary workplace sessions | R-derived | Recovered fixtures | Hard rules + rubrics | 852 tasks | 0"
+   },
+   {
+    "id": "2502.12115",
+    "note": "04",
+    "context": "| SWE-Lancer (2502.12115) | Expensify repo | R | One offline image, checkout per task | Playwright E2E tests, triple-verified | 1,488 tasks, $1M | Claude 3.5 So"
+   },
+   {
+    "id": "2510.04374",
+    "note": "04",
+    "context": "| GDPval (2510.04374) | None; one-shot deliverables | \u2013 | Reference files | Blinded expert pairwise comparison; auto-grader agrees 66% vs 71% human-human | 1,32"
+   },
+   {
+    "id": "2608.20634",
+    "note": "04",
+    "context": "- **AgentMercury** (2608.20634) builds a persistent business world first (entities, services, tools, invariants across services) and draws tasks from it: 4,783 "
+   },
+   {
+    "id": "2601.17722",
+    "note": "04",
+    "context": "- **EntWorld** (2601.17722) reverse-engineers schemas and logic of OSS CRM/ITSM/ERP apps such as EspoCRM [search]."
+   },
+   {
+    "id": "2307.13854",
+    "note": "04",
+    "context": "| WebArena (2307.13854) | OneStopShop (Magento), Magento admin, Postmill (Reddit), GitLab, Kiwix Wikipedia, OpenStreetMap | Docker stop/rm/run; map is a separat"
+   },
+   {
+    "id": "2408.06327",
+    "note": "04",
+    "context": "| WebArena-Lite (via 2408.06327) | Same | Same | Human-checked subset | 165 tasks | Common RL eval; others used for training |"
+   },
+   {
+    "id": "2401.13649",
+    "note": "04",
+    "context": "| VisualWebArena (2401.13649) | Classifieds, Shopping, Reddit | Per-site reset | exact / must_include / fuzzy / VQA / SSIM | 910 tasks | GPT-4V+SoM 16.37% [pape"
+   },
+   {
+    "id": "2510.16252",
+    "note": "04",
+    "context": "| WEBSERV (2510.16252) | WebArena-style sites | Incus copy-on-write containers: about 5\u00d7 faster launch, about 240\u00d7 less storage, 200+ envs per host | \u2013 | \u2013 | RL"
+   },
+   {
+    "id": "2504.11543",
+    "note": "04",
+    "context": "| REAL (2504.11543) | 11 clones (Airbnb-, Amazon-, mail-, calendar-like...) | State in localStorage; `/clear` resets, `/finish` returns the state diff; fixed da"
+   },
+   {
+    "id": "2601.02439",
+    "note": "04",
+    "context": "| WebGym (2601.02439) | About 300k tasks on live sites | \u2013 | Rubrics | \u2013 | RL Qwen3-VL-8B 26.2 \u2192 42.9% OOD [paper] |"
+   },
+   {
+    "id": "2602.14093",
+    "note": "04",
+    "context": "| InfiniteWeb (2601.04126), GUI-GENESIS (2602.14093), Recreated websites (2603.10505), WebForge (2604.10988) | Generated sites or apps with verifiers | Generate"
+   },
+   {
+    "id": "2603.10505",
+    "note": "04",
+    "context": "| InfiniteWeb (2601.04126), GUI-GENESIS (2602.14093), Recreated websites (2603.10505), WebForge (2604.10988) | Generated sites or apps with verifiers | Generate"
+   },
+   {
+    "id": "2604.10988",
+    "note": "04",
+    "context": "| InfiniteWeb (2601.04126), GUI-GENESIS (2602.14093), Recreated websites (2603.10505), WebForge (2604.10988) | Generated sites or apps with verifiers | Generate"
+   },
+   {
+    "id": "2404.07972",
+    "note": "04",
+    "context": "| OSWorld (2404.07972) | Ubuntu VM: Chrome, VLC, Thunderbird, VS Code, LibreOffice, GIMP | VM snapshot + per-task file downloads and commands | 134 evaluation f"
+   }
+  ]
+ },
+ {
+  "group": 11,
+  "ids": [
+   {
+    "id": "2606.29537",
+    "note": "04",
+    "context": "| OSWorld 2.0 (2606.29537) | Multi-hour workflows on realistic files and profiles | \u2013 | \u2013 | 108 workflows | Claude Opus 4.8 20.6% at 500 steps [paper] |"
+   },
+   {
+    "id": "2510.24563",
+    "note": "04",
+    "context": "| OSWorld-MCP (2510.24563) | OSWorld + 158 MCP tools | \u2013 | Success + tool-invocation rate | \u2013 | Best invocation rate about 36% [paper] |"
+   },
+   {
+    "id": "2409.08264",
+    "note": "04",
+    "context": "| Windows Agent Arena (2409.08264) | Windows 11 in QEMU/KVM in Docker; 11 programs | Snapshot built by the user (licensing) | OSWorld-style state checks | 154 t"
+   },
+   {
+    "id": "2405.14573",
+    "note": "04",
+    "context": "| AndroidWorld (2405.14573) | 20 F-Droid apps | Seeded random params; DB clears; **device clock fixed at 2023-10-15 15:34 UTC** | adb reads of SQLite, files, se"
+   },
+   {
+    "id": "2509.24002",
+    "note": "04",
+    "context": "| MCPMark (2509.24002) | Notion (9 templates), GitHub (real org), Postgres (chinook, employees...), Playwright on WebArena sites, filesystem | Template copies; "
+   },
+   {
+    "id": "2508.14704",
+    "note": "04",
+    "context": "| MCP-Universe (2508.14704) | 11 real servers, 133 tools | Live | 84 evaluators, 48 dynamic | 231 tasks | GPT-5 43.72% [paper] |"
+   },
+   {
+    "id": "2508.20453",
+    "note": "04",
+    "context": "| MCP-Bench (2508.20453) | 28 live servers, 250 tools | Live | Rules + o4-mini rubric | 104 tasks | Same model writes and judges tasks [paper] |"
+   },
+   {
+    "id": "2508.01780",
+    "note": "04",
+    "context": "| LiveMCPBench (2508.01780) | 70 servers, 527 tools | Docker, keyless | DeepSeek-V3 judge, about 79\u201381% agreement with humans | 95 tasks | No end-state check [p"
+   },
+   {
+    "id": "2602.00933",
+    "note": "04",
+    "context": "| MCP-Atlas (2602.00933) | 36 production servers, 220 tools | Containerized | Claim-level rubric | 1,000 tasks | 63.3% of failures are reasoning errors [paper] "
+   },
+   {
+    "id": "2506.07672",
+    "note": "04",
+    "context": "| MCPWorld (2506.07672) | White-box OSS apps | Containers | Code instrumentation inside the app | 201 tasks | API, GUI and hybrid agents [paper] |"
+   },
+   {
+    "id": "2508.06600",
+    "note": "04",
+    "context": "| BrowseComp-Plus (2508.06600) | Fixed corpus, 100,195 docs | Static | gpt-4.1 judge | 830 queries | Fixed corpus removes live-web drift [paper] |"
+   },
+   {
+    "id": "2501.12326",
+    "note": "04",
+    "context": "| UI-TARS (2501.12326) | click, left_double, right_single, drag, hotkey, type, scroll, wait, finished; mobile adds long_press, open_app, press_home, press_back "
+   },
+   {
+    "id": "2310.11441",
+    "note": "04",
+    "context": "| Observations | screenshot, accessibility tree, both, or Set-of-Mark (2310.11441) |"
+   },
+   {
+    "id": "2508.14040",
+    "note": "04",
+    "context": "| ComputerRL (2508.14040) | \"Thousands\" of qemu-in-docker Ubuntu VMs over gRPC; concurrency 1024 in its table | API-GUI hybrid: 103 LLM-generated APIs over 6 ap"
+   },
+   {
+    "id": "2509.02544",
+    "note": "04",
+    "context": "| UI-TARS-2 (2509.02544) | Several thousand cloud VMs (Windows, Ubuntu, Android); VM manager at several thousand QPS | Browser sandbox with time acceleration an"
+   },
+   {
+    "id": "2505.16282",
+    "note": "04",
+    "context": "| ARPO (2505.16282) | 256 parallel OSWorld VMs, 8 rollouts per task | Batch about 19 min at 256 envs; epoch 6 h \u2192 1.2 h | UI-TARS-1.5-7B 23.5 \u2192 29.9% |"
+   },
+   {
+    "id": "2509.23866",
+    "note": "04",
+    "context": "| DART-GUI (2509.23866) | 180 Ubuntu containers on K8s | Decoupled actors: 22.6 \u2192 43.6 actions/min; env utilisation 12.2 \u2192 67.7% | OSWorld 42.13% |"
+   },
+   {
+    "id": "2505.23762",
+    "note": "04",
+    "context": "| ZeroGUI (2505.23762) | Ubuntu + Android | GPT-4o tasks, VLM-voted rewards | 17.7 \u2192 20.2 OSWorld |"
+   },
+   {
+    "id": "2508.09123",
+    "note": "04",
+    "context": "| OpenCUA (2508.09123) | 200+ apps, 3 OSes (data) | \u2013 | 45.0% OSWorld-Verified (72B) |"
+   },
+   {
+    "id": "2403.07714",
+    "note": "04",
+    "context": "| StableToolBench (2403.07714) / MirrorAPI (2503.20527) | Cache of real responses + simulator on miss; MirrorAPI trains simulators on 7,000+ APIs | Hybrid | Cac"
+   },
+   {
+    "id": "2503.20527",
+    "note": "04",
+    "context": "| StableToolBench (2403.07714) / MirrorAPI (2503.20527) | Cache of real responses + simulator on miss; MirrorAPI trains simulators on 7,000+ APIs | Hybrid | Cac"
+   },
+   {
+    "id": "2512.04535",
+    "note": "04",
+    "context": "| GTM (2512.04535) | 1.5B universal tool simulator | Simulated | \u2013 | 20k tools, 300 domains | Numbers not verified |"
+   },
+   {
+    "id": "2601.17087",
+    "note": "04",
+    "context": "| Lost in Simulation (2601.17087) | Agent success moves up to 9 points depending on which LLM plays the user; dialect groups are simulated worst |"
+   },
+   {
+    "id": "2509.23124",
+    "note": "04",
+    "context": "| Non-Collaborative Users (2509.23124) | Unavailable requests, off-topic turns, impatience and fragments break tool agents |"
+   },
+   {
+    "id": "2505.06120",
+    "note": "04",
+    "context": "| LLMs Get Lost in Multi-Turn (2505.06120) | Revealing the request in shards costs 39% on average |"
+   },
+   {
+    "id": "2510.05444",
+    "note": "04",
+    "context": "| SimulatorArena (2510.05444) | Profile-conditioned simulators reach \u03c1 about 0.7 with human ratings |"
+   },
+   {
+    "id": "2601.08118",
+    "note": "04",
+    "context": "| MirrorBench (2601.08118) | Scores human-likeness separately from task success, with human-human controls |"
+   },
+   {
+    "id": "2507.22034",
+    "note": "04",
+    "context": "| UserBench (2507.22034), UserRL (2509.19736) | Gym envs where preferences are revealed gradually; open simulators can stand in for GPT-4o |"
+   },
+   {
+    "id": "2509.19736",
+    "note": "04",
+    "context": "| UserBench (2507.22034), UserRL (2509.19736) | Gym envs where preferences are revealed gradually; open simulators can stand in for GPT-4o |"
+   }
+  ]
+ },
+ {
+  "group": 12,
+  "ids": [
+   {
+    "id": "2312.03664",
+    "note": "04",
+    "context": "- Concordia (2312.03664): a game master LLM turns actions into event statements and can call real APIs for simulated digital apps."
+   },
+   {
+    "id": "2310.11667",
+    "note": "04",
+    "context": "- Generative Agents and SOTOPIA (2310.11667) supply memory/reflection and social scoring."
+   },
+   {
+    "id": "2602.11964",
+    "note": "04",
+    "context": "| **ARE (2509.17158) / Gaia2 (2602.11964)** | \"Generation time\" mode: the clock pauses during LLM inference, then advances by the measured generation time; an i"
+   },
+   {
+    "id": "2502.15840",
+    "note": "04",
+    "context": "| Vending-Bench (2502.15840) | Each tool costs simulated time (5 min to 5 h); `wait_for_next_day` | Overnight sales and supplier emails arrive the next morning;"
+   },
+   {
+    "id": "2402.05733",
+    "note": "04",
+    "context": "| TimeArena (2402.05733) | Actions have durations; agents and objects are busy while acting | Parallel tasks compete for resources |"
+   },
+   {
+    "id": "2501.12012",
+    "note": "04",
+    "context": "| Relational synthesis | **SDV HMASynthesizer** (Gaussian copula per table, parent-child recursion; docs say it is tuned for about 5 tables and 1 level of depth"
+   },
+   {
+    "id": "2508.06647",
+    "note": "04",
+    "context": "| Relational synthesis | **SDV HMASynthesizer** (Gaussian copula per table, parent-child recursion; docs say it is tuned for about 5 tables and 1 level of depth"
+   },
+   {
+    "id": "2201.12677",
+    "note": "04",
+    "context": "| DP tables | **AIM** (2201.12677), PrivBayes (SIGMOD 2014) | Workload-aware marginals with error bounds |"
+   },
+   {
+    "id": "2210.14348",
+    "note": "04",
+    "context": "| DP text | DP fine-tuning (2210.14348); **Aug-PE** (2403.01749), Private Evolution via API only | For emails, tickets, chats |"
+   },
+   {
+    "id": "2609.04148",
+    "note": "04",
+    "context": "- **Terminal-Universe (2609.04148).**"
+   },
+   {
+    "id": "2610.06100",
+    "note": "04",
+    "context": "- **Trace2Env (2610.06100).** When the real system is gone, it compiles traces into a worldbook (schemas, grounded evidence, induced behaviour rules), and a wor"
+   },
+   {
+    "id": "2610.26828",
+    "note": "04",
+    "context": "| Transfer to real benchmarks | AWM, AgentScaler, ScaleEnv, EnvScaler, Corecraft (+6.8 Toolathlon), GUI-GENESIS (synthetic \u2265 real-app training), WildAWM (2610.2"
+   },
+   {
+    "id": "2609.37658",
+    "note": "04",
+    "context": "- EnterpriseBench (strategic reasoning) 2609.37658"
+   },
+   {
+    "id": "2412.05467",
+    "note": "04",
+    "context": "- BrowserGym 2412.05467"
+   },
+   {
+    "id": "2504.01382",
+    "note": "04",
+    "context": "- Online-Mind2Web 2504.01382"
+   },
+   {
+    "id": "2411.06559",
+    "note": "04",
+    "context": "- WebDreamer 2411.06559"
+   },
+   {
+    "id": "2510.14969",
+    "note": "04",
+    "context": "- UI-Simulator 2510.14969"
+   },
+   {
+    "id": "2606.12191",
+    "note": "04",
+    "context": "- Agentic Environment Engineering survey 2606.12191"
+   }
+  ]
+ }
+]
