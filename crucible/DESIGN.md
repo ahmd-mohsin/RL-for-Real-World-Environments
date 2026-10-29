@@ -958,7 +958,10 @@ backend:
   manifest's per-task seed, purpose `baseline` / `trained`, one directory per task with `lh_episodes.jsonl` so
   `benchmark.paired_report` reads the arm later without a re-run; `report` is `benchmark.report` plus pass@1, pass@k, the
   per-task rate, masked and host-failed episodes (failure blame `infra`, `core.schema.run.DEFAULT_BLAME`) and GPU-hours
-  from `sacct`.
+  from `sacct`. `verify --write-measured` records how the keep rule's measurements sampled (`benchrun.measured_sampling`:
+  `max_tokens` and backend counts) and `run --measured` puts it in the arm's `arm.json` with every difference stated
+  (`differs_from_measured`). The lead's call (2026-10-28): the DeltaAI arms use 8192 tokens per reply, the vLLM default
+  the trainer and the trained arm use, while the gate and keep-rule measurements used 4096 on Tinker.
 - **CPU pinning in the shim** (`CRUCIBLE_SHIM_PIN=1`): with no per-container cgroups a World's `go test` saw every core of
   the job. The shim now gives each container `ceil(--cpus)` cores of the job's set (least-shared first, `pins.json` under
   a lock) and runs its instance and every `exec` with that affinity, so a World has about the 2 CPUs the Mac's Docker

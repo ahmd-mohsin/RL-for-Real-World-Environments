@@ -109,9 +109,9 @@ episode (no lockdown, no episodes).
   `episodes.jsonl`, `metrics.json`, Weave-shaped traces and spend files as on Tinker, so the monitor, audit and keep
   rule read them unchanged.
 - **The sealed-benchmark runner (2026-10-28):** `scripts/deltaai/bench.py` (`verify`, `bundle --images`, `dryrun`, `run`,
-  `report`, `stub-serve`) over `factory.benchrun`, with `bench_prep.sbatch` (CPU only: environment, SIFs, lockdown in
-  every World, the no-model dry run, two scripted episodes) and `bench.sbatch` (2 GPUs, 36 CPUs, 110 GB: one TP=2
-  server, 24 Worlds at once, results synced to the benchmark directory every 5 minutes). The benchmark's directory is
+  `report`, `stub-serve`) over `factory.benchrun`, with `bench_prep.sbatch` (no model; DeltaAI refuses GPU-less jobs, so one idle GPU at 1 GPU-hour per hour: environment, SIFs, lockdown in
+  every World, the no-model dry run, two scripted episodes) and `bench.sbatch` (2 GPUs, 144 CPUs, 220 GB, billed 2 GPU-hours per hour on ghx4: one TP=2
+  server, 48 Worlds at once, results synced to the benchmark directory every 5 minutes). The benchmark's directory is
   its own (`/work/nvme/bjhg/mahmedmohsin/crucible-bench`, mode 700); held-out data never goes to `crucible-infer` or
   `crucible-train`. The Worlds get pinned cores (`CRUCIBLE_SHIM_PIN=1`).
 - **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a

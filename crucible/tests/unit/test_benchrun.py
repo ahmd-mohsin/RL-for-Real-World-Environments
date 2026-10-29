@@ -68,6 +68,20 @@ def test_the_eval_harness_must_be_the_one_the_keep_rule_measured(tmp_path):
     assert benchrun.harness_problems({"db-go-x-00000001": "native:workspace@1#aaa"}, meas) == []
     assert benchrun.harness_problems({"db-go-x-00000001": "native:workspace@1#bbb"}, meas)
     assert benchrun.harness_problems({"t": "h"}, {}) and benchrun.harness_problems({"t": "h"}, {"h": ["a"], "g": ["b"]})
+    smp = benchrun.measured_sampling(tmp_path, ["db-go-x-00000001", "db-go-x-00000002-d1"], tool_limit=300)
+    assert smp["runs"] == 2 and smp["max_tokens"] == {"None": 2} and smp["backend"] == {"tinker": 2}  # no backend field: Tinker
+
+
+def test_an_arm_states_how_it_differs_from_the_keep_rule_measurements(tmp_path):
+    import argparse
+
+    B = _script("bench_cli_t", ROOT / "scripts" / "deltaai" / "bench.py")
+    f = tmp_path / "measured.json"
+    f.write_text(json.dumps({"harness": {"h": 26}, "sampling": {"max_tokens": {"4096": 26}, "backend": {"tinker": 26}}}))
+    note = B.measured_note(argparse.Namespace(measured=str(f), backend="vllm"), 8192)
+    assert note["measured_with"]["sampling"]["max_tokens"] == {"4096": 26}
+    assert any("max_tokens: this arm 8192" in d for d in note["differs_from_measured"]) and any("backend" in d for d in note["differs_from_measured"])
+    assert B.measured_note(argparse.Namespace(measured="", backend="vllm"), 8192) == {}
 
 
 def test_bundle_holds_the_sealed_tasks_only_and_relocates(tmp_path):

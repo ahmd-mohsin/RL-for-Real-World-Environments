@@ -1,5 +1,5 @@
 #!/bin/bash
-# The benchmark's CPU-only preparation and dry run (doc 14 §4): no GPU, no weights, no model.
+# The benchmark's preparation and dry run (doc 14 §4): no model, no weights; the one GPU DeltaAI requires stays idle.
 #  1. the environment (once): Python 3.12, crucible editable, transformers, CPU torch, in $W/venv;
 #  2. one SIF per World image from the Mac's arm64 archives;
 #  3. the lockdown probe in every World image (no network, no host files, no secrets);
@@ -7,9 +7,12 @@
 #     it, the null patch (reward 0) and the oracle applied in the World and collected back (reward 1), graded by the gates'
 #     own verifier through the shim;
 #  5. two scripted one-episode arms (bench.py stub-serve: the tokenizer only) through the real episode path.
-# Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh --partition=<cpu partition> bench_prep.sbatch
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=16 --mem=48g
-#SBATCH --time=02:00:00
+# Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh bench_prep.sbatch
+# DeltaAI refuses jobs without a GPU and has no CPU-only partition: one GPU (unused) with 64 CPUs and 100 GB bills 1000 per
+# hour on ghx4 (1 GPU-hour per hour; the CPUs and memory stay under one GPU's share).
+#SBATCH --partition=ghx4
+#SBATCH --nodes=1 --ntasks=1 --gpus-per-node=1 --cpus-per-task=64 --mem=100g
+#SBATCH --time=01:30:00
 #SBATCH --job-name=crucible-bench-prep
 #SBATCH --output=logs/prep-%j.out
 # Slurm runs a copy of this file, so the helpers are read from the synced code tree
@@ -30,8 +33,10 @@ if [ ! -x "$W/venv/bin/python" ] || ! "$W/venv/bin/python" -c "import crucible, 
 fi
 t "env: $($PY -c 'import crucible, transformers, torch; print("ok transformers", transformers.__version__, "torch", torch.__version__)' 2>&1 | tail -1)"
 
-# 2. SIFs
+# 2. SIFs, and the engine's JIT caches seeded from the inference smoke's (read only), so the GPU job does not compile them
 build_sifs || { t "sif build failed"; exit 2; }
+VC=/work/hdd/bjhg/mahmedmohsin/crucible-infer/vcache
+[ -d "$VC" ] && [ -z "$(ls -A $W/vcache 2>/dev/null)" ] && rsync -a --no-acls "$VC/" "$W/vcache/" && t "vcache: seeded $(du -sh $W/vcache | cut -f1)"
 t "sifs: $(ls $W/sif/*.sif | wc -l)"
 
 # 3. lockdown in every World image

@@ -5,10 +5,12 @@
 # Prerequisite: bench_prep.sbatch passed (env, SIFs, lockdown, dry run). Results sync to $W/runs/<purpose> every 5 min
 # and at the end, so a time limit loses only the tasks in flight (a finished task is never re-run).
 # Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh bench.sbatch
-#   env: PURPOSE (baseline), SLOTS (24 Worlds at once), CONC (8 episodes per task), TP (2)
+#   env: PURPOSE (baseline), SLOTS (48 Worlds at once), CONC (8 episodes per task), TP (2)
+# Billing on ghx4 is the largest share (MAX_TRES: 1000 per GPU, 13.9 per CPU, 9.0 per GB): 2 GPUs, 144 CPUs (2 x 72) and
+# 220 GB bill 2000 per hour, 2 GPU-hours per hour.
 #SBATCH --partition=ghx4
-#SBATCH --nodes=1 --ntasks=1 --gpus-per-node=2 --cpus-per-task=36 --mem=110g
-#SBATCH --time=03:50:00
+#SBATCH --nodes=1 --ntasks=1 --gpus-per-node=2 --cpus-per-task=144 --mem=220g
+#SBATCH --time=03:30:00
 #SBATCH --job-name=crucible-bench
 #SBATCH --output=logs/bench-%j.out
 source "${CRUCIBLE_BENCH_DIR:-/work/nvme/bjhg/mahmedmohsin/crucible-bench}/code/crucible/scripts/deltaai/bench_env.sh"
@@ -48,8 +50,8 @@ R=$J/runs
 mkdir -p "$R" "$W/runs"
 ( while sleep 300; do rsync -a "$R/" "$W/runs/" 2>/dev/null; done ) &
 SYNC=$!
-$PY "$B" run --purpose "$PURPOSE" --vllm-engine "$O/engine.json" --expect-harness "$(cat $W/harness.txt)" --manifest "$D/debug/manifest.json" \
-  --debug "$D/debug" --out "$R" --concurrency "${CONC:-8}" --slots "${SLOTS:-24}" --tasks "$(cat $W/order.txt)" > "$O/run.log" 2>&1
+$PY "$B" run --purpose "$PURPOSE" --vllm-engine "$O/engine.json" --expect-harness "$(cat $W/harness.txt)" --measured "$W/measured.json" \
+  --manifest "$D/debug/manifest.json" --debug "$D/debug" --out "$R" --concurrency "${CONC:-8}" --slots "${SLOTS:-48}" --tasks "$(cat $W/order.txt)" > "$O/run.log" 2>&1
 t "run: rc=$? $(tail -2 $O/run.log | tr '\n' ' ')"
 kill $SYNC 2>/dev/null
 rsync -a "$R/" "$W/runs/"
