@@ -108,6 +108,9 @@ def cmd_verify(a: argparse.Namespace) -> None:
         out["measured_harness"] = {h: len(v) for h, v in meas.items()}
         out["harness_ok"] = not hp
         v["problems"] += hp
+        out["measured_sampling"] = benchrun.measured_sampling(Path(a.targeting), ids, tool_limit=ENV_BUDGET.tool_limit)
+        if a.write_measured:  # the record an arm carries (run --measured): what the keep rule measured with, beside the arm's own
+            jsave(Path(a.write_measured), {"harness": out["measured_harness"], "sampling": out["measured_sampling"]})
     imgs = benchrun.world_images(m, debug=Path(a.debug) if a.relocated else None)
     out["images"] = len(imgs)
     for p in v["problems"]:
@@ -217,6 +220,22 @@ def phase_args(a: argparse.Namespace) -> argparse.Namespace:
     return lh_debug_target.parse_args(argv)
 
 
+def measured_note(a: argparse.Namespace, max_tokens: int) -> dict[str, Any]:
+    """``measured_with`` (``verify --write-measured``: how the keep rule's measurements sampled) and every way this arm
+    differs from it, stated in the arm's metadata (the lead, 2026-10-28: 8192 tokens per reply on our vLLM, to match the
+    trainer and the trained arm, while the gate and keep-rule measurements used 4096 on Tinker)."""
+    if not a.measured:
+        return {}
+    meas = jload(Path(a.measured), {}) or {}
+    smp = meas.get("sampling") or {}
+    diff = []
+    if set(smp.get("max_tokens") or {}) - {str(max_tokens)}:
+        diff.append(f"max_tokens: this arm {max_tokens}, the keep-rule measurements {sorted(smp.get('max_tokens') or {})}")
+    if set(smp.get("backend") or {}) - {a.backend}:
+        diff.append(f"backend: this arm {a.backend}, the keep-rule measurements {sorted(smp.get('backend') or {})}")
+    return {"measured_with": meas, "differs_from_measured": diff}
+
+
 async def cmd_run_async(a: argparse.Namespace) -> None:
     import lh_debug_target as T
 
@@ -240,7 +259,7 @@ async def cmd_run_async(a: argparse.Namespace) -> None:
     root = Path(a.out) / a.purpose
     jsave(root / "arm.json", {"manifest_sha256": m["manifest_sha256"], "purpose": a.purpose, "k": k, "harness": a.expect_harness, "backend": a.backend,
                               "engine": jload(Path(a.vllm_engine)) if a.vllm_engine else None, "max_tokens": ph.a.max_tokens, "env": T.env_budget(ph.a),
-                              "started": time.time(), "tasks": len(ids)})
+                              "started": time.time(), "tasks": len(ids), **measured_note(a, ph.a.max_tokens)})
 
     async def job(tid: str) -> dict[str, Any]:
         rd = root / tid
@@ -338,6 +357,7 @@ def main() -> None:
     v.add_argument("--sealed", default="")
     v.add_argument("--targeting", default="")
     v.add_argument("--relocated", action="store_true")
+    v.add_argument("--write-measured", default="", help="with --targeting: write the measured harness and sampling here (run --measured)")
     b = sub.add_parser("bundle")
     b.add_argument("--manifest", required=True)
     b.add_argument("--debug", required=True)
@@ -356,6 +376,7 @@ def main() -> None:
     r.add_argument("--out", required=True)
     r.add_argument("--purpose", default="baseline", choices=("baseline", "trained", "control", "smoke"))
     r.add_argument("--expect-harness", required=True, help="the harness id the keep rule measured with (verify --targeting prints it)")
+    r.add_argument("--measured", default="", help="verify --write-measured's file: recorded in arm.json with every difference from this arm")
     r.add_argument("--backend", default="vllm", choices=("vllm",))
     r.add_argument("--vllm-engine", default="")
     r.add_argument("--vllm-url", default="")

@@ -48,8 +48,8 @@ R=$J/runs
 mkdir -p "$R" "$W/runs"
 ( while sleep 300; do rsync -a "$R/" "$W/runs/" 2>/dev/null; done ) &
 SYNC=$!
-$PY "$B" run --purpose "$PURPOSE" --vllm-engine "$O/engine.json" --expect-harness "$(cat $W/harness.txt)" --manifest "$D/debug/manifest.json" \
-  --debug "$D/debug" --out "$R" --concurrency "${CONC:-8}" --slots "${SLOTS:-24}" --tasks "$(cat $W/order.txt)" > "$O/run.log" 2>&1
+$PY "$B" run --purpose "$PURPOSE" --vllm-engine "$O/engine.json" --expect-harness "$(cat $W/harness.txt)" --measured "$W/measured.json" \
+  --manifest "$D/debug/manifest.json" --debug "$D/debug" --out "$R" --concurrency "${CONC:-8}" --slots "${SLOTS:-24}" --tasks "$(cat $W/order.txt)" > "$O/run.log" 2>&1
 t "run: rc=$? $(tail -2 $O/run.log | tr '\n' ' ')"
 kill $SYNC 2>/dev/null
 rsync -a "$R/" "$W/runs/"

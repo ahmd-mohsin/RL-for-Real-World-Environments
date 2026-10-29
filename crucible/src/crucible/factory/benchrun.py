@@ -101,6 +101,26 @@ def measured_harness(targeting: Path, ids: Iterable[str], *, tool_limit: int, ar
     return out
 
 
+def measured_sampling(targeting: Path, ids: Iterable[str], *, tool_limit: int, arm: str = "student") -> dict[str, Any]:
+    """How the keep rule's student measurements of ``ids`` (or their parents) at ``tool_limit`` sampled: the counts of
+    each ``max_tokens`` and backend (a run that predates the ``backend`` field ran on Tinker). An arm records it beside its
+    own settings, so a difference (e.g. 8192 tokens per reply on our vLLM against 4096 on Tinker) is stated, never silent."""
+    want = {i for t in ids for i in (t, parent_of(t))}
+    toks: Counter[str] = Counter()
+    backs: Counter[str] = Counter()
+    for f in sorted(Path(targeting).glob(f"*/arms/{arm}/*/metrics.json")):
+        if f.parent.name not in want:
+            continue
+        try:
+            s = json.loads(f.read_text()).get("settings") or {}
+        except json.JSONDecodeError:
+            continue
+        if s.get("tool_limit") == tool_limit:
+            toks[str(s.get("max_tokens"))] += 1
+            backs[str(s.get("backend") or "tinker")] += 1
+    return {"runs": sum(toks.values()), "max_tokens": dict(sorted(toks.items())), "backend": dict(sorted(backs.items())), "tool_limit": tool_limit}
+
+
 def harness_problems(eval_ids: Mapping[str, str], measured: Mapping[str, Sequence[str]]) -> list[str]:
     """``eval_ids``: task -> the harness id this run builds. Refused unless the measurements used one id and every task's
     eval harness is it."""
