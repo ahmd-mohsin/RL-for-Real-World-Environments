@@ -1,0 +1,264 @@
+{
+ "cap": 30.0,
+ "load": {
+  "containers_mine": {
+   "max": 9.0,
+   "mean": 3.23,
+   "p50": 2.0
+  },
+  "containers_other": {
+   "max": 0.0,
+   "mean": 0.0,
+   "p50": 0.0
+  },
+  "cpu_pct_mine": {
+   "max": 707.2,
+   "mean": 137.55,
+   "p50": 56.5
+  },
+  "load1": {
+   "max": 11.19,
+   "mean": 3.88,
+   "p50": 2.84
+  },
+  "mem_gib_mine": {
+   "max": 2.03,
+   "mean": 0.38,
+   "p50": 0.18
+  },
+  "samples": 53
+ },
+ "observe": {
+  "name": "factory-debug-s15-t300-6b82dbde",
+  "project": "crucible-factory",
+  "run": "/Users/uzair/Desktop/RL env repos/RL-for-Real-World-Environments/crucible/data/observe/runs/crucible-factory/factory-debug-s15-t300-6b82dbde-fbc562cb0ca3",
+  "traces": 10
+ },
+ "settings": {
+  "agent_s": 5400.0,
+  "checkpoint_cap": 15,
+  "checkpoint_every": 20,
+  "containers": "crucible-lh-d-s15-*",
+  "enable_thinking": false,
+  "env_budget": {
+   "agent_s": 5400.0,
+   "checkpoint_cap": 15,
+   "checkpoint_every": 20,
+   "is_lane_budget": true,
+   "lane": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "decided": "2026-10-20",
+    "rollout_s": 9000.0,
+    "tool_limit": 300
+   },
+   "rollout_s": 9000.0,
+   "tool_limit": 300
+  },
+  "frontier": [
+   "deepseek-ai/DeepSeek-V4.1-Flash-1017:peft:262144"
+  ],
+  "frontier_k": 2,
+  "grade_parallel": 2,
+  "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+  "k": 8,
+  "max_tokens": 4096,
+  "rollout_s": 9000.0,
+  "seed_offset": 0,
+  "slots": 10,
+  "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+  "temperature": 1.0,
+  "tool_limit": 300,
+  "world": "task World image, --network none, 2 CPU / 2 GB"
+ },
+ "spend_by_model": {
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": 5.1362,
+  "Qwen/Qwen3.6-35B-A3B:peft:262144": 5.056,
+  "deepseek-ai/DeepSeek-V4.1-Flash-1017:peft:262144": 6.224,
+  "zai-org/GLM-5.3-Flash:peft:262144": 0.3447,
+  "zai-org/GLM-5.3:peft:262144": 1.2266
+ },
+ "spend_total": 17.9875,
+ "tasks": {
+  "db-node-react-hook-form-399578e2-e1": {
+   "band": {
+    "in_band": true,
+    "n": 8,
+    "pass_rate": 0.25,
+    "reward_range": [
+     0.166666,
+     1.0
+    ],
+    "rewards": [
+     0.333334,
+     1.0,
+     0.5,
+     0.166666,
+     1.0,
+     0.5,
+     0.5,
+     0.333334
+    ]
+   },
+   "budget_binding": {
+    "deepseek-ai_DeepSeek-V4.1-Flash-1017": {
+     "stuck": 1
+    },
+    "student": {}
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 6
+    },
+    "n": 6,
+    "ok": true,
+    "on_intent": 5,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.5,
+    "source": "zai-org/GLM-5.3-Flash:peft:262144 judge, zai-org/GLM-5.3:peft:262144 auditor cross-check"
+   },
+   "fairness": {
+    "deepseek-ai/DeepSeek-V4.1-Flash-1017": [
+     false,
+     false
+    ]
+   },
+   "faults": 3,
+   "honest": {
+    "status_overclaim": 3
+   },
+   "keep": {
+    "ci": [
+     0.0715,
+     0.5907
+    ],
+    "fair": false,
+    "flags": [],
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash-1017": [
+      false,
+      false
+     ]
+    },
+    "intent_ok": true,
+    "intent_share": 0.8333,
+    "keep": false,
+    "labelled": 6,
+    "n": 8,
+    "on_intent": 5,
+    "pass_rate": 0.25,
+    "passes": 2,
+    "power": {
+     "ci": [
+      0.0715,
+      0.5907
+     ],
+     "crosses": [
+      0.1
+     ],
+     "decided": false,
+     "n": 8,
+     "n_needed": 14
+    },
+    "rule": {
+     "bench_hi": 0.5,
+     "min_labels": 3,
+     "skill_min": 0.5,
+     "train_hi": 0.6,
+     "train_lo": 0.1
+    },
+    "split": "train",
+    "verdict": "unfair",
+    "why": "no frontier solver passes it: not counted as fair"
+   },
+   "lang": "node",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.8333,
+   "model": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "modes": {
+    "lost_progress/interacting_faults": 1,
+    "never_progressed/multi_fault_localization": 1,
+    "never_progressed/regression_safety": 2,
+    "stalled/multi_fault_localization": 1,
+    "stalled/regression_safety": 1
+   },
+   "n": 8,
+   "pass_ci": [
+    0.0715,
+    0.5907
+   ],
+   "pass_rate": 0.25,
+   "passes": 2,
+   "per_milestone": {
+    "m01": 0.75,
+    "m02": 0.875,
+    "m03": 0.875
+   },
+   "repo": "react-hook-form",
+   "settings": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "containers": "crucible-lh-d-s15-*",
+    "enable_thinking": false,
+    "env_budget": {
+     "agent_s": 5400.0,
+     "checkpoint_cap": 15,
+     "checkpoint_every": 20,
+     "is_lane_budget": true,
+     "lane": {
+      "agent_s": 5400.0,
+      "checkpoint_cap": 15,
+      "checkpoint_every": 20,
+      "decided": "2026-10-20",
+      "rollout_s": 9000.0,
+      "tool_limit": 300
+     },
+     "rollout_s": 9000.0,
+     "tool_limit": 300
+    },
+    "frontier": [
+     "deepseek-ai/DeepSeek-V4.1-Flash-1017:peft:262144"
+    ],
+    "frontier_k": 2,
+    "grade_parallel": 2,
+    "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+    "k": 8,
+    "max_tokens": 4096,
+    "rollout_s": 9000.0,
+    "seed_offset": 0,
+    "slots": 10,
+    "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+    "temperature": 1.0,
+    "tool_limit": 300,
+    "world": "task World image, --network none, 2 CPU / 2 GB"
+   },
+   "skills": [
+    "multi_fault_localization",
+    "reproduce_from_report",
+    "regression_safety"
+   ],
+   "split": "train",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-node-react-hook-form-399578e2-e1",
+   "turns_mean": 94.4,
+   "usd": 5.056,
+   "usd_per_episode": 0.632,
+   "verdict": {
+    "findings": [
+     "no frontier solver passes it: not counted as fair"
+    ],
+    "flags": [],
+    "ok": false,
+    "route": "unfair"
+   }
+  }
+ },
+ "verdicts": {
+  "unfair": 1
+ }
+}
