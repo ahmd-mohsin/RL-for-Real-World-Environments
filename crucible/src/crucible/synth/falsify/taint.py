@@ -2,7 +2,9 @@
 
 Probes, all property probes on the oracle run's taint map (``program.run``):
 - ``literal`` (one per non-structural literal of π*): it must have a source (ι, an earlier observation, the intent card's
-  ``given``, or the tool catalogue). Unsourced: confirmed **D5** (success needs information the agent cannot get).
+  ``given``, or the tool catalogue). Unsourced: confirmed **D5** (success needs information the agent cannot get) unless
+  it is **free**: π* with that literal replaced by an unrelated value still runs and still passes C (M4: a search query
+  or a note body the oracle's author chose is the agent's own wording, not information it must get; §5.1).
 - ``derive`` (one per intent-card ``derive`` value): the agent must work it out, so it must not occur in ι. Found in ι:
   confirmed **D7** (the decision is given away).
 - ``r_const`` / ``q_const`` (one per constant of a required pattern or an answer check: a concrete key, an ``eq``/``in``/
@@ -20,7 +22,7 @@ from crucible.synth.canon import cjson
 from crucible.synth.contract import Contract, EffectPattern, PApprox, PEq, PIn, is_glob, unglob
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Label, Outcome, Probe, key_text
 from crucible.synth.iface import ToolInfo
-from crucible.synth.program import _loose_eq, is_structural, text_spans
+from crucible.synth.program import Lit, Program, _loose_eq, is_structural, program_locs, text_spans
 from crucible.synth.task import Task
 
 
@@ -100,7 +102,9 @@ class TAINT(BaseFalsifier):
     async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext) -> Outcome:
         v = probe.data.get("value")
         if probe.op == "literal":
-            return Outcome(data={"hit": not probe.data["sources"], **probe.data})
+            hit = not probe.data["sources"]
+            free = hit and await self.free(task, ctx, probe.data["loc"], v)
+            return Outcome(data={**probe.data, "hit": hit and not free, **({"free": True} if free else {})})
         if probe.op == "derive":
             spans = text_spans(v, task.instruction)
             return Outcome(data={"hit": bool(spans), "spans": spans})
@@ -109,7 +113,36 @@ class TAINT(BaseFalsifier):
         src = sourced(v, task.instruction, task.intent.given, tools, oracle.values())
         return Outcome(data={"hit": not src, "sources": src})
 
+    async def free(self, task: Task, ctx: FalsifyContext, loc: str, v: Any) -> bool:
+        """Does π* still run and pass C with the literal at ``loc`` replaced by an unrelated value?"""
+        prog = replace_literal(task.oracle, loc, other_value(v))
+        if prog is None:
+            return False
+        r = await ctx.run(task, prog)
+        return r.error is None and not any(c.obs.error for c in r.calls) and ctx.grade(r, task.contract).passed
+
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         if not outcome.data.get("hit"):
             return "clean", None
         return "confirmed", "D7" if probe.op == "derive" else "D5"
+
+
+def other_value(v: Any) -> Any:
+    """An unrelated value of the same type (the free-literal test)."""
+    if isinstance(v, bool) or v is None:
+        return v
+    if isinstance(v, int):
+        return v + 7919
+    if isinstance(v, float):
+        return round(v * 1.37 + 3.1, 6)
+    return "unrelated placeholder text qx" if isinstance(v, str) else v
+
+
+def replace_literal(p: Program, loc: str, value: Any) -> Program | None:
+    """``p`` with the scalar literal at taint location ``loc`` replaced (None: no scalar literal there)."""
+    q = p.model_copy(deep=True)
+    for at, a in program_locs(q):
+        if at == loc and isinstance(a, Lit) and not isinstance(a.v, dict | list):
+            a.v = value
+            return q
+    return None

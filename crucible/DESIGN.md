@@ -1630,7 +1630,7 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
 The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-core.md`): an environment is a claim
 ("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
 `src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
-factory). M1, M2 and M3 are built; LLM roles (M4), the debug-lane adapter (M5) and composition (M6) are not.
+factory). M1–M4 are built (M4, the model-driven roles: item 13); the debug-lane adapter (M5) and composition (M6) are not.
 
 1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
    never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
@@ -1732,6 +1732,54 @@ factory). M1, M2 and M3 are built; LLM roles (M4), the debug-lane adapter (M5) a
    `never(read)` gap and passes the gate; a "key swap must pass" operator alarms on all five anchors and fails it. The
    lemma bank is versioned data; `lemma_acceptance` needs equal spend, a falling first-round counterexample rate (exact
    McNemar when paired, Newcombe's interval otherwise) and J rising under the update rule.
+13. **M4: the model-driven roles on the swarm (built 2026-10-29).** Claude builds the framework; every task, oracle,
+   contract and World of a run is written by the swarm on Tinker.
+   - **Roles as data** (`roles.py`): proposer, oracle programmer, contract writer, repairer, ALT solver, attacker,
+     adjudication panel, abstractor, and the F1/F2 roles (tool designer, schema deriver, App coder, blind tester,
+     debugger, test approver, seeder). Each is a prompt, a pydantic output schema, `sees` (the only inputs `render`
+     accepts) and `never` (inputs it refuses: `RoleLeak`), plus `differs_from`, `independent` (never the student's
+     family) and `min_families`; `family_problems` checks an assignment. `RoleClient` is the injected model protocol;
+     `ask` validates a reply against the schema and a check (which may execute it) and feeds a `ValueError` back.
+     Programs and contracts cross as JSON (`parse_program` with `$ref`/`$fn`; `contract_doc` keeps every predicate
+     `op`). The contract writer only emits typed edits (`apply_edits`: relax, allow with a why, demote, count, answer,
+     trace quoting ι, normalize, key); normalizer edits apply first and the skeleton is re-inferred under them, other
+     edits are mapped by address (`pipeline.remap_patterns`), and an edit that makes the oracle fail is removed.
+   - **Agents and adjudication** (`falsify/agents.py`): `llm_agent` drives any family through one JSON tool protocol
+     with a call budget (a finish before any call is nudged once; flat and OpenAI-style call shapes parse); ALT/ATK
+     traces keep calls and observations. `Panel` (≥ 2 families, none a builder's) sees task, intent card, trace, answer
+     and reason codes, never the gate, the contract or the falsifier; it decides only on agreement at confidence ≥ λ,
+     else the probe goes to `human_queue.jsonl` and stays a suspect. A decided suspect is confirmed when panel and
+     grader disagree (valid but failed: D6; invalid but passed: the class's defect). `Adjudicated(inner, panel)` decides
+     suspects inside `execute` (MUT survivors are re-executed for their trace), so no class re-run leaves one open.
+     `calibrate` sets λ from executed-truth anchors (oracle trace valid; no-op and minus-last-write invalid), never
+     below the configured floor.
+   - **TAINT precision** (`falsify/taint.py`): an unsourced literal is **free**, not D5, when π* with it replaced by an
+     unrelated value still runs and passes C (an author's search wording or note text is not information the agent
+     must get).
+   - **F1 World synthesis** (`worldgen.py`, `sandbox.py`, `_sandbox_child.py`): tool-first (ScaleEnv's order) →
+     schema → App code → conformance (registered tools equal the design) → blind tests by another family that never
+     sees the code, frozen by sha256 and re-hashed before every run → debugger edits code only; a disputed test needs a
+     third family's approval and is dropped, never edited (cap 25%) → accepted only at 100% of kept tests → seeded
+     start state, loaded and smoke-tested. Model code never runs in-process: `SandboxWorld` serves the `PyWorld` from a
+     child (`python -I -B`, scrubbed environment, work dir under the run, CPU and file-size limits, sockets off, an
+     import and builtins allowlist after an AST check) inside `sandbox-exec` on macOS (no network, writes only in the
+     work dir, no read of any `.env`) or `unshare -rn` on Linux; every request has a timeout and a dead child restarts
+     on the next reset.
+   - **Pipeline** (`pipeline.py`): propose (batches over start states and four generic cells) → oracle (executed;
+     dead programs get their errors and observations back, ≤ 3 retries) → contract → panel calibration → `cegis.refine`
+     with MUT/ALT/ATK adjudicated inline and `admission_policy()` (§6, plus ALT among the zero-confirmed classes) →
+     abstractor (candidate lemmas, not admitted). Outcomes: certified, provisional (only the MUT bound fails: n < 59),
+     rejected, dropped. Artifacts: `<data>/synth/<domain>/<run>/` (proposals, per-task oracle/contract/repairs/cegis,
+     calibration, panel log, human queue, lemmas, report.json/.md, usage.jsonl, spend.jsonl); the archive is
+     `<data>/synth/<domain>/archive.jsonl`.
+   - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer Kimi-K2.6; oracle programmer
+     and repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT and ATK Nemotron-3-Super + gpt-oss-120b; panel
+     Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi codes, DeepSeek tests blind, Nemotron-Ultra approves
+     disputes), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
+     student is Qwen3.6-35B-A3B and is never called). One `SpendMeter` per run holds each call's worst case before it
+     is sent; `usage.jsonl` attributes cost by stage tag. `extract_json` takes the last complete object (Kimi reasons in
+     plain text first). CLI `scripts/synth.py` (`worldgen`, `propose`, `certify`, `report`, `budget`, `smoke`; M3 owns
+     `plant`/`recall`/`evolve`) clips every run's cap to the milestone's $60 over all receipts under the data root.
 
 ## 8. Layer 4: verification and isolation
 
