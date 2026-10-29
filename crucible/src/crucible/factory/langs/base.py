@@ -312,7 +312,8 @@ def fix_refs(subject: str, body: str, sha: str) -> set[str]:
 
 SUBJECT_REF = "subject:"
 _CC_PREFIX = re.compile(r"^\s*(?:[^\w\s]+\s*)?[a-z]+(?:\([^)]*\))?!?:\s*", re.IGNORECASE)  # a gitmoji may lead: "🐞 fix(x): "
-_STOP = frozenset("a an the is are was be of to in on at for when while it its and or by with from as that this not no".split())
+_STOP = frozenset({"a", "an", "the", "is", "are", "was", "be", "of", "to", "in", "on", "at", "for", "when", "while", "it", "its", "and", "or", "by",
+                   "with", "from", "as", "that", "this", "not", "no"})
 
 
 def _prose(text: str) -> str:
