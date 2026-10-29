@@ -131,6 +131,28 @@ def test_the_leak_probe_refuses_an_installed_copy_with_source(tmp_path: Path) ->
     assert out.stdout.strip() == "1"
 
 
+def test_an_untouched_sub_project_is_not_the_projects_installed_copy(tmp_path: Path) -> None:
+    """isort keeps two example plugins as sub-projects in its root; its dev group installs their releases from PyPI, and
+    the leak probe counted them as A's installed source although no fix touches them (the window was refused)."""
+    from crucible.factory.lanes.windows_world import window_touched, workspace_modules
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'isort'\n")
+    (tmp_path / "isort").mkdir()
+    (tmp_path / "isort" / "__init__.py").write_text("")
+    for sub in ("example_plugin", "host"):
+        (tmp_path / sub).mkdir()
+        (tmp_path / sub / "pyproject.toml").write_text(f"[project]\nname = '{sub}'\n")
+        (tmp_path / sub / f"{sub}_mod.py").write_text("")
+    every = ["example_plugin_mod", "host_mod", "isort"]
+    assert workspace_modules(tmp_path) == every  # no changed paths given: every sub-project counts, as before
+    assert workspace_modules(tmp_path, ["isort/core.py", "CHANGELOG.md"]) == ["isort"]
+    assert workspace_modules(tmp_path, ["host/host_mod.py"]) == ["host_mod", "isort"]  # a touched sub-project still counts
+    rec = {"oracle_files": {"isort/core.py": "x", "gone.py": None}, "tests_b": {"tests/test_core.py": "t"}, "tests_deleted": ["host/test_old.py"]}
+    assert window_touched(rec) == ["isort/core.py", "gone.py", "tests/test_core.py", "host/test_old.py"]
+    assert workspace_modules(tmp_path, window_touched(rec)) == ["host_mod", "isort"]
+    assert window_touched({"id": "an old record"}) is None and workspace_modules(tmp_path, window_touched({})) == every
+
+
 def test_tox_testenv_deps_are_installed(tmp_path: Path) -> None:
     from crucible.factory.lanes.windows_world import tox_test_deps
 

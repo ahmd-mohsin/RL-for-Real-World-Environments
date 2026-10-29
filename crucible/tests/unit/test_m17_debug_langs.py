@@ -85,6 +85,23 @@ def test_go_parse_report(tmp_path: Path) -> None:
     assert GO.packages_of(["pkg/a_test.go", "x_test.go"]) == [".", "./pkg"]
 
 
+def test_go_a_package_for_another_os_is_no_failed_build(tmp_path: Path) -> None:
+    """golang/net (2026-10-28): lif and route build only on Solaris and BSD; on Linux every file is excluded, go test reports
+    build-fail at A' and at B alike, and the precheck refused the window as "the agent's start tree does not build"."""
+    (tmp_path / "go.mod").write_text("module example.com/m\n\ngo 1.22\n")
+    for d in ("route", "bad"):
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "x_test.go").write_text(f"package {d}\nfunc TestX(t *testing.T) {{}}\n")
+    evs = [{"ImportPath": "example.com/m/route", "Action": "build-output", "Output": "# example.com/m/route\n"},
+           {"ImportPath": "example.com/m/route", "Action": "build-output",
+            "Output": "package example.com/m/route: build constraints exclude all Go files in /w/route\n"},
+           {"ImportPath": "example.com/m/route", "Action": "build-fail"},
+           {"Action": "fail", "Package": "example.com/m/route", "FailedBuild": "example.com/m/route"},
+           {"Action": "build-fail", "ImportPath": "example.com/m/bad [example.com/m/bad.test]"}]
+    res, notes = GO.parse_report("\n".join(json.dumps(e) for e in evs), tmp_path, ["route/x_test.go", "bad/x_test.go"])
+    assert res == {"bad/x_test.go::TestX": "error"} and notes == ["build failed: example.com/m/bad"]  # a real failure still counts
+
+
 NODE_TEST = '''import { describe, it, expect } from "vitest";
 import { parse } from "../src/index";
 
@@ -263,6 +280,38 @@ def test_a_changelog_entry_that_repeats_the_fix_subject_is_removed() -> None:
     assert strip_ref_entries(log, {ref}) == ("## v4.13\n\n- Preserve matched handler 404 pages for groups\n- Fix typo\n", 2)
     assert subject_ref("fix: typo") is None and subject_ref("chore(deps): bump x (#12)") is None  # too generic to match
     assert subject_ref("Fix the parser for nested heredocs (#1404)") == "subject:fix the parser for nested heredocs"
+
+
+def test_a_slightly_reworded_changelog_entry_of_a_long_subject_is_removed() -> None:
+    """isort 9f56767 (2026-10-28): "Fix pylint disable-next comments at top of imports" has no PR number, and the release
+    notes say "at the start of imports", so the exact subject match missed it and the start tree announced the fix."""
+    ref = subject_ref("Fix pylint disable-next comments at top of imports")
+    log = ("### 9.0.3\n   - Fix pylint disable-next comments at the start of imports by @x in https://github.com/PyCQA/isort/pull/2628\n"
+           "   - Fix preservation of form-feed blank lines by @y in https://github.com/PyCQA/isort/pull/2599\n"
+           "   - Keep pylint disable comments with the imports they guard\n")
+    kept = ("### 9.0.3\n   - Fix preservation of form-feed blank lines by @y in https://github.com/PyCQA/isort/pull/2599\n"
+            "   - Keep pylint disable comments with the imports they guard\n")
+    assert strip_ref_entries(log, {ref}) == (kept, 1)
+    # a subject under 6 distinct words still needs every word in order (the 404 pages entry above stays)
+    short = subject_ref("fix(static): preserve matched handler 404s")
+    assert strip_ref_entries("- Preserve matched handler 404 pages\n", {short}) == ("- Preserve matched handler 404 pages\n", 0)
+
+
+def test_a_changelog_entry_turning_the_fix_subject_into_a_gerund_is_removed() -> None:
+    """react-hook-form (2026-10-29): its subjects carry a gitmoji and its release notes reword each one ("drop" ->
+    "dropping", "the" -> "a"), so all three fixes of the task were announced in the start tree's CHANGELOG.md."""
+    refs = {subject_ref(s) for s in ("🐞 fix(setValue): update field array rows when the parent object is set (#13939)",
+                                     "🐞 fix(createFormControl): drop the async result of a field unregistered while it validates (#13912)",
+                                     "🐞 fix(unregister): drop the field's rules when keepValue keeps only its value (#13891)")}
+    assert "subject:update field array rows when the parent object is set" in refs
+    log = ("### Fixed\n\n- `useFieldArray` not registering array rules again after `reset`\n"
+           "- `setValue` not updating field array rows when a parent object is set\n"
+           "- `createFormControl` dropping the async result of a field unregistered while it validates\n"
+           "- `unregister` dropping the field's rules when `keepValue` keeps only its value\n"
+           "- `unregister` not recomputing `isValidating` after clearing `validatingFields`\n")
+    kept = ("### Fixed\n\n- `useFieldArray` not registering array rules again after `reset`\n"
+            "- `unregister` not recomputing `isValidating` after clearing `validatingFields`\n")
+    assert strip_ref_entries(log, refs) == (kept, 3)
 
 
 def test_go_strip_mode_removes_the_fixes_table_entries() -> None:

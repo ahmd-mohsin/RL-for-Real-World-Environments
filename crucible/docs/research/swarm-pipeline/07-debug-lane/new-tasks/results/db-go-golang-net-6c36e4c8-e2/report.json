@@ -1,0 +1,259 @@
+{
+ "cap": 90.0,
+ "load": {
+  "containers_mine": {
+   "max": 19.0,
+   "mean": 11.76,
+   "p50": 10.0
+  },
+  "containers_other": {
+   "max": 3.0,
+   "mean": 0.41,
+   "p50": 0.0
+  },
+  "cpu_pct_mine": {
+   "max": 976.8,
+   "mean": 441.06,
+   "p50": 410.0
+  },
+  "load1": {
+   "max": 22.08,
+   "mean": 14.18,
+   "p50": 15.23
+  },
+  "mem_gib_mine": {
+   "max": 2.0,
+   "mean": 0.68,
+   "p50": 0.55
+  },
+  "samples": 41
+ },
+ "observe": {
+  "name": "factory-debug-s15-t300-9a3e4faf",
+  "project": "crucible-factory",
+  "run": "/Users/uzair/Desktop/RL env repos/RL-for-Real-World-Environments/crucible/data/observe/runs/crucible-factory/factory-debug-s15-t300-9a3e4faf-dd8e3e259cf1",
+  "traces": 10
+ },
+ "settings": {
+  "agent_s": 5400.0,
+  "checkpoint_cap": 15,
+  "checkpoint_every": 20,
+  "containers": "crucible-lh-d-s15-*",
+  "enable_thinking": false,
+  "env_budget": {
+   "agent_s": 5400.0,
+   "checkpoint_cap": 15,
+   "checkpoint_every": 20,
+   "is_lane_budget": true,
+   "lane": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "decided": "2026-10-20",
+    "rollout_s": 9000.0,
+    "tool_limit": 300
+   },
+   "rollout_s": 9000.0,
+   "tool_limit": 300
+  },
+  "frontier": [
+   "Qwen/Qwen3.5-397B-A17B:peft:262144"
+  ],
+  "frontier_k": 2,
+  "grade_parallel": 2,
+  "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+  "k": 8,
+  "max_tokens": 4096,
+  "rollout_s": 9000.0,
+  "seed_offset": 0,
+  "slots": 6,
+  "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+  "temperature": 1.0,
+  "tool_limit": 300,
+  "world": "task World image, --network none, 2 CPU / 2 GB"
+ },
+ "spend_by_model": {
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": 5.4223,
+  "Qwen/Qwen3.6-35B-A3B:peft:262144": 16.7359,
+  "zai-org/GLM-5.3-Flash:peft:262144": 0.3803,
+  "zai-org/GLM-5.3:peft:262144": 1.9367
+ },
+ "spend_total": 24.4752,
+ "tasks": {
+  "db-go-golang-net-6c36e4c8-e2": {
+   "band": {
+    "in_band": true,
+    "n": 8,
+    "pass_rate": 0.5,
+    "reward_range": [
+     0.2,
+     1.0
+    ],
+    "rewards": [
+     0.4,
+     1.0,
+     0.4,
+     1.0,
+     1.0,
+     1.0,
+     0.2,
+     0.4
+    ]
+   },
+   "budget_binding": {
+    "Qwen_Qwen3.5-397B-A17B": {},
+    "student": {}
+   },
+   "cause": {
+    "labels": {
+     "skill_gap": 4
+    },
+    "n": 4,
+    "ok": true,
+    "on_intent": 4,
+    "skill_gap_share": 1.0,
+    "skill_min": 0.5,
+    "source": "zai-org/GLM-5.3-Flash:peft:262144 judge, zai-org/GLM-5.3:peft:262144 auditor cross-check"
+   },
+   "fairness": {
+    "Qwen/Qwen3.5-397B-A17B": [
+     true,
+     true
+    ]
+   },
+   "faults": 5,
+   "honest": {
+    "status_overclaim": 3
+   },
+   "keep": {
+    "ci": [
+     0.2152,
+     0.7848
+    ],
+    "fair": true,
+    "flags": [],
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": [
+      true,
+      true
+     ]
+    },
+    "intent_ok": true,
+    "intent_share": 1.0,
+    "keep": true,
+    "labelled": 4,
+    "n": 8,
+    "on_intent": 4,
+    "pass_rate": 0.5,
+    "passes": 4,
+    "power": {
+     "ci": [
+      0.2152,
+      0.7848
+     ],
+     "crosses": [
+      0.6
+     ],
+     "decided": false,
+     "n": 8,
+     "n_needed": null
+    },
+    "rule": {
+     "bench_hi": 0.5,
+     "min_labels": 3,
+     "skill_min": 0.5,
+     "train_hi": 0.6,
+     "train_lo": 0.1
+    },
+    "split": "train",
+    "verdict": "train",
+    "why": "pass rate 0.50, on-intent share 1.00, a frontier solver passes"
+   },
+   "lang": "go",
+   "level": "hard",
+   "masked": 0,
+   "mean_phi": 0.85,
+   "model": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+   "modes": {
+    "never_progressed/multi_fault_localization": 4
+   },
+   "n": 8,
+   "pass_ci": [
+    0.2152,
+    0.7848
+   ],
+   "pass_rate": 0.5,
+   "passes": 4,
+   "per_milestone": {
+    "m01": 0.875,
+    "m02": 1.0,
+    "m03": 0.625,
+    "m04": 0.875,
+    "m05": 0.875
+   },
+   "repo": "golang-net",
+   "settings": {
+    "agent_s": 5400.0,
+    "checkpoint_cap": 15,
+    "checkpoint_every": 20,
+    "containers": "crucible-lh-d-s15-*",
+    "enable_thinking": false,
+    "env_budget": {
+     "agent_s": 5400.0,
+     "checkpoint_cap": 15,
+     "checkpoint_every": 20,
+     "is_lane_budget": true,
+     "lane": {
+      "agent_s": 5400.0,
+      "checkpoint_cap": 15,
+      "checkpoint_every": 20,
+      "decided": "2026-10-20",
+      "rollout_s": 9000.0,
+      "tool_limit": 300
+     },
+     "rollout_s": 9000.0,
+     "tool_limit": 300
+    },
+    "frontier": [
+     "Qwen/Qwen3.5-397B-A17B:peft:262144"
+    ],
+    "frontier_k": 2,
+    "grade_parallel": 2,
+    "harness": "WorkspaceHarness+LLMToolPolicy (factory.envs.make_env)",
+    "k": 8,
+    "max_tokens": 4096,
+    "rollout_s": 9000.0,
+    "seed_offset": 0,
+    "slots": 6,
+    "student": "Qwen/Qwen3.6-35B-A3B:peft:262144",
+    "temperature": 1.0,
+    "tool_limit": 300,
+    "world": "task World image, --network none, 2 CPU / 2 GB"
+   },
+   "skills": [
+    "multi_fault_localization",
+    "reproduce_from_report",
+    "regression_safety"
+   ],
+   "split": "train",
+   "stops": {
+    "agent_done": 8
+   },
+   "task": "db-go-golang-net-6c36e4c8-e2",
+   "turns_mean": 197.6,
+   "usd": 16.7359,
+   "usd_per_episode": 2.092,
+   "verdict": {
+    "findings": [
+     "pass rate 0.50, on-intent share 1.00, a frontier solver passes"
+    ],
+    "flags": [],
+    "ok": true,
+    "route": null
+   }
+  }
+ },
+ "verdicts": {
+  "train": 1
+ }
+}

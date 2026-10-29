@@ -87,7 +87,7 @@ from crucible.factory.lanes.executable import (
 from crucible.factory.lanes.windows_git import RepoGit, Unit, Window, _defs, mine_windows
 from crucible.factory.lanes.windows_imports import project_roots, tolerant_tests
 from crucible.factory.lanes.windows_timing import timing_tests
-from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name, require_offline
+from crucible.factory.lanes.windows_world import BASE_IMAGE, ImageBook, leak_probes, open_world, project_name, require_offline, window_touched
 from crucible.factory.langs.base import active as _lang
 from crucible.factory.longtask import GroundCase, LongTaskRef, status_claim_patch
 from crucible.factory.pathcheck import RULES_VERSION as PATH_RULES_VERSION
@@ -874,7 +874,7 @@ async def validate_window(win: Window, store: WindowStore, images: ImageBook, sa
     window_files(rec, repo)
     t1 = time.monotonic()
     leak = await (lang.leak_probes if (lang := _lang()) is not None else leak_probes)(card["image"], base, package=card.get("project") or project_name(base), version=win.b_version,
-                             new_test_names=new_test_names(rec, repo, base), installed=card.get("projects"),
+                             new_test_names=new_test_names(rec, repo, base), installed=card.get("projects"), touched=window_touched(rec),
                              **({"name_prefix": leak_prefix} if leak_prefix else {}))
     rec["world"]["leak"] = leak
     rec["timings"]["leak"] = round(time.monotonic() - t1, 1)
