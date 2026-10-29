@@ -427,6 +427,54 @@ confirmed counterexample. Its pair is the **false-alarm rate** FA_k: confirmed c
 Each such alarm is either a real defect, which is adjudicated, kept as a new finding and its anchor repaired, or a
 falsifier bug.
 
+### 8.1 Rules settled by the M3 build, and the first recall matrix
+
+**Witnesses by class.** "Passes C′, fails C" is the witness for loosening defects: D1, D2, D3, D8 and D9. The other
+classes need their own executed evidence:
+
+| Class | Witness |
+|---|---|
+| D6 | A valid solution that passes C and fails C′ (the mirror) |
+| D4 | `vacuous_required` replaces a requirement with one already true at s₀ and allows the effect. A pure addition only tightens the contract and has no witness. |
+| D5 | The deleted instruction span, and TAINT's unsourced literal |
+| D7 | The recorded inserted text |
+| D10 | The oracle fails, the planted value is nowhere the agent can read, and no candidate run passes |
+| D11 | Two replays that differ |
+
+**Calibration caveat.** For D5, the planting evidence and the detector are the same mechanism, so TAINT's recall on
+planted D5 is 1 by construction. D5 stays **uncalibrated** until it is measured on the real-defect set (E8). The same
+check applies to any class whose witness and detector share a mechanism.
+
+**Mutant counts** are counted by distinct effect: diff, answer and reason codes. On the fixture tasks a single-step task
+has 13 distinct mutants. A task reaches n ≥ 59 only in a World with enough sibling entities, so M3's 16-invoice fixture
+World yields 75.
+
+**Update-rule thresholds.**
+- δ = max(2·sd, range/2) over at least 3 calibration runs. It can only go up.
+- J* is the incumbent, measured on the same fresh view and paired by unit.
+- R7 and R9 use the same δ bar.
+- A pruning update is accepted if J stays within δ and R3 holds.
+- **Fictitious play** constrains changes to F, the falsifiers. Retiring or replacing an operator must keep recall on
+  the union of every past planter's sets.
+
+**Not yet implemented.** The `plant_affordance` variant "expose a grader-read resource for writing" is missing. The
+admin-tool variant exists.
+
+**The first FR/FA matrix (fixtures).** 34 plants, one per operator variant and domain, against 5 certified anchors:
+- **No false alarms** in any falsifier class.
+- **Every planted class is caught by at least one plant.**
+- **Three real recall gaps.** Each is a natural input for the falsifier loop:
+
+| Gap | Why it is missed |
+|---|---|
+| An unstated `never(read)` constraint | No MUT mutant *adds* a read |
+| A humanised leak ("price variance" for `price_variance`) | TAINT's matcher needs the exact token |
+| `eq → any` relaxations | MUT only reaches *suspect*, needing adjudication. A RED mislabel of these as D4 was fixed in 59e00633. |
+
+**The falsifier loop on the first gap.** A hand-written DSL operator that inserts an unused read closes it and passes
+the birth gate. An operator that false-alarms on all 5 anchors fails the gate. This is the loop working end to end, with
+the abstractor role played by hand. In M4 the swarm abstractor plays it.
+
 ## 9. The regularised recursive self-improvement loop
 
 A loop that proposes edits and keeps whatever scores best is not RSI. It is hill-climbing on a reused evaluation, and it
