@@ -631,3 +631,47 @@ the paper's heads held more than 99.9% of the mass on average, 95.8% in its wors
   student's real ρ.
 - Whether prime-rl's rl denominator counts each context-parallel rank's copy of the loss mask. Either way it is a
   step-wide constant, with no effect on SC's per-token weights.
+
+## 8. The real student's verification run (2026-10-28)
+
+The lead approved one verification round on `Qwen/Qwen3.6-35B-A3B`, capped at 12 GPU-hours. It must show four things on
+training tasks only: SC+MIS live, routing replay in the synchronous steps, a resume that trains a step with a
+gradient, and the asynchronous loop.
+
+### 8.1 The setup (`delta_rl.py render-verify`)
+
+- **The task:** `db-go-go-toml-a02114e3`, the one training task whose World SIF is on the cluster (the inference
+  worker's `crucible-infer/sif`). At the lane's 300-call budget its 8 stored rewards are 0, 0.125, 0.125, 0.25, 0.25,
+  0.375, 0.375, 0.375 (graded: 0.5·Φ + 0.5·pass). Its Φ trajectories pass the first milestones between calls 60 and
+  120, so the run uses `--tool-limit 110`: by call 100, five of eight stored attempts had Φ > 0. Groups are 6
+  episodes; a group with all rewards equal is dropped and refilled, so a trained group always has nonzero advantages.
+  This is real reward spread, not a spread-guaranteed setup.
+- **The episodes:** the lane's own `DebugTask` (`train --debug --tasks`), its World and grader through the Apptainer
+  shim, the lockdown probe before vLLM starts, the lane's data and the loop's run dirs node-local.
+- **The deployment:** 2 trainer GPUs (FSDP, `ep = 1`, `cp = 1`) and 2 vLLM GPUs (TP 2). `seq_len` is 49,152 and the
+  loss is the default SC+MIS with k = 32. Routing replay is on. The weights and prime-rl's converted copy sit on
+  `/work/nvme`.
+
+### 8.2 What the trainer probes found (2 GPUs, prime-rl's fake data)
+
+| job | config | result | GPU-hours |
+|---|---|---|---|
+| 3478344 | `ep = 2`, fp32, 64K, weights on `/work/hdd` | **prime-rl bug**: the LoRA experts under EP failed at the first forward (`ImportError: TOKEN_GROUP_ALIGN_SIZE_M`). The first load took 15 min while prime-rl converted the HF weights to its own format | 0.56 |
+| 3479086 | `ep = 1`, fp32, weights copied to `/work/nvme` | the HF snapshot was incomplete: the shard blobs link into the hub-wide store `hf/hub/blobs/<xx>/`, which the first copy missed | 0.04 |
+| 3479803 | `ep = 1`, fp32, 64K | weights loaded in 14 s (the converted copy); **out of memory** at step 1. fp32 holds the frozen 37.6B base too: 73 GB per GPU before any activation | 0.07 |
+| 3479860 | `ep = 1`, **bf16**, 64K | **passed**: step 1 2 min 33 s (warm-up), step 2 17.5 s (7.5K tokens/s, MFU 58%); **peak 86.2 GiB** per GPU; a checkpoint takes ~20 s and 80 GB | 0.15 |
+
+What follows for the real run:
+- **No expert parallel with LoRA in prime-rl v0.10.0** (`DeltaConfig.ep = 1`; `ep > 1` is refused). The LoRA experts
+  re-permute tokens that the dispatcher already permuted, through a constant a refactor removed. Patching the constant
+  would only hide a double permutation.
+- **2 trainer GPUs need `optimization_dtype = bfloat16`**, so the LoRA weights are stored in bf16 too. Small AdamW
+  updates can round away in bf16. A long run should either accept that or give the trainer more GPUs and keep fp32.
+- **`seq_len` 64K leaves about 10 GB per GPU** after the fake batch, and the verification uses 48K for the real batches'
+  extras (SC heads, routes). The 262K plan (§3) needs `cp > 1` or more GPUs, and is untested.
+- **Checkpoints are the full state dict** (80 GB each in bf16), so `keep_last` matters on `/work/nvme`.
+
+### 8.3 The verification job
+
+Job 3479924 (`ghx4-interactive`, 4 GPUs, 1:55 limit, `bjhg-dtai-gh`) was submitted at 18:25 PDT. The SSH master closed
+while it was queued or running, and stayed down for over an hour, so its outcome was not read in this round.
