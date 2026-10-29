@@ -1625,6 +1625,59 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     working clones' git alternates relative to their objects dir (`benchrun.bundle`'s rule), so a copied pool needs no
     path rewrite.
 
+### 7.7 crucible.synth: counterexample-guided environment synthesis (Part 2 M1–M2, built 2026-10-29)
+
+The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-core.md`): an environment is a claim
+("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
+`src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
+factory). M1 and M2 are built; LLM roles (M4), planted sets (M3), the debug-lane adapter (M5) and composition (M6) are not.
+
+1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
+   never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
+   by path (`sha256`, `mode`, `text` when small); JSON by pointer prefix (lists of objects keyed by a declared field,
+   else positional); messages by id; Gym observations by index. `diff` is exact and sorted: an update per field, an
+   insert or delete per entity. Normalizers run before the diff: `ignore_fields`, `float_round`, `text_norm`,
+   `order_insensitive`, then `id_canon` re-keys *inserted* rows by content hash. Equality is type-aware (`1 == 1.0`,
+   `True != 1`).
+2. **Worlds** (`iface.py`). `SynthWorld` = `reset(seed)`, `tools()`, `call()`, `snapshot()`/`restore()`, `canon()`
+   (async). `PyWorld`: Apps of dict tables and Python tools that declare `read_only` or the collections they `writes`;
+   calls are atomic, an undeclared write raises `UndeclaredWrite`, randomness and time come from a seeded context, and
+   `perturb` edits the start state (PERT). `CrucibleWorldAdapter` wraps a started `World`: calls go through
+   `World.step(actor, ToolCall)` (the `_call_tool` choke point), snapshot/restore are the World's, `canon()` reads each
+   App through the verifier view (`sql` tables via `pragma_table_info` + `SELECT *`, `fs` manifests, `json_doc`);
+   other adapter kinds are listed `unobserved`. Proven on finance_ap: its oracle runs through the adapter, passes the
+   skeleton inferred from that run and matches the pack grader (reward 1).
+3. **The oracle program** (`program.py`). Straight-line steps `id: tool(args)`; args `lit`, `ref("step.path")`,
+   `fn(name, args)` over a fixed pure library. `run` returns calls (with per-write-call entity effects), the answer,
+   both canonical states and the taint map: each literal's sources (instruction span, earlier observation, intent
+   `given`, tool catalogue, or structural; none = UNSOURCED). A tool error is an observation; an unresolvable ref stops
+   the run and the reached state is graded. List refs record content anchors, so a perturbed start state re-resolves
+   them to the same element.
+4. **Contracts and the grader** (`contract.py`, `infer.py`). `Contract(required, allowed, answer, trace, normalizers,
+   exec)`; `grade` follows §3.3's pseudo-code with codes only (`MISSING_REQUIRED`, `FORBIDDEN_EFFECT`, `ANSWER`, `TRACE`,
+   `GRADER_ERROR:<stage>`) and fails closed on any exception, timeout, missing or unobserved state. **Decision:** one
+   change satisfies at most one required pattern, counts are exact unless `count_max` widens them, and a duplicate must
+   be allowed; the check is two maximum bipartite matchings (required slots; non-allowed changes), which by
+   Mendelsohn–Dulmage is exactly "one assignment covers both". `skeleton(run)` = Δ* as `eq`, A = M = ∅, Q from the answer.
+5. **Falsifiers** (`falsify/`). `propose → execute → label` with labels confirmed / suspect / clean / equivalent and
+   defects D1–D11; invalid probes (a dead twin) are not trials. MUT (identity, drop, dup, truncate, swap-entity,
+   perturb-value, extra-write, reorder, wrong-answer; equivalence = equal normalised Δ, equal answer, equal truth of
+   the trace constraints the instruction *states*), NULL (noop, read-all, answer-only, minus-last-write, write-all,
+   shortcut, random-k off-target), RED (vacuous patterns, exec checks and the whole contract on s₀), TAINT (unsourced
+   literals and contract constants: D5; `derive` values in ι: D7), TWIN (substitute an instruction literal by a sibling
+   through ι, π* and C, re-derive argument-borne constants; π* must fail C′, π*′ must pass), PERT (shuffles,
+   distractor clones, renames; flips only), REP (reset and restore replays). ALT/ATK take injected agent runners; ONL
+   turns flagged passing rollouts into suspects.
+6. **Certificates, archive, loop** (`certificate.py`, `archive.py`, `cegis.py`). Per class (n, c, one-sided
+   Clopper–Pearson 95% upper bound from `verify.calibrate`), applicability recorded, admission per §6 (configurable).
+   The archive is append-only, hash-chained JSONL per domain (`<root>/<domain>/archive.jsonl`, `factory/labels.py`'s
+   format); `regress` replays every archived counterexample of a task against a version. `refine`/`synthesize` run
+   §7's loop with injected `Proposer`, `OracleBuilder`, `Generaliser`, `Repairer`, `Adjudicator`; a repair that re-opens
+   a counterexample the current version rejects is refused; three rounds at most.
+7. **Tests** (`tests/unit/test_synth_*.py`, domain in `tests/unit/synth_fixtures.py`: an AP World and a helpdesk +
+   mail World, six correct tasks, one planted task per D1–D11, a position-keyed and an always-pass contract). Each
+   planted defect is caught by its class with a confirmed counterexample; the correct tasks get clean certificates.
+
 ## 8. Layer 4: verification and isolation
 
 Every gate declares its kind (M7 R6): `gate`, a rule the instruction states (its failure zeroes the reward and the
