@@ -1840,3 +1840,25 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   export, site index), which fail without this change too. Ruff on the changed files and lint-imports (5 contracts) are
   clean.
 - **Merge notes.** `from_trace` no longer adds to `wrong` inside the pivots loop; `wrong` is computed once before it.
+
+## 79. M4 R-2: a trace whose extraction raised yields no training rows
+
+- **Item.** R-2 of `docs/research/improvements/2026-10-27/M04-signals.md` (should), as recommended. It narrows the M4
+  audit's A15 (one failing mapper no longer stops the run) so it fails closed for that trace. Not taken: aborting the run
+  (the defect A15 fixed), keeping only its negative rows (a mode with no consumer). The contract is M4's; the edit is in
+  M15's `studio/label.py`. Pattern from AReaL's PRM `error_policy="reject"` (`areal/api/cli_args.py:2701-2711`,
+  Apache-2.0); no code copied.
+- **Files.** `src/crucible/studio/label.py` (`label`), `docs/modules/M04-signals.md` (Extraction),
+  `tests/unit/test_extract_failed_rows.py` (new).
+- **Public names.** none.
+- **Behaviour.** A trace whose `extract()` raised is still listed in `summary["extract_failed"]`, gets the credit hook's
+  outcome and is written to `traces.jsonl` and `rewards.jsonl`, but is never passed to `from_trace`: no SFT, KTO or DPO
+  row, counted in `summary["skipped"]["extract_failed"]` (only when non-zero, so other summaries are unchanged). With no
+  signals its `wrong` set was empty, so a corrected or rejected step was an SFT target and KTO-desirable (the toy T1005
+  kept 2 SFT and 2 KTO rows when its mapper failed). Other traces' rows are unchanged. No flag.
+- **Formats.** `summary.json` `skipped` can hold `extract_failed`.
+- **Tests.** `test_extract_failed_rows.py` (1: with extraction raising for T1005, no row comes from it, `skipped`
+  counts it, the other traces' rows equal a run without the failure, and the trace is in `traces.jsonl`; it failed
+  before the fix). Label, M4, M14 framework and studio files: 142 passed, 3 skipped. Ruff on the changed files and
+  lint-imports (5 contracts) are clean.
+- **Merge notes.** One filter on the `from_trace` comprehension in `label()`.

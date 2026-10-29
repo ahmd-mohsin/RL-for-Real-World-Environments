@@ -188,9 +188,16 @@ async def label(*, out: Path, pack: str | Path | None = None, run: Path | None =
             if t.trace_id in credit:
                 credit[t.trace_id], trained_phi[t.trace_id] = channels.apply(credit[t.trace_id], verdicts[str(t.family)], hook=str(m.hooks.credit))
         summary["credit_channels"] = {fam: v.to_dict() for fam, v in verdicts.items()}
+        # M4 audit R-2: a trace whose extraction raised has no M4 verdict, so nothing in it is graded wrong: it yields no
+        # row (a corrected step became an SFT target and KTO-desirable) and stays in traces.jsonl as evidence (PATTERN:
+        # AReaL's PRM error_policy="reject", areal/api/cli_args.py:2701-2711)
+        unextracted = {f["trace_id"] for f in failed}
+        if unextracted:
+            skipped["extract_failed"] += len(unextracted)
         all_items = [ds.from_trace(t, policy_roles=m.label.policy_roles, phi_by_seq=trained_phi.get(t.trace_id),
                                    reward=(credit.get(t.trace_id) or {}).get("reward"), tools=(credit.get(t.trace_id) or {}).get("tools"),
-                                   split=str((credit.get(t.trace_id) or {}).get("split") or "train")) for t in labelled_traces]
+                                   split=str((credit.get(t.trace_id) or {}).get("split") or "train")) for t in labelled_traces
+                     if t.trace_id not in unextracted]
         # the credit hook's split: held-out (test) traces grade the pack's gates, never train (V9)
         held = sorted(x.episode for x in all_items if x.split != "train" and not include_bench)
         skipped["held_out"] += len(held)

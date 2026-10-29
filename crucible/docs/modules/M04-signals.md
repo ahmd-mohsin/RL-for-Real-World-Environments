@@ -18,7 +18,9 @@ the step it grades. Packs never add types: they map their own events onto these.
    generic session rules (`session.py`) on every trace, then the pack's `outcome_labeler`, then decision points.
    Output is validated (duplicate ids, unknown grades and polarity against the taxonomy raise and name the mapper;
    grades after the signal are dropped and flagged). Mapper output replaces mapper output by id; signals another
-   producer added (`meta.by`) stay.
+   producer added (`meta.by`) stay. In `crucible label` a trace whose extraction raised is reported
+   (`extract_failed`) and kept in `traces.jsonl`, but yields no SFT, KTO or DPO row: with no signals nothing in it was
+   graded wrong, so a corrected step became a positive target (M4 audit 2026-10-27, R-2).
 2. **Ids** are `(trace, type, the source event's stable key, extra)`. The key (`core.schema.trace.event_key`) is the
    source's row id (a GitHub comment, review, check-run id or commit sha; a ticket-log row), else the event's time,
    type, actor and text. A re-ingest that adds an earlier row changes no id.
