@@ -4135,6 +4135,28 @@ test).
 
 Superseded by `ARCHITECTURE.md` §3 (project structure) and §4 (modules M0–M15), which also define the domain-pack layout that makes the core open-ended.
 
+**Smoke scripts (`scripts/smoke/`, 2026-10-29).** End-to-end CPU runs of each major path with real components and
+scripted policies, no model, no paid call (Docker only where the task's World is a container). Each prints a JSON report
+and exits 1 when a check fails; `tests/unit/test_smoke_scripts.py` runs their quick parts.
+- `debug_episode.py`: one training debug task (default `db-go-huma-815e1ff8`) from a copy of its store: the Harbor
+  export and portable rows, then `make_env` -> `WorkspaceHarness` -> grade for a null agent (0), the oracle (1) and a Go
+  `TestMain` hack (0, scored, not masked), then the lane's own gate pass (`Debug.gates`). Held-out tasks are refused;
+  containers are `crucible-lh-d-smoke-<pid>-*`.
+- `world_sims.py`: the toy helpdesk World (SQLite records, documents, mail, grounded customers, a rule supervisor, a step
+  clock, time, tool and permission events, snapshot and restore) on the local and the agentenv backend, which must agree,
+  plus an MCP client on the gateway; the website App over its database; a JSON-document service.
+- `rl_loop.py`: `TinkerTrainer` over the in-memory Tinker on the host toy window: async groups with the staleness bound,
+  resume with the optimizer, the masked-share stop; and score centering (`primerl.loss`, `sc+mis`) training a toy policy.
+- `audit_credit.py`: the seeded trace-audit scenario (P3) on local pytest, and the audit, Dr.GRPO plus honesty and
+  per-call credit of `debug_episode.py`'s attempts.
+
+Paths with existing entry points are smoke-tested through them: `crucible pack check / bench run / label / build`, `crucible
+train` (the toy launcher), `scripts/lh_ladder.py --kernel local` (the RLM harness with compaction on scripted models),
+`scripts/swarm.py roles / diagnose / credit` (the swarm offline: no dry-run of a session exists; its sessions call models).
+The red-team suite's task fixtures are excluded from collection (`tests/redteam/conftest.py`): the grader task's hidden
+`test_mylib.py` imports a module that exists only in the task's tree, and it broke `pytest tests/redteam` (and a bare
+`pytest`) at collection.
+
 **Website (`site/`, 2026-10-11).** A one-page tour of the framework: a hero model, the pipeline as a clickable board, one stepped 3D figure per module (M0–M14, long horizons, the recursive agent, the task manager), the studio flow with its real CLI output, and results from the framework's own reports.
 - **Engine (`assets/kit.js`):** one WebGL renderer draws every figure into its panel's rectangle (scissor and viewport) under a fixed canvas, with HTML labels projected on top. A figure is a spec: `setup`, `update`, and `steps` of `{say, go}`. Figures build on first sight and pause offscreen.
 - **Framing:** each figure frames itself from the settled first step. Meshes, flow paths and measured label boxes are projected onto the camera plane, and the orthographic view fits them at any aspect ratio. Objects that appear later opt in with `userData.fit`.
