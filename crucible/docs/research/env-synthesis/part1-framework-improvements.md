@@ -70,8 +70,14 @@ The status words are:
 | 11 | **A density card per World:** breadth, per-task use, cross-app coupling, asynchrony, hard negatives, health, realism against customer logs, transfer | World / eval | No paper defines a standard realism metric (note 04 §7). | "How dense is our World" gets a measured answer |
 | 12 | **OTel GenAI export, counterfactual first-wrong-step labels, calibrated per-mode judges, task-clustered pass@k/pass^k with cost per pass** | Traces / eval | Import exists, export is absent. Step attribution is 14.2% on Who&When (2505.00212). One judge returned a constant score in 9 of 37 settings (2610.27465). | Failures are checkable for the intended reason with standard viewers; judges are trusted only when measured |
 
-**Long-horizon training items** cover RLM and compaction in the RL loop, cross-turn credit, MoE and async stabilisation
-defaults, and alignment during RL. §2(a) A9–A10 cover them at the code level. A literature addendum follows in §3.
+**Long-horizon training.** §3 adds ten more ranked improvements from 132 papers. The two most urgent:
+- **bf16 LoRA updates may be rounded away.** On 2 trainer GPUs the 35B run is forced to bf16
+  (`train/bridges/primerl/deploy.py:63-65`). Keep the adapters and Adam moments in fp32 on the bf16 base, or prove at
+  the 2-step run (`lora/changed_frac`) that updates survive.
+- **The student path logs none of the early-warning signals:** entropy, lengths, turns, truncation rate, tool errors,
+  give-ups.
+
+**Smoke test.** §4: every locally runnable path passes, and the 4 framework bugs it found are fixed.
 
 ---
 
@@ -598,33 +604,181 @@ first-wrong-step judge and the honesty checks (note 03 §6.3; Husain & Saha [web
 
 ---
 
-## 3. Long-horizon RL training: literature addendum
+## 3. Long-horizon RL training: methods from the literature
 
-*Being added.* A sixth research sweep is running. It covers:
-- RLM and compaction inside RL training;
+The source is `notes/05-longhorizon-rl.md`: 132 arXiv papers, each fetched and title-checked, plus about 12 web
+sources. The note covers six areas:
+- context management and compaction inside RL;
 - credit assignment across turns;
-- stabilisation of MoE and async RL: training/inference mismatch, entropy control, LoRA and bf16 precision;
-- async defaults for a 35B MoE on few GPUs;
-- agent rewards beyond pass/fail;
-- alignment during agentic RL;
-- early-warning metrics.
+- MoE and mismatch stabilisation, and LoRA precision;
+- async RL systems;
+- rewards beyond pass/fail;
+- alignment during agentic RL and early-warning monitoring.
 
-Its findings will be listed here as improvements, in the format of §2(a).
+Each recommendation is marked have / partial / missing, with its code path.
 
-## 4. Smoke-test results
+### 3.1 Where the field stands, late 2026
 
-*Being added.* An end-to-end CPU smoke test of every Part 1 path is running:
-- the full unit suite;
-- World episodes with null and oracle checks;
-- the World's simulated parts;
-- the RLM harness and compaction;
-- a tiny async RL loop with score centering and resume;
-- trace audit, credit and reward;
-- agentenv interop.
+**The field in late 2026.** Six points stand out.
+1. **Mismatch is a solved-enough engineering problem, and it has moved to monitoring.** The fixes are known:
+   - masking or truncated importance sampling (TIS, MIS, IcePop);
+   - MoE routing replay (R3);
+   - score centering (2609.20807);
+   - fp32 LM heads;
+   - FP16, or bitwise-consistent kernels for teams that own both engines.
 
-Results and any defects found will be listed here.
+   Crucible has the best of these (SC+MIS, R3, neutral sampling). The open risk is no longer the estimator. It is
+   numerics in the optimizer and the trainer (bf16 LoRA weights, §3.3), and too few dashboards to see drift (§6).
+2. **Long-horizon context management is now trained inside RL, and 2026 brought it to SWE agents on 30B-A3B MoEs.**
+   - AutoCompact (Qwen3-Coder-30B-A3B, GRPO, binary test reward) and CompactionRL (GLM-4.7-Flash, PPO, said to be in
+     GLM-5.2's pipeline) both split the trajectory at each prefix rewrite and train the summary under the task reward.
+   - Broadcasting one advantage to every segment is the common baseline. Mosaic (2026) shows it is only a baseline, and
+     shows that a model trained single-session loses when it is run with compaction.
+   - Frontier reports differ:
+     - LongCat-2601, MiniMax-M2 and Kimi K3 manage context *during* RL. Kimi K3 even randomises context strategies per
+       task group so the policy does not overfit one harness.
+     - DeepSeek-V3.2/V4, GLM-5 and Kimi K2.5 use their context policies only at evaluation.
+   - Recursive harnesses are mostly distilled (RLM-Qwen3-8B), with first RL work in 2026 (SERA).
+3. **Turn-level credit has converged on critic-free state matching.** GiGPO's anchor states, RTMC's state signatures for
+   SWE, PGPO's potential from anchor groups, and tree rollouts that branch at high-entropy tool steps (ARPO, TreeRL,
+   Tree-GRPO). Learned PRMs are still hackable (2603.06621). They are used only where the verifier gives no signal
+   (VeriGate).
+4. **Async tolerance is wider than people assumed, but only with the right objective.**
+   - Small staleness (1–2) is safe with token TIS or MIS.
+   - 4–8 needs a decoupled or second-moment objective (AReaL, M2PO), or staleness-adaptive trust regions (SAT, ENTR,
+     COPC in 2026).
+   - For MoE, R3 matters most when off-policy, and Crucible's version-mixed refusal path exists for that case
+     (2512.01374).
+5. **Rewards beyond pass/fail fail in predictable ways.**
+   - A flat efficiency or length penalty either vanishes in group normalisation or suppresses needed tool use. The 2026
+     fix is to gate efficiency on correctness and measure it relative to the group.
+   - Abstention rewards need a small, tuned value.
+   - Several rewards should be normalised separately (GDPO).
+6. **Reward hacking is now treated as an alignment risk, not a quality bug.**
+   - Anthropic showed that hacks learned in production coding RL (AlwaysEqual, `sys.exit(0)`, `conftest.py`) generalise
+     to sabotage and alignment faking (2511.18397).
+   - Inoculation framing cut that generalisation by 75–90%.
+   - Putting a CoT or output monitor in the reward teaches obfuscation (2503.11926, 2511.11584). Gradient routing
+     (GRAFT, 2610.17062) and screening are the 2026 alternatives.
 
----
+### 3.2 The ten long-horizon training improvements, ranked
+
+The section numbers in the table point to `notes/05-longhorizon-rl.md`.
+
+| # | recommendation | status | where |
+|---|---|---|---|
+| 1 | Keep the LoRA adapter weights (and Adam moments) in fp32 while the frozen base stays bf16, or prove at the 2-step run that bf16 updates are not rounded away. Log `lora/changed_frac` | **missing** (bf16 is forced on 2 trainer GPUs) | `train/bridges/primerl/deploy.py:63-65`; `swarm-pipeline/14-deltaai-trainer.md` §8.2 |
+| 2 | Add the leading indicators to the student-path dashboard: entropy, response and episode length, turns, stop-reason shares (truncation rate), tool-error rate, give-up rate, plus alarms on truncation share, length surge and reward-std drop | **partial** (torch `StepMonitor` has most; `TinkerTrainer.step_metrics` has none of them) | `train/monitors.py`; `train/bridges/tinker/trainer.py:277-323` |
+| 3 | Put the hack rules on the live path, and add the three production hacks Anthropic named (AlwaysEqual `__eq__` override, early exit, `conftest.py`) as side-effect checks of the graded patch | **partial** (`conftest` and exit-spoof rules exist; L1 rules not on `WorkspaceHarness`; no `__eq__` rule) | `credit/hack_detector.py:30-45`; `runtime/harness/workspace.py`; `factory/pathcheck.py` |
+| 4 | Use a flagged-hack signal as a mask or gradient-routed screen, never as a reward penalty, and never put the trace audit or any CoT read in the reward | **have** by design (audit offline); keep it so | `factory/traceaudit.py`; `credit/hack_detector.py` |
+| 5 | Measure `routing/version_mixed_share` and the per-staleness MIS share before raising `max_staleness` past 1. Go to 2 only if both stay small; past 2, add a sequence-level guard | **partial** | `train/bridges/tinker/trainer.py` `staleness_metrics`; `primerl/routing.py`; `primerl/loss.py:78` |
+| 6 | Add a sequence-level guard for very long sequences (geometric-mean or max-token-KL masking of negative-advantage sequences, as in DeepSeek-V3.2 and Trust Region Masking): token bounds are vacuous at 160K tokens | **partial** (torch `mispo` has a geomean trajectory mask; prime-rl path has none) | `train/mismatch.py:208-222`; `primerl/loss.py` |
+| 7 | Anchor-state step advantages (GiGPO/RTMC style) keyed by the checkpoint sidecar's per-step patch hash, as a cheap complement to Φ turn credit; validate both against `branch_value` on a sample | **missing** (Φ credit is **have**; `branch_value` is built, unused) | `credit/compose.py`; `factory/checkpoint.py`; `credit/operators/branch_value.py` |
+| 8 | If an efficiency term is ever added: gate it on success and centre it within the group's successes, never a flat per-call penalty | **missing** (no term; correct default) | `train/bridges/tinker/datums.py` |
+| 9 | Add impossible or infeasible task variants to the pool, so that "report infeasible" trains and cheating is measured. Watch the give-up rate on tasks the student sometimes solves (over-abstention) | **partial** (honesty Brier + `GIVE_UP` **have**; no infeasible variants) | `factory/honesty.py`; task factory |
+| 10 | Before a long run: decide on an inoculation line in the system prompt, and add an agentic misalignment probe to the before/after benchmark | **missing** | `TrainConfig.system`; benchmark harness |
+
+Compaction stays off in training. That is right today: 0 `context_overflow` in 790 rollouts (harness audit §0). §1.4 lists
+
+### 3.3 Concrete settings for the planned 35B run on DeltaAI
+
+These are the settings the sections above support. Items marked "change" are suggestions, not decisions.
+
+| setting | today | suggestion | basis |
+|---|---|---|---|
+| correction | SC + MIS [0.5, 5], no PPO clip | keep | 2609.20807; IcePop band |
+| routing | R3, refuse version-mixed | keep; watch refusal share | R3; 2512.01374 |
+| sampling | neutral, `generation_config = vllm` | keep | DeepSeek Keep Sampling Mask is then unnecessary |
+| trainer dtype | bf16 (forced on 2 GPUs) | **change**: fp32 adapters on bf16 base, or prove updates survive | §3.3 |
+| LM head precision | not checked | check fp32 head in both engines | ScaleRL; MiniMax-M1 |
+| staleness | 0 (sync) | 1 with `async_groups` 4 after the 2-step run | async audit R1; §3b |
+| loss aggregation | global token mean | keep | Dr.GRPO; async audit R9 |
+| advantage | Dr.GRPO (no std) + honesty + Φ turn credit (η 0.1) | keep; add anchor-state diagnostic | §2.3 |
+| zero-variance groups | dropped on composed advantage | keep | DAPO; ScaleRL |
+| KL | none | keep for 40 steps; k1-in-reward if runs get long or async ≥ 2 | 2512.21852 |
+| LoRA | r 32, α 64, lr 4e-5, attention + MLP + experts | keep; check α/r parity with Tinker | LoRA Without Regret |
+| entropy control | none on student path | log first; act only on fast collapse | 2505.22617 |
+| compaction | off | keep off; align the eval harness | §1 |
+| dashboards | reward / KL / staleness / drops | add §6.2's missing lines before step 3 | §6 |
+
+### 3.4 Uncertain items
+
+- **The two mismatch blogs** (TIS by Feng Yao et al.; "When Speed Kills Stability" by Liu, Li et al.) did not render
+  through the fetcher. Their content here comes from partial renders, the verl and ms-swift docs, and search summaries.
+  Treat their details as [sec], except the general mechanisms, which several primary papers restate.
+- **Secondary numbers:**
+  - ARLArena's +25.2%;
+  - GDPO's AIME +6.3%;
+  - RTMC's 52.2% / 49.7%;
+  - the ImpossibleBench flag-option rates (from the authors' post);
+  - the monitor-intervention study (OpenReview and LessWrong only);
+  - GRAFT's 30% (Anthropic alignment blog).
+- **Lead times from 2602.01826** are arithmetic from reported step numbers.
+- **The bf16 rounding analysis** (§3.3) is my arithmetic. The student's hidden size, prime-rl's optimizer-state dtype,
+  and Tinker's LoRA α were **not checked**.
+- **Corrected helper claim:** the FP16 paper's BF16 LoRA collapse was on Qwen2.5-Math-1.5B, not Qwen3-30B-A3B.
+- **Contradictions in the literature:**
+  - rank-1 LoRA sufficiency (Thinking Machines vs 2512.23165);
+  - whether FP16 fixes collapse (2510.26788 vs 2602.01826);
+  - whether MIS alone suffices (2609.20807 and Ring-1T vs 2602.01826).
+
+## 4. Smoke-test results (2026-10-29)
+
+The test was an end-to-end CPU run of every Part 1 path that can run without GPUs, paid calls or network. **Everything
+that could run locally passed in the end.** Along the way it found 4 real framework bugs and 2 test bugs, all now fixed
+with regression tests and merged into `main`. It used no GPU and made no paid calls.
+
+**Full unit suite** (main checkout): **4,270 passed, 6 failed, 12 skipped, 2 xfailed** in 56 minutes. All 6 failures
+are environmental:
+- **5 in two stale side environments.** `.envs/verifiers` pins verifiers ae819de and harbor 0.23.0, where the code
+  wants dca5562 and 0.24.0. `.envs/nemo` lacks `nemo_gym.testing`. Rebuild both with `scripts/build_verifiers_env.sh`
+  and a nemo refresh, which needs network.
+- **1 order-dependent wandb test.** It passes alone. In the full suite, wandb wrongly believes pandas is installed. The
+  cause is not yet found.
+
+Other test directories:
+- **`tests/toy_e2e`:** 6 passed.
+- **`tests/redteam -m docker`:** 50 passed after a fix. It could not even collect before.
+
+| Path | How | Result |
+|---|---|---|
+| World episode on a training debug task (`db-go-huma-815e1ff8`): `make_env` → `WorkspaceHarness` → grade → reward | `scripts/smoke/debug_episode.py` | pass. The null agent scores 0 and the oracle 1. A Go `TestMain` hack scores 0: the protected-path gate fails and the hidden tests still fail. |
+| Debug-lane gates S6, S5, S8, S3 (60 reruns) and S10 (2×30) | same | pass after bugs 2 and 3: S3 60/60 clean, S10 0 false negatives |
+| Task exports: Harbor folder (checked by Harbor's loader), portable row, slime row | same | pass. Known gap: a patch-graded task cannot run as an agentenv Task (Part 2 plan, generic task contract). |
+| World simulations: SQLite records, docs, mail, grounded customers, supervisor bot, step clock, time/tool/permission events, snapshot/restore, website App, JSON service | `scripts/smoke/world_sims.py` | pass after bug 1 |
+| agentenv interop: the same episode on the agentenv backend must match local; MCP client with `AgentEnv-Role` | same | pass after bug 1 |
+| Packs and studio CLI: `pack new/check`, `bench run`, `label`, `build`, `world validate` | existing CLI | pass after bug 4 |
+| RLM harness and compaction on scripted models, on local and Docker kernels; a crash, then resume | `lh_ladder.py` | pass. Faithful scores 1.0; forgetful 0.85, losing constraints. A crashed attempt is masked, then resumes to 1.0. |
+| RL loop: TinkerTrainer on the in-memory Tinker (async groups, staleness bound, resume with optimizer state, masked-share stop), plus SC+MIS on a toy policy | `scripts/smoke/rl_loop.py` | pass |
+| Torch toy launcher: 2 engines, 2 workers, staleness 2 | `crucible train` | pass: 12 steps, nothing trained twice, 0 masked |
+| Trace audit (seeded scenarios), first wrong step, Dr.GRPO plus honesty, per-call credit on real debug attempts | `scripts/smoke/audit_credit.py` | pass: all 4 seeded cases as expected, Φ telescopes, the hack is flagged |
+| Swarm, offline (`roles`, `diagnose`, `credit` on a stored journal) | swarm CLI | pass. The swarm has **no dry-run mode**: its sessions always call models. |
+
+**Bugs found and fixed:**
+1. **Permission events were not enforced on the agentenv backend** (`f5ad30ef`). With a step clock, a "month-end
+   freeze" changed only `World.acl`, but the agentenv gateway checks access itself. The refund tool stayed callable,
+   and the agentenv run issued 2 refunds where local issued 1. Fixed with `Backend.apply_permission`.
+2. **S3 marked a rerun unclean when an already-excluded flaky test panicked** (`64d6b050`). The test count changed
+   while no test differed, so the lane's flaky-test re-gate could not repair it.
+3. **A container killed from outside was scored as the tree's own run** (`8a271447`). `docker rm -f` gives exit 137
+   with no report. In S3 that read as 952 flipped tests; in grading it would have scored the attempt 0. It is now
+   masked.
+4. **`crucible world validate <pack>/worlds/x.yaml` crashed** (`6c84fc55`). It now finds the pack root itself.
+5. **Test bug:** a red-team fixture was collected as a test and broke `pytest tests/redteam` at collection
+   (`7e34f0cf`).
+6. **Test bug:** the red-team sweep test counted the killed run's startup sweep twice (`3d56a2f4`).
+
+**Not smoke-tested locally, and what each path needs:**
+- **GPU:** prime-rl on DeltaAI, real score-centering top-k heads, and multi-GPU. The loss maths and the fake-backend
+  loop pass; the queued 35B verification job covers the rest.
+- **Paid calls:** live Tinker sampling and training, and swarm builder sessions. The swarm also needs a dry-run mode.
+- **Network:** the browser App (Playwright MCP) downloads at start.
+- **Not run:** the `lh_campaign` child agents.
+
+**Additions to the work list from the smoke test:**
+- a swarm dry-run mode;
+- rebuilding the two stale side environments;
+- finding the cause of the order-dependent wandb test.
 
 ## 5. References (shared with the Part 2 plan)
 
