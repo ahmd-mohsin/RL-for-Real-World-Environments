@@ -612,6 +612,16 @@ class AgentEnvBackend(Backend):
         allowed = self._allowed.get(actor, set())
         return [t for t in self._world.all_tools() if gw_name(t.app, t.name) in allowed]
 
+    async def apply_permission(self, world: World, actor: str, *, grant: list[str] | None = None, revoke: list[str] | None = None) -> None:
+        """A permission event Crucible's scheduler fired (a step clock: events are not delegated): the gateway's role rule
+        changes, since the gateway is what checks access (``native_acl``). Smoke 2026-10-29: only ``World.acl`` changed, so
+        the toy helpdesk's month-end freeze revoked ``tickets.issue_refund`` on the local backend and left it callable here."""
+        if grant:
+            await self._toggle("enable", actor, self._expand(world, list(grant)))
+        if revoke:
+            await self._toggle("disable", actor, self._expand(world, list(revoke)))
+        await self._refresh_allowed(world)
+
     def pop_acl_changes(self) -> set[str]:
         out, self._acl_changed = self._acl_changed, set()
         return out

@@ -980,6 +980,9 @@ class World:
                     self.acl.grant(target, act.grant)
                 if act.revoke:
                     self.acl.revoke(target, act.revoke)
+                if self.backend.capabilities.native_acl:  # the backend checks access (agentenv's gateway): change it there too
+                    await self.backend.apply_permission(self, target, grant=list(act.grant or []), revoke=list(act.revoke or []))
+                    self._acl_changed |= self.backend.pop_acl_changes()  # type: ignore[attr-defined]
                 self._acl_changed.add(target)
             if ok and act.verify is not None:
                 vok, _ = await self._run_check(act.verify, f.ctx, ev.actor)

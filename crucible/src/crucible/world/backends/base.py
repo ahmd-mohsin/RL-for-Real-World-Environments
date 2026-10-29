@@ -90,6 +90,11 @@ class Backend(ABC):
     async def after_step(self, world: World) -> None:
         pass
 
+    async def apply_permission(self, world: World, actor: str, *, grant: list[str] | None = None, revoke: list[str] | None = None) -> None:
+        """A permission event the World's own scheduler fired (not delegated to the backend), on a backend that enforces
+        tool access itself (``capabilities.native_acl``): the grant or revocation is made where access is checked. The
+        World's ACL records it either way; a backend without native ACL needs nothing here."""
+
     async def on_reset(self, world: World) -> None:
         pass
 
