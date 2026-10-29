@@ -105,6 +105,16 @@ def candidates(debug: Path, *, cheap_gates: bool = False) -> list[dict[str, Any]
     return out
 
 
+def worldfix_applies(fix: Mapping[str, Any] | None, window: Mapping[str, Any]) -> bool:
+    """An accepted policy-World fix is used only while the window's World is the image it was built on (``pinned``): a
+    window re-validated since then on a new image (a new recipe that carries the fix) would otherwise run its episodes in
+    the old World, which its gates never measured."""
+    if not fix or not fix.get("accepted") or not fix.get("fixed"):
+        return False
+    pinned = fix.get("pinned")
+    return pinned is None or pinned == ((window or {}).get("world") or {}).get("image")
+
+
 class Tasks:
     """The debug lane's tasks (``generators.debug.DebugTask``) under their authored prompts, in this phase's containers."""
 
@@ -139,7 +149,7 @@ class Tasks:
             t.language, t.family, t.split = row["lang"], row["repo"], row["split"]
             t.intent = "+".join(row.get("skills") or [])
             fix = jload(self.out / "worldfix" / f"{tid}.json") if self.out is not None else None
-            if fix and fix.get("accepted"):
+            if worldfix_applies(fix, t.window):
                 t.world_image = fix["fixed"]  # the accepted policy World (stage worldfix); the grader keeps the pinned image
             self._tasks[tid] = t
         return self._tasks[tid]

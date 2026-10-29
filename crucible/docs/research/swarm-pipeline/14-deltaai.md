@@ -108,6 +108,12 @@ episode (no lockdown, no episodes).
   seed. `lh_debug_target.py student --backend vllm` for a debug-lane phase. They write the same `rollouts/`,
   `episodes.jsonl`, `metrics.json`, Weave-shaped traces and spend files as on Tinker, so the monitor, audit and keep
   rule read them unchanged.
+- **The sealed-benchmark runner (2026-10-28):** `scripts/deltaai/bench.py` (`verify`, `bundle --images`, `dryrun`, `run`,
+  `report`, `stub-serve`) over `factory.benchrun`, with `bench_prep.sbatch` (CPU only: environment, SIFs, lockdown in
+  every World, the no-model dry run, two scripted episodes) and `bench.sbatch` (2 GPUs, 36 CPUs, 110 GB: one TP=2
+  server, 24 Worlds at once, results synced to the benchmark directory every 5 minutes). The benchmark's directory is
+  its own (`/work/nvme/bjhg/mahmedmohsin/crucible-bench`, mode 700); held-out data never goes to `crucible-infer` or
+  `crucible-train`. The Worlds get pinned cores (`CRUCIBLE_SHIM_PIN=1`).
 - **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a
   network (`WindowTask.world_network = "none"`), and the shim refuses any network at the container level.
 - **8192 output tokens per model call** on the vllm backend (`train/bridges/vllm.DEFAULT_MAX_TOKENS`, the coordinator's
