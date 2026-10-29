@@ -16,7 +16,7 @@ import time
 from typing import ClassVar
 
 from crucible.synth.canon import Address, Change, cjson, content_hash
-from crucible.synth.contract import EffectPattern, _Ctx, _exec_ok, matches, state_count, state_ok, unglob
+from crucible.synth.contract import EffectPattern, PAny, _Ctx, _exec_ok, matches, state_count, state_ok, unglob
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Label, Outcome, Probe, empty_run
 from crucible.synth.task import Task
 
@@ -76,7 +76,9 @@ def vacuous(p: EffectPattern, ctx: _Ctx) -> bool:
     app, coll, key, field = unglob(p.app), unglob(p.coll), unglob(p.key), unglob(p.field)
     row = ctx.s0.entity(app, coll, key)
     if p.kind == "update":
-        if row is None or field not in row:
+        # A value-free or ``any`` update constrains no value: it still needs a change, so s₀ cannot satisfy it. Treating it
+        # as the status quo labelled an ``eq → any`` relaxation (D3) as D4 (M3 recall matrix).
+        if row is None or field not in row or p.value is None or isinstance(p.value, PAny):
             return False
         v = row[field]
         fake = Change(addr=Address(app=app, coll=coll, key=key, field=field), kind="update", old=v, new=v)

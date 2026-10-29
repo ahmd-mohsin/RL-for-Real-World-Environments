@@ -1710,7 +1710,7 @@ factory). M1, M2 and M3 are built; LLM roles (M4), the debug-lane adapter (M5) a
    by store, by path or by a copy (the set says `kind: locked`); `measure` refuses locked plants likewise.
    **Measured on the fixtures** (34 plants, one per variant and domain): FA = 0 in every class; the gaps are
    real: an unstated `never(read)` (no MUT mutant adds a read), a humanised leak ("price variance"), and `eq → any`
-   relaxations (MUT survivors are suspects; RED's concrete-pattern rule fires, labelled D4).
+   relaxations (MUT survivors are suspects; RED's concrete-pattern rule fires, labelled D4). RED no longer treats an update pattern with no value or an `any` value as the status quo (it still needs a change, so s₀ cannot satisfy it); such a relaxation is D3 and stays MUT's to find (`test_red_any_update_is_not_status_quo`).
 11. **The regularised update rule** (`meta/update.py`, §9.4). `ThetaStore` (write-once versions, atomic heads),
    hash-chained `Ledger`, `UpdateEngine.decide`: static rules first (R5 cosine edit budget 3 → 1, R6 critic and
    family separation, R8 judge-only round cap, R10 JSON round-trip), then a fresh view (R1: new hash, not locked,

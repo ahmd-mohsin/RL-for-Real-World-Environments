@@ -254,3 +254,20 @@ async def test_mut_scales_with_the_world_and_counts_distinct_effects_only():
     d9 = (await _all(fx.planted("D9"), [MUT()]))["MUT"]
     assert d9.confirmed and all(f.op == "SwapEntity" for f in d9.confirmed) and not d9.suspects
     assert number_alternatives(1200.0)[:4] == [1212.0, 1188.0, 1320.0, 1080.0]
+
+
+def test_red_any_update_is_not_status_quo() -> None:
+    """An ``eq → any`` relaxation still needs a change, so RED must not call it vacuous (it is D3, found by MUT); an ``eq``
+    update whose value s₀ already holds is the status quo (D4)."""
+    import time
+
+    from crucible.synth.canon import CanonState
+    from crucible.synth.contract import EffectPattern, PAny, PEq, _Ctx
+    from crucible.synth.falsify.red import vacuous
+
+    s0 = CanonState.build({"ap": {"invoices": {"42": {"status": "on_hold"}}}})
+    ctx = _Ctx(s0, s0, None, time.monotonic() + 5)
+    base = {"id": "r", "app": "ap", "coll": "invoices", "key": "42", "field": "status"}
+    assert not vacuous(EffectPattern(**base, value=PAny()), ctx)
+    assert not vacuous(EffectPattern(**base), ctx)
+    assert vacuous(EffectPattern(**base, value=PEq(v="on_hold")), ctx)
