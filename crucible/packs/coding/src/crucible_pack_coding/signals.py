@@ -14,7 +14,7 @@ Every step signal grades the PR commit that last wrote the commented line (blame
 no step when that line predates the PR. Replies in a thread and the author's own comments carry no signal: the
 thread's root does. Reviews: APPROVED -> approval, CHANGES_REQUESTED -> rejection on the reviewed commit. CI runs
 on a commit -> check_result (+1 pass, -1 fail, 0 flaky -- both outcomes for one check on one commit, the case
-SWE-smith's ``harness/repair.py`` removes). After the merge (``vcs_history``): a revert -> revert, a fix-like
+SWE-smith's ``harness/repair.py`` removes; 0 for a run that timed out or never started, M4 audit R-3). After the merge (``vcs_history``): a revert -> revert, a fix-like
 commit that changes lines the PR wrote -> correction (hotfix), both grading the PR commits that wrote them.
 """
 
@@ -60,8 +60,12 @@ POLITE = re.compile(r"\b(?:can|could|would) you (?!(?:explain|clarify|elaborate|
                     re.IGNORECASE)  # a suggestion asked as a question ("Should we add a note ...?"), not "Should this handle ...?"
 HEDGED = re.compile(r"^\W*(?:I think|I believe|it seems|seems like|looks like|I suspect)\b", re.IGNORECASE)  # "I think X is nowhere replaced?" asserts a defect
 PRAISE = PRAISE_HEAD  # kept for importers
-FAILED = {"failure", "timed_out", "startup_failure", "error"}
+FAILED = {"failure", "error"}
 PASSED = {"success"}
+# M4 audit R-3: a run the runner stopped at its time limit, or that never started, says nothing about the code (P16): it
+# grades its commit with polarity 0, as the CI-log path masks GitHub's time-limit line as infra (connectors/ci_logs.py). It
+# was -1, and a later hotfix "confirmed" it in the gate's reliability row (PATTERN: NeMo-RL experience/failures.py:96-97)
+INCONCLUSIVE = {"timed_out", "startup_failure"}
 IGNORED_CI = {"neutral", "skipped", "cancelled", "action_required", "stale", None}
 OVERVIEW = re.compile(r"pull request overview|wasn't able to review|reviewed \d+ out of \d+ changed files", re.IGNORECASE)
 
@@ -173,7 +177,8 @@ class CodingSignalMapper:
                 flaky = bool(seen & PASSED) and bool(seen & FAILED)
                 pol = 0 if flaky else (1 if c in PASSED else -1 if c in FAILED else 0)
                 g = commit_seq.get(e.data.get("sha") or "")
-                sig(e, "check_result", pol, [g] if g is not None else [], check=e.data.get("name"), conclusion=c, flaky=flaky)
+                why = {"inconclusive": c, "reason": "the run timed out or never started: no verdict on the code (P16)"} if c in INCONCLUSIVE else {}
+                sig(e, "check_result", pol, [g] if g is not None else [], check=e.data.get("name"), conclusion=c, flaky=flaky, **why)
             elif e.type == "post_merge_commit":
                 touched = e.data.get("touches_seq") or []
                 days = e.data.get("days_after_merge")

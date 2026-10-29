@@ -1862,3 +1862,29 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   before the fix). Label, M4, M14 framework and studio files: 142 passed, 3 skipped. Ruff on the changed files and
   lint-imports (5 contracts) are clean.
 - **Merge notes.** One filter on the `from_trace` comprehension in `label()`.
+
+## 80. M4 R-3: a PR check run that timed out or never started is polarity 0, not -1
+
+- **Item.** R-3 of `docs/research/improvements/2026-10-27/M04-signals.md` (should), as recommended. Not taken: dropping
+  the signal (every CI run is labelled `check_result` in the gate, so a drop is a type miss). Pattern from NeMo-RL
+  `nemo_rl/experience/failures.py:96-97,146` (a timeout is infra, never scored) and NeMo-Gym's `inconclusive`
+  (Apache-2.0); no code copied.
+- **Files.** `packs/coding/src/crucible_pack_coding/signals.py` (`FAILED`, new `INCONCLUSIVE`,
+  `CodingSignalMapper.map`, module docstring), `docs/modules/M04-signals.md` (coding/pull_request row),
+  `tests/unit/test_ci_inconclusive.py` (new), `tests/unit/test_m4_audit_packs.py` (M12/M13 spelling case).
+- **Public names.** New `crucible_pack_coding.signals.INCONCLUSIVE` (`timed_out`, `startup_failure`); `FAILED` is now
+  `failure`, `error`.
+- **Behaviour.** A PR `ci_run` whose conclusion is `timed_out` or `startup_failure` gives `check_result` with polarity 0,
+  `meta.inconclusive=<conclusion>` and `meta.reason` (P16), the flaky shape, which `judgeable` keeps out of reliability,
+  pivots and `graded_wrong`. It was -1, so a later hotfix "confirmed" the timeout's -1 in the gate's
+  `check_result/automated` reliability row, while the same pack's CI-log path masks GitHub's time-limit line as infra.
+  Flaky now compares only `success` with `failure`/`error`, so a timeout then a pass of one check is a pass (+1), not
+  flaky. `failure` and `error` stay -1. Trade-off: a hang the PR caused is no longer -1, as on the CI-log path.
+- **Formats.** `check_result` meta can carry `inconclusive` and `reason`.
+- **Tests.** `test_ci_inconclusive.py` (2: `timed_out`, `STARTUP_FAILURE`, `failure`, `success` give [0, 0, -1, +1] and
+  the timeout's verdict is None after a hotfix while the failure's is True; a timeout then a pass of one check is +1,
+  not flaky; both failed before the fix). `test_m4_audit_packs.py::test_M12_M13` used `STARTUP_FAILURE` to check the
+  capital spelling and now uses `FAILURE` (same intent). M4, coding connector, agent-run, M8 and M14 pack files: 51 + 47
+  passed (M14's finance tests need `PYTHONPATH=packs/finance_ap/src`). Ruff on the changed files and lint-imports (5
+  contracts) are clean.
+- **Merge notes.** Two strings move from `FAILED` to `INCONCLUSIVE`; one meta branch in the `ci_run` case.

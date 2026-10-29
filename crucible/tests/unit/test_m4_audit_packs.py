@@ -148,7 +148,7 @@ def test_M4_M10_M11_comment_rules():
 
 
 def test_M12_M13_ci_spelling_job_keys_and_untouched_reverts():
-    t = pr_trace([ev(0, "commit", sha="a"), ev(1, "ci_run", kind="check", actor="ci", name="build", sha="a", conclusion="STARTUP_FAILURE", app="gha"),
+    t = pr_trace([ev(0, "commit", sha="a"), ev(1, "ci_run", kind="check", actor="ci", name="build", sha="a", conclusion="FAILURE", app="gha"),
                   ev(2, "ci_run", kind="check", actor="ci", name="build", sha="a", conclusion="success", app="azure")], [AUTHOR, CI])
     pol = [s.polarity for s in coding(t)]
     assert pol == [-1, 1]  # 0/0: polarity 0 for the spelling, then both "flaky" across two workflows

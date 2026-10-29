@@ -49,7 +49,7 @@ the step it grades. Packs never add types: they map their own events onto these.
 
 | Family | Mapper | Signals |
 |---|---|---|
-| `coding/pull_request` | `CodingSignalMapper` | root review comments by intent (request / clarify / praise) and what happened to the commented lines; reviews; CI check runs (flaky: both outcomes for one job on one commit); reverts and hotfixes after the merge |
+| `coding/pull_request` | `CodingSignalMapper` | root review comments by intent (request / clarify / praise) and what happened to the commented lines; reviews; CI check runs (flaky: both outcomes for one job on one commit; a run that timed out or never started is polarity 0 with `meta.inconclusive`, as the CI-log path masks the runner's time limit: M4 audit 2026-10-27, R-3); reverts and hotfixes after the merge |
 | `coding/agent_run` | `AgentRunSignalMapper` | one `check_result` per failing hidden gate, +1 when all pass; nothing for a contaminated green run or an ungraded one |
 | `coding/ci_run` | `CIRunSignalMapper` | one `check_result` per test; infra-failed or cut-off runs not scored; flaky tests polarity 0 |
 | `toy/support_ticket` | `ToyTicketSignalMapper` | policy flags, reversals, supervisor edits, reopens, escalations, SLA breaches, approvals, customer replies, CSAT as the outcome |
