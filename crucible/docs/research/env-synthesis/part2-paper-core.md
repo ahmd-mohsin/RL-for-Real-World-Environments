@@ -257,6 +257,61 @@ It never reads the gate code or which falsifier made the probe.
 - Below λ, the probe goes to the human queue.
 - Adjudicated rates are reported with PPI intervals.
 
+### 5.1 Precise rules settled by the M1–M2 build
+
+These rules supersede the shorter wording above where the two differ. Each is pinned by a test in
+`tests/unit/test_synth_*`.
+
+1. **Required-pattern semantics (§3.3).**
+   - **One change, one pattern.** A change satisfies at most one required pattern. "Invoice 42 held" and "any invoice
+     held" therefore need two changes.
+   - **Counts are exact.** A count is exact unless `count_max` widens it; `any` means at least `count`. A duplicate write
+     must be allowed explicitly.
+   - **Matching.** The grader runs two maximum bipartite matchings: one fills every required slot, and one covers every
+     change that A does not allow. By Mendelsohn–Dulmage these equal one joint assignment. A greedy scan is provably
+     wrong here, and a test shows it.
+   - **Granularity.** An update is one change per field. An insert or a delete is one change per entity.
+   - **State patterns.** A pattern kind `state` counts entities in the end state. Without it a "true at the start"
+     requirement (D4) cannot be written.
+2. **Equivalence uses stated constraints only.** Two runs are equivalent when they have equal normalised diffs, equal
+   answers, and equal truth values on the trace constraints that are *stated*. A stated constraint carries a quote that
+   appears in ι. An unstated constraint that rejects an equivalent mutant is how D6 (over-strict) is detected.
+3. **Deterministic classes run in order.** REP runs first and gates MUT, TWIN and PERT. In a nondeterministic World every
+   mutant looks non-equivalent, and the survivors would be mislabelled.
+4. **NULL agents and their defect labels.**
+
+   | Agent | Label when it passes |
+   |---|---|
+   | No-op, read-all, answer-only | D4 |
+   | Oracle-minus-last-write | D1 |
+   | Write-all | D8 |
+   | Shortcut | D8 |
+   | Random-k | D8 |
+
+   - **Shortcut** calls each write tool π* never calls, filled with the values Δ* sets. It catches planted admin tools
+     that write-all misses.
+   - **Random-k** never borrows π*'s arguments, which would hand it the solution, and aims at entities π* never touches.
+   - **Answer-only** is skipped on read-only tasks.
+5. **TWIN substitution.**
+   - A substituted literal also maps its entity's key, but only when the literal identifies exactly one entity. A shared
+     value, such as a customer, is a selector: the keys it selects are re-derived instead.
+   - Constants taken from the entity (an amount, a subject) are re-derived from π*′'s arguments.
+   - A tool error in π*′ makes the twin dead: it is not counted as a trial, and D10 is noted for it.
+6. **PERT counts flips only.** NULL's own findings and an oracle that already fails are not double-counted. Distractor
+   clones differ on a field that holds an instruction literal, so a correct contract can tell them apart.
+7. **TAINT sources.** A literal may be sourced from:
+   - the instruction;
+   - earlier observations;
+   - `I.given`;
+   - the **tool catalogue** (descriptions, enums, defaults), since reason codes are often stated only there.
+
+   Library schema positions are structural and need no source: `get` paths, `pluck` fields, `round` digits and `select`
+   field names. `select` values are still traced. Numbers are matched numerically ("$1,200.00" = 1200). Strings are
+   matched case-insensitively on word boundaries.
+8. **First real finding.** TAINT flagged the finance_ap pack's own oracle. It decides invoice ids it never lists: a D5 in
+   the oracle program. Adding `list_invoices(status="pending")` first makes it clean. The finding is the kind of defect
+   the paper counts in its real-defect set.
+
 ## 6. Validity certificates
 
 For a task τ and falsifier class k:
@@ -267,8 +322,16 @@ The certificate is the vector of (n_k, c_k, U_k), where U_k is the exact Clopper
 counterexample rate *under class k's probe distribution*. At c = 0, U ≈ 3/n (the rule of three).
 
 **Admission.** A task is admitted when:
-- the deterministic classes (MUT, NULL, RED, TAINT, TWIN, REP, PERT) have c_k = 0 after repair, with U_MUT ≤ 0.05
-  (n ≥ 59 mutants; the operators generate 40–150 per task);
+- the deterministic classes (MUT, NULL, RED, TAINT, TWIN, REP, PERT) have c_k = 0 after repair;
+- U_MUT ≤ 0.05, which needs n ≥ 59 mutants.
+
+The M2 operators produce 13–42 mutants for 1–4-step tasks and 60 for a 6-step task. M3 therefore scales the mutant
+neighbourhood with the World:
+- ExtraWrite and SwapEntity range over every sibling entity;
+- PerturbValue uses several magnitudes.
+
+A task with c = 0 that still has n < 59 is admitted as **provisional**, with its U reported, and is never counted as
+**certified**.
 - ALT has at least one pass from a non-builder family;
 - ATK has 0 confirmed hacks over its budget.
 
