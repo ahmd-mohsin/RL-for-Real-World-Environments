@@ -297,6 +297,23 @@ def test_a_slightly_reworded_changelog_entry_of_a_long_subject_is_removed() -> N
     assert strip_ref_entries("- Preserve matched handler 404 pages\n", {short}) == ("- Preserve matched handler 404 pages\n", 0)
 
 
+def test_a_changelog_entry_turning_the_fix_subject_into_a_gerund_is_removed() -> None:
+    """react-hook-form (2026-10-29): its subjects carry a gitmoji and its release notes reword each one ("drop" ->
+    "dropping", "the" -> "a"), so all three fixes of the task were announced in the start tree's CHANGELOG.md."""
+    refs = {subject_ref(s) for s in ("🐞 fix(setValue): update field array rows when the parent object is set (#13939)",
+                                     "🐞 fix(createFormControl): drop the async result of a field unregistered while it validates (#13912)",
+                                     "🐞 fix(unregister): drop the field's rules when keepValue keeps only its value (#13891)")}
+    assert "subject:update field array rows when the parent object is set" in refs
+    log = ("### Fixed\n\n- `useFieldArray` not registering array rules again after `reset`\n"
+           "- `setValue` not updating field array rows when a parent object is set\n"
+           "- `createFormControl` dropping the async result of a field unregistered while it validates\n"
+           "- `unregister` dropping the field's rules when `keepValue` keeps only its value\n"
+           "- `unregister` not recomputing `isValidating` after clearing `validatingFields`\n")
+    kept = ("### Fixed\n\n- `useFieldArray` not registering array rules again after `reset`\n"
+            "- `unregister` not recomputing `isValidating` after clearing `validatingFields`\n")
+    assert strip_ref_entries(log, refs) == (kept, 3)
+
+
 def test_go_strip_mode_removes_the_fixes_table_entries() -> None:
     """mvdan-sh dc951aeb-e1 (2026-10-24): strip mode removed the changed test functions, but the fixes' new entries in
     package-level tables stayed readable in the agent's tree. Whole entries the fix added go; braces inside string

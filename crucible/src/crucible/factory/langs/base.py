@@ -311,12 +311,27 @@ def fix_refs(subject: str, body: str, sha: str) -> set[str]:
 
 
 SUBJECT_REF = "subject:"
-_CC_PREFIX = re.compile(r"^\s*[a-z]+(?:\([^)]*\))?!?:\s*", re.IGNORECASE)
+_CC_PREFIX = re.compile(r"^\s*(?:[^\w\s]+\s*)?[a-z]+(?:\([^)]*\))?!?:\s*", re.IGNORECASE)  # a gitmoji may lead: "🐞 fix(x): "
+_STOP = frozenset("a an the is are was be of to in on at for when while it its and or by with from as that this not no".split())
 
 
 def _prose(text: str) -> str:
     """Lower case, markup and punctuation dropped, whitespace collapsed: how a changelog line and a commit subject compare."""
     return " ".join(re.sub(r"[`*_\[\]()\"'.,;:!?]", " ", text.lower()).split())
+
+
+def _stem(word: str) -> str:
+    """A crude stem, the same for "update" / "updating" / "updates" and "drop" / "dropping": release notes turn a fix's
+    imperative into a gerund ("`setValue` not updating ..." for "fix(setValue): update ...")."""
+    for suf in ("ing", "ed", "es", "s", "e"):
+        if len(word) > len(suf) + 2 and word.endswith(suf):
+            word = word[:-len(suf)]
+            break
+    return word[:-1] if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiou" else word
+
+
+def _content(prose: str) -> set[str]:
+    return {_stem(w) for w in prose.split() if len(w) > 1 and w not in _STOP}
 
 
 def subject_ref(subject: str) -> str | None:
@@ -335,10 +350,14 @@ def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
     ``onError`` for stream errors in Node.js handlers (#1571)". Returns the text and the number of lines removed.
     A subject of 6 or more distinct words also cites the entries holding all of its words but one: release notes reword a
     fix slightly (isort 9f56767 "Fix pylint disable-next comments at top of imports" is "... at the start of imports" in
-    its changelog), and an entry removed by mistake costs nothing while one left in announces the fix."""
+    its changelog), and an entry removed by mistake costs nothing while one left in announces the fix. A subject of 5 or
+    more content words (stop words dropped, words stemmed) also cites the entries holding all of them, all but one from
+    6 on: react-hook-form's "🐞 fix(setValue): update field array rows when the parent object is set" is "`setValue` not
+    updating field array rows when a parent object is set" in its changelog."""
     refs = list(refs)
     subjects = [r[len(SUBJECT_REF):] for r in refs if r.startswith(SUBJECT_REF)]
     loose = [w for x in subjects if len(w := set(x.split())) >= 6]
+    stems = [w for x in subjects if len(w := _content(x)) >= 5]
     pats = [re.compile(rf"(?<![\w/])#{re.escape(r[1:])}(?!\d)|/(?:pull|issues)/{re.escape(r[1:])}(?!\d)") if r.startswith("#")
             else re.compile(rf"(?<![0-9a-fA-F]){re.escape(r)}(?![0-9a-fA-F])") for r in refs if not r.startswith(SUBJECT_REF)]
     lines = text.splitlines(keepends=True)
@@ -352,7 +371,8 @@ def strip_ref_entries(text: str, refs: Iterable[str]) -> tuple[str, int]:
         chunk = lines[k:end]
         prose = f" {_prose(''.join(chunk))} "
         if (any(p.search(ln) for ln in chunk for p in pats) or any(f" {x} " in prose for x in subjects)
-                or any(len(w - set(prose.split())) <= 1 for w in loose)):
+                or any(len(w - set(prose.split())) <= 1 for w in loose)
+                or any(len(w - _content(prose)) <= (len(w) >= 6) for w in stems)):
             removed += len(chunk)
         else:
             out += chunk
