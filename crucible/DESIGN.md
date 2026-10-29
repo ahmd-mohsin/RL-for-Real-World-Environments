@@ -1544,6 +1544,12 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     (`n_differs`; the flip counts read all of them, not the first 10) and its output tail; `masked_why` lists the mask
     reasons. Two kept tasks failed S3 on one rerun in 60 each: one sandbox did not start (exit 125), and one root
     package failed as a whole with infra ok.
+  - **An ignored test's panic is not an unclean rerun** (smoke 2026-10-29, huma 815e1ff8). `TestHumaFiberV2` was
+    excluded as load-dependent after one flip, and a later rerun in which it panicked again was still unclean with no
+    test differing: the panicking test was missing from the rerun, so the run's test count differed. The count is now
+    compared without the ignored tests, and when every panic in a rerun is an ignored test's, the differences in the
+    packages of those tests (the siblings its dying test binary took with it, not measured) mask the rerun; a
+    difference in any other package keeps it unclean. A checked test's panic is unchanged (its own flip).
   - **A license header is never contamination evidence** (2026-10-28, `benchaudit.LICENSE_LINE`): the audit's fix-line
     and hidden-test-line probes leave out license-header lines (Apache, MIT, SPDX, copyright). A fix that adds a test
     file adds its header, and every licensed file in the public tree holds those lines. Two held-out Go tasks read

@@ -493,6 +493,29 @@ def test_an_s3_rerun_the_host_failed_or_a_dead_test_binary_is_masked_and_a_panic
     assert rerun_verdict(ref, run(whole_small), set())[0] == "unclean"
 
 
+def test_an_ignored_tests_panic_is_not_an_unclean_rerun() -> None:
+    """Smoke 2026-10-29 (huma 815e1ff8, S3 at 60 reruns): TestHumaFiberV2 was excluded as load-dependent after it flipped,
+    and a rerun in which it panicked again was still unclean with no test differing: the panicking test was missing, so
+    the run's test count differed. Ignored tests are left out of the count; a panic of an ignored test that took its
+    package's other tests with it is masked (they were not measured); a difference in another package stays unclean."""
+    from types import SimpleNamespace
+
+    from crucible.factory.lanes.windows_s3 import rerun_verdict
+
+    ref = {f"calc_test.go::TestC{i}": "passed" for i in range(30)} | {f"sub/x_test.go::TestX{i}": "passed" for i in range(4)}
+    run = lambda results, why="": SimpleNamespace(results=results, infra="ok", why=why)
+    ign = {"calc_test.go::TestC7"}
+    gone = {k: v for k, v in ref.items() if k not in ign}  # the ignored test died alone
+    assert rerun_verdict(ref, run(gone, "panic: TestC7 (example.com/m)"), ign) == ("clean", [])
+    assert rerun_verdict(ref, run(gone), ign) == ("clean", [])
+    assert rerun_verdict(ref, run(gone), set()) == ("unclean", ["calc_test.go::TestC7"])  # not ignored: still its flip
+    dead = {k: v for k, v in ref.items() if not k.startswith("calc_test.go::TestC") or int(k.rsplit("C", 1)[1]) < 7}  # TestC7 on never ran
+    assert rerun_verdict(ref, run(dead, "panic: TestC7 (example.com/m)"), ign) == ("masked", [])
+    also = {**dead, "sub/x_test.go::TestX1": "failed"}
+    assert rerun_verdict(ref, run(also, "panic: TestC7 (example.com/m)"), ign) == ("unclean", ["sub/x_test.go::TestX1"])
+    assert rerun_verdict(ref, run(dead, "panic: TestC7 (example.com/m)"), set())[0] == "unclean"  # a checked test's panic
+
+
 def test_the_go_profile_names_a_dead_test_binary(tmp_path):
     """go test's own timeout is the run's; a panic names its test; a fatal runtime error is named."""
     (tmp_path / "go.mod").write_text("module example.com/m\n")

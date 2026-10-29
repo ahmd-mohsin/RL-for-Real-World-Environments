@@ -101,11 +101,22 @@ def rerun_verdict(ref: Mapping[str, str], tr: Any, ignored: set[str]) -> tuple[s
     if (why.startswith("timeout after") and not tr.results) or tr.infra == "masked" or HOST_RUN.search(why):
         return "masked", []
     common = (set(ref) & set(tr.results)) - ignored
-    if tr.infra != "ok" or len(tr.results) != len(ref) or any(ref[k] != tr.results[k] for k in common):
+    # the counts are compared without the ignored tests (smoke 2026-10-29, huma 815e1ff8): an excluded load-dependent test
+    # that panicked was missing from the rerun, so the count differed and the rerun was unclean with nothing differing
+    if tr.infra != "ok" or len(set(tr.results) - ignored) != len(set(ref) - ignored) or any(ref[k] != tr.results[k] for k in common):
         differs = sorted(k for k in common if ref.get(k) != tr.results.get(k)) or sorted((set(ref) ^ set(tr.results)) - ignored)
         if panics := sorted({m.group(1) for m in PANIC.finditer(why)}):
-            own = [t for t in differs if t.split("::", 1)[-1].split("/", 1)[0] in panics]
-            return "unclean", own or differs
+            fn = lambda t: t.split("::", 1)[-1].split("/", 1)[0]
+            own = [t for t in differs if fn(t) in panics]
+            if own:
+                return "unclean", own
+            dead = {t.split("::", 1)[0].rpartition("/")[0] for t in ignored if fn(t) in panics}
+            if set(panics) <= {fn(t) for t in ignored}:
+                # every panic is an ignored test's: what its dying test binary took with it (its package's other tests) was
+                # not measured, so that part of the run is no evidence; a difference elsewhere still is
+                rest = [t for t in differs if t.split("::", 1)[0].rpartition("/")[0] not in dead]
+                return ("unclean", rest) if rest else ("masked", [])
+            return "unclean", differs
         if run_level(ref, tr, [t for t in differs if t in ref]) and not (set(tr.results) - set(ref) - ignored):
             return "masked", []
         return "unclean", differs
