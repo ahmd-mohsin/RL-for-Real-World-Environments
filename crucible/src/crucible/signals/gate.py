@@ -20,6 +20,9 @@ M4 audit (2026-10-12): labels were keyed by seq, and the M3 connector's reorderi
 events (the committed coding report described traces that no longer existed); a label for a missing trace raised; only
 the first signal at an event was seen; a step graded where the label says "none" was never penalised; one label passed
 the gate; outcome agreement mixed "unknown" with decisions; no uncertainty was reported.
+
+M4 audit R-4 (2026-10-27): a gate report names the trace content (``inputs``) and the code (``code``) its numbers came
+from, beside the labels' hash; a moved number is explained by diffing two reports. Nothing is refused on a mismatch.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -167,3 +171,21 @@ def load_labels(path: Path) -> dict[str, Any]:
     data = json.loads(Path(path).read_text())
     data.setdefault("sha256", hashlib.sha256(Path(path).read_bytes()).hexdigest())  # the report names the exact label set
     return data
+
+
+def inputs(traces: Iterable[Trace]) -> dict[str, Any]:
+    """The trace content a gate scored (M4 audit R-4, ARCHITECTURE §7 rule 4): per trace the content hash of the trace
+    before extraction with its signals cleared, and one sha256 over the sorted ``id\\0digest`` lines. A report named only
+    its labels file, so an edited reply moved type accuracy under the same hash. PATTERN: Repo2RLEnv binds a quality
+    report to its bundle hash (``quality/report.py:64-74``). Digests of redacted traces are tenant-scoped (salted)."""
+    per = {t.trace_id: t.model_copy(update={"signals": []}).content_hash() for t in traces}
+    lines = "".join(f"{k}\0{v}\n" for k, v in sorted(per.items()))
+    return {"traces": dict(sorted(per.items())), "traces_sha256": hashlib.sha256(lines.encode()).hexdigest()}
+
+
+def code(pack_src: Path) -> dict[str, Any]:
+    """The code a gate ran (M4 audit R-4): Crucible's commit, dirty flag and source digest, and the pack source's digest."""
+    from crucible.core.build import build_info, source_digest
+
+    b = build_info()
+    return {"git_sha": b.git_commit, "git_dirty": b.git_dirty, "source_sha256": b.source_sha256, "pack_sha256": source_digest(Path(pack_src))}

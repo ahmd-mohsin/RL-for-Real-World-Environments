@@ -1888,3 +1888,31 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   passed (M14's finance tests need `PYTHONPATH=packs/finance_ap/src`). Ruff on the changed files and lint-imports (5
   contracts) are clean.
 - **Merge notes.** Two strings move from `FAILED` to `INCONCLUSIVE`; one meta branch in the `ci_run` case.
+
+## 81. M4 R-4: M4 gate reports name the traces and the code they scored
+
+- **Item.** R-4 of `docs/research/improvements/2026-10-27/M04-signals.md` (should), as recommended, with one placement
+  change: `signals` may import only core (it sits beside `connectors`, below `studio`), so the code digest uses
+  `core.build.source_digest` of the pack's source package instead of `studio.runs.pack_hash`, and the coding gate script
+  (a pack, free to import `connectors`) adds the redaction fields. Not taken: refusing on a mismatch (needs pins written
+  with the labels, L-8), the TraceStore head key (coding only, includes carried signals). Pattern from Repo2RLEnv
+  `quality/report.py:64-74` and OpenEnv `validation/runner.py` (ideas); no code copied.
+- **Files.** `src/crucible/signals/gate.py` (new `inputs`, `code`, module docstring),
+  `packs/_toy/src/crucible_pack_toy/m4/gate.py` (`run`), `packs/coding/src/crucible_pack_coding/m4/gate.py` (`run`),
+  `docs/modules/M04-signals.md` (Exit gate), `tests/unit/test_gate_inputs.py` (new).
+- **Public names.** New `crucible.signals.gate.inputs(traces) -> {"traces": {id: digest}, "traces_sha256": str}` and
+  `crucible.signals.gate.code(pack_src) -> {"git_sha", "git_dirty", "source_sha256", "pack_sha256"}`.
+- **Behaviour.** Both gate reports gain `inputs` (per labelled trace the `content_hash()` of the trace before
+  extraction with its signals cleared, and a sha256 over the sorted `id\0digest` lines) and `code`; the coding report
+  also gains `redaction` = {`version`: `REDACTION_VERSION`, `salt_id`: `pseudonym("salt", "id", tenant_salt())`}, so a
+  report from another tenant (other salt, other digests) reads as not comparable. Reports named only `labels_sha256`:
+  an edited toy reply moved type accuracy 1.0 -> 0.988 under the same hash, and the coding gate's next rebuild scores
+  whatever changed upstream since 2026-10-09. Metrics, thresholds and labels are unchanged; nothing is refused.
+- **Formats.** `m4_gate_*.json` reports gain `inputs`, `code` and (coding) `redaction` keys. The committed reports are
+  not regenerated here.
+- **Tests.** `test_gate_inputs.py` (3: two toy runs give equal `inputs`, 12 traces, and `code` fields; editing one event
+  of T1013 moves only that trace's digest and the combined one, under the same labels hash; carried signals do not
+  change a digest; the coding report carries `redaction.salt_id` for the tenant's salt, with a stub store). It errors
+  before the fix (no `inputs`). M4, M4 packs, R-3 and core audit files: 139 passed. Ruff on the changed files and
+  lint-imports (5 contracts) are clean.
+- **Merge notes.** The coding gate's `traces` dict is built from a `raw` list (same ids, same order).

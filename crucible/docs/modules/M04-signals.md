@@ -65,6 +65,12 @@ Both label sets were written by the builder. The toy labels were written before 
 fixes were made with the label errors visible; the coding dev labels are a tuning split. Held-out coding labels and a
 second labeller are the open part of the gate.
 
+Each report names what it scored beside `labels_sha256` (M4 audit 2026-10-27, R-4): `inputs` (per trace the content hash
+before extraction with signals cleared, and `traces_sha256` over all) and `code` (Crucible's git commit, dirty flag and
+source digest, and the pack source digest); the coding report adds `redaction` (rules version and a salt id), since its
+traces are redacted and their digests tenant-scoped. A moved number is explained by diffing two reports; nothing is
+refused on a mismatch.
+
 ## Not done
 - CI reruns and per-commit CI from the API (`filter=all` over every PR commit needs a new fetch).
 - A review verdict grades the reviewed head commit, not the commits it is about.

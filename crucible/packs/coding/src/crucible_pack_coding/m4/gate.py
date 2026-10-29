@@ -6,10 +6,11 @@ import json
 import sys
 from pathlib import Path
 
+from crucible.connectors.redact import REDACTION_VERSION, pseudonym, tenant_salt
 from crucible.connectors.trace_store import TraceStore
 from crucible.core.store import Store
 from crucible.signals.extract import extract
-from crucible.signals.gate import evaluate, load_labels
+from crucible.signals.gate import code, evaluate, inputs, load_labels
 from crucible.signals.reliability import apply, estimate
 from crucible_pack_coding import PACK_ROOT
 from crucible_pack_coding.m4.build_traces import DATA, build
@@ -28,9 +29,13 @@ def run(split: str = "dev", rebuild: bool = True) -> dict:
     # and scored on the same 14 traces)
     rest = [extract(ts.get(t)) for t in ts.ids() if t not in ids and t.startswith("github:")]
     rel = estimate(rest)
-    traces = {t: apply(extract(ts.get(t)), rel) for t in ids if t in set(ts.ids())}
+    raw = [ts.get(t) for t in ids if t in set(ts.ids())]
+    traces = {t.trace_id: apply(extract(t), rel) for t in raw}
     rep = evaluate(traces, labels)
-    return {**rep.to_dict(), "split": split, "labels_sha256": labels["sha256"], "reliability_fitted_on": len(rest),
+    # M4 audit R-4: the scored traces' content and the code, beside the labels' hash. The traces are redacted, so their
+    # digests are tenant-scoped: salt_id tells another tenant's report apart (not comparable)
+    return {**rep.to_dict(), "split": split, "labels_sha256": labels["sha256"], "inputs": inputs(raw), "code": code(HERE.parent),
+            "redaction": {"version": REDACTION_VERSION, "salt_id": pseudonym("salt", "id", tenant_salt())}, "reliability_fitted_on": len(rest),
             "reliability": {"/".join(k): {"confirmed": r.confirmed, "contradicted": r.contradicted, "unscored": r.unscored, "mean": round(r.mean, 3),
                                           "interval90": [round(x, 3) for x in r.interval()]} for k, r in sorted(rel.items())}}
 

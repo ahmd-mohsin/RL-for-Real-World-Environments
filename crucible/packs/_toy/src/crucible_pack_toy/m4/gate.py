@@ -13,7 +13,7 @@ import sys
 from crucible.connectors.file_drop import FieldMap, FileDropConnector
 from crucible.core.schema.trace import Trace
 from crucible.signals.extract import extract
-from crucible.signals.gate import evaluate, load_labels
+from crucible.signals.gate import code, evaluate, inputs, load_labels
 from crucible.signals.reliability import apply, estimate
 from crucible_pack_toy import PACK_ROOT
 
@@ -36,11 +36,14 @@ def traces() -> dict[str, Trace]:
 def run(split: str = "test") -> dict:
     labels = load_labels(HERE / f"labels_{split}.json")
     labelled = {e["trace_id"] for e in labels["events"]} | {o["trace_id"] for o in labels.get("outcomes", [])}
-    all_t = {tid: extract(t) for tid, t in traces().items()}
+    raw = traces()
+    all_t = {tid: extract(t) for tid, t in raw.items()}
     rel = estimate(t for tid, t in all_t.items() if tid not in labelled)
     scored = {tid: apply(t, rel) for tid, t in all_t.items() if tid in labelled}
     rep = evaluate(scored, labels)
-    return {**rep.to_dict(), "split": split, "labels_sha256": labels["sha256"],
+    # M4 audit R-4: the scored traces' content and the code, beside the labels' hash
+    return {**rep.to_dict(), "split": split, "labels_sha256": labels["sha256"], "inputs": inputs(t for tid, t in raw.items() if tid in labelled),
+            "code": code(HERE.parent),
             "reliability": {"/".join(k): {"confirmed": r.confirmed, "contradicted": r.contradicted, "unscored": r.unscored, "mean": round(r.mean, 3),
                                           "interval90": [round(x, 3) for x in r.interval()]} for k, r in sorted(rel.items())}}
 
