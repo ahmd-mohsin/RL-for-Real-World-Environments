@@ -1939,3 +1939,31 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   and lint-imports (5 contracts) are clean. With R-5 the M4 should items (R-1..R-5) are all done; L-1..L-9 wait for a
   consumer.
 - **Merge notes.** Two list comprehensions in `verdict` now call `_same_check`.
+
+## 83. Part 1 A1: the workspace harness records the level-1 hack flags and malformed tool calls
+
+- **Item.** A1 of `docs/research/env-synthesis/part1-framework-improvements.md` (§0 item 1, §1.1, §2(a); also §3.2 #3,
+  first half), record-only as the doc says. Not taken: the re-scan of stored episodes (flag rate per rule; wait for the
+  first training runs), the `__eq__` rule (§3.2 #3, second half; its own item). Pattern: `NativeHarness.run`
+  (`runtime/harness/native.py:917-926`); no new code paths.
+- **Files.** `src/crucible/runtime/harness/workspace.py` (`WorkspaceHarness.run`),
+  `tests/unit/test_part1_workspace_flags.py` (new).
+- **Public names.** none.
+- **Behaviour.** After the episode, before `save_episode`, `WorkspaceHarness.run` runs `rule_flags(world.to_trace())` and
+  `format_errors_by_call(trace, ep.model_calls)`, as `NativeHarness.run` does. Before, this override skipped both, so a
+  student-path rollout (`factory.envs.make_env`, mode `workspace`: Tinker and DeltaAI) carried only the grade's flags and
+  every `Turn.format_errors` was 0. Now `RolloutRecord.flags` holds the level-1 flags (rule flags first, then the
+  grade's), `reward_components["hack/intercepted"]` counts intercepted calls, and turns carry their malformed-call
+  counts. The reward does not change: `detector_group_fn` (level 2) has no caller, so `hack/confirmed` is never set, and
+  the Tinker format penalty is 0 by default. Side effect: `studio.datasets` skips a flagged rollout as a positive
+  (`flagged`), so an honest episode that writes a test file is no longer a dataset positive. Re-grade and re-collect
+  retries still carry no level-1 flags of the attempt that ran the agent (as before).
+- **Formats.** none (existing fields are now filled).
+- **Tests.** `test_part1_workspace_flags.py` (+1: a fake agent writes `tests/test_fib.py` and calls an unknown tool; the
+  rollout has the `writes_test_file` flag and one format error, the reward stays 1.0; it failed before the fix with no
+  flags). Harness-reward audit, M17 C harness, hack defence, M7 hardening, runtime, M10 lab audit R3/R5, M17 P6/W world,
+  open risks, credit/grade agreement, smoke scripts, Tinker bridge, M6 audit, M17 debug langs, M15 studio: 330 passed,
+  3 skipped, 3 failed, none from this change (two M15 studio failures known before; the R5 host-calls tick test is
+  timing-flaky under load, 0/10 failures with and without the fix when alternated). Ruff check and lint-imports
+  (5 contracts) clean.
+- **Merge notes.** Nine lines after `res.steps, res.stop, res.truncated = ...` in `WorkspaceHarness.run`.

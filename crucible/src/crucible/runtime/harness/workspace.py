@@ -242,6 +242,15 @@ class WorkspaceHarness(NativeHarness):
                     res.grade["progress"] = observed_progress(ep.observed[0], attempt.dir / "progress.jsonl")
             t["agent"] = time.monotonic() - t0
             res.steps, res.stop, res.truncated = ep.steps, ep.stop_condition, ep.truncated or ep.stop_condition in LIMIT_STOPS
+            from crucible.credit.hack_detector import rule_flags
+            from crucible.credit.shaping import format_errors_by_call
+
+            # Part 1 A1 (2026-10-29): the level-1 rules and the malformed-call counts, as NativeHarness.run takes them. This
+            # override skipped both, so the student path's rollouts carried only the grade's flags and Turn.format_errors
+            # stayed 0. Recorded only: nothing here changes the reward (the level-2 judge has no caller; the penalty is 0)
+            trace = world.to_trace()
+            res.flags = [*rule_flags(trace), *res.flags]
+            res.format_errors = format_errors_by_call(trace, ep.model_calls)
             save_episode(attempt, ep, res, self.id, policies)
             if ep.masked:
                 f = next((x for x in ep.failures if x.get("kind")), {"kind": "agent_run_error", "reason": "episode masked"})
