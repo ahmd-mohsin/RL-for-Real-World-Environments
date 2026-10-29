@@ -944,6 +944,28 @@ backend:
   unprotected (one uid, no per-container cgroups) is listed in doc 14 §3.
 - **Held-out tasks are offline:** `factory.tinker.require_offline` refuses a held-out task whose World declares a network.
 - **The arms:** `tinker_rl.py eval/compare --backend vllm` and `lh_debug_target.py --backend vllm`.
+- **A sealed benchmark as one arm** (`factory/benchrun.py`, `scripts/deltaai/bench.py`, `bench_prep.sbatch`,
+  `bench.sbatch`, `bench_env.sh`; 2026-10-28, the baseline of the untrained student). `verify` recomputes every hash of
+  the manifest (`benchseal.task_hashes`) and refuses a changed task; with the targeting dirs it also refuses an eval
+  harness that is not the single id the keep rule's student measurements used at the lane budget (a `-d1`/`-h1`/`-s1`
+  variant counts its parent's runs). The eval env is `make_env` in eval mode (`training` off: a wall-clock timeout is
+  graded, not masked) at `generators.debug.ENV_BUDGET`. `bundle` packs only the sealed tasks' data (candidate rows,
+  prompts, gate records, store windows, the held-out repositories' clones with relative git alternates) and the arm64
+  World images, which go to a separate mode-700 directory on the cluster. `dryrun` (no model) opens each task's World
+  as an episode does and runs the lockdown probe and plain network calls inside it, then grades the null patch (0) and
+  the oracle applied in the World and collected back (1) with the gates' verifier; `stub-serve` is a scripted stand-in
+  for vLLM that drives the real episode path on a CPU node. `run` is `factory.tinker.benchmark` per task at the
+  manifest's per-task seed, purpose `baseline` / `trained`, one directory per task with `lh_episodes.jsonl` so
+  `benchmark.paired_report` reads the arm later without a re-run; `report` is `benchmark.report` plus pass@1, pass@k, the
+  per-task rate, masked and host-failed episodes (failure blame `infra`, `core.schema.run.DEFAULT_BLAME`) and GPU-hours
+  from `sacct`.
+- **CPU pinning in the shim** (`CRUCIBLE_SHIM_PIN=1`): with no per-container cgroups a World's `go test` saw every core of
+  the job. The shim now gives each container `ceil(--cpus)` cores of the job's set (least-shared first, `pins.json` under
+  a lock) and runs its instance and every `exec` with that affinity, so a World has about the 2 CPUs the Mac's Docker
+  World had. Parallelism only: memory stays bounded by the job's cgroup alone.
+- **A policy-World fix is used only on the image it was built on** (`lh_debug_target.worldfix_applies`): a task
+  re-validated on a newer World image (a recipe that carries the fix) kept an accepted fix built on the old image, so
+  its episodes would have run in a World its gates never measured.
 
 The DeltaAI trainer bridge (`train/bridges/primerl/`, `scripts/delta_rl.py`; `docs/research/swarm-pipeline/14`;
 2026-10-25; the user's decision: RL on DeltaAI GPUs, Tinker for task creation). prime-rl v0.10.0 (Apache-2.0; DEPEND on

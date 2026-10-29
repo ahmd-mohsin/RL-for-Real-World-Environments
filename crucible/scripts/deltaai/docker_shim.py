@@ -20,6 +20,12 @@ the episodes run in.
   the caller ran as a numeric user;
 - cgroup limits (``--memory``, ``--cpus``, ``--pids-limit``) when the host accepts them (``CRUCIBLE_SHIM_LIMITS=1``);
   the Slurm job's cgroup bounds the rest;
+- **CPU pinning** for ``--cpus N`` (``CRUCIBLE_SHIM_PIN=1``): fakeroot mode has no per-container cgroups, so a World's
+  ``go test`` or ``vitest`` would see and use every core of the job. The shim gives the container ``ceil(N)`` cores of
+  the job's own CPU set (the least-shared ones first, ``pins.json`` under a lock in the state dir) and runs its instance
+  and every ``exec`` into it with that affinity, so a World gets about the 2 CPUs the Mac's Docker World had (Go's
+  ``GOMAXPROCS`` and Node's ``availableParallelism`` follow the affinity). It bounds parallelism, not memory, and code
+  inside can widen its own affinity back to the job's set: a fidelity measure, not a security one;
 - GPUs only when the caller asked (``--gpus`` / ``--runtime=nvidia``): ``--nv``.
 
 What this cannot give (one uid on the host, no subuid range): code inside runs as the invoking user. Anything that user
@@ -36,8 +42,10 @@ container (its overlay, its SIF, its labels) is ``$CRUCIBLE_SHIM_STATE/<name>.js
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -253,6 +261,63 @@ def write_env_file(pairs: list[str], files: list[str], cfg_env: list[str] | None
     return path
 
 
+# ---- CPU pinning (CRUCIBLE_SHIM_PIN=1) -------------------------------------------------------------------------------------
+def pin_enabled() -> bool:
+    return os.environ.get("CRUCIBLE_SHIM_PIN") == "1"
+
+
+def job_cpus() -> list[int]:
+    return sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else list(range(os.cpu_count() or 1))
+
+
+def _pins(update) -> dict:
+    """Read-modify-write ``pins.json`` (container -> cores) under an exclusive lock; ``update(pins)`` changes it in place."""
+    lock = state_dir() / ".pins.lock"
+    with lock.open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        f = state_dir() / "pins.json"
+        pins = json.loads(f.read_text()) if f.exists() else {}
+        update(pins)
+        f.write_text(json.dumps(pins))
+        return pins
+
+
+def alloc_cores(name: str, cpus: str | None) -> list[int] | None:
+    """``ceil(cpus)`` cores of the job's set for container ``name``, the least-held first (ties: the lowest index)."""
+    if not pin_enabled() or not cpus:
+        return None
+    try:
+        n = max(1, math.ceil(float(cpus)))
+    except ValueError:
+        return None
+    avail = job_cpus()
+    got: list[int] = []
+
+    def take(pins: dict) -> None:
+        load = {c: 0 for c in avail}
+        for cores in pins.values():
+            for c in cores:
+                if c in load:
+                    load[c] += 1
+        got.extend(sorted(avail, key=lambda c: (load[c], c))[:min(n, len(avail))])
+        pins[name] = got
+
+    _pins(take)
+    return got
+
+
+def free_cores(name: str) -> None:
+    if pin_enabled() and (state_dir() / "pins.json").exists():
+        _pins(lambda pins: pins.pop(name, None))
+
+
+def pinned(cores: list[int] | None):
+    """A ``preexec_fn`` that sets the child's CPU affinity (None: no pinning)."""
+    if not cores:
+        return None
+    return lambda: os.sched_setaffinity(0, cores)
+
+
 def common_flags(o: dict, *, overlay: str | None) -> list[str]:
     """``overlay``: the container's own directory (``new_overlay``): ``ovl/`` is its writable layer, ``tmp/`` its /tmp and
     /var/tmp (``--containall`` would put /tmp in the session tmpfs, capped at 64 MiB on DeltaAI)."""
@@ -328,6 +393,7 @@ def instances() -> list[str]:
 
 def stop(name: str) -> bool:
     r = subprocess.run([APPTAINER, "instance", "stop", "-F", name], capture_output=True, text=True, env=host_env(), check=False)
+    free_cores(name)
     rec = load(name)
     if rec:
         if rec.get("overlay"):
@@ -354,11 +420,13 @@ def cmd_run(argv: list[str]) -> int:
     name = o["name"] or f"crucible-shim-{uuid.uuid4().hex[:10]}"
     cfg = image_config(sif)
     overlay = new_overlay(name)
+    cores = alloc_cores(name, o.get("cpus"))
     rec = {"name": name, "sif": str(sif), "image": o["image"], "overlay": overlay, "env_file": env_file, "labels": o["labels"],
-           "workdir": o.get("workdir") or cfg.get("WorkingDir"), "gpus": o["gpus"]}
+           "workdir": o.get("workdir") or cfg.get("WorkingDir"), "gpus": o["gpus"], "cores": cores}
     start = run_argv(o, overlay=overlay, env_file=env_file, instance=name)
-    r = subprocess.run(start, capture_output=True, text=True, env=host_env(), check=False)
+    r = subprocess.run(start, capture_output=True, text=True, env=host_env(), check=False, preexec_fn=pinned(cores))
     if r.returncode != 0:
+        free_cores(name)
         shutil.rmtree(overlay, ignore_errors=True)
         raise ShimError(f"apptainer instance start failed: {(r.stderr or r.stdout)[-800:]}")
     save(name, rec)
@@ -373,7 +441,7 @@ def cmd_run(argv: list[str]) -> int:
             log = state_dir() / f"{name}.log"
             with log.open("ab") as fh:
                 subprocess.Popen(exec_argv(name, cmd, workdir=None, env_file=env_file, record=rec), stdout=fh, stderr=fh, stdin=subprocess.DEVNULL,
-                                 env=host_env(), start_new_session=True)
+                                 env=host_env(), start_new_session=True, preexec_fn=pinned(cores))  # noqa: PLW1509 - the shim is single-threaded
         print(hashlib.sha256(name.encode()).hexdigest())  # docker prints the container id
         return 0
     # foreground: run in the instance (so ``docker kill <name>`` works), then remove it
@@ -384,7 +452,7 @@ def cmd_run(argv: list[str]) -> int:
     signal.signal(signal.SIGTERM, _term)
     try:
         p = subprocess.run(exec_argv(name, cmd or ["true"], workdir=None, env_file=env_file, record=rec), env=host_env(), check=False,
-                           stdin=None if o["interactive"] else subprocess.DEVNULL)
+                           stdin=None if o["interactive"] else subprocess.DEVNULL, preexec_fn=pinned(cores))
         return p.returncode
     finally:
         stop(name)
@@ -420,7 +488,7 @@ def cmd_exec(argv: list[str]) -> int:
     env_file = write_env_file(env, [])
     try:
         p = subprocess.run(exec_argv(name, cmd, workdir=workdir, env_file=env_file, record=rec or {}), env=host_env(), check=False,
-                           stdin=None if interactive else subprocess.DEVNULL)
+                           stdin=None if interactive else subprocess.DEVNULL, preexec_fn=pinned((rec or {}).get("cores")))
         return p.returncode
     finally:
         if env_file:
