@@ -697,6 +697,55 @@ repo rules.
 hard cap in the wire. The checks use the swarm families (Kimi, GLM, DeepSeek, Nemotron, gpt-oss); the student is called
 only in M6/E4. Spend beyond $150 needs the lead's approval.
 
+### 14.1 Status after M1–M4 (2026-10-29)
+
+**Built:** M1–M4. **Not built:** M5 (the debug-lane adapter, the real-defect set, the ONL hook) and M6 (composition,
+the Gym demo, the experiment runs).
+
+**The first end-to-end runs (M4).** The whole run was on the Tinker swarm, with no Qwen model in any role and the
+student never called. The run reports are in `runs/m4/`.
+
+| Domain | Proposed | Oracle executed | Certified | Provisional | Rejected | Cost |
+|---|---|---|---|---|---|---|
+| finance_ap (existing pack) | 20 | 20 | 2 | 2 | 16 | $1.07 |
+| it_helpdesk (World synthesised from the keyword, $0.48: 10 tools, 6 tables, 25 blind tests) | 20 | 19 | 2 | 1 | 16 | $1.94 |
+
+Total M4 spend, smokes included, was $7.91 of its $60 cap.
+
+**What the falsifiers found in swarm-written tasks:**
+- TWIN D9: the contract cannot tell a sibling-category task apart;
+- MUT ExtraWrite D2 and SwapEntity D3/D9;
+- RED D4: requirements already true at the start;
+- NULL D8/D1/D4;
+- TAINT D5: ids never listed, and TAINT D7: decisions given away in the instruction;
+- one ALT D6: a valid alternative solution the contract rejected.
+
+**The binding rule today** is "ALT passes from a non-builder family". Most rejections are solvers misapplying the
+domain policy, and the panel confirms those attempts are invalid.
+
+**Calibration found a real judge flaw.** One panel family rated "read everything, never act" traces valid at 0.95
+confidence. The panel prompt was tightened, and λ was set from executed-truth anchors.
+
+**Decisions taken from the M4 findings:**
+1. **Admission** also requires zero confirmed ALT counterexamples, i.e. no confirmed D6.
+2. **Normalizers** are fixed before skeleton inference, because `id_canon` re-keys inserted rows.
+3. **The TAINT free-literal rule.** A literal is not D5 when π* still passes with it replaced. Transformed values,
+   such as a normalised invoice number, are still flagged: a known precision gap.
+4. **The repairer** differs in family from the contract writer.
+5. **What the panel sees.** By default it sees reason codes (§5). The blind-panel variant (no verdict at all) is kept as
+   an ablation.
+6. **Attackers** see the strategies and the instruction, never the World's failure logs.
+
+**Open items:**
+
+| Item | Detail |
+|---|---|
+| `cegis` final re-run | Must adjudicate suspects, or a repair in the last round leaves them open. M4 works around it inline. |
+| PPI intervals for adjudicated rates | Calibration reports accuracy, coverage and a Clopper–Pearson bound per λ |
+| Family exhaustion | Three builder families leave two checker families (Nemotron, gpt-oss) for ALT, ATK, the panel and the abstractor, so the panel judges its own family's ALT traces. A sixth non-Qwen family on Tinker would fix it. |
+| Short generated tasks | They get 30–128 distinct mutants, so many are provisional. Denser seeded Worlds (more sibling entities) are the fix. |
+| Human queue | 53 panel abstentions on it_helpdesk (`human_queue.jsonl`) await a decision |
+
 ## 15. Relation to prior work
 
 ### 15.1 System-level comparison with ScaleEnv and the closest pipelines
