@@ -4,6 +4,9 @@ M1: ``canon`` (typed state and the exact diff), ``iface`` (the ``SynthWorld`` pr
 adapter), ``program`` (the straight-line oracle DSL with taint), ``contract`` (contracts as data and the trusted grader),
 ``infer`` (the skeleton contract), ``task``.
 M2: ``falsify`` (MUT, NULL, RED, TAINT, TWIN, PERT, REP; ALT/ATK/ONL protocols), ``certificate``, ``archive``, ``cegis``.
+M3: MUT scaled with the World and deduplicated by effect, REP-gated scheduling, certified vs provisional admission;
+``meta`` (the planter, recall and residual estimates, the regularised update rule R1–R10, the operator DSL and birth gate,
+the lemma bank).
 
 Layering: beside ``crucible.forge``; imports runtime, verify, world and core, never factory. LLM roles are injected.
 """

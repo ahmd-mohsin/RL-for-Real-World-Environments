@@ -4,16 +4,26 @@ Operators (every mutant is an executable ``Program``; ``data`` says what the ope
 - ``Identity``: π* itself; it must pass. A failure is the oracle rejected by its own contract: D10 when a required
   effect is missing (no tool sequence the builder found reaches it), else D6 (an over-strict frame, trace or answer).
 - ``DropStep(i)``, ``DupStep(i)``, ``Truncate(k)`` (keep the first ``k`` steps).
-- ``SwapEntity``: an argument whose value is an entity key at s₀ → a sibling key of the same collection.
-- ``PerturbValue``: a numeric argument ±1/±10 (ints) or ×1.01/×0.9/+1 (floats); an enum-like string → another value
-  seen for that name (the tool schema's enum, s₀ cells of the same field name, π*'s other arguments of that name).
-- ``ExtraWrite``: a copy of a write step on a distractor entity (a sibling key π* does not write), inserted after it;
-  and every write tool π* never calls, with arguments borrowed by name from π*'s calls.
+- ``SwapEntity``: an argument whose value is an entity key at s₀ → **every** sibling key of the same collection (up to
+  ``MAX_SIBLINGS``, seeded sample beyond it).
+- ``PerturbValue``: a numeric argument at several magnitudes (ints ±1, ±10, ±100, ×2, 0; floats ×0.5, ×0.9, ×0.99,
+  ×1.01, ×1.1, ×2, ±1); an enum-like string → every other value seen for that name (the tool schema's enum, s₀ cells of
+  the same field name, π*'s other arguments of that name), up to ``MAX_ALTS``.
+- ``ExtraWrite``: a copy of a write step on **every** distractor entity (a sibling key π* does not write), inserted
+  after it; and every write tool π* never calls, with arguments borrowed by name from π*'s calls.
 - ``Reorder``: two adjacent writes, neither referring to the other, swapped.
-- ``WrongAnswer``: the answer replaced by a plausible wrong one.
+- ``WrongAnswer``: the answer replaced by a plausible wrong one (several magnitudes for a number).
+
+The neighbourhood scales with the World (M3, §6): a task over a collection of 40 entities gets about 80 swap and
+extra-write mutants per written key, so U_MUT ≤ 0.05 (n ≥ 59) is reachable for 1–4 step tasks; a World with few
+entities cannot reach it, and the task is admitted only as *provisional* (``certificate``).
 
 Families are interleaved round-robin up to ``ctx.max_mutants`` so no family crowds out the others (accept V18), and
-duplicate programs are dropped.
+duplicate programs are dropped. After execution, ``finalize`` **deduplicates by normalised effect**
+(``base.effect_signature``: Δ under the contract's normalizers, the answer, the reason codes): mutants with one effect
+get one verdict, so only the most informative of them (confirmed, then suspect, equivalent, clean; then the earliest)
+counts as a trial; the others stay in the result with ``valid = False`` and ``data["duplicate_of"]``. A certificate's
+n is the number of *distinct* behaviours the contract was tested on, which is what the rule of three needs.
 
 Label rule (§5): an equivalent mutant must pass (failing: confirmed D6); a non-equivalent one must fail. Survivors of
 DropStep on a write, Truncate that removed a write, SwapEntity on a key π* writes, ExtraWrite whose effects fall outside
@@ -27,13 +37,14 @@ import random
 from typing import Any, ClassVar
 
 from crucible.synth.canon import is_number
-from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Label, Outcome, Probe, dedupe_programs, delta_of, entity_index, key_text, typed_like, written_entities
+from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Finding, Label, Outcome, Probe, dedupe_programs, delta_of, entity_index, key_text, typed_like, written_entities
 from crucible.synth.iface import ToolInfo
 from crucible.synth.program import Fn, Lit, Program, Ref, Run, Step, _loose_eq
 from crucible.synth.task import Task
 
-MAX_SIBLINGS = 6
-MAX_ALTS = 3
+MAX_SIBLINGS = 64
+MAX_ALTS = 12
+RANK = {"confirmed": 0, "suspect": 1, "equivalent": 2, "clean": 3}
 
 
 def _refs(step: Step) -> set[str]:
@@ -92,19 +103,29 @@ def enum_alternatives(name: str, value: Any, tool: ToolInfo | None, oracle: Run,
 
 
 def number_alternatives(v: Any) -> list[Any]:
+    """Several magnitudes, so a tolerance of any width between 1% and 100% has a mutant just outside it."""
     if isinstance(v, int):
-        cand = [v + 1, v - 1, v + 10]
+        cand = [v + 1, v - 1, v + 10, v - 10, v + 100, v * 2, 0]
     else:
-        cand = [round(v * 1.01, 6), round(v * 0.9, 6), v + 1.0]
-    return [c for c in cand if c != v]
+        cand = [round(v * f, 6) for f in (1.01, 0.99, 1.1, 0.9, 2.0, 0.5)] + [v + 1.0, v - 1.0]
+    out: list[Any] = []
+    for c in cand:
+        if c != v and c not in out:
+            out.append(c)
+    return out
 
 
 def wrong_answers(a: Any, oracle: Run) -> list[Any]:
     if isinstance(a, bool):
         return [not a]
     if is_number(a):
-        out = [a + 1, a * 1.1 if a else 1, a - 1] if isinstance(a, int) else [round(a * 1.1, 6) if a else 1.0, a + 1.0, round(a * 0.5, 6)]
-        return [x for x in out if x != a]
+        out = [a + 1, a * 1.1 if a else 1, a - 1, a + 10, a * 2] if isinstance(a, int) else [round(a * 1.1, 6) if a else 1.0, a + 1.0, round(a * 0.5, 6),
+                                                                                              round(a * 1.001, 6), round(a * 1.01, 6), round(a * 2, 6)]
+        res: list[Any] = []
+        for x in out:
+            if x != a and x not in res:
+                res.append(x)
+        return res
     if isinstance(a, str):
         others = [v for c in oracle.calls for _, v in _str_leaves(c.obs.value) if not _loose_eq(v, a)]
         return [a + " (not)", *sorted(set(others))[:2]]
@@ -157,7 +178,7 @@ class MUT(BaseFalsifier):
                                                        data={"written": (app, coll, kt) in written_keys}))
                     if not ro[s.id]:  # ExtraWrite on distractors: the write repeated on a key π* does not write
                         others = {k for (a, c, k) in written_keys if (a, c) == (app, coll)}
-                        for j, sib in enumerate(_siblings(oracle.start, app, coll, kt or "", rng, exclude=others)[:4]):
+                        for j, sib in enumerate(_siblings(oracle.start, app, coll, kt or "", rng, exclude=others)):
                             extra = s.model_copy(deep=True)
                             extra.id = f"{s.id}_x{j}"
                             extra.args[name] = Lit(v=typed_like(sib, v))
@@ -207,6 +228,22 @@ class MUT(BaseFalsifier):
                     if d not in seen:
                         seen.add(d)
                         out.append(pr)
+        return out
+
+    def finalize(self, findings: list[Finding]) -> list[Finding]:
+        """Deduplicate by normalised effect (see the module docstring)."""
+        groups: dict[str, list[int]] = {}
+        for i, f in enumerate(findings):
+            e = f.outcome.data.get("effect")
+            if f.outcome.valid and e is not None:
+                groups.setdefault(e, []).append(i)
+        out = list(findings)
+        for idx in groups.values():
+            keep = min(idx, key=lambda i: (RANK.get(findings[i].label, 9), i))
+            for i in idx:
+                if i != keep:
+                    o = findings[i].outcome.model_copy(update={"valid": False, "data": {**findings[i].outcome.data, "duplicate_of": findings[keep].site}})
+                    out[i] = findings[i].model_copy(update={"outcome": o})
         return out
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:

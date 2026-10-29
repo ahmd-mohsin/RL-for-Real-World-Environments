@@ -13,12 +13,19 @@ thresholds configurable, defaults from §6):
 - every class in ``require_applicable`` ran;
 - ALT has at least one pass from a non-builder family (``require_alt_pass``); ATK has no confirmed hack;
 - no suspects are open (``allow_open_suspects``), since a suspect is an unadjudicated possible counterexample.
+
+**Certified vs provisional (§6, M3).** A bound in ``u_max`` that is missed *only* because n is small (c = 0, so U is
+the rule of three on too few distinct probes) does not reject the task: it is admitted as ``provisional`` with its U
+reported, and is never counted as ``certified``. Every other reason rejects. ``status`` is ``certified``,
+``provisional`` or ``rejected``; ``admitted`` is true for the first two; ``reasons`` lists the rejection reasons and
+``provisional_for`` the bounds that were missed for want of n. ``provisional_ok = False`` turns the soft miss back into a
+rejection.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -52,6 +59,7 @@ class AdmissionPolicy(CrucibleModel):
     require_alt_pass: bool = True
     atk_max_confirmed: int = 0
     allow_open_suspects: bool = False
+    provisional_ok: bool = True
 
 
 class Certificate(CrucibleModel):
@@ -61,9 +69,15 @@ class Certificate(CrucibleModel):
     task_digest: str
     classes: dict[str, ClassStat] = Field(default_factory=dict)
     admitted: bool = False
+    status: Literal["certified", "provisional", "rejected"] = "rejected"
     reasons: list[str] = Field(default_factory=list)
+    provisional_for: list[str] = Field(default_factory=list)
     policy: AdmissionPolicy = Field(default_factory=AdmissionPolicy)
     regressions_reopened: list[str] = Field(default_factory=list)
+
+    @property
+    def certified(self) -> bool:
+        return self.status == "certified"
 
     @property
     def clean(self) -> bool:
@@ -96,10 +110,11 @@ def certify(task: Task, results: Iterable[ClassResult], policy: AdmissionPolicy 
         s = stats.get(k)
         if s is not None and s.applicable and s.c > pol.max_confirmed:
             why.append(f"{k}:confirmed={s.c}")
+    soft: list[str] = []
     for k, u in pol.u_max.items():
         s = stats.get(k)
         if s is not None and s.applicable and s.upper > u:
-            why.append(f"{k}:upper={s.upper:.4f}>{u}")
+            (soft if s.c == 0 and pol.provisional_ok else why).append(f"{k}:upper={s.upper:.4f}>{u}")
     alt = stats.get("ALT")
     if pol.require_alt_pass and (alt is None or not alt.applicable or alt.passes == 0):
         why.append("ALT:no_pass")
@@ -111,8 +126,9 @@ def certify(task: Task, results: Iterable[ClassResult], policy: AdmissionPolicy 
     rx = sorted(reopened)
     if rx:
         why.append(f"archive:reopened={len(rx)}")
-    return Certificate(task_id=task.id, task_version=task.version, task_digest=task.digest(), classes=stats, admitted=not why, reasons=why, policy=pol,
-                       regressions_reopened=rx)
+    status = "rejected" if why else ("provisional" if soft else "certified")
+    return Certificate(task_id=task.id, task_version=task.version, task_digest=task.digest(), classes=stats, admitted=not why, status=status,
+                       reasons=why, provisional_for=soft, policy=pol, regressions_reopened=rx)
 
 
 def certificate_json(c: Certificate) -> str:

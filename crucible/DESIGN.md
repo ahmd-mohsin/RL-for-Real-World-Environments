@@ -1625,12 +1625,12 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     working clones' git alternates relative to their objects dir (`benchrun.bundle`'s rule), so a copied pool needs no
     path rewrite.
 
-### 7.7 crucible.synth: counterexample-guided environment synthesis (Part 2 M1–M2, built 2026-10-29)
+### 7.7 crucible.synth: counterexample-guided environment synthesis (Part 2 M1–M3, built 2026-10-29)
 
 The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-core.md`): an environment is a claim
 ("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
 `src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
-factory). M1 and M2 are built; LLM roles (M4), planted sets (M3), the debug-lane adapter (M5) and composition (M6) are not.
+factory). M1, M2 and M3 are built; LLM roles (M4), the debug-lane adapter (M5) and composition (M6) are not.
 
 1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
    never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
@@ -1674,9 +1674,64 @@ factory). M1 and M2 are built; LLM roles (M4), planted sets (M3), the debug-lane
    format); `regress` replays every archived counterexample of a task against a version. `refine`/`synthesize` run
    §7's loop with injected `Proposer`, `OracleBuilder`, `Generaliser`, `Repairer`, `Adjudicator`; a repair that re-opens
    a counterexample the current version rejects is refused; three rounds at most.
-7. **Tests** (`tests/unit/test_synth_*.py`, domain in `tests/unit/synth_fixtures.py`: an AP World and a helpdesk +
-   mail World, six correct tasks, one planted task per D1–D11, a position-keyed and an always-pass contract). Each
-   planted defect is caught by its class with a confirmed counterexample; the correct tasks get clean certificates.
+7. **Tests** (`tests/unit/test_synth_*.py`, domain in `tests/unit/synth_fixtures.py`: an AP World (with `extra` pending
+   invoices on request) and a helpdesk + mail World, six correct tasks, one planted task per D1–D11, a position-keyed
+   and an always-pass contract; `in_domain`/`anchors` split them into `ap-test` and `desk-test`). Each planted defect is
+   caught by its class with a confirmed counterexample; the correct tasks get clean certificates.
+8. **M3 changes to M2** (`falsify/mut.py`, `falsify/base.py`, `certificate.py`, `cegis.py`). MUT's neighbourhood scales
+   with the World: SwapEntity and ExtraWrite over every sibling (64 at most), PerturbValue at several magnitudes, every
+   seen enum value (12). **Decision:** mutants are deduplicated by *normalised effect* after execution
+   (`effect_signature` = Δ under the contract's normalizers, answer, reason codes): one effect is one trial, the most
+   informative of a group is kept (confirmed, suspect, equivalent, clean), the rest stay as `valid = False` with
+   `duplicate_of`. A 3-step task over 38 invoices reaches 59+ distinct mutants; in the 8-invoice World it has 13, and
+   t5 (now over 16 invoices) has 75. `run_classes` is the one scheduler: REP first, and a REP finding marks MUT, TWIN
+   and PERT not applicable ("gated"). Certificates have `status` certified / provisional / rejected: a missed U bound
+   with c = 0 is `provisional` (`provisional_for` lists it), never certified; CEGIS reports `provisional` separately
+   from `admitted` (= certified).
+9. **The planter** (`meta/plant.py`, §8). Eleven operators, one per defect class, each a versioned, parameterised
+   `PlantOp(name, version, variant, params)`; a `Planter` is a population member (`base_planter` for dev,
+   `held_out_planter` with disjoint variants for a locked set). World plants are data: `planted_world` wraps the
+   source World with patches (a one-call `quick_*` tool replaying π*'s writes, an `admin_set_*` field setter, a nondet
+   stamp whose token alternates per episode; the counter survives `reset`). **Decision (witness kinds):** lenient
+   (D1–D4, D8, D9: a run that passes τ′ and fails τ, from τ's MUT/NULL neighbourhood in a per-class family order),
+   strict (D6: a stated-constraint-equivalent run that passes C and fails C′; §8 leaves the mirror case implicit),
+   hidden (D5: a literal unsourced under ι′ that ι sourced), leak (D7: the recorded inserted span quotes the derive
+   value, exactly or humanised, independent of TAINT's matcher), unsolvable (D10: π* misses the planted pattern, the
+   value is nowhere visible, no candidate passes C′), nondet (D11: two consecutive replays differ). Every plant is
+   re-validated by execution (`validate`) before it is kept; one without a witness is discarded with its reason.
+   `vacuous_required` replaces a requirement by a `state` pattern s₀ satisfies and allows the effect, so it has a
+   lenient witness (a pure addition of a true pattern has none). `features` + `mmd` (RBF, median-heuristic bandwidth
+   from the reference sample) measure natural-likeness.
+10. **Recall** (`meta/recall.py`, §6, E1/E8). `measure` gives FR_k,d (any confirmed counterexample on a plant of class d,
+   Wilson 95%; `matched` and `suspects` alongside), the population row and FA_k on anchors. `residual` (Mills: n_d(1 −
+   FR)/FR; delta method or seeded parametric bootstrap; FR = 0 is unbounded, `None`) and `capture_recapture`
+   (Lincoln–Petersen, Chapman with variance). JSON and markdown reports. `PlantSet`/`SetStore`/`load_set`: write-once
+   sets; a locked root is registered, and any read of a locked set without `purpose="report"` raises `LockedSetError`,
+   by store, by path or by a copy (the set says `kind: locked`); `measure` refuses locked plants likewise.
+   **Measured on the fixtures** (34 plants, one per variant and domain): FA = 0 in every class; the gaps are
+   real: an unstated `never(read)` (no MUT mutant adds a read), a humanised leak ("price variance"), and `eq → any`
+   relaxations (MUT survivors are suspects; RED's concrete-pattern rule fires, labelled D4).
+11. **The regularised update rule** (`meta/update.py`, §9.4). `ThetaStore` (write-once versions, atomic heads),
+   hash-chained `Ledger`, `UpdateEngine.decide`: static rules first (R5 cosine edit budget 3 → 1, R6 critic and
+   family separation, R8 judge-only round cap, R10 JSON round-trip), then a fresh view (R1: new hash, not locked,
+   every past planter version present), the incumbent, the candidate and an equal-budget control on that view, and
+   R2 (LCB₉₅ of the paired gain > δ), R3 (archive, FA, per-class FR and P3/P4 noise bands), R4 (cell KL ≤ κ, entropy ≥
+   H_min), R5 (marginal recall per extra probe-dollar ≥ β), R7 (held-out-domain gain > δ), R9 (beats the control). All
+   failing rules are recorded (non-compensatory). **Decision:** δ = max(2·sd, range/2) of ≥ 3 calibration runs, set
+   once, raised only; `set_floor` raises. `audit` rolls back to the previous good Θ on a paired regression; `prune`
+   removes items without marginal gain for W rounds when J holds within δ. The default leakage critic searches task ids,
+   planted ids, entity keys, literals and anchor tokens in the diff.
+12. **The operator library and lemmas** (`meta/library.py`, `meta/lemmas.py`, §9.5). A typed JSON DSL (selectors
+   `written_key`, `read_key`, `sibling_of`, `any_write_tool`, `read_tool`, `tool`, `observation_of`, `field_values`,
+   `const`; transforms `shift`, `scale`, `suffix`, `other_seen`; bodies `mutate_arg`, `insert_call`, `drop_calls`,
+   `agent`; a label rule) compiled into `CompiledOperator` falsifiers (`OP:<name>@<v>`, MUT's equivalence rule and
+   effect dedup). `birth_gate` (reproduces its sources; hits on other tasks and domains of a fresh dev view; zero false
+   alarms on anchors; probes per task under the cost bar), `fictitious_play` (recall on the union of past planters'
+   sets and on each one), `retire` (no unique hit for W rounds, only if fictitious play holds), `accept_planter`
+   (witnessed, MMD ≤ μ, critic). Proven on the fixtures: an `insert_call(read_tool(unused))` operator closes the
+   `never(read)` gap and passes the gate; a "key swap must pass" operator alarms on all five anchors and fails it. The
+   lemma bank is versioned data; `lemma_acceptance` needs equal spend, a falling first-round counterexample rate (exact
+   McNemar when paired, Newcombe's interval otherwise) and J rising under the update rule.
 
 ## 8. Layer 4: verification and isolation
 

@@ -14,6 +14,12 @@ under the contract's normalizers), its answer equals the oracle's (``contract.an
 equal), and every trace constraint the instruction *states* (``TraceConstraint.stated`` found in ι) has the same truth
 value on both. Unstated constraints are left out on purpose: an equivalent run that violates one is an over-strict
 contract (D6), which is how an unstated order or format demand is caught.
+
+**Effects and scheduling (M3).** ``execute`` records each program probe's ``effect_signature`` (normalised Δ, answer,
+reason codes): two probes with one signature get one verdict, so a class may ``finalize`` its findings by keeping one
+trial per effect (MUT does). ``run_classes`` is the one scheduler every caller uses (CEGIS, recall, the library): REP
+first, and when REP confirms nondeterminism MUT, TWIN and PERT are recorded as not applicable instead of being run
+(§5.1 rule 3). With ``cache=True`` it keeps one result per class, configuration and task version.
 """
 
 from __future__ import annotations
@@ -150,7 +156,8 @@ class FalsifyContext:
         self.seed = seed
         self._worlds: dict[str, SynthWorld] = {}
         self._oracle: dict[str, Run] = {}
-        self.class_cache: dict[tuple[str, str], ClassResult] = {}
+        self._odelta: dict[tuple[str, str], list[Change]] = {}
+        self.class_cache: dict[tuple[str, ...], ClassResult] = {}
 
     async def world(self, task: Task) -> SynthWorld:
         k = task.world.model_dump_json()
@@ -172,6 +179,14 @@ class FalsifyContext:
 
         return await run(w, program, task.instruction if instruction is None else instruction, seed=task.seed, given=task.intent.given,
                          prepare=prep if perturb else None, anchors=anchors, taint=taint, reset=reset)
+
+    async def oracle_delta(self, task: Task, contract: Contract | None = None) -> list[Change]:
+        """Δ* of the task's oracle run under a contract's normalizers (default: the task's), cached."""
+        c = contract or task.contract
+        k = (task.digest(), c.normalizers.model_dump_json())
+        if k not in self._odelta:
+            self._odelta[k] = delta_of(await self.oracle(task), c)
+        return self._odelta[k]
 
     async def oracle(self, task: Task) -> Run:
         k = task.digest()
@@ -205,11 +220,12 @@ def stated(contract: Contract, instruction: str) -> list[Any]:
     return [m for m in contract.trace if m.stated and norm_text(m.stated) in ins]
 
 
-def equivalent(r: Run, oracle: Run, contract: Contract, instruction: str) -> bool:
-    """See the module docstring."""
+def equivalent(r: Run, oracle: Run, contract: Contract, instruction: str, *, d_run: Sequence[Change] | None = None,
+               d_oracle: Sequence[Change] | None = None) -> bool:
+    """See the module docstring. ``d_run`` / ``d_oracle`` are the two diffs when the caller already has them."""
     if (r.start is None) != (oracle.start is None):
         return False
-    if r.start is not None and not same_diff(delta_of(r, contract), delta_of(oracle, contract)):
+    if r.start is not None and not same_diff(delta_of(r, contract) if d_run is None else d_run, delta_of(oracle, contract) if d_oracle is None else d_oracle):
         return False
     if not ((r.answer is None and oracle.answer is None) or (r.answer is not None and oracle.answer is not None and answer_equal(r.answer, oracle.answer))):
         return False
@@ -220,6 +236,14 @@ def equivalent(r: Run, oracle: Run, contract: Contract, instruction: str) -> boo
         except Exception:  # noqa: BLE001 - an unevaluable constraint is not evidence of equivalence
             return False
     return True
+
+
+def effect_signature(delta: Sequence[Change], answer: Any, verdict: Verdict) -> str:
+    """What a probe *did*, as the grader sees it: the normalised diff, the answer and the verdict's reason codes (which
+    carry the truth of every trace constraint and exec check). Two runs with one signature get the same verdict under
+    the contract, so they are one trial, not two."""
+    ch = sorted([str(c.addr), c.kind, cjson(c.old), cjson(c.new)] for c in delta)
+    return content_hash({"delta": ch, "answer": cjson(answer), "passed": verdict.passed, "reasons": sorted(verdict.reasons)}, 24)
 
 
 def empty_run(start: CanonState | None, instruction: str) -> Run:
@@ -292,9 +316,11 @@ class BaseFalsifier:
         ins = probe.instruction if probe.instruction is not None else task.instruction
         r = await ctx.run(task, probe.program, instruction=ins, perturb=probe.perturb, anchors=oracle.anchors if probe.reresolve else None)
         v = ctx.grade(r, c)
-        eq = equivalent(r, oracle, c, ins)
-        outside = sorted({str(ch.addr) for ch in delta_of(r, c)} - {str(ch.addr) for ch in delta_of(oracle, c)})
-        return Outcome(passed=v.passed, reasons=v.reasons, equivalent=eq, error=r.error, data={"outside": outside})
+        d = delta_of(r, c)
+        d0 = await ctx.oracle_delta(task, c)
+        eq = equivalent(r, oracle, c, ins, d_run=d, d_oracle=d0)
+        outside = sorted({str(ch.addr) for ch in d} - {str(ch.addr) for ch in d0})
+        return Outcome(passed=v.passed, reasons=v.reasons, equivalent=eq, error=r.error, data={"outside": outside, "effect": effect_signature(d, r.answer, v)})
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         raise NotImplementedError
@@ -317,7 +343,8 @@ class BaseFalsifier:
 
 
 async def falsify(task: Task, f: Falsifier, ctx: FalsifyContext) -> ClassResult:
-    """Run one falsifier class on one task: propose, execute, label."""
+    """Run one falsifier class on one task: propose, execute, label, then the class's ``finalize`` (MUT drops mutants
+    whose normalised effect repeats an earlier one: they are not independent trials)."""
     why = await f.applies(task, ctx) if hasattr(f, "applies") else None  # type: ignore[attr-defined]
     if why is not None:
         return ClassResult(cls=f.name, applicable=False, reason=why)
@@ -326,6 +353,47 @@ async def falsify(task: Task, f: Falsifier, ctx: FalsifyContext) -> ClassResult:
         o = await f.execute(p, task, ctx)
         lab, d = f.label(p, o) if o.valid else ("clean", None)
         out.findings.append(Finding(cls=f.name, op=p.op, site=p.site, label=lab, defect=d, probe=p, outcome=o))
+    fin = getattr(f, "finalize", None)
+    if fin is not None:
+        out.findings = fin(out.findings)
+    return out
+
+
+# REP runs first and gates the classes whose label rules assume a deterministic World (§5.1 rule 3): in a
+# nondeterministic World every mutant looks non-equivalent and every twin or perturbation looks like a flip, so their
+# survivors would be mislabelled.
+GATED_BY_REP = ("MUT", "TWIN", "PERT")
+
+
+def _config_key(f: Falsifier) -> str:
+    try:
+        return cjson({k: (v.model_dump(mode="json") if isinstance(v, CrucibleModel) else repr(v)) for k, v in sorted(vars(f).items())})
+    except (TypeError, ValueError):
+        return repr(sorted(vars(f)))
+
+
+async def run_classes(task: Task, falsifiers: Sequence[Falsifier], ctx: FalsifyContext, *, cache: bool = False) -> list[ClassResult]:
+    """Every class on one task in the scheduled order: REP first (stable otherwise); when REP confirms a counterexample
+    the gated classes are recorded as not applicable, with the reason, instead of being run. ``cache=True`` keeps one
+    result per (class, configuration, task version) in ``ctx.class_cache`` (recall matrices and fictitious play
+    re-measure the same plants under several populations)."""
+    order = sorted(falsifiers, key=lambda f: f.name != "REP")
+    out: list[ClassResult] = []
+    nondet = False
+    for f in order:
+        if nondet and f.name in GATED_BY_REP:
+            out.append(ClassResult(cls=f.name, applicable=False, reason="gated: REP confirmed nondeterminism"))
+            continue
+        k = (f.name, task.digest(), _config_key(f))
+        if cache and k in ctx.class_cache:
+            r = ctx.class_cache[k]  # type: ignore[index]
+        else:
+            r = await falsify(task, f, ctx)
+            if cache:
+                ctx.class_cache[k] = r  # type: ignore[index]
+        out.append(r)
+        if f.name == "REP" and r.c > 0:
+            nondet = True
     return out
 
 

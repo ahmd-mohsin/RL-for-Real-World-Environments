@@ -44,8 +44,23 @@ RECEIPTS = {f"GR-{i}": {"id": f"GR-{i}", "po": po, "value": v} for i, po, v in [
     (8, "PO-8", 610.0)]}
 
 
-def _ap_app() -> App:
-    app = App("ap", {"invoices": copy.deepcopy(INVOICES), "purchase_orders": copy.deepcopy(POS), "receipts": copy.deepcopy(RECEIPTS), "audit_log": {}})
+def _extra_rows(extra: int) -> tuple[dict, dict, dict]:
+    """``extra`` more pending invoices (ids 201..), each with a matching purchase order and receipt: a World with enough
+    entities that MUT's neighbourhood reaches n >= 59 distinct effects (part2-paper-core §6)."""
+    inv, pos, rec = {}, {}, {}
+    for i in range(extra):
+        iid, po = 201 + i, f"PO-{201 + i}"
+        amt = float(100 + 25 * i)
+        inv[iid] = {"id": iid, "number": f"INV-2{i:03d}", "vendor": f"Vendor {i:02d}", "po": po, "amount": amt, "status": "pending", "reason": None}
+        pos[po] = {"id": po, "vendor": f"Vendor {i:02d}", "amount": amt}
+        rec[f"GR-{201 + i}"] = {"id": f"GR-{201 + i}", "po": po, "value": amt}
+    return inv, pos, rec
+
+
+def _ap_app(extra: int = 0) -> App:
+    xi, xp, xr = _extra_rows(extra)
+    app = App("ap", {"invoices": {**copy.deepcopy(INVOICES), **xi}, "purchase_orders": {**copy.deepcopy(POS), **xp},
+                     "receipts": {**copy.deepcopy(RECEIPTS), **xr}, "audit_log": {}})
 
     @app.tool(read_only=True)
     def list_invoices(ctx, status: str = "pending") -> dict:
@@ -114,8 +129,8 @@ def _ap_app() -> App:
     return app
 
 
-def ap_world() -> PyWorld:
-    return PyWorld([_ap_app()])
+def ap_world(extra: int = 0) -> PyWorld:
+    return PyWorld([_ap_app(extra)])
 
 
 AP_N = Normalizers(ignore_fields=[FieldScope(app="ap", coll="audit_log", field="at")], id_canon=[IdCanon(app="ap", coll="audit_log")])
@@ -300,7 +315,8 @@ def t4_priority() -> Task:
 
 
 def t5_batch() -> Task:
-    """Three decisions; long enough that MUT reaches n >= 59 (U_MUT <= 0.05 at c = 0)."""
+    """Three decisions in a World with 8 more pending invoices, so MUT reaches n >= 59 distinct effects (U_MUT <= 0.05 at
+    c = 0); in the 8-invoice World the same task has only 27 (it would be admitted as provisional)."""
     s = [Step(id="s1", tool="ap.find_invoice", args={"number": lit("INV-1002")}),
          Step(id="s2", tool="ap.find_invoice", args={"number": lit("INV-1005")}),
          Step(id="s3", tool="ap.find_invoice", args={"number": lit("INV-1006")}),
@@ -317,7 +333,7 @@ def t5_batch() -> Task:
                          where={"invoice_id": PEq(v=105), "action": PEq(v="reject"), "reason": PEq(v="duplicate")}),
            EffectPattern(id="a106", app="ap", coll="audit_log", kind="insert", field="*",
                          where={"invoice_id": PEq(v=106), "action": PEq(v="hold"), "reason": PEq(v="missing_receipt")})]
-    return Task(id="ap/batch-borealis", domain="synth-test", world=_w("ap_world"),
+    return Task(id="ap/batch-borealis", domain="synth-test", world=_w("ap_world", extra=8),
                 instruction="Three invoices from Borealis Freight are pending. Approve INV-1002, reject INV-1005 as a duplicate, and put INV-1006 on "
                             "hold for missing_receipt.",
                 oracle=Program(steps=s), contract=Contract(required=req, normalizers=AP_N), intent=IntentCard(skill="apply stated decisions"))
@@ -403,4 +419,16 @@ def always_pass() -> Task:
     return _with(t1_hold(), id="planted/always-pass", contract=Contract(allowed=[EffectPattern(id="all", kind="any", why="anything goes")]))
 
 
-__all__ = ["AP_N", "CORRECT", "HD_N", "PApprox", "always_pass", "ap_world", "helpdesk_world", "planted", "position_keyed", "t6_resolve"]
+def in_domain(t: Task) -> Task:
+    """The task in its World's domain (``ap-test`` or ``desk-test``): M3's cross-domain checks (birth gate, R7,
+    natural-likeness) need two domains, and the M2 fixtures all share ``synth-test``."""
+    return t.model_copy(update={"domain": "ap-test" if t.world.factory.endswith(":ap_world") else "desk-test"}, deep=True)
+
+
+def anchors() -> list[Task]:
+    """The certified anchors of M3 (clean certificates in M2): t1-t4 and t6 (t5's larger World is slower to plant)."""
+    return [in_domain(f()) for f in (t1_hold, t2_approve_answer, t3_resolve_email, t4_priority, t6_resolve)]
+
+
+__all__ = ["AP_N", "CORRECT", "HD_N", "PApprox", "always_pass", "anchors", "ap_world", "helpdesk_world", "in_domain", "planted", "position_keyed",
+           "t6_resolve"]

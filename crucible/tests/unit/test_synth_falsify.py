@@ -15,7 +15,7 @@ from crucible.synth.contract import Verdict, grade
 from crucible.synth.falsify import ALT, ATK, MUT, NULL, PERT, RED, REP, TAINT, TWIN, AgentSpec, FalsifyContext, OnlineMonitor, cheap, equivalent, falsify
 from crucible.synth.infer import skeleton
 from crucible.synth.program import Step, lit, run
-from crucible.synth.task import Task
+from crucible.synth.task import Task, WorldRef
 from tests.unit import synth_fixtures as fx
 
 
@@ -208,8 +208,14 @@ async def test_certificate_admission_with_injected_alternative_solvers():
     assert cert.admitted and cert.classes["MUT"].upper <= 0.05 and cert.classes["ALT"].passes == 1
     again = Certificate.model_validate_json(cert.model_dump_json())
     assert again == cert and again.task_digest == t.digest()
-    small = certify(fx.t1_hold(), (await _all(fx.t1_hold())).values())
-    assert not small.admitted and any(r.startswith("MUT:upper=") for r in small.reasons) and "ALT:no_pass" in small.reasons
+    small_res = (await _all(fx.t1_hold())).values()
+    small = certify(fx.t1_hold(), small_res)
+    assert not small.admitted and small.reasons == ["ALT:no_pass"] and any(r.startswith("MUT:upper=") for r in small.provisional_for)
+    # c = 0 but n < 59 distinct mutants: admitted as provisional with its U, never counted as certified (§6, M3)
+    prov = certify(fx.t1_hold(), small_res, AdmissionPolicy(require_alt_pass=False))
+    assert prov.admitted and prov.status == "provisional" and not prov.certified and prov.classes["MUT"].n < 59 and prov.classes["MUT"].upper > 0.05
+    assert certify(fx.t1_hold(), small_res, AdmissionPolicy(require_alt_pass=False, provisional_ok=False)).status == "rejected"
+    assert certify(t, res.values(), AdmissionPolicy(allow_open_suspects=True)).status == "certified"
     # the recorded ALT trace replays as a literal program
     prog = res["ALT"].findings[0].outcome.data["program"]
     assert next(s["tool"] for s in prog["steps"]) == "ap.list_invoices"
@@ -224,3 +230,27 @@ async def test_online_monitor_flags_passing_rollouts_as_suspects():
     assert mon.observe(t, r, v) is None and mon.observe(t, r, Verdict(passed=False)) is None
     f = mon.observe(t, r, v, flags=["edited the audit log"])
     assert f.label == "suspect" and seen == [f.site] and f.probe.program is not None
+
+
+async def test_mut_scales_with_the_world_and_counts_distinct_effects_only():
+    """M3 (§6): ExtraWrite and SwapEntity over every sibling, PerturbValue at several magnitudes, deduplicated by normalised
+    effect. A 3-step task reaches n >= 59 distinct mutants once its World has enough entities; in the 8-invoice World it
+    cannot, and is admitted only as provisional."""
+    from crucible.synth.falsify.mut import number_alternatives
+
+    big = fx.t1_hold().model_copy(update={"world": WorldRef(factory=f"{fx.MOD}:ap_world", params={"extra": 30})})
+    r = (await _all(big, [MUT()]))["MUT"]
+    assert r.n >= 59 and r.c == 0 and not r.suspects
+    counted = [f.outcome.data["effect"] for f in r.findings if f.outcome.valid]
+    assert len(counted) == len(set(counted))  # one trial per behaviour
+    dups = [f for f in r.findings if not f.outcome.valid]
+    assert dups and all(f.outcome.data["duplicate_of"] for f in dups)
+    assert {f.op for f in r.findings if f.outcome.valid} >= {"Identity", "SwapEntity", "ExtraWrite", "PerturbValue", "DropStep"}
+    assert certify(big, [r], AdmissionPolicy(require_applicable=["MUT"], require_alt_pass=False)).status == "certified"
+    small = (await _all(fx.t1_hold(), [MUT()]))["MUT"]
+    assert small.n < 59 and certify(fx.t1_hold(), [small], AdmissionPolicy(require_applicable=["MUT"], require_alt_pass=False)).status == "provisional"
+    # dedup keeps the most informative of equal effects: PerturbValue(number) holds the same sibling a SwapEntity holds,
+    # and on the "any invoice" contract the confirmed D9 (SwapEntity) is what is counted, never the suspect duplicate
+    d9 = (await _all(fx.planted("D9"), [MUT()]))["MUT"]
+    assert d9.confirmed and all(f.op == "SwapEntity" for f in d9.confirmed) and not d9.suspects
+    assert number_alternatives(1200.0)[:4] == [1212.0, 1188.0, 1320.0, 1080.0]

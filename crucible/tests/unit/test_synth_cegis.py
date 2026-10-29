@@ -11,7 +11,7 @@ from crucible.synth.cegis import refine, synthesize
 from crucible.synth.certificate import AdmissionPolicy
 from crucible.synth.contract import AnswerCheck, Contract, EffectPattern
 from crucible.synth.falsify import ALT, MUT, AgentSpec, FalsifyContext, cheap, falsify
-from crucible.synth.falsify.base import Counterexample
+from crucible.synth.falsify.base import Counterexample, run_classes
 from crucible.synth.program import Program, Step, lit
 from crucible.synth.task import Task
 from tests.unit import synth_fixtures as fx
@@ -27,18 +27,18 @@ async def _cxs(task: Task, ctx: FalsifyContext | None = None) -> list[Counterexa
 async def test_archive_is_append_only_hash_chained_and_deduplicated(tmp_path):
     a = Archive(tmp_path)
     cxs = await _cxs(fx.planted("D2"))
-    assert len(cxs) == 4 and len({c.id for c in cxs}) == 4
+    assert len(cxs) == 5 and len({c.id for c in cxs}) == 5  # an ExtraWrite on every pending distractor invoice (M3: every sibling)
     assert a.add_all(cxs) == [c.id for c in cxs] and a.add_all(cxs) == []  # the same counterexample is archived once
-    assert a.verify("synth-test") == 4 and [c.id for c in a.records("synth-test", "planted/D2")] == [c.id for c in cxs]
+    assert a.verify("synth-test") == 5 and [c.id for c in a.records("synth-test", "planted/D2")] == [c.id for c in cxs]
     assert a.records("synth-test", "other") == [] and a.records("empty-domain") == []
     p = a.path("synth-test")
     lines = p.read_text().splitlines()
-    assert [json.loads(x)["seq"] for x in lines] == [1, 2, 3, 4]
+    assert [json.loads(x)["seq"] for x in lines] == [1, 2, 3, 4, 5]
     # a torn final line (a crash mid-append) is ignored by reads and dropped by the next append
     p.write_text("\n".join(lines) + "\n" + lines[0][:40])
-    assert a.verify("synth-test") == 4
+    assert a.verify("synth-test") == 5
     extra = (await _cxs(fx.always_pass()))[0]
-    assert a.add(extra) and a.verify("synth-test") == 5 and p.read_text().endswith("\n")
+    assert a.add(extra) and a.verify("synth-test") == 6 and p.read_text().endswith("\n")
     # an edited line breaks the chain
     lines = p.read_text().splitlines()
     rec = json.loads(lines[1])
@@ -58,9 +58,9 @@ async def test_regressions_replay_archived_counterexamples_against_a_version(tmp
     ctx = FalsifyContext()
     fixed = bad.next_version(contract=fx.t1_hold().contract)
     rep = await regress(a, fixed, ctx, cheap())
-    assert rep.checked == 4 and rep.ok
+    assert rep.checked == 5 and rep.ok
     rep = await regress(a, bad.next_version(), ctx, cheap())  # a version that still widens the frame re-opens them all
-    assert len(rep.reopened) == 4
+    assert len(rep.reopened) == 5
     assert (await regress(a, fixed, ctx, [])).skipped  # no falsifier of the class: skipped, never silently passed
 
 
@@ -164,3 +164,31 @@ async def test_synthesize_with_scripted_roles(tmp_path):
     rep = await synthesize("x", "synth-test", propose=nothing, build_oracle=build_oracle, generalise=generalise, repair=repair, ctx=FalsifyContext(),
                            archive=Archive(tmp_path))
     assert rep.status == "dropped"
+
+
+async def test_rep_runs_first_and_gates_mut_twin_and_pert(tmp_path):
+    """§5.1 rule 3: in a nondeterministic World every mutant looks non-equivalent, so REP gates the deterministic classes."""
+
+    async def give_up(task, cxs):
+        return None
+
+    res = await run_classes(fx.planted("D11"), list(reversed(cheap())), FalsifyContext())
+    assert res[0].cls == "REP" and res[0].c > 0
+    gated = {r.cls: r for r in res if not r.applicable}
+    assert set(gated) == {"MUT", "TWIN", "PERT"} and all(r.reason.startswith("gated") for r in gated.values())
+    assert all(r.applicable for r in await run_classes(fx.t1_hold(), cheap(), FalsifyContext()))  # a deterministic World runs everything
+    rep = await refine(fx.planted("D11"), repair=give_up, ctx=FalsifyContext(), archive=Archive(tmp_path), policy=LENIENT)
+    assert rep.status == "rejected" and "REP:confirmed=3" in rep.reasons and "MUT:not_applicable" in rep.reasons
+    assert rep.rounds[0].probes.get("MUT", 0) == 0
+
+
+async def test_cegis_distinguishes_certified_from_provisional(tmp_path):
+    async def give_up(task, cxs):
+        return None
+
+    pol = AdmissionPolicy(require_alt_pass=False)  # U_MUT <= 0.05 stays on
+    small = await refine(fx.t1_hold(), repair=give_up, ctx=FalsifyContext(), archive=Archive(tmp_path / "a"), policy=pol)
+    assert small.status == "provisional" and small.certificate.admitted and not small.certificate.certified
+    assert any(r.startswith("MUT:upper=") for r in small.reasons)
+    big = await refine(fx.t5_batch(), repair=give_up, ctx=FalsifyContext(), archive=Archive(tmp_path / "b"), policy=pol)
+    assert big.status == "admitted" and big.certificate.certified and big.certificate.classes["MUT"].n >= 59

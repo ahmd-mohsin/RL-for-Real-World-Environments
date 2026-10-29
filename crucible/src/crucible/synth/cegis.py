@@ -8,7 +8,7 @@
 
     refine(task):
       for round in 1..max_rounds:
-          findings ← cheap falsifiers (REP, RED, TAINT, NULL, MUT, TWIN, PERT); reopened ← archive regressions
+          findings ← cheap falsifiers (REP first, gating MUT/TWIN/PERT; RED, TAINT, NULL); reopened ← archive regressions
           X_new    ← confirmed ∪ adjudicate(suspects)
           if X_new = ∅ and nothing reopened: findings += paid falsifiers (ALT, ATK); X_new ← …
           if X_new = ∅ and nothing reopened: break
@@ -16,7 +16,7 @@
           candidate ← repair(task, X_new ∪ reopened)     # sees counterexamples and reason codes only
           if candidate re-opens a counterexample the current version closes: refuse it (the monotone archive)
           else task ← candidate
-      certify(task) → admit | reject(reasons)
+      certify(task) → certified | provisional (c = 0, n too small for the U bound) | reject(reasons)
 
 The roles are ``Protocol``s (M4 binds them to model families through ``factory/synth_wire.py``; tests pass scripted
 ones). A repair that only partly fixes the round's counterexamples is accepted: what it leaves open is found again next
@@ -36,7 +36,7 @@ from crucible.synth.archive import Archive, regress
 from crucible.synth.certificate import AdmissionPolicy, Certificate, certify
 from crucible.synth.contract import Contract
 from crucible.synth.falsify import cheap
-from crucible.synth.falsify.base import BaseFalsifier, ClassResult, Counterexample, FalsifyContext, Finding, falsify
+from crucible.synth.falsify.base import BaseFalsifier, ClassResult, Counterexample, FalsifyContext, Finding, run_classes
 from crucible.synth.infer import skeleton
 from crucible.synth.program import Program, Run
 from crucible.synth.task import Task
@@ -79,7 +79,7 @@ class RoundReport(CrucibleModel):
 class CegisReport(CrucibleModel):
     task_id: str | None = None
     domain: str
-    status: Literal["admitted", "rejected", "dropped"]
+    status: Literal["admitted", "provisional", "rejected", "dropped"]  # admitted = certified
     reasons: list[str] = Field(default_factory=list)
     rounds: list[RoundReport] = Field(default_factory=list)
     certificate: Certificate | None = None
@@ -87,7 +87,7 @@ class CegisReport(CrucibleModel):
 
 
 async def _round(task: Task, falsifiers: Sequence[BaseFalsifier], ctx: FalsifyContext) -> list[ClassResult]:
-    return [await falsify(task, f, ctx) for f in falsifiers]
+    return await run_classes(task, falsifiers, ctx)  # REP first; it gates MUT, TWIN and PERT (§5.1 rule 3)
 
 
 async def _counterexamples(task: Task, results: Sequence[ClassResult], adjudicate: Adjudicator | None) -> tuple[list[Counterexample], int]:
@@ -149,7 +149,8 @@ async def refine(task: Task, *, repair: Repairer, ctx: FalsifyContext, archive: 
         last = (task.version, results)
     reg = await regress(archive, task, ctx, every)
     cert = certify(task, last[1], policy, reopened=reg.reopened)
-    return CegisReport(task_id=task.id, domain=task.domain, status="admitted" if cert.admitted else "rejected", reasons=list(cert.reasons), rounds=rounds,
+    status = {"certified": "admitted", "provisional": "provisional"}.get(cert.status, "rejected")
+    return CegisReport(task_id=task.id, domain=task.domain, status=status, reasons=list(cert.reasons) + list(cert.provisional_for), rounds=rounds,
                        certificate=cert, task=task)
 
 
