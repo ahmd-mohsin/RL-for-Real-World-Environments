@@ -493,6 +493,37 @@ def test_an_s3_rerun_the_host_failed_or_a_dead_test_binary_is_masked_and_a_panic
     assert rerun_verdict(ref, run(whole_small), set())[0] == "unclean"
 
 
+@pytest.mark.parametrize(("code", "infra"), [(137, "masked"), (143, "masked"), (1, "ok")])
+def test_a_sandbox_killed_from_outside_is_masked_not_a_run_with_no_report(tmp_path, monkeypatch, code: int, infra: str) -> None:
+    """Smoke 2026-10-29: a debug-lane container removed from outside (``docker rm -f``: the client exits 137 with the
+    output so far and no report block) was a run of the tree with no results, infra ok: an S3 rerun with every test
+    differing, and in a grade the attempt's 0. A signal exit with no report is the container's death: masked. Any other
+    exit with no report stays the tree's (the run ended early)."""
+    import asyncio
+
+    from crucible.factory.generators.debug import profile_of
+    from crucible.factory.langs.runtime import LangSandbox
+
+    class Proc:
+        returncode = code
+
+        async def communicate(self):
+            return b"go: downloading nothing\n=== RUN TestA\n", b""
+
+        async def wait(self):
+            return code
+
+    async def fake_exec(*a, **k):
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    (tmp_path / "go.mod").write_text("module example.com/m\n")
+    sb = LangSandbox("crucible-lh-d:go-x-0", profile=profile_of("go"))
+    r = asyncio.run(sb.run(tmp_path, ["./..."]))
+    assert r.infra == infra and r.results == {}
+    assert ("killed from outside" in r.why) == (infra == "masked")
+
+
 def test_an_ignored_tests_panic_is_not_an_unclean_rerun() -> None:
     """Smoke 2026-10-29 (huma 815e1ff8, S3 at 60 reruns): TestHumaFiberV2 was excluded as load-dependent after it flipped,
     and a rerun in which it panicked again was still unclean with no test differing: the panicking test was missing, so

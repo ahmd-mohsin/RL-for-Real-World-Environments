@@ -192,6 +192,12 @@ class LangSandbox(NamedSandbox):
         tail = _BLOCK.sub("", text)
         if k := killed(tail):  # killed from outside the tests (executable.KILLED): unmeasured, never the unreached tests failing
             return TestRun({}, "masked", proc.returncode, secs, tail[-3000:], why=f"the test run was killed ({k})")
+        if not blocks and proc.returncode in (137, 143):
+            # the script always prints its report after the tests (``kill -9 -1`` spares PID 1, the shell), and nothing inside
+            # the container can signal PID 1: no report with a signal exit is the container itself killed from outside
+            # (``docker rm -f`` / ``kill`` / ``stop``, the daemon). Smoke 2026-10-29: a removed S3 container was an unclean rerun
+            # with all 952 tests differing, and in a grade it would have scored the attempt 0 instead of masking it (V8)
+            return TestRun({}, "masked", proc.returncode, secs, tail[-3000:], why=f"the sandbox was killed from outside (exit {proc.returncode}, no report)")
         if not blocks:
             return TestRun({}, "ok", proc.returncode, secs, tail[-4000:], why="no report (the run ended early)")
         res, notes = self.profile.parse_report(blocks[-1], tree, list(targets), tail)

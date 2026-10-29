@@ -1550,6 +1550,12 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     compared without the ignored tests, and when every panic in a rerun is an ignored test's, the differences in the
     packages of those tests (the siblings its dying test binary took with it, not measured) mask the rerun; a
     difference in any other package keeps it unclean. A checked test's panic is unchanged (its own flip).
+  - **A debug-lane container killed from outside is masked** (smoke 2026-10-29, `langs.runtime.LangSandbox.run`). A
+    container removed while it ran (`docker rm -f`, a stop, the daemon) ends the `docker run` client with exit 137 or
+    143 and no report block; that was a run of the tree with no results and infra ok, so an S3 rerun had all 952 tests
+    differing (and its flip counts blocked the lane's flaky-test re-gate), and a grade would have scored the attempt 0.
+    The run script always prints its report after the tests, and nothing inside the container can signal its PID 1, so
+    a signal exit with no report is now `infra == "masked"`. Any other exit with no report stays the tree's.
   - **A license header is never contamination evidence** (2026-10-28, `benchaudit.LICENSE_LINE`): the audit's fix-line
     and hidden-test-line probes leave out license-header lines (Apache, MIT, SPDX, copyright). A fix that adds a test
     file adds its header, and every licensed file in the public tree holds those lines. Two held-out Go tasks read
