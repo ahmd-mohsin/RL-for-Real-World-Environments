@@ -36,3 +36,23 @@ def test_a_timeout_or_startup_failure_is_inconclusive():
 def test_a_timeout_then_a_pass_is_a_pass_not_flaky():
     [timeout, ok] = coding(pr_trace([ev(0, "commit", sha="a"), _run(1, "build", "timed_out"), _run(2, "build", "success")], [AUTHOR, CI]))
     assert (timeout.polarity, ok.polarity, ok.meta["flaky"]) == (0, 1, False)  # was flaky: both 0
+
+
+# ---- M4 audit R-5: one CI-check identity in ``verdict``; a later pass never contradicts a pass ------------------------------
+def _graded(events):
+    t = pr_trace(events, [AUTHOR, CI], label="good")
+    return t.model_copy(update={"signals": coding(t)})
+
+
+def test_a_pass_then_a_pass_confirms_both():
+    t = _graded([ev(0, "commit", sha="a"), _run(1, "build", "success"), _run(2, "build", "success")])
+    assert [verdict(t, s) for s in t.signals] == [True, True]  # was [False, True]: the second pass "contradicted" the first
+
+
+def test_checks_of_two_apps_are_two_checks():
+    azure = ev(1, "ci_run", kind="check", actor="ci", name="build", sha="a", conclusion="failure", app="azure")
+    t = _graded([ev(0, "commit", sha="a"), azure, _run(2, "build", "success")])
+    assert [s.meta["app"] for s in t.signals] == ["azure", "gha"]
+    assert [verdict(t, s) for s in t.signals] == [None, True]  # was [False, True]: Actions' pass "contradicted" Azure's failure
+    t = _graded([ev(0, "commit", sha="a"), _run(1, "build", "failure"), _run(2, "build", "success")])
+    assert [s.polarity for s in t.signals] == [0, 0]  # one app, both outcomes: flaky, as before

@@ -1916,3 +1916,26 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   before the fix (no `inputs`). M4, M4 packs, R-3 and core audit files: 139 passed. Ruff on the changed files and
   lint-imports (5 contracts) are clean.
 - **Merge notes.** The coding gate's `traces` dict is built from a `raw` list (same ids, same order).
+
+## 82. M4 R-5: one CI-check identity in `verdict`; a later pass never contradicts a pass
+
+- **Item.** R-5 of `docs/research/improvements/2026-10-27/M04-signals.md` (should), as recommended. It restores the
+  pre-R9 rule for passes. Not taken: the check-suite identity of L-7 (two workflows' same-named jobs as one flaky check in
+  the mapper; an abstention, not a wrong sign). Pattern from verifiers' attempt ids (`verifiers/v1/trace.py:565-589`,
+  MIT); no code copied.
+- **Files.** `src/crucible/signals/reliability.py` (new `_same_check`, `verdict`, module docstring),
+  `packs/coding/src/crucible_pack_coding/signals.py` (`check_result` meta gains `app`), `docs/modules/M04-signals.md`
+  (Reliability), `tests/unit/test_ci_inconclusive.py` (+2).
+- **Public names.** none.
+- **Behaviour.** `verdict` matches a CI check by (`meta.app`, `meta.check`), the identity the coding mapper already uses
+  for flaky (it now records `app` in the signal's meta); a source without an app (CI logs) matches by name as before. A
+  pass is contradicted only by a later failure of the same check on the same step, not by any later run: a pass then a
+  pass gave [False, True] and now gives [True, True] on a good trace; an Azure failure then an Actions pass of "build" on
+  one commit gave the failure False and now None. A failure is still contradicted by a later pass of the same check.
+- **Formats.** PR `check_result` meta gains `app`.
+- **Tests.** `test_ci_inconclusive.py` (+2: pass then pass confirms both; two apps are two checks, one app with both
+  outcomes is still flaky; both failed before the fix). M4, M4 packs, gate inputs, graded-wrong, label, extract-failed,
+  studio, M5, M8, M14, coding connector, agent-run and core files: 43 + 342 passed, 11 skipped. Ruff on the changed files
+  and lint-imports (5 contracts) are clean. With R-5 the M4 should items (R-1..R-5) are all done; L-1..L-9 wait for a
+  consumer.
+- **Merge notes.** Two list comprehensions in `verdict` now call `_same_check`.

@@ -178,7 +178,8 @@ class CodingSignalMapper:
                 pol = 0 if flaky else (1 if c in PASSED else -1 if c in FAILED else 0)
                 g = commit_seq.get(e.data.get("sha") or "")
                 why = {"inconclusive": c, "reason": "the run timed out or never started: no verdict on the code (P16)"} if c in INCONCLUSIVE else {}
-                sig(e, "check_result", pol, [g] if g is not None else [], check=e.data.get("name"), conclusion=c, flaky=flaky, **why)
+                sig(e, "check_result", pol, [g] if g is not None else [], check=e.data.get("name"), app=e.data.get("app"), conclusion=c, flaky=flaky,
+                    **why)  # app: verdict's check identity is the mapper's (M4 audit R-5)
             elif e.type == "post_merge_commit":
                 touched = e.data.get("touches_seq") or []
                 days = e.data.get("days_after_merge")

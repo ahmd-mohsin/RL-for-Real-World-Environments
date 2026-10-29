@@ -34,7 +34,8 @@ the step it grades. Packs never add types: they map their own events onto these.
 5. **Reliability** (`reliability.py`): a verdict per signal from later evidence its mapping rule did not use (a revert
    or hotfix of the graded step, the fix itself being reverted, the same check later, the trace ending well without
    the request). Posterior mean of Beta(prior + confirmed, prior + contradicted) per (family, type, human or automated
-   source), with a 90% interval. Only judgeable signals get a value.
+   source), with a 90% interval. Only judgeable signals get a value. A CI check is (`meta.app`, `meta.check`), as the
+   coding mapper keys it, and only a later failure of it contradicts a pass (M4 audit 2026-10-27, R-5).
 6. **Decision points** (`pivots.py`): steps graded wrong and then corrected; `studio.datasets` pairs only corrections
    and applied suggestions (a revert says what was wrong, not what was right), once per turn, with the signal's
    reliability and a `state_shift` flag. `graded_wrong` is wider: every step a negative step signal grades (a rejection,

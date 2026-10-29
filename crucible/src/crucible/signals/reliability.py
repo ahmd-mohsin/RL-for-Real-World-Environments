@@ -20,6 +20,10 @@ M4 audit (2026-10-12): verdicts came from the trace outcome and the mapper's own
 contradicted, a comment rejection simply equalled the outcome, any bad trace confirmed every negative on any step, and
 one CI job failing "contradicted" every other job's pass on that commit); estimates pooled families and AI reviewers
 with people; ``apply`` gave the type mean to flaky and ungraded signals it could not judge; seq 0 read as "no seq".
+
+M4 audit R-5 (2026-10-27): a CI check is (``meta.app``, ``meta.check``), the mapper's own identity, and only a later
+failure of it contradicts a pass. By name alone a second pass "contradicted" the first and one workflow's pass
+contradicted another workflow's failure of a same-named job.
 """
 
 from __future__ import annotations
@@ -79,6 +83,12 @@ def _after(o: Signal, s: Signal) -> bool:
     return o.source_event is not None and s.source_event is not None and o.source_event > s.source_event
 
 
+def _same_check(o: Signal, s: Signal) -> bool:
+    """One CI check: the mapper's identity, (app, check) (M4 audit R-5: matched by name only, so Actions' pass of "build"
+    contradicted Azure's failure of its own "build"). A source without ``meta.app`` (CI logs) matches by name."""
+    return o.type == "check_result" and o.meta.get("check") == s.meta.get("check") and o.meta.get("app") == s.meta.get("app")
+
+
 def _trouble(trace: Trace, steps: set[int]) -> bool:
     """A revert or post-merge hotfix graded one of these steps."""
     return any((o.type == "revert" or (o.type == "correction" and o.meta.get("hotfix"))) and steps & set(o.grades) for o in trace.signals)
@@ -101,7 +111,7 @@ def verdict(trace: Trace, s: Signal) -> bool | None:
         if _trouble(trace, steps):
             return True
         if s.type == "check_result":
-            same = [o for o in trace.signals if o.type == "check_result" and o.meta.get("check") == s.meta.get("check") and _after(o, s) and steps & set(o.grades)]
+            same = [o for o in trace.signals if _same_check(o, s) and _after(o, s) and steps & set(o.grades)]
             return False if any(o.polarity > 0 for o in same) else None  # the same check passed on the same step later: it was noise
         acted = s.meta.get("acted_on")
         if acted:
@@ -112,8 +122,8 @@ def verdict(trace: Trace, s: Signal) -> bool | None:
     # positive: approval, a passing check
     if _trouble(trace, steps):
         return False
-    if s.type == "check_result":
-        later = [o for o in trace.signals if o.type == "check_result" and o.meta.get("check") == s.meta.get("check") and _after(o, s) and steps & set(o.grades)]
+    if s.type == "check_result":  # only a later failure of the same check contradicts a pass (M4 audit R-5: any later run did)
+        later = [o for o in trace.signals if _same_check(o, s) and o.polarity < 0 and _after(o, s) and steps & set(o.grades)]
     else:
         later = [o for o in trace.signals if o.type in REVISIONS and o.polarity < 0 and _after(o, s) and steps & set(o.grades)]
     if later:
