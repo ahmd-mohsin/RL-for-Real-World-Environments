@@ -4155,7 +4155,8 @@ train` (the toy launcher), `scripts/lh_ladder.py --kernel local` (the RLM harnes
 `scripts/swarm.py roles / diagnose / credit` (the swarm offline: no dry-run of a session exists; its sessions call models).
 The red-team suite's task fixtures are excluded from collection (`tests/redteam/conftest.py`): the grader task's hidden
 `test_mylib.py` imports a module that exists only in the task's tree, and it broke `pytest tests/redteam` (and a bare
-`pytest`) at collection.
+`pytest`) at collection. With it collected, `test_the_next_run_sweeps_a_killed_runners_containers[own_run]` failed: a
+resume shares the killed run's journal, whose start sweep it counted as a second sweep (it now counts its own events).
 
 **Website (`site/`, 2026-10-11).** A one-page tour of the framework: a hero model, the pipeline as a clickable board, one stepped 3D figure per module (M0–M14, long horizons, the recursive agent, the task manager), the studio flow with its real CLI output, and results from the framework's own reports.
 - **Engine (`assets/kit.js`):** one WebGL renderer draws every figure into its panel's rectangle (scissor and viewport) under a fixed canvas, with HTML labels projected on top. A figure is a spec: `setup`, `update`, and `steps` of `{say, go}`. Figures build on first sight and pause offscreen.

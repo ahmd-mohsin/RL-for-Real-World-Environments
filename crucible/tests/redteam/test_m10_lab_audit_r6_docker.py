@@ -240,10 +240,13 @@ async def test_the_next_run_sweeps_a_killed_runners_containers(tmp_path, same_ru
         kill(child)
         assert name in ps(label)  # a 6 h life: still there after the kill
         rid = killed if same_run else run_id()
+        # a resume shares the killed run's journal, which already holds the killed runner's own start sweep (smoke 2026-10-29:
+        # counted, so the own_run case saw two sweeps): only the events this run wrote count
+        before = len(events_of(tmp_path, rid)) if (tmp_path / rid / "journal.jsonl").exists() else 0
         summary = await Runner(tmp_path).run(resumed_spec(rid))
         assert summary.terminal == 1
         assert ps(label) == [], "the next run's sweep left the killed run's container"
-        sweeps = [e for e in events_of(tmp_path, rid) if e["event"] == "sweep"]
+        sweeps = [e for e in events_of(tmp_path, rid)[before:] if e["event"] == "sweep"]
         assert len(sweeps) == 1 and sweeps[0]["errors"] == {} and sweeps[0]["failed"] == [], sweeps
         assert {r["name"]: r["why"] for r in sweeps[0]["removed"]}.get(name) == why, sweeps[0]
     finally:
