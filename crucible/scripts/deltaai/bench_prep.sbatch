@@ -1,5 +1,5 @@
 #!/bin/bash
-# The benchmark's CPU-only preparation and dry run (doc 14 §4): no GPU, no weights, no model.
+# The benchmark's preparation and dry run (doc 14 §4): no model, no weights; the one GPU DeltaAI requires stays idle.
 #  1. the environment (once): Python 3.12, crucible editable, transformers, CPU torch, in $W/venv;
 #  2. one SIF per World image from the Mac's arm64 archives;
 #  3. the lockdown probe in every World image (no network, no host files, no secrets);
@@ -8,10 +8,11 @@
 #     own verifier through the shim;
 #  5. two scripted one-episode arms (bench.py stub-serve: the tokenizer only) through the real episode path.
 # Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh bench_prep.sbatch
-# DeltaAI has no CPU-only partition: on ghx4 with no GPU, 32 CPUs and 48 GB bill 444 per hour (0.44 GPU-hours).
+# DeltaAI refuses jobs without a GPU and has no CPU-only partition: one GPU (unused) with 64 CPUs and 100 GB bills 1000 per
+# hour on ghx4 (1 GPU-hour per hour; the CPUs and memory stay under one GPU's share).
 #SBATCH --partition=ghx4
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=32 --mem=48g
-#SBATCH --time=02:00:00
+#SBATCH --nodes=1 --ntasks=1 --gpus-per-node=1 --cpus-per-task=64 --mem=100g
+#SBATCH --time=01:30:00
 #SBATCH --job-name=crucible-bench-prep
 #SBATCH --output=logs/prep-%j.out
 # Slurm runs a copy of this file, so the helpers are read from the synced code tree
