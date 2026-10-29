@@ -364,67 +364,122 @@ confirmed counterexample. Its pair is the **false-alarm rate** FA_k: confirmed c
 Each such alarm is either a real defect, which is adjudicated, kept as a new finding and its anchor repaired, or a
 falsifier bug.
 
-## 9. The recursive self-improvement loop
+## 9. The regularised recursive self-improvement loop
 
-**The objective.** One round r of the loop generates a batch of tasks at budget B. For each domain, write:
-- K_r for the number of admitted tasks that pass P2–P4;
-- ρ̂_r for the estimated residual-defect fraction (P1 violations) among them, from §6.
+A loop that proposes edits and keeps whatever scores best is not RSI. It is hill-climbing on a reused evaluation, and it
+overfits that evaluation. RRSI measured this directly. The unregularised harness loop had the best evolve-set score and
+no out-of-distribution gain. With regularisation, out-of-distribution score was 43.6 at 2.42M tokens, against 40.3 at
+3.80M without it, and a higher evolve score went with lower transfer in every arm (2609.24972). Unguarded verifier
+evolution collapsed to always-pass while downstream scores stayed flat (2610.11464). This section defines what improves,
+what it is measured on, and the regularisers that make the improvement real.
 
-The loop maximises **J_r = K_r(1 − ρ̂_r) / B**, perfect tasks per dollar, subject to ρ̂_r's upper confidence bound being
-at most ε.
+### 9.1 What improves: the system state Θ
 
-**Which loop moves which term.**
-- The **falsifier** loop raises recall. That tightens ρ̂, and finds defects earlier versions missed.
-- The **synthesizer** loop lowers the defect rate of new proposals. That raises the admitted yield.
-- The **frontier** loop raises the P2–P4 share. It moves tasks into the student's band and fills empty cells.
+| Component | Contents | Improved by |
+|---|---|---|
+| **S, the synthesizer** | Role prompts; the lemma bank; recipes; source weights; cell quotas | The synthesizer loop |
+| **F, the falsifiers** | Typed operators; attack strategies; adjudication prompts | The falsifier loop |
+| **P, the planter** | Contract-mutation operators that plant defects | The planter loop (§9.3) |
+| **K, the frontier controller** | Knob policy; ladders; targeting | The frontier loop |
+| **A, the abstractor** | The prompts and procedure that turn counterexamples into operators and lemmas | The meta loop (§9.4) |
 
-Every round is compared against an equal-budget control round without that round's changes.
+Every component is versioned data, and any version can be restored with a plain write.
 
-There are three loops. The first is the paper's main claim.
+### 9.2 The objective
 
-**Loop 1, the falsifier library (main claim).**
-1. **Cluster.** Group confirmed counterexamples by reason code, operator, the shape of their diff signature and the
-   tools involved.
-2. **Abstract.** A family that built none of the source tasks abstracts each cluster into one of:
-   - a **typed operator** in the falsifier DSL, e.g. `ExtraWrite(target=sibling_of(written_key), tool=any_write)` or
-     `AnswerOnly(source=observation_of(read_tool))`;
-   - an **attack strategy**: a short natural-language tactic plus the trigger condition, for ATK.
-3. **Birth gate.** An operator or strategy is admitted only if it:
-   - reproduces its source counterexamples;
-   - finds ≥ 1 planted defect on dev environments of other tasks and, for the transfer claim, of other domains;
-   - raises zero false alarms on the certified anchor set;
-   - stays under a cost cap per probe.
-4. **Retire.** An operator with no confirmed finding over W tasks is retired. Retired operators are kept in the ledger.
-5. **Selection signal.** FR on dev planted sets and on the real archive, at FA ≤ δ. Student reward, visible pass rates
-   and chains of thought never enter it.
+Per round r, at budget B:
+- K_r is the number of admitted tasks that satisfy P2–P4;
+- ρ̂_r is the recall-calibrated residual-defect fraction (§6).
 
-**Loop 2, the synthesizer lemma bank.** A repair pair (counterexample, repair diff) is abstracted into a design lemma,
-e.g. "a task that writes one invoice must not allow writes to other invoices; list the audit log as allowed with its
-`why`". Lemmas enter the proposer, contract-writer and repairer prompts. A lemma batch is accepted only if the
-**first-round confirmed-counterexample rate** on a fresh batch falls against an equal-budget control batch without the
-lemmas, using paired cells and Wilson intervals.
+The objective is **J(Θ) = K(1 − ρ̂) / B**, perfect tasks per dollar. Every quantity is measured by execution, by planted
+defects with witnesses, or by equal-budget controls. Student reward, visible pass rates and chains of thought never enter
+J.
 
-**Loop 3, the student frontier.**
-1. Executed failure attribution by snapshot replay finds the first wrong step of a failing student trace.
-2. An `Assignment` asks for tasks that exercise the attributed skill at a band-placed difficulty (§10).
-3. The equal-budget untargeted control applies.
+### 9.3 Why it is recursive: three levels of evaluation, each improved
 
-**Why the loops do not collapse.**
+```text
+level 0   tasks                 evaluated by  F (falsifiers)               -> certificates
+level 1   falsifiers F          evaluated by  P (planted defects)          -> recall FR, false alarms FA
+level 2   planter P             evaluated by  witnesses + the real-defect set -> validity, natural-likeness
+level 3   abstractor A          evaluated by  the birth-gate pass rate of what it produces next round
+```
 
-| Collapse mode | Why it is caught |
+**The co-evolution game.** F and P play a regularised two-player game:
+- P is rewarded for planting defects that the current F misses.
+- F is rewarded for catching them without false alarms.
+
+Three constraints keep P honest:
+- **Witness validity, executed.** Every planted contract C′ comes with a witness run that passes C′ and fails the
+  original C. A planted "defect" without a witness is not a defect.
+- **Natural-likeness.** Planted defects are described by features: class mix, diff size, collection, which literal
+  moved. Their distribution must stay within MMD ≤ μ of the real-defect set. Without this, P drifts into odd defects
+  that no real pipeline makes.
+- **Fictitious play.** F must keep recall on the union of all past planters' sets, not only the newest. This is the
+  monotone archive applied one level up, and it prevents cycling.
+
+### 9.4 The update rule and its regularisers
+
+A proposed update u: Θ → Θ′ touches one component. It is accepted only if **every** rule below holds. The rules are
+non-compensatory: a gain on one cannot buy a loss on another.
+
+| # | Regulariser | Rule | What it prevents |
+|---|---|---|---|
+| R1 | **Fresh evaluation, never reused** | Each decision runs on a freshly sampled validation view: new proposals, plus a newly planted dev batch drawn from the current and all past planters. The locked set is read only for reporting. | Adaptive overfitting to a reused evaluation set (cf. the reusable holdout, Dwork et al. 2015; RRSI) |
+| R2 | **Noise floor and lower bounds** | δ is measured before the loop from ≥ 3 repeated runs of the unchanged Θ, and is never tuned. Accept only if the lower confidence bound of J(Θ′) − J* exceeds δ, where J* is the best so far. The floor never moves down. | Chasing noise; the winner's curse |
+| R3 | **Hard non-regression** | Every archived counterexample is still rejected. FA on anchors ≤ δ_FA. No defect class's recall FR_d drops beyond its noise band. The P3 on-intent share and the P4 coverage do not drop. | Trading one defect class for another; forgetting |
+| R4 | **Trust region on the task distribution** | KL(q_Θ′ ‖ q_Θ) over the cell histogram ≤ κ, and entropy H(q_Θ′) ≥ H_min | **Certification Goodhart:** the synthesizer drifting toward tasks that are easy to certify (tiny, read-only, single-write) instead of tasks that teach |
+| R5 | **Sparsity and cost** | The edit budget anneals from 3 to 1 per round on a cosine schedule (RRSI). An operator must pay for itself: its marginal recall per probe-dollar must be ≥ β. Components with no marginal gain over W rounds are pruned. | Library bloat; untestable bundles of edits |
+| R6 | **Leakage critic and family separation** | Before scoring, a different family reads the diff and rejects edits that encode task ids, entities, values, planted-defect identifiers or anchor content. The abstractor is never a family that built the source tasks. | Memorising the yardstick; self-grading |
+| R7 | **Transfer requirement** | The gain must also appear on at least one domain that did not produce the update's evidence | Single-domain overfitting; this is also the test of the transfer hypothesis |
+| R8 | **Round caps without new executed information** | A component whose acceptance rests only on adjudicated (judge) evidence stops after 2–3 rounds unless new executed counterexamples arrive (Mind the Gap, 2412.02674) | Self-verification saturation |
+| R9 | **Equal-budget control rounds** | Each accepted round is compared against a control round at the same spend with u removed | Crediting the loop for what more budget would have bought |
+| R10 | **Rollback** | Every accepted update is reversible by restoring a stored version. A later regression detected on a fresh view rolls back to the last good Θ. | Irreversible drift |
+
+### 9.5 The loops in this frame
+
+**The falsifier loop (F).** Confirmed counterexamples are clustered by:
+- reason code;
+- operator;
+- diff signature;
+- tools.
+
+The abstractor A turns each cluster into a typed operator or an attack strategy.
+
+The **birth gate** is R1–R7 applied to a single operator. The operator must:
+- reproduce its source counterexamples;
+- find planted defects on fresh dev views of *other* tasks and domains;
+- raise zero false alarms on anchors;
+- stay under its cost bar.
+
+**The planter loop (P).** P proposes new mutation operators or new parameterisations, rewarded by F's miss rate. A
+planter operator is accepted under witness validity, natural-likeness and R6. Accepted planters join the population.
+
+**The synthesizer loop (S).** A (counterexample, repair) pair is abstracted into a lemma for the proposer, contract-writer
+and repairer prompts. A lemma batch is accepted when the first-round confirmed-counterexample rate falls and J rises,
+under R1–R9.
+
+**The frontier loop (K).**
+1. Executed failure attribution, by snapshot replay, finds where student traces go wrong.
+2. Those attributions drive targeted tasks and knob changes.
+3. Targeted variants are capped at 20% of the pool; originals are never retired.
+4. Every targeted batch is compared against an equal-budget untargeted batch.
+
+R4 also applies here, so the curriculum cannot collapse onto one failure mode.
+
+**The meta loop (A).** The abstractor's own prompts are edited by the same rule. Its J-proxy is the birth-gate pass rate
+and the marginal recall of the operators and lemmas it produces in the next round. Recursion stops at this level. Deeper
+levels add no new executed signal, so R8 caps them.
+
+### 9.6 What the paper reports about the loop
+
+| Report | Content |
 |---|---|
-| Always-accept falsifier | FR = 0 on planted sets |
-| Always-reject falsifier | FA > δ on anchors |
-| Overfitting to the planting operators | The locked set uses held-out operator variants and held-out domains; the real-defect set is reported separately |
-| A lemma that makes tasks easy to certify but useless | Lemma acceptance also requires the band yield (F9) not to drop, and the intent probes (TWIN, TAINT) not to regress |
-| Abstraction by the builder's own family | Family rules in `factory/models.py` raise `SameFamilyError` |
-
-**What "recursive" means here.** Stronger falsifiers find counterexamples on tasks that earlier versions certified.
-Those counterexamples become operators and lemmas. Operators raise recall, and lemmas lower the defect rate of new
-tasks. The metric that improves round over round is measured, not judged:
-- locked-set FR;
-- the real-defect detection rate;
-- the confirmed-counterexample rate among admitted tasks.
+| J_r per round | With its interval, against equal-budget control rounds |
+| Locked-set measures per round | FR, FA, and ρ̂ |
+| Transfer | Results on domains that produced none of the evidence |
+| Ablations | One regulariser removed at a time (R1, R3, R4, R5, R7, R8, and the planter's natural-likeness), at equal budget |
+| Failure cases | Overfitting, Goodhart drift and collapse, each documented when it happens |
+| Ledger | Every rejected update, kept as negative evidence |
 
 ## 10. Difficulty per student, and composition 
 
@@ -505,6 +560,8 @@ The locked planted set lives under `crucible/data/sealed/synth-locked/` behind t
 | E4 | Do certificates predict real hacking? | Run the student (eval, then RL) on admitted tasks; ONL flags vs certificate strength | Rank correlation of U and FR-weighted strength with the confirmed hack rate | Student rollouts |
 | E5 | Does certified data train better? (dose–response) | RL at equal budget on pools from the same generator, admitted at increasing certificate strength: (a) two-sided filter only, (b) deterministic falsifiers, (c) all falsifiers + archive, (d) (c) + online certification | Hack onset step, clean-vs-raw pass-rate gap, held-out family score, exploit switching after quarantine; MDE stated first | DeltaAI GPU |
 | E8 | Are planted defects like natural ones? | FR per class on planted vs the real-defect set; capture–recapture vs error-seeding agreement | Per-class calibration gap with CIs | CPU |
+| E9 | Head-to-head with published pipelines | Re-implement the published recipes of ScaleEnv (2602.06820), AWM (2602.10090) and a two-sided-filter-plus-judge pipeline as arms in the same Worlds, at equal dollars. Same student, same RL budget. | Residual-defect rate ρ̂ (planted + real); confirmed hack rate under RL; held-out family score; cost per perfect task | GPU + low $ |
+| E10 | Do the regularisers matter? | §9.6 ablations: remove one regulariser at a time | J, locked FR, transfer, Goodhart drift (cell KL, task size) | Low $ |
 | E6 | Factory economics | Yield and cost per stage; with vs without lemmas | Cost per admitted task with CIs | Low $ |
 | E7 | Generality | The same code on SQL Apps, repos (debug lane), messaging Apps and one Gym env | Which classes apply; FR per environment class | CPU |
 
@@ -530,6 +587,47 @@ hard cap in the wire. The checks use the swarm families (Kimi, GLM, DeepSeek, Ne
 only in M6/E4. Spend beyond $150 needs the lead's approval.
 
 ## 15. Relation to prior work
+
+### 15.1 System-level comparison with ScaleEnv and the closest pipelines
+
+**Key.**
+- ✓ means built in.
+- ~ means partial, or done by a model's opinion.
+- — means absent or not reported.
+- "Ours" is the design. Rows marked † are not built yet, and none of our results exist yet.
+
+| Dimension | ScaleEnv 2602.06820 | AWM 2602.10090 | EnvScaler 2601.05808 | Agent-World 2604.18292 | AutoEnvScaling 2610.14163 | WildAWM 2610.26828 | Hacker–Fixer 2606.08960 | Verifier evolution 2610.11464 | **Ours** |
+|---|---|---|---|---|---|---|---|---|---|
+| States the full target (valid + learnable + on-intent + novel) | — | — | — | — | ~ (reward spread) | ~ (gates) | — | — | ✓ P1–P4, §0 |
+| World / App synthesis | ✓ tool-first, executed tool tests | ✓ tasks-first SQLite + API | ✓ blind tool tests | ✓ mined real data | ✓ agent in sandbox | ✓ persona → multi-day Worlds | — | — | ~ interface + PyWorld; tool-first synthesizer † |
+| Reward / verifier form | Gold DB, per-column match | Code-augmented LLM judge | Checklist of state predicates | Tests + rubrics | Harbor tests | Executed verifiers | Existing benchmarks | Evolved detectors | Pass rules as data, one trusted grader, closed-world frame |
+| Collateral / side-effect check | — | — | ~ | — | — | ~ | — | — | ✓ FORBIDDEN_EFFECT + ExtraWrite |
+| Verifier testing | — (tools only) | — | — (tools only) | — | Reference = 1, empty < 0.5 | 5 executed gates, gaslight probe | Hacker rounds | Typed ops, birth gate | Nine typed falsifier classes, per-class certificates, archive replayed as a regression suite |
+| Communicability / intent | — | — | — | — | LLM review | ~ | — | — | ✓ executed taint + instruction twins |
+| Measured residual defects | — | — | — | — | — | — | Found-only (16% hackable) | — | ✓ recall-calibrated estimate per domain and class |
+| Difficulty per student | — | — | — | ~ diagnosis | ✓ assignments, spread | ~ | — | — | ✓ band per (task, student, checkpoint, simulator, time mode) + frontier loop |
+| Self-improvement | — | — | — | ~ arena loop, no control | ~ proposer memory; the trained proposer collapses without training | — | ~ repair rounds | ~ one level, one domain | ✓ four levels (tasks, falsifiers, planter, abstractor) with R1–R10 regularisers |
+| Selection free of student reward | n/a | n/a | n/a | — | — (spread is student reward) | ~ | ✓ | ✓ | ✓ by construction |
+| Substrates | Tool + DB | Tool + DB | Tool + DB | Tool + data | Terminal | CUA | Coding benchmarks | One domain | Any World with reset + canonical state; SQL, repos, messaging, Gym † |
+| Reported RL result | τ² 30.1 → 38.5 (Qwen3-8B) | ✓ | ✓ | ✓ | TB2.1 26.7 → 38.9 | 42.84 → 53.42 on our student | none (admitted) | none | † E5, E9 |
+
+**What the table supports, and what it does not.**
+- **Scope.** No published system targets all of P1–P4. None measures how many defects remain in its output, and none
+  regularises its self-improvement at several levels. On those three points the framework is broader, and the
+  difference is categorical, not a matter of degree.
+- **What others do better today.**
+  - **ScaleEnv's World synthesizer.** Keyword → tool schemas → derived DB schema → executed tool tests → tool graph →
+    snowballed environment. It is stronger than anything in `crucible.synth` now and is adopted as the F1 stage (P1-1
+    in the evidence doc).
+  - **WildAWM's dense multi-day Worlds** are richer than ours.
+  - **Every listed system has RL results**, and we have none yet.
+- **"Better" is an empirical claim.** It is settled by E9: re-implemented ScaleEnv, AWM and two-sided-filter arms, in the
+  same Worlds, at equal dollars and the same RL budget. The measures are residual-defect rate, confirmed hack rate under
+  RL, held-out score and cost per perfect task. Until E9 runs, the paper may claim broader scope and stronger
+  validation by design, not better results.
+
+### 15.2 Component-level credit
+
 
 The check covered the 337 cards plus a web and arXiv search (2026-10-29); the full report is
 `notes/06-novelty-check.md`. Several of the closest papers are not in the card set, and the check read only their
