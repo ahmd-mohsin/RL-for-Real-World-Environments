@@ -104,7 +104,9 @@ async def helpdesk(out: Path, backend: str = "local") -> dict[str, Any]:
         "permission_revoked": "month_end_freeze" in fired,
         "late_refund_refused": len(refunds) == 1,
         "restore_exact": notes_back == notes_before and notes_after != notes_before,
-        **({"mcp_harness": bool(res["mcp"]["has_tickets"] and res["mcp"]["call_ok"])} if "mcp" in res else {}),
+        # the call is a World step of the agent, which declared done: refused as such (the gateway's calls are World steps)
+        **({"mcp_harness": bool(res["mcp"]["has_tickets"] and not res["mcp"]["call_ok"] and "already declared done" in res["mcp"]["call"])}
+           if "mcp" in res else {}),
     }
     res["ok"] = all(res["checks"].values())
     return res
