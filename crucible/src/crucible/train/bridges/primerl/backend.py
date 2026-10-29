@@ -19,8 +19,10 @@ the two remote calls change: sampling and the optimizer step go to processes pri
   Crucible's loss (``loss.crucible_loss``) and broadcasts the adapter to ``<out>/broadcasts/step_<s>``; the bridge answers
   its handshake (``.sender_ready`` -> ``.receiver_ready``; prime-rl ``transports/weights/base.py:17-26``), waits for
   ``.finished``, and hot-loads the adapter into vLLM under a per-version name (``/load_lora_adapter``), so groups still
-  sampling from an older version keep their adapter (the staleness bound stays the trainer's). ``optim_step`` is a
-  no-op (prime-rl's step already ran; the learning rate is the trainer's configuration and is checked equal).
+  sampling from an older version keep their adapter (the staleness bound stays the trainer's). The step's adapter is
+  compared with the previous broadcast's (``lora_change``: the share of LoRA weights the step changed, which bf16 can
+  round away). ``optim_step`` is a no-op (prime-rl's step already ran; the learning rate is the trainer's configuration
+  and is checked equal).
 - **Checkpoints**: ``save_state`` is prime-rl's own checkpoint of that step (``<out>/checkpoints/step_<s>``, weights +
   optimizer + scheduler; ``ckpt.interval = 1``); a resumed run relaunches the trainer with ``resume.step = s`` and the
   bridge continues at batch step s + 1. Step numbering (prime-rl v0.10.0, ``trainer/ckpt.Progress.step = 1``): a fresh
@@ -39,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import shutil
 import time
 from collections.abc import Sequence
@@ -60,6 +63,8 @@ log = logging.getLogger(__name__)
 # optimizer's (``optim/grad_norm``); both are written after the step's checkpoint
 TRAINER_METRIC_KEYS = ("loss/mean", "optim/grad_norm")
 FIRST_STEP = 1  # a fresh prime-rl trainer's first step (``Progress.step``, v0.10.0); its startup broadcast is step_0
+# the LoRA broadcast's one file (prime-rl ``transports/weights/filesystem.py``: unsharded, the parameters as stored)
+ADAPTER_FILE = "adapter_model.safetensors"
 # The trainer scores every token under softmax(z / T) over the whole vocabulary, so the sampler must sample from exactly
 # that: no top-k / top-p / min-p truncation and no penalties. Sent explicitly on every call, because vLLM's
 # /v1/completions fills unset fields from the model's generation_config.json (Qwen3.6-35B-A3B ships top_k = 20,
@@ -377,6 +382,42 @@ def parse_generate(out: dict[str, Any], *, prompt_len: int = 0) -> tuple[SampleO
     return so, decode(ch.get("routed_experts")), topk_mod.decode(ch.get("topk_ids"), ch.get("topk_logprobs"), start=prompt_len)
 
 
+def lora_change(prev: Path, cur: Path) -> dict[str, float]:
+    """What one optimizer step changed in the stored adapter (Part 1 §3.3, part1-framework-improvements.md): the share of
+    LoRA elements that differ from the previous broadcast's, overall and for the A and B matrices, and each kind's norm.
+    In bf16 (``optimization_dtype``, forced on 2 trainer GPUs: swarm-pipeline/14 §8.2) a weight near 0.02 can only move
+    in steps of about 1e-4, so an AdamW update of about the learning rate rounds back to the same value. A (kaiming
+    init) loses updates first; B starts at 0, where bf16 is fine-grained, so its share is the step's control: an expert
+    that got no tokens stays unchanged in either kind. prime-rl saves the parameters without a cast, so a share of A
+    well below B's means updates were lost. Read one tensor at a time (with the experts the adapter is GBs); {} when
+    either broadcast has no adapter file."""
+    from safetensors import safe_open
+
+    if not (prev / ADAPTER_FILE).exists() or not (cur / ADAPTER_FILE).exists():
+        return {}
+    n, changed, sq = {"A": 0, "B": 0}, {"A": 0, "B": 0}, {"A": 0.0, "B": 0.0}
+    with safe_open(str(prev / ADAPTER_FILE), framework="pt") as fp, safe_open(str(cur / ADAPTER_FILE), framework="pt") as fc:
+        old = set(fp.keys())
+        for k in fc.keys():  # noqa: SIM118 -- a safetensors handle, not a dict
+            kind = "A" if "lora_A" in k else "B" if "lora_B" in k else None
+            if kind is None or k not in old:
+                continue
+            a, b = fp.get_tensor(k), fc.get_tensor(k)
+            if a.shape != b.shape:
+                continue
+            n[kind] += b.numel()
+            changed[kind] += int((a != b).sum())
+            sq[kind] += float(b.double().pow(2).sum())
+    if not n["A"] + n["B"]:
+        return {}
+    out = {"lora/changed_frac": (changed["A"] + changed["B"]) / (n["A"] + n["B"])}
+    for kind in ("A", "B"):
+        if n[kind]:
+            out[f"lora/changed_frac_{kind}"] = changed[kind] / n[kind]
+            out[f"lora/norm_{kind}"] = math.sqrt(sq[kind])
+    return out
+
+
 @dataclass
 class _Trainer:
     backend: PrimeRLBackend
@@ -395,6 +436,14 @@ class _Trainer:
         m = await b.trainer_metrics(self.step)
         m.update({"primerl/step": float(self.step), "primerl/step_s": time.monotonic() - t0, "primerl/samples": float(len(rows)),
                   "primerl/token_scale": wire.undo_token_mean(datums)})
+        # the previous broadcast is still there (prime-rl keeps step and step - 1; for the first step it is the startup
+        # adapter); a thread, so the groups sampling meanwhile are not held. A gauge only: never stops training
+        t1 = time.monotonic()
+        try:
+            if lc := await asyncio.to_thread(lora_change, d.parent / f"step_{self.step - 1}", d):
+                m.update({**lc, "lora/check_s": time.monotonic() - t1})
+        except Exception as e:  # noqa: BLE001 -- a gauge: no failure of it stops the step
+            log.warning("prime-rl step %d: lora/changed_frac not measured (%s: %s)", self.step, type(e).__name__, e)
         if b.routing is not None:
             cov = [r["routing_coverage"] for r in rows]
             m["routing/coverage_mean"], m["routing/coverage_min"] = sum(cov) / len(cov), min(cov)

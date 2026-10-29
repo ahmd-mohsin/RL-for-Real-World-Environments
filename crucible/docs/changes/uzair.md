@@ -1967,3 +1967,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   timing-flaky under load, 0/10 failures with and without the fix when alternated). Ruff check and lint-imports
   (5 contracts) clean.
 - **Merge notes.** Nine lines after `res.steps, res.stop, res.truncated = ...` in `WorkspaceHarness.run`.
+
+## 84. Part 1 §3.2 #1: the DeltaAI bridge logs `lora/changed_frac`, the share of LoRA weights a step changed
+
+- **Item.** §3.2 #1 of `docs/research/env-synthesis/part1-framework-improvements.md` (§3.3; plan table line 670): "prove
+  at the 2-step run that bf16 updates are not rounded away. Log `lora/changed_frac`". This is the measurement only. Not
+  taken: the fix (an fp32 copy of the adapter and Adam moments on the bf16 base, or 4 trainer GPUs in fp32). It needs a
+  prime-rl change and a GPU run, and waits for what this gauge shows on R1/R2. Background: swarm-pipeline/14 §8.2 (2
+  trainer GPUs need `optimization_dtype = bfloat16`; fp32 ran out of memory, job 3479803).
+- **Files.** `src/crucible/train/bridges/primerl/backend.py` (`lora_change`, `ADAPTER_FILE`, `_Trainer.forward_backward`,
+  module doc), `tests/unit/test_part1_lora_change.py` (new).
+- **Public names.** `backend.lora_change(prev, cur)`, `backend.ADAPTER_FILE`.
+- **Behaviour.** After each step's adapter is hot-loaded, the bridge compares `broadcasts/step_<s>/adapter_model.safetensors`
+  with `step_<s-1>`'s (prime-rl keeps both; for the first step the previous one is the startup adapter), one tensor at a
+  time, in a thread. It adds to the step's metrics (`steps.jsonl` `fb_metrics`, the smoke's `metrics`):
+  `lora/changed_frac` (share of LoRA elements whose stored value changed), `lora/changed_frac_A` and `_B`, `lora/norm_A`
+  and `_B`, and `lora/check_s` (the comparison's time). prime-rl saves the parameters without a cast, so the files are
+  what the trainer stores. Reading: B starts at 0, where bf16 is fine-grained, so its share is the control (an expert
+  that got no tokens is unchanged in both kinds); A well below B means updates were rounded away. No adapter file
+  (another weight transport, test fakes) gives no `lora/*` keys; any error logs a warning and the step goes on. Nothing
+  else changes. On the Mac, a simulated rank-32 adapter with Adam-sized steps (±4e-5) reads A 0.71 / B 1.00 in bf16 and
+  1.00 / 1.00 in fp32; two 1.1 GB adapters compare in about 6 s.
+- **Formats.** new keys in the step's metrics (above).
+- **Tests.** `test_part1_lora_change.py` (+3: a step of the learning rate on A = 0.02 changes 0% of A and 100% of B in
+  bf16, 100% of both in fp32; the share reaches `forward_backward`'s metrics; no adapter file gives no keys, and an
+  unreadable one logs a warning while the step completes). prime-rl bridge, routing, score centering (+paper), verify,
+  DeltaAI vLLM, difficulty bridge, M12 bridges audit, Tinker bridge, train bridges: 229 passed, 10 skipped. Ruff check and
+  lint-imports (5 contracts) clean.
+- **Merge notes.** One function before `_Trainer`, eight lines after the `primerl/step` metrics in
+  `_Trainer.forward_backward`, `import math`, `ADAPTER_FILE` after `FIRST_STEP`.
