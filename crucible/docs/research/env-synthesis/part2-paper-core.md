@@ -1,65 +1,98 @@
-# Part 2 paper core: counterexample-guided synthesis of RL environments with a self-improving falsifier
+# Part 2 paper core: synthesizing perfect RL tasks with an end-to-end, self-improving framework
 
-**Date.** 2026-10-29. **Status.** The method the Part 2 paper claims, and the build spec for `crucible.synth`.
-**Relation to other docs.** `part2-task-env-synthesis-framework.md` is the evidence base: 337 papers, gates, statistics and
-roles. This document picks the one idea the paper is about, makes it formal, and specifies the code. Where the two
-disagree, this document wins for the build.
+**Date.** 2026-10-29. **Status.** The problem, the framework and the RSI loop the Part 2 paper presents. This is also the
+build spec for `crucible.synth`.
+
+**Relation to other docs.**
+- `part2-task-env-synthesis-framework.md` is the evidence base: 337 papers, gates, statistics and roles.
+- This document makes the framework formal and specifies the code. Where the two disagree, this document wins for the
+  build.
 
 ---
 
-## 0. The idea in one paragraph
+## 0. The problem and the answer in one page
 
-An RL environment is a *claim*: "this start state, this instruction and this verifier together reward exactly the
-intended skill". Today's pipelines check that claim with a two-sided filter (the reference passes, the start state
-fails), sometimes an LLM judge, and then student pass rates. All three are weak.
-- The two-sided filter selects lenient verifiers.
-- Judges are hackable.
-- Loops that select on student score collapse.
+**The problem: perfect RL task synthesis.** Given any environment and a target skill, automatically produce many RL
+tasks that are *perfect for a given student*, at a known cost, with a measured bound on how many are not.
 
-We treat every environment as a specification under **falsification**. A population of typed **falsifiers** searches for
-executed counterexamples, at four levels:
-- the verifier against the contract;
-- the contract against the instruction;
-- the instruction against the World;
-- the task against the intended skill.
+A task τ is **perfect** for student π and skill σ when four properties hold:
 
-Counterexamples drive a CEGIS-style repair loop. They are kept in a monotone archive that acts as a regression suite.
-They also yield a per-task **validity certificate**: for each falsifier class, the number of trials, the counterexamples
-confirmed, and an exact upper bound on the rate.
+| Property | Meaning | Measured by |
+|---|---|---|
+| **P1 Valid** | None of the eleven defects of §2 is present: the reward is sound, complete, non-vacuous, communicable, faithful to the instruction, unhackable, solvable and deterministic | The falsifier population and certificates (§5–§6) |
+| **P2 Learnable** | π's success rate is in the learning band, p̂_π(τ) ∈ [0.1, 0.6] | Per-student measurement (§10) |
+| **P3 On-intent** | Success requires σ: removing the skill's evidence or swapping the instruction breaks success | Taint, twins and intent probes (§5, §10) |
+| **P4 Novel** | τ adds behaviour the pool lacks | Behaviour signature and coverage (evidence doc §6) |
 
-The recursive self-improvement runs on the **evaluator side**, not the solver side.
-- **What improves.** Confirmed counterexamples are abstracted into new falsifier operators and design lemmas.
-- **The yardstick.** We plant defects by mutating the *contracts* of certified environments. Each planted defect has a
-  known label, so the falsifiers' **recall** can be measured without human labels and without student reward.
-- **Why the loop cannot collapse.** An always-pass falsifier scores zero recall. An always-reject falsifier raises false
-  alarms on certified anchors.
+Today's pipelines each optimise one piece:
+- World synthesis;
+- verifier hardening;
+- difficulty filtering;
+- diversity prompting.
 
-The same machinery works for any environment that can be reset, snapshotted and read as typed state:
-- SQL apps, file trees and repositories;
-- mail and chat;
-- web-app backends;
-- Gym simulators.
+They check validity with a two-sided filter, an LLM judge or student pass rates. None of them states the full target,
+and none measures how far its output is from it.
 
-## 1. Contributions (claims the paper makes)
+**The answer, in three parts.**
 
-The claims below were revised after the novelty check (§15; full report in `notes/06-novelty-check.md`).
-- **Not claimed: closed-world contracts.** AppWorld 2407.18901 and Agent-Diff 2602.11224 already grade with closed-world
-  diffs and declarative assertions. They are the substrate here.
-- **Not claimed: composition.** τ² 2506.07982, WorkArena++ and RHB already compose verified sub-tasks.
-- **All certificates are falsifier-relative.** None of them bounds every possible defect.
+1. **An end-to-end framework** that works on any environment that can be reset, snapshotted and read as typed state.
+   Its stages:
+   - a World interface and canonical state;
+   - oracle programs with value tracking;
+   - pass rules as data, run by one trusted grader;
+   - a typed population of falsifiers that search for executed counterexamples;
+   - per-task validity certificates;
+   - a repair loop with a monotone counterexample archive;
+   - composition, difficulty per student, intent probes and diversity;
+   - online certification during RL.
+2. **A recursive self-improvement loop over the whole pipeline.** It has three coupled loops:
+   - the **falsifier** loop: counterexamples become new falsifier rules;
+   - the **synthesizer** loop: counterexample–repair pairs become design rules for the task writers;
+   - the **frontier** loop: student failures become targeted tasks.
 
-| # | Claim | One-line content | Closest prior work |
-|---|---|---|---|
-| **N1** (main) | **Recall-calibrated validity certificates** | A typed falsifier population gives each task a certificate: per class, the trials, the confirmed counterexamples and a Clopper–Pearson bound. Contract mutation plants defects of known class into certified environments, which measures each class's recall FR_k,d. Recall then calibrates the certificates into an estimate of the *residual* defect rate per domain and defect class, by error seeding and capture–recapture (§6). A monotone counterexample archive is replayed as a regression suite. | 2610.09142 (oracle edit operators refereed by end-state diff); 2606.08960 (hacker–fixer–solver loop, no statistics or regression suite); 2607.27518 (planted failures used only to develop its scanners); classic error seeding (Mills 1972), spec mutation (Budd & Gopal 1985; Black, Okun & Yesha 2000), oracle assessment (Jahangirova 2016) |
-| **N2** | **Communicability and instruction sensitivity by taint** | The oracle is a straight-line action program, re-executed with taint tracking. Admission requires every literal it uses, and every constant the contract checks, to be sourced from the instruction, an earlier observation or a declared given. Substituting instruction-sourced literals yields twin tasks that prove the contract depends on the instruction. Precision and recall are measured on planted D5/D7/D9 defects and on the real-defect set. | Trajectory2Gym 2610.33568 (argument support used to mask SFT targets); Interlock 2610.19686, RST and ABA 2605.26079 (LLM review) |
-| **N3** | **Evaluator-side recursive self-improvement with cross-domain transfer** | Confirmed counterexamples are abstracted by a different model family into typed falsifier operators, attack strategies and synthesizer lemmas. The birth gate requires recall on planted defects of *other* tasks and domains, and zero false alarms on anchors. Selection never sees student reward. The headline hypothesis is that falsifiers grown on one substrate (SQL Apps) transfer to others (repositories, messaging, Gym). | 2610.11464 (verifier evolution with typed ops, birth gate and locked set, but detectors in one domain); AutoRedTeamer, AutoDAN-Turbo; 2606.08960 (defences did not transfer universally) |
-| **N4** | **Online certification with task-side quarantine, and a dose–response RL test** | During RL, every passing rollout is a trial on its task's certificate. A confirmed flagged pass quarantines the *task* and triggers repair. The RL experiment trains Qwen3.6-35B-A3B on pools admitted at different certificate strengths, with and without the archive and online certification, and measures hack onset, the clean-vs-raw pass-rate gap and transfer. | Training-time monitors (2606.26300, HackTrace 2610.03055, 2606.04923); PRIME 2606.09711 (policies switch exploits within ~15 steps); 2609.35677 (independent audits needed); Rajan 2606.16062 and 2606.08960 never show that hardened verifiers help RL |
+   Its objective is measured, never judged: perfect tasks per dollar, subject to an estimated imperfect fraction ≤ ε.
+3. **A label-free yardstick that makes the loop measurable and collapse-proof.** We plant defects of known class into
+   certified tasks by mutating their pass rules. The falsifiers' recall on them calibrates every certificate into an
+   estimate of the defects that remain.
+   - An always-pass checker scores zero recall.
+   - An always-reject checker raises false alarms on certified anchors.
+   - Student reward never enters selection, so the loop cannot drift into either extreme.
 
-**Engineering contributions, not novelty claims.**
-- One trusted grader running declarative contracts on several substrates.
-- Certificate-preserving composition: the archive and the certificates carry over to composed tasks, which is
-  measured, not proved.
-- The locked planted-defect set, released as a benchmark for environment-validation pipelines.
+## 1. Contributions
+
+1. **Problem formulation.** Perfect RL task synthesis is stated as an optimisation: maximise perfect tasks per dollar,
+   for a given student, subject to a *measured* bound on the imperfect fraction. The definition is P1–P4 above, P1
+   decomposed into eleven typed defects (§2).
+2. **The end-to-end framework** (§3–§12). It is domain-generic through a six-operation World interface. Within it:
+   - every artifact a model writes is held to execution;
+   - every check is cross-checked by another model family;
+   - every admitted task carries a certificate.
+3. **The RSI loop** (§9). Three coupled loops improve the falsifiers, the synthesizers and the frontier. They are
+   selected on executed evidence, planted-defect recall and equal-budget controls, never on student reward. The
+   hypothesis is that improvements transfer across domains and substrates.
+4. **Measurement.** Error seeding plus capture–recapture turn falsifier-relative certificates into residual-defect
+   estimates with intervals, per domain and defect class (§6, §8). This answers how good a task set is, not only how
+   many defects were found.
+5. **Evidence** (§13):
+   - recall and residual-defect estimates on three or more substrates (SQL Apps, repositories, messaging, Gym);
+   - loop improvement round over round against equal-budget controls;
+   - cross-domain transfer;
+   - cost per perfect task;
+   - a dose–response RL experiment on Qwen3.6-35B-A3B: pools at increasing certificate strength against hack onset and
+     held-out transfer.
+
+**What we build on.** The framework reuses and credits mechanisms from earlier work. §15 lists the closest work for each
+component. Several components exist separately elsewhere:
+- closed-world diff grading (AppWorld 2407.18901, Agent-Diff 2602.11224);
+- oracle edit operators (2610.09142);
+- hacker–fixer loops (2606.08960);
+- verifier evolution with a birth gate (2610.11464);
+- composed sub-tasks (τ² 2506.07982);
+- classic error seeding and spec mutation.
+
+The contribution is the problem, the integrated framework that targets all of P1–P4, and the measured self-improving
+loop. The parts that are, as far as the search found, new as mechanisms are value-tracked communicability (§5 TAINT,
+TWIN), recall-calibrated certificates (§6) and cross-domain falsifier transfer (§9).
 
 ## 2. Failure taxonomy (what a bad environment is)
 
@@ -211,7 +244,7 @@ equivalent}`.
 | **REP** determinism | Run π* twice from `reset(seed)`; restore and run again | Any verdict or Δ difference is confirmed D11 | D11 | s |
 | **ALT** alternative solvers | k agents from ≥ 2 families that built nothing in the task, solving from ι | Pass → a clean trial for D6. Fail → adjudicated: a valid solution means D6, otherwise clean. Pass with a forbidden-looking trace → suspect D8. | D6 D5 D10 | $ |
 | **ATK** attackers | Agents told to pass without doing the skill, given the attack-strategy library (§9) and the instruction, never the contract | A pass is suspect; the panel decides D7/D8, and confirmed hacks also become negatives | D7 D8 | $ |
-| **ONL** online rollouts | Every passing training or eval rollout | L1 hack rules plus the trajectory monitor flag passes; flagged passes are suspect, and a confirmed one quarantines the task (N4) | all | free |
+| **ONL** online rollouts | Every passing training or eval rollout | L1 hack rules plus the trajectory monitor flag passes; flagged passes are suspect, and a confirmed one quarantines the task | all | free |
 
 **Adjudication.** A panel of two families, neither of which built the task, reads:
 - the task;
@@ -249,7 +282,7 @@ falsifier distribution, not under all possible agents. That is why falsifier str
 Together they give an estimate: P(a task with defect d is admitted) ≈ Π_k (1 − FR_k,d) for independent classes, and it
 is measured directly on the locked set.
 
-**Recall calibration: from certificates to residual defects (N1).** Planted defects play the role of seeded errors.
+**Recall calibration: from certificates to residual defects .** Planted defects play the role of seeded errors.
 For a domain and defect class d, write:
 - FR_d for the population's recall on locked planted environments of class d;
 - n_d for the number of natural defects of class d confirmed among candidate tasks.
@@ -295,7 +328,7 @@ synthesize(cell, domain):
 - **Round cap.** At most 3 rounds, unless new executed information arrives (evidence doc §9.2).
 - **Equal-budget control.** For every factory claim, an untargeted batch is generated at the same spend.
 
-## 8. Contract mutation: planting defects with known labels (N1)
+## 8. Contract mutation: planting defects with known labels 
 
 **Contract and World mutation operators.** Each operator is applied to a certified task and plants exactly one defect
 class:
@@ -331,7 +364,21 @@ confirmed counterexample. Its pair is the **false-alarm rate** FA_k: confirmed c
 Each such alarm is either a real defect, which is adjudicated, kept as a new finding and its anchor repaired, or a
 falsifier bug.
 
-## 9. Evaluator-side recursive self-improvement (N3)
+## 9. The recursive self-improvement loop
+
+**The objective.** One round r of the loop generates a batch of tasks at budget B. For each domain, write:
+- K_r for the number of admitted tasks that pass P2–P4;
+- ρ̂_r for the estimated residual-defect fraction (P1 violations) among them, from §6.
+
+The loop maximises **J_r = K_r(1 − ρ̂_r) / B**, perfect tasks per dollar, subject to ρ̂_r's upper confidence bound being
+at most ε.
+
+**Which loop moves which term.**
+- The **falsifier** loop raises recall. That tightens ρ̂, and finds defects earlier versions missed.
+- The **synthesizer** loop lowers the defect rate of new proposals. That raises the admitted yield.
+- The **frontier** loop raises the P2–P4 share. It moves tasks into the student's band and fills empty cells.
+
+Every round is compared against an equal-budget control round without that round's changes.
 
 There are three loops. The first is the paper's main claim.
 
@@ -379,7 +426,7 @@ tasks. The metric that improves round over round is measured, not judged:
 - the real-defect detection rate;
 - the confirmed-counterexample rate among admitted tasks.
 
-## 10. Difficulty per student, and composition (engineering)
+## 10. Difficulty per student, and composition 
 
 **Composition.** seq(τ₁, τ₂) starts τ₂ from s_T(π₁*):
 - the program is π₁*; π₂*;
@@ -456,7 +503,7 @@ The locked planted set lives under `crucible/data/sealed/synth-locked/` behind t
 | E2 | Does evaluator-side RSI raise recall without false alarms? | Loop 1 for R rounds; locked-set FR per round; equal-budget control: random operator proposals | FR curve; FA; ledger of rejects | Low $ |
 | E3 | Do operators transfer across domains? | Library grown on domain A, tested on locked planted sets of B and C | Transfer FR vs B's own library | Low $ |
 | E4 | Do certificates predict real hacking? | Run the student (eval, then RL) on admitted tasks; ONL flags vs certificate strength | Rank correlation of U and FR-weighted strength with the confirmed hack rate | Student rollouts |
-| E5 | Does certified data train better? (dose–response, N4) | RL at equal budget on pools from the same generator, admitted at increasing certificate strength: (a) two-sided filter only, (b) deterministic falsifiers, (c) all falsifiers + archive, (d) (c) + online certification | Hack onset step, clean-vs-raw pass-rate gap, held-out family score, exploit switching after quarantine; MDE stated first | DeltaAI GPU |
+| E5 | Does certified data train better? (dose–response) | RL at equal budget on pools from the same generator, admitted at increasing certificate strength: (a) two-sided filter only, (b) deterministic falsifiers, (c) all falsifiers + archive, (d) (c) + online certification | Hack onset step, clean-vs-raw pass-rate gap, held-out family score, exploit switching after quarantine; MDE stated first | DeltaAI GPU |
 | E8 | Are planted defects like natural ones? | FR per class on planted vs the real-defect set; capture–recapture vs error-seeding agreement | Per-class calibration gap with CIs | CPU |
 | E6 | Factory economics | Yield and cost per stage; with vs without lemmas | Cost per admitted task with CIs | Low $ |
 | E7 | Generality | The same code on SQL Apps, repos (debug lane), messaging Apps and one Gym env | Which classes apply; FR per environment class | CPU |
@@ -482,23 +529,23 @@ repo rules.
 hard cap in the wire. The checks use the swarm families (Kimi, GLM, DeepSeek, Nemotron, gpt-oss); the student is called
 only in M6/E4. Spend beyond $150 needs the lead's approval.
 
-## 15. Novelty check
+## 15. Relation to prior work
 
 The check covered the 337 cards plus a web and arXiv search (2026-10-29); the full report is
 `notes/06-novelty-check.md`. Several of the closest papers are not in the card set, and the check read only their
 abstract or HTML page. Two must be read in full before submission:
-- **2606.08960 (Hacker–Fixer loops):** an auditor will cite it against N1;
+- **2606.08960 (Hacker–Fixer loops):** an auditor will cite it against the falsifier and certificate stages;
 - **2602.11224 (Agent-Diff):** the closest prior work for the contract substrate.
 
-| Original claim | Rating | Decision |
+| Component | Closest prior work (rating of the component alone) | How the paper uses it |
 |---|---|---|
-| C1 closed-world contracts | Known (AppWorld 2407.18901; Agent-Diff 2602.11224; τ-bench) | Substrate only |
-| C2 falsifiers + certificates + archive | Partly novel (2610.09142; 2606.08960; BenchJack; SWE-ABS; ImpossibleBench) | Merged into N1, with recall calibration |
-| C3 taint communicability | Partly novel; the strongest mechanism claim (2610.33568 uses argument support for SFT masking only) | N2; must report precision and recall and handle transformed values |
-| C4 planted defects | Partly novel, close to novel (2607.27518; BenchGuard 2604.24955; classic error seeding, spec mutation, oracle assessment) | Merged into N1. Called **contract mutation**, not "second-order" or "higher-order mutation" (Jia & Harman 2009 use those terms for multi-fault program mutants). The classic roots are credited. |
-| C5 evaluator-side RSI | Partly novel (2610.11464 has typed ops, a birth gate and a locked set for verifier evolution) | N3, centred on cross-domain falsifier transfer |
-| C6 online certification | Partly novel (2606.26300; HackTrace; PRIME 2606.09711; 2609.35677) | N4, plus the dose–response RL experiment |
-| C7 composition | Known (τ² 2506.07982; WorkArena++; RHB; CompoWorld) | Engineering only |
+| C1 closed-world contracts | Known (AppWorld 2407.18901; Agent-Diff 2602.11224; τ-bench) | The pass-rule substrate; credited |
+| C2 falsifiers + certificates + archive | Partly novel (2610.09142; 2606.08960; BenchJack; SWE-ABS; ImpossibleBench) | Part of the falsifier and certificate stages; new: one typed population, per-class certificates, archive as regression suite |
+| C3 taint communicability | Partly novel; the strongest mechanism claim (2610.33568 uses argument support for SFT masking only) | New mechanism; report precision and recall, and handle transformed values |
+| C4 planted defects | Partly novel, close to novel (2607.27518; BenchGuard 2604.24955; classic error seeding, spec mutation, oracle assessment) | The yardstick of the RSI loop. Called **contract mutation**, not "second-order" or "higher-order mutation" (Jia & Harman 2009 use those terms for multi-fault program mutants). The classic roots are credited. |
+| C5 evaluator-side RSI | Partly novel (2610.11464 has typed ops, a birth gate and a locked set for verifier evolution) | Falsifier loop of the RSI; new: cross-domain birth gate and transfer |
+| C6 online certification | Partly novel (2606.26300; HackTrace; PRIME 2606.09711; 2609.35677) | Online certification stage; tested by the dose–response RL experiment |
+| C7 composition | Known (τ² 2506.07982; WorkArena++; RHB; CompoWorld) | Composition and difficulty stage; credited |
 
 Two ids came from the checking agent's memory and are unverified: AutoDAN-Turbo 2410.05295 and CaMeL 2503.18813.
 VerifierContractBench has only a NeurIPS 2026 listing, with no arXiv id yet.
