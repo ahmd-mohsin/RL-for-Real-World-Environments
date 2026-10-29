@@ -7,8 +7,10 @@
 #     it, the null patch (reward 0) and the oracle applied in the World and collected back (reward 1), graded by the gates'
 #     own verifier through the shim;
 #  5. two scripted one-episode arms (bench.py stub-serve: the tokenizer only) through the real episode path.
-# Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh --partition=<cpu partition> bench_prep.sbatch
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=16 --mem=48g
+# Submit (from $W):  unset SBATCH_ACCOUNT SLURM_ACCOUNT; sbatch --account=bjhg-dtai-gh bench_prep.sbatch
+# DeltaAI has no CPU-only partition: on ghx4 with no GPU, 32 CPUs and 48 GB bill 444 per hour (0.44 GPU-hours).
+#SBATCH --partition=ghx4
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=32 --mem=48g
 #SBATCH --time=02:00:00
 #SBATCH --job-name=crucible-bench-prep
 #SBATCH --output=logs/prep-%j.out
@@ -30,8 +32,10 @@ if [ ! -x "$W/venv/bin/python" ] || ! "$W/venv/bin/python" -c "import crucible, 
 fi
 t "env: $($PY -c 'import crucible, transformers, torch; print("ok transformers", transformers.__version__, "torch", torch.__version__)' 2>&1 | tail -1)"
 
-# 2. SIFs
+# 2. SIFs, and the engine's JIT caches seeded from the inference smoke's (read only), so the GPU job does not compile them
 build_sifs || { t "sif build failed"; exit 2; }
+VC=/work/hdd/bjhg/mahmedmohsin/crucible-infer/vcache
+[ -d "$VC" ] && [ -z "$(ls -A $W/vcache 2>/dev/null)" ] && rsync -a --no-acls "$VC/" "$W/vcache/" && t "vcache: seeded $(du -sh $W/vcache | cut -f1)"
 t "sifs: $(ls $W/sif/*.sif | wc -l)"
 
 # 3. lockdown in every World image
