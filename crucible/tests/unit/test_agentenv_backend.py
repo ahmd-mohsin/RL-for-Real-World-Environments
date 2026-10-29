@@ -190,3 +190,28 @@ async def test_agentenv_restore_keeps_fired_triggers_fired(tmp_path: Path):
 async def _lacks(w: World, actor: str, tool: str) -> bool:
     await w.backend._refresh_allowed(w)
     return tool not in {t.qualified for t in w.backend.allowed_tools(actor)}
+
+
+@pytest.mark.parametrize("backend", ["local", "agentenv"])
+async def test_a_permission_event_the_worlds_scheduler_fires_is_enforced_on_every_backend(tmp_path: Path, backend: str):
+    """Smoke 2026-10-29: under a step clock the World's scheduler fires the freeze (not delegated). It revoked the tool
+    in ``World.acl`` only; the agentenv gateway checks access itself (``native_acl``), so the clerk kept creating
+    resources there while the local backend refused them. Both must refuse after the freeze, and hide the tool."""
+    d = spec("step").model_dump()
+    d["backend"] = backend
+    d["clock"]["step_dt_s"] = 3600  # one step = one virtual hour: the 2 h freeze fires after the second step
+    w = World(WorldSpec.model_validate(d), store=Store(tmp_path / "store"), workdir=tmp_path / "w")
+    await w.start()
+    try:
+        await w.reset()
+        for i in range(2):
+            r = await w.step("clerk", ToolCall(tool_call_id=f"l{i}", function_name="erp.list_resources", arguments={"collection": "invoices"}))
+            assert r.observation.tool_results[0].ok
+        assert "freeze" in [f["event"] for f in w.firing_log()]
+        r = await w.step("clerk", ToolCall(tool_call_id="c", function_name="erp.create_resource", arguments={"collection": "invoices", "id": "INV-1", "data": {}}))
+        res = r.observation.tool_results[0]
+        assert not res.ok and res.error == "permission_denied", res.content
+        assert "erp.create_resource" not in {t.qualified for t in w.tools_for("clerk")}
+        assert (await w.verifier_view().query("erp", {"op": "get", "args": {"path": "/invoices"}})).value in ({}, None)
+    finally:
+        await w.close()

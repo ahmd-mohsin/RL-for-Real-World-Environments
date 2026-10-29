@@ -2520,6 +2520,14 @@ Crucible's step-mode scheduler runs it with agentenv's semantics. The pure helpe
     `fired` and `verify_ok` in the gateway's log.
 - **Open:** the full 20-spec firing-log conformance across clocks. Wall-mode instants depend on the 1 s driver poll,
   so time triggers are compared by spec acceptance and marks, not by live instants.
+- **Permission events on a backend that checks access itself (smoke 2026-10-29):** under a step clock the agentenv
+  backend delegates no event, so Crucible's scheduler fires a `permission` action. It changed `World.acl` only, which a
+  `native_acl` backend never reads: the toy helpdesk's month-end freeze refused `tickets.issue_refund` on the local
+  backend and left it callable (and listed) behind the gateway, so the same scripted episode issued two refunds there
+  and one locally. `Backend.apply_permission` (a no-op by default) now makes the change where access is checked;
+  `AgentEnvBackend` toggles the gateway's role rule and refreshes the allowed sets. Test:
+  `test_agentenv_backend.py::test_a_permission_event_the_worlds_scheduler_fires_is_enforced_on_every_backend` (both
+  backends refuse after the freeze and hide the tool; the agentenv case fails without the fix).
 
 **C5 (2026-10-10): agentenv sandbox adapter breadth.**
 - **Provider building:** each provider is built through agentenv's registry, `from_config` with the
