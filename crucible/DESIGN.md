@@ -1033,6 +1033,26 @@ launcher, filesystem transports and an import-path loss.
   - An asynchronous run gets `max_loras = 2`.
 - **The GPU smoke passed** (2026-10-28, job 3474848, 6:25 on 2 GH200): two RL steps, a relaunch from checkpoint 2, and a
   third step, all through the bridge on Qwen3-0.6B, plus the student's Gated DeltaNet kernels on the GPU (doc 14 §5.1).
+- **The real student's verification** (`delta_rl.py render-verify`, doc 14 §8):
+  - **Tasks:** `train --debug DIR --tasks ...` trains on the debug lane's own `DebugTask`s (`lh_debug_target.Tasks`: the
+    authored prompt, the lane's World and grader). Rows rebuild a plain window task, which lacks the lane's scope and
+    sandboxes. Only gated training-split tasks are accepted; a held-out id is refused before the trainer refuses it again
+    (V9).
+  - **Worlds on the node** (`world_lines`): the Apptainer `docker` shim first on `PATH`, the lane's training data copied
+    node-local without ACLs, and the lockdown probe in the task's World before vLLM starts. The loop's run directories are
+    node-local too, because `/work`'s ACLs break the grader's copy; they are copied back every 5 minutes.
+  - **The jobs:** a 2-GPU trainer probe on prime-rl's fake data (load, two steps, one checkpoint), then one 4-GPU job.
+    Its phases are a synchronous run, the trainer relaunched from the step the loop's `state.json` names (`launch_toml`)
+    with the same run raised by more steps, and a separate asynchronous run with its own trainer (a resume may not change
+    `async_groups` / `max_staleness`). A watchdog stops a phase whose trainer or vLLM died.
+  - `DeltaConfig.hf_home` reuses the inference worker's cache of the student's weights.
+  - **No expert parallel with LoRA** (`DeltaConfig.ep = 1`, `ep > 1` refused). In prime-rl v0.10.0 the LoRA experts under
+    EP re-permute tokens that the dispatcher already permuted, through a constant a refactor removed (the trainer probe,
+    job 3478344, failed at the first forward). With `ep = 1`, FSDP shards the experts like every other weight.
+  - `DeltaConfig.optimization_dtype` (prime-rl's `model.optimization_dtype`): float32 by default, which holds the frozen
+    base in fp32 too (about 75 GB per GPU over 2). bfloat16 halves that, at the price of bf16 LoRA updates.
+- **Each `steps.jsonl` row carries the dashboard row** (`metrics`: staleness buckets, drops, the SC, routing and MIS
+  numbers). An offline W&B run cannot be read back, and the run's own record now shows what the dashboard showed.
 - **The plan** (`plan`, an estimate from the stored 300-call episodes): about 4.1 GPU-hours per 4 × 8 step. The
   recommended first run is 40 steps, about 165 of the 976 hours left.
 - **MoE routing replay** (`primerl/routing.py`, on by default):

@@ -682,8 +682,6 @@ class TinkerTrainer:
                "rewards": [g.rewards() for g in batch], "loss": fb.metrics.get("loss:sum"), "fb_metrics": fb.metrics, "optim": opt,
                "kl_sample_vs_train": statistics.fmean(kl) if kl else None, "sampler_path": path, "train_s": round(train_s, 3),
                "usd_cum": round(self.meter.spent, 6), "drops": dict(self.drops), "min_versions": [g.min_version() for g in batch]}
-        self.step_rows.append(row)
-        _append(self.dir / "steps.jsonl", row)
         t = self.meter.totals
         tok = {"prefill_uncached": t.prefill, "prefill_cached": t.prefill_cached, "sampled": t.sample, "train": t.train}
         now = time.monotonic()
@@ -696,6 +694,11 @@ class TinkerTrainer:
         m["quarantine/events"] = float(len(self.quarantine.events))
         if self.difficulty is not None:
             m.update(self.difficulty.metrics())
+        # the dashboard row in the run's own record too (staleness buckets, drops, SC / routing / MIS numbers): a run read
+        # back from its directory (an offline W&B run cannot be) shows what the dashboard showed
+        row["metrics"] = m
+        self.step_rows.append(row)
+        _append(self.dir / "steps.jsonl", row)
         self.tracking.log(m, step)
         self._last_tokens, self._last_usd, self._last_step_t = tok, self.meter.spent, now
 
