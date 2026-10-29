@@ -35,7 +35,11 @@ the step it grades. Packs never add types: they map their own events onto these.
    source), with a 90% interval. Only judgeable signals get a value.
 6. **Decision points** (`pivots.py`): steps graded wrong and then corrected; `studio.datasets` pairs only corrections
    and applied suggestions (a revert says what was wrong, not what was right), once per turn, with the signal's
-   reliability and a `state_shift` flag.
+   reliability and a `state_shift` flag. `graded_wrong` is wider: every step a negative step signal grades (a rejection,
+   escalation, violation, rework, interrupt or failing check too) that the trace does not contradict. `crucible label`
+   never makes such a policy turn a positive target: no SFT row, KTO False, never DPO chosen. Only corrective signals
+   counted, so the toy pack trained a reply the customer rejected and one rejected then escalated (M4 audit 2026-10-27,
+   R-1).
 7. **The gate** (`gate.py`): labels name events by stable key; scoring fails closed; at least 50 events and 10
    outcomes; Wilson intervals, per-type recall, outcome coverage and per-actor-class accuracy are reported.
 

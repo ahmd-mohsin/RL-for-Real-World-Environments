@@ -617,16 +617,18 @@ def from_trace(trace: Any, *, policy_roles: Sequence[str] = ("agent",), phi_by_s
     flush()
     pivots: list[dict[str, Any]] = []
     unpaired = 0
-    wrong: set[int] = set()
+    from crucible.signals.pivots import graded_wrong
     from crucible.signals.pivots import pivots as find_pivots
 
+    # graded wrong whether or not a fix is known (V8), by any negative step signal the trace does not contradict, not only a
+    # corrective one (M4 audit R-1: a reply the customer rejected was an SFT row); a non-policy event marks nothing
+    wrong = {turn_of_seq[g] for g in graded_wrong(trace) if g in turn_of_seq}
     by_seq = {e.seq: e for e in trace.events}
     sig = {s.id: s for s in trace.signals}
     seen_pairs: set[tuple[int, int]] = set()
     for graded, sids in sorted(find_pivots(trace).items()):
         if graded not in turn_of_seq:
             continue
-        wrong.add(turn_of_seq[graded])  # graded wrong whether or not a fix is known (V8)
         for sid in sids:
             s = sig[sid]
             fix = by_seq.get(s.source_event) if s.source_event is not None else None

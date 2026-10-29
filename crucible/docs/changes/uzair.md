@@ -1811,3 +1811,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   files and lint-imports (5 contracts) are clean.
 - **Merge notes.** One line and one import in `redact()`. The M3 should items (R-1..R-4) are all done; the 23 later items
   wait for their consumer.
+
+## 78. M4 R-1: a policy turn graded wrong by any uncontradicted negative step signal is never a positive target
+
+- **Item.** R-1 of `docs/research/improvements/2026-10-27/M04-signals.md` (must), as recommended; it corrects the M15 V8
+  fix (`775f30f1`), which excluded corrective-graded turns only. Not taken: a type list in M15 (drifts from M4's
+  verdicts), a reliability threshold (reliability is None on this path, so it excludes nothing), skipping the KTO row
+  (gives `wrong` two meanings). No new counter: `skipped.sft_graded_wrong` already counts the dropped SFT turns. Pattern
+  from MiMo `verl/trainer/ppo/signed_rebalance.py:14-22` (Apache-2.0); no code copied.
+- **Files.** `src/crucible/signals/pivots.py` (`_against`, `pivots`, new `graded_wrong`, module docstring),
+  `src/crucible/studio/datasets.py` (`from_trace`), `docs/modules/M04-signals.md` (decision points),
+  `tests/unit/test_graded_wrong.py` (new).
+- **Public names.** New `crucible.signals.pivots.graded_wrong(trace) -> dict[int, list[str]]` (graded seq -> signal ids).
+- **Behaviour.** `graded_wrong` takes every step-level signal (`TAXONOMY[type].grades == "step"`) with polarity < 0 and
+  grades, skipping `all_commits` attributions and signals `verdict` contradicts, as `pivots` does but without the
+  corrective-only filter; `pivots` keeps that filter and still decides the DPO pairs. `from_trace` builds
+  `Labelled.wrong` from `graded_wrong` through `turn_of_seq`, so only policy turns are marked (the toy `sla_breach` on a
+  non-policy event marks nothing). Such a turn is no SFT target, KTO False, never DPO chosen. On the toy pack
+  `crucible label` trained T1005 seq 2 ("The carrier shows it at your building's parcel room.", answered "There is no
+  parcel room in my building") and T1007 seq 2 ("Please regenerate your API key and retry.", rejected then escalated):
+  SFT 10 -> 8, KTO desirable/undesirable 10/2 -> 8/4, `sft_graded_wrong` 0 -> 2, DPO and pivot counts unchanged.
+  Trade-off: a correct reply graded only by `sla_breach` on a policy turn is no longer a positive.
+- **Formats.** none (fewer positive rows).
+- **Tests.** `test_graded_wrong.py` (2: the toy label run's counts and both replies only as KTO False; `graded_wrong` on a
+  failing check, the same check passing later, an `all_commits` revert, a trace-level signal and a correction, plus
+  `from_trace`'s `wrong`). The label counts were 10 and 10/2 before the fix. Label, studio, M4, M5, M14 framework, packs
+  and core files: 140 + 93 passed; failures are the known coding pack fixture and two `test_m15_audit_studio` tests (async
+  export, site index), which fail without this change too. Ruff on the changed files and lint-imports (5 contracts) are
+  clean.
+- **Merge notes.** `from_trace` no longer adds to `wrong` inside the pivots loop; `wrong` is computed once before it.
