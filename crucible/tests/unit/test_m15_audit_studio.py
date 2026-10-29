@@ -548,6 +548,14 @@ def test_v18_world_validate_forbidden_from_a_file_and_masked(tmp_path):
     assert "HIDDEN-ANSWER-4242" not in (tmp_path / "rep.json").read_text()
 
 
+def test_world_validate_finds_the_pack_root_of_a_pack_world():
+    """Smoke 2026-10-29: without --pack-root the yaml's own directory (worlds/) was the seed root, so a pack World's
+    bundle (data/helpdesk, pack-relative) was not found and the audit crashed. The nearest pack.yaml decides."""
+    r = run("world", "validate", PACKS / "_toy" / "worlds" / "helpdesk.yaml")
+    assert r.exit_code == 0, r.output
+    assert "toy/helpdesk: PASS" in r.output
+
+
 # ---- V19: train refuses what it cannot honour --------------------------------------------------------------------------
 def test_v19_train_refuses_unsupported_specs(tmp_path):
     job = tmp_path / "job.toml"

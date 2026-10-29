@@ -270,8 +270,15 @@ def validate(world_yaml: Path, gold: Path | None, forbidden_file: Any, instructi
     spec = WorldSpec.load(world_yaml)
     actions = TypeAdapter(list[Action]).validate_json(gold.read_text()) if gold else None
 
+    if pack_root is None:
+        # a pack's Worlds live under ``worlds/`` and name seeds from the pack root: the nearest directory with a pack.yaml
+        # (smoke 2026-10-29: the yaml's own directory made ``world validate packs/_toy/worlds/helpdesk.yaml`` fail on its
+        # bundle, data/helpdesk); a World outside any pack keeps its own directory
+        here = world_yaml.resolve().parent
+        pack_root = next((d for d in (here, *here.parents) if (d / "pack.yaml").is_file()), here)
+
     async def run():
-        w = World(spec, pack_root=pack_root or world_yaml.parent)
+        w = World(spec, pack_root=pack_root)
         if instruction:
             w.instructions = {spec.policy_actors[0].id: instruction}
         await w.start()

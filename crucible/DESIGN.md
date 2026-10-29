@@ -2457,6 +2457,11 @@ What the study found:
 **Tests:** `test_bench.py` (4), `test_studio.py` (3). The module docs are `docs/modules/M13-bench.md` and
 `M15-studio.md`.
 
+**`crucible world validate` finds a pack World's root (smoke 2026-10-29).** Without `--pack-root` the seed root was the
+yaml's own directory, so `world validate packs/_toy/worlds/helpdesk.yaml` (the README's form) crashed on its bundle
+`data/helpdesk`, which a pack names from its root. The default is now the nearest directory above the yaml holding a
+`pack.yaml`, else the yaml's directory. Test: `test_m15_audit_studio.py::test_world_validate_finds_the_pack_root_of_a_pack_world`.
+
 **M13–M15 completed, paid models and GPUs, and an improvement study (2026-10-11).**
 
 **M14 packs:**
