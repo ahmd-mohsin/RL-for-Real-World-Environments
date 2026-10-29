@@ -4,6 +4,9 @@ New training tasks built from repositories never used for a debug task before. E
 (`lh_debug.py mine`), gets a bug report we write, and is measured on Tinker. Paths under `crucible/data/debug-uzair/`
 and `crucible/data/targeting/uzair*` in the notes are on Uzair's machine (gitignored).
 
+All kept training tasks, these three included, are rebuilt and listed in one pool: `../training-pool/` (manifest
+`pool.json`, `lh_debug_pool.py check`).
+
 ## Rules for these tasks
 
 - A repository not used before, permissive licence, fixes after 2026-05-01. CPU only (no GPU tasks).

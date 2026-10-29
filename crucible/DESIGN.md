@@ -1609,6 +1609,21 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     CRLF row its report never mentioned: DeepSeek and three student runs failed only that row. The write state has
     one retry: a writer that answers in prose ends its session (the harness reads it as done) without `prompt.json`;
     two held-out runs paused there ("missing declared output 'prompt'") and now get one fresh session.
+  - **The training pool** (2026-10-29, `scripts/lh_debug_pool.py`, tracked manifest
+    `docs/research/swarm-pipeline/07-debug-lane/training-pool/pool.json`). The kept training tasks live in one debug
+    root, `crucible/data/debug-pool`: training split only, with its own clones, so the root syncs to a cluster as it is.
+    The coauthors built most tasks on their own machines and pushed only the notes, reports and gate records, so each
+    task is rebuilt there with `lh_debug.py subset` from its recorded recipe and the coauthor's bug report, never a new
+    one. A recipe whose fixes the notes do not list is recovered without guessing: a mined id is the hash of its fixes in
+    prober order (`group_id`), and the start commit A' is deterministic (fixed identity and dates), so a gate record's
+    `window_a` pins B. A rebuild counts only when it gives the recorded id and `window_a`; a task whose B is not
+    recorded and not forced stays blocked. The manifest records per task the owner, the recipe and how it was
+    recovered, the built start commit, the World image and its id, the gates and the band. The band is the coauthor's
+    measurement: `report.json` when pushed, else the note's counts, with `in_band` from 0 < passes < n. `check`
+    verifies the pool on disk against the manifest: the candidate row, lint, the report's sha256, the start commit,
+    the gates and the band. `targeting` writes what `delta_rl.py train --targeting` reads. `relocate` rewrites the
+    working clones' git alternates relative to their objects dir (`benchrun.bundle`'s rule), so a copied pool needs no
+    path rewrite.
 
 ## 8. Layer 4: verification and isolation
 

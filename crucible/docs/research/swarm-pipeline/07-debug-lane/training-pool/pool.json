@@ -1,0 +1,1522 @@
+{
+ "paths": "relative to crucible/",
+ "what": "the debug lane's training pool: every kept training task, where it is built and how it was verified (scripts/lh_debug_pool.py check)",
+ "updated": "2026-10-29",
+ "student": "Qwen/Qwen3.6-35B-A3B",
+ "debug_root": "data/debug-pool (gitignored; training split only; its own clones in src/, alternates relative)",
+ "targeting": "data/debug-pool/targeting.json (lh_debug_pool.py targeting); tracked copy beside this file",
+ "train": "delta_rl.py train --debug <pool> --targeting <pool>/targeting.json --tasks db-go-carbon-93371b6f,db-go-carbon-a783fb3a-h5,db-go-echo-61eca05b-e2,db-go-go-toml-a02114e3-e1b,db-go-golang-net-6c36e4c8-e2,db-go-huma-815e1ff8,db-go-mvdan-sh-dc951aeb-e1,db-node-react-hook-form-399578e2-e1,db-python-black-90117fa0-e1,db-python-black-ae5830b7-c1-516b23,db-python-black-ae5830b7-e1,db-rust-pulldown-cmark-e072a230-e2",
+ "ready": [
+  "db-go-carbon-93371b6f",
+  "db-go-carbon-a783fb3a-h5",
+  "db-go-echo-61eca05b-e2",
+  "db-go-go-toml-a02114e3-e1b",
+  "db-go-golang-net-6c36e4c8-e2",
+  "db-go-huma-815e1ff8",
+  "db-go-mvdan-sh-dc951aeb-e1",
+  "db-node-react-hook-form-399578e2-e1",
+  "db-python-black-90117fa0-e1",
+  "db-python-black-ae5830b7-c1-516b23",
+  "db-python-black-ae5830b7-e1",
+  "db-rust-pulldown-cmark-e072a230-e2"
+ ],
+ "blocked": {
+  "db-go-mvdan-sh-02a801cd-e10": "recipe ambiguous: B is not recorded: Uzair's mvdan/sh clone on 2026-10-24 was at c2cf6f25 or at f6d205ab, which give different start trees, and the --hide-tests id is not recorded"
+ },
+ "variants": "black-90117fa0-e1, black-ae5830b7-e1 and black-ae5830b7-c1-516b23 all undo fix fc33c25, and the two ae5830b7 variants also 650983f and c9b1148 (candidates.json shares_fixes_with): variants of one another for any herding guard",
+ "images": {
+  "crucible-lh-d:go-carbon-18bf23bebe8b": {
+   "image_id": "sha256:246487e4e754e2188b32a285fd4257b66c293d7778bb32e2445cba05fabbd9e9",
+   "arch": "arm64",
+   "bytes": 1745595278,
+   "tasks": [
+    "db-go-carbon-a783fb3a-h5",
+    "db-go-carbon-93371b6f"
+   ]
+  },
+  "crucible-lh-d:go-echo-dc7a652253a4": {
+   "image_id": "sha256:d579f25ada0ecc8e059318ba31ce39e9ab54e9e87a93b16fe109a815c1782ac4",
+   "arch": "arm64",
+   "bytes": 1877916867,
+   "tasks": [
+    "db-go-echo-61eca05b-e2"
+   ]
+  },
+  "crucible-lh-d:go-go-toml-d4fe68839d05": {
+   "image_id": "sha256:e159409a03abdf925b23654ab1a87535cda148159ea3030e241c53cb1522e62c",
+   "arch": "arm64",
+   "bytes": 1724636506,
+   "tasks": [
+    "db-go-go-toml-a02114e3-e1b"
+   ]
+  },
+  "crucible-lh-d:go-golang-net-4202407ae043": {
+   "image_id": "sha256:bac68dc36e4024f2f51fd1f7415b8513ea12771cb4883146d25afb011ca0b720",
+   "arch": "arm64",
+   "bytes": 1869064778,
+   "tasks": [
+    "db-go-golang-net-6c36e4c8-e2"
+   ]
+  },
+  "crucible-lh-d:go-huma-a2026a12996f": {
+   "image_id": "sha256:9aed2a129f4ab9bbfde21a4605382d1cd8a135533f37244be66927a2979e9671",
+   "arch": "arm64",
+   "bytes": 2795086369,
+   "tasks": [
+    "db-go-huma-815e1ff8"
+   ]
+  },
+  "crucible-lh-d:go-mvdan-sh-fb7334b4418a": {
+   "image_id": "sha256:c5b2e31c21433cbb3c6a7f709aa951d4323618cd616b35c35861fede3acf5802",
+   "arch": "arm64",
+   "bytes": 1830784637,
+   "tasks": [
+    "db-go-mvdan-sh-dc951aeb-e1"
+   ]
+  },
+  "crucible-lh-d:node-react-hook-form-feffe5612f1e": {
+   "image_id": "sha256:2982b9c703f01244d7a3e2b953d06f1ad91fedaf142507f5ddd9c347e8d18c1c",
+   "arch": "arm64",
+   "bytes": 1625464109,
+   "tasks": [
+    "db-node-react-hook-form-399578e2-e1"
+   ]
+  },
+  "crucible-lh-d:python-black-45be882a5e06": {
+   "image_id": "sha256:4fdbd5a8fd3cc15a8073d678eac04ea00243491eae522afe6db588c400e2bf80",
+   "arch": "arm64",
+   "bytes": 580662506,
+   "tasks": [
+    "db-python-black-ae5830b7-e1",
+    "db-python-black-ae5830b7-c1-516b23"
+   ]
+  },
+  "crucible-lh-d:python-black-ceb4dac53714": {
+   "image_id": "sha256:8d9a2b1cdbffa91cab01caa96ce8116a81dbd499c7ce8d0f890caf05e6efef59",
+   "arch": "arm64",
+   "bytes": 580287365,
+   "tasks": [
+    "db-python-black-90117fa0-e1"
+   ]
+  },
+  "crucible-lh-d:rust-pulldown-cmark-10fb2bd05f48": {
+   "image_id": "sha256:07aaf62fde89ca95839bb0136898e9c994c41a3b5ce8856a67a34c048beeb9bc",
+   "arch": "arm64",
+   "bytes": 7581997119,
+   "tasks": [
+    "db-rust-pulldown-cmark-e072a230-e2"
+   ]
+  }
+ },
+ "deltaai": {
+  "status": "staged locally only; nothing was written to DeltaAI (another worker's GPU job runs from /work/nvme/bjhg/mahmedmohsin/crucible-train)",
+  "W": "/work/hdd/bjhg/mahmedmohsin/crucible-infer",
+  "data": "rsync -a --no-acls --no-xattrs --exclude logs --exclude gen/work data/debug-pool/ deltaai:$W/data/debug-pool/ (a new directory; $W/data/debug stays as it is), about 0.25 GB; jobs pass --data-src $W/data/debug-pool. The clones' alternates are relative (lh_debug_pool.py relocate), so the job's sed over alternates has nothing to rewrite",
+  "targeting": "render / render-verify --targeting data/debug-pool/targeting.json (written into the job's out dir)",
+  "images": "per image: docker save -o <base>.tar IMAGE and docker image inspect --format '{{json .Config}}' IMAGE > <base>.config.json (scripts/deltaai/bench.py bundle --images does both); copy to $W/images; on a compute node apptainer build $W/sif/<base>.sif docker-archive://$W/images/<base>.tar with the config beside it; <base> is IMAGE with / and : as _. Skip an image whose SIF side file already records the same image id (go-toml's image is on the cluster, doc 14 section 8.1)",
+  "images_gb": 22.21,
+  "python_base": "crucible-lh-base:py312 (0.39 GB) has no SIF on the cluster (handoff-deltaai-inference); it is the window lane's Python base (windows_world.BASE_IMAGE) and the three black tasks are Python: export it too, as cheap insurance"
+ },
+ "tasks": {
+  "db-go-huma-815e1ff8": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/notes/huma-815e1ff8.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/prompts/db-go-huma-815e1ff8.json",
+   "recipe": "lh_debug.py subset --repo huma --fixes 22a3cb0100,8a52bc5b9c,47f6975e92,1251ac38fd --b dcdadbad89",
+   "recipe_source": "fixes: the only ordered 4-fix group of huma's fix units whose group hash is 815e1ff8 (the mined id); subset at that B gives the id itself. B: the commit whose start tree reproduces the recorded window_a",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-huma-815e1ff8/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-huma-815e1ff8/report.json",
+    "window_a": "d722e8c390b81fdc4b90b686000d320cdfd23ce3",
+    "S3_existing": {
+     "targets": 46,
+     "counts": {
+      "passed": 953
+     }
+    }
+   },
+   "built": {
+    "window_a": "d722e8c390b81fdc4b90b686000d320cdfd23ce3",
+    "b": "dcdadbad89c8450a4d67ff7ed0f584906ee62883",
+    "fixes": [
+     "22a3cb0100",
+     "8a52bc5b9c",
+     "47f6975e92",
+     "1251ac38fd"
+    ],
+    "milestones": 4,
+    "hidden_tests": 7,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:go-huma-a2026a12996f",
+    "image_id": "sha256:9aed2a129f4ab9bbfde21a4605382d1cd8a135533f37244be66927a2979e9671"
+   },
+   "prompt_sha256": "b25197b5f5daf22e972e4c7627fcee12ac9bbed2405a8a0a18a941eb0f3f4778",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 1082.1,
+    "S3_existing": {
+     "targets": 46,
+     "counts": {
+      "passed": 953
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "start commit = recorded window_a; existing suite as recorded",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.5,
+     "reward_range": [
+      0.25,
+      1.0
+     ],
+     "rewards": [
+      0.375,
+      0.25,
+      1.0,
+      0.375,
+      1.0,
+      1.0,
+      1.0,
+      0.375
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.2152,
+      0.7848
+     ],
+     "fair": true,
+     "flags": [],
+     "frontier": {
+      "Qwen/Qwen3.5-397B-A17B": [
+       true,
+       true
+      ],
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       false,
+       false
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 1.0,
+     "keep": true,
+     "labelled": 4,
+     "n": 8,
+     "on_intent": 4,
+     "pass_rate": 0.5,
+     "passes": 4,
+     "power": {
+      "ci": [
+       0.2152,
+       0.7848
+      ],
+      "crosses": [
+       0.6
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": null
+     },
+     "rule": {
+      "bench_hi": 0.5,
+      "min_labels": 3,
+      "skill_min": 0.5,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.50, on-intent share 1.00, a frontier solver passes"
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-huma-815e1ff8/report.json"
+   },
+   "band": {
+    "student": "4/8",
+    "pass_rate": 0.5,
+    "on_intent": "4/4",
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": "2/2",
+     "deepseek-ai/DeepSeek-V4.1-Flash": "0/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-golang-net-6c36e4c8-e2": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/notes/golang-net-6c36e4c8-e2.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/prompts/db-go-golang-net-6c36e4c8-e2.json",
+   "recipe": "lh_debug.py subset --repo golang-net --fixes 72eaf98743,008e5e7789,3de643db50,ad8140e0aa,93d1f25be9 --b 3de643db50 --id db-go-golang-net-6c36e4c8-e2 --parent db-go-golang-net-6c36e4c8 --no-link",
+   "recipe_source": "parent 6c36e4c8 = dns SVCB + ALPN + transport (its group hash); e2 = the note's five packages, one fix unit each by the report's symptoms; B golang/net master at build time. Reproduces the recorded window_a",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-golang-net-6c36e4c8-e2/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-golang-net-6c36e4c8-e2/report.json",
+    "window_a": "4d48bbbb7a9c0817cbf4d8ab5313926756e8d8b0",
+    "S3_existing": {
+     "targets": 212,
+     "counts": {
+      "passed": 9098,
+      "skipped": 1060
+     }
+    }
+   },
+   "built": {
+    "window_a": "4d48bbbb7a9c0817cbf4d8ab5313926756e8d8b0",
+    "b": "3de643db506517b3e652a13cc0b56034cea6b8e6",
+    "fixes": [
+     "ad8140e0aa",
+     "008e5e7789",
+     "72eaf98743",
+     "93d1f25be9",
+     "3de643db50"
+    ],
+    "milestones": 5,
+    "hidden_tests": 19,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:go-golang-net-4202407ae043",
+    "image_id": "sha256:bac68dc36e4024f2f51fd1f7415b8513ea12771cb4883146d25afb011ca0b720"
+   },
+   "prompt_sha256": "e88cd9c6f283b3efd8a5ddaa843cffba33439da9e09a41ec9fff54ef534de830",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 1307.8,
+    "S3_existing": {
+     "targets": 212,
+     "counts": {
+      "passed": 9098,
+      "skipped": 1060
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "start commit = recorded window_a; existing suite as recorded",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.5,
+     "reward_range": [
+      0.2,
+      1.0
+     ],
+     "rewards": [
+      0.4,
+      1.0,
+      0.4,
+      1.0,
+      1.0,
+      1.0,
+      0.2,
+      0.4
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.2152,
+      0.7848
+     ],
+     "fair": true,
+     "flags": [],
+     "frontier": {
+      "Qwen/Qwen3.5-397B-A17B": [
+       true,
+       true
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 1.0,
+     "keep": true,
+     "labelled": 4,
+     "n": 8,
+     "on_intent": 4,
+     "pass_rate": 0.5,
+     "passes": 4,
+     "power": {
+      "ci": [
+       0.2152,
+       0.7848
+      ],
+      "crosses": [
+       0.6
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": null
+     },
+     "rule": {
+      "bench_hi": 0.5,
+      "min_labels": 3,
+      "skill_min": 0.5,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.50, on-intent share 1.00, a frontier solver passes"
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-go-golang-net-6c36e4c8-e2/report.json"
+   },
+   "band": {
+    "student": "4/8",
+    "pass_rate": 0.5,
+    "on_intent": "4/4",
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": "2/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-node-react-hook-form-399578e2-e1": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/notes/react-hook-form-399578e2.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/prompts/db-node-react-hook-form-399578e2-e1.json",
+   "recipe": "lh_debug.py subset --repo react-hook-form --fixes 933569dc11,fe960d463a,eed808650e --b ef9e351fa8 --id db-node-react-hook-form-399578e2-e1 --parent db-node-react-hook-form-399578e2 --no-link",
+   "recipe_source": "the note's three fixes (#13905, #13939, #13940); B: the commit whose start tree reproduces the recorded window_a",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-node-react-hook-form-399578e2-e1/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-node-react-hook-form-399578e2-e1/report.json",
+    "window_a": "840228332d371fc556ebd4b7ef67ab2b83dba958",
+    "S3_existing": {
+     "targets": 161,
+     "counts": {
+      "passed": 1743
+     }
+    }
+   },
+   "built": {
+    "window_a": "840228332d371fc556ebd4b7ef67ab2b83dba958",
+    "b": "ef9e351fa8d6837ecf34aa7883dc4a2e9eb04599",
+    "fixes": [
+     "933569dc11",
+     "fe960d463a",
+     "eed808650e"
+    ],
+    "milestones": 3,
+    "hidden_tests": 16,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:node-react-hook-form-feffe5612f1e",
+    "image_id": "sha256:2982b9c703f01244d7a3e2b953d06f1ad91fedaf142507f5ddd9c347e8d18c1c"
+   },
+   "prompt_sha256": "7f78c9bb537efb694e20dbf48f0e626ffe3a79468120941ec71409a07266b41b",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 2226.9,
+    "S3_existing": {
+     "targets": 161,
+     "counts": {
+      "passed": 1743
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "start commit = recorded window_a; existing suite as recorded",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.25,
+     "reward_range": [
+      0.166666,
+      1.0
+     ],
+     "rewards": [
+      0.333334,
+      1.0,
+      0.5,
+      0.166666,
+      1.0,
+      0.5,
+      0.5,
+      0.333334
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.0715,
+      0.5907
+     ],
+     "fair": false,
+     "flags": [],
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash-1017": [
+       false,
+       false
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 0.8333,
+     "keep": false,
+     "labelled": 6,
+     "n": 8,
+     "on_intent": 5,
+     "pass_rate": 0.25,
+     "passes": 2,
+     "power": {
+      "ci": [
+       0.0715,
+       0.5907
+      ],
+      "crosses": [
+       0.1
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": 14
+     },
+     "rule": {
+      "bench_hi": 0.5,
+      "min_labels": 3,
+      "skill_min": 0.5,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "unfair",
+     "why": "no frontier solver passes it: not counted as fair"
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/new-tasks/results/db-node-react-hook-form-399578e2-e1/report.json; report verdict 'unfair' (DeepSeek-1017 0/2 in the full run), kept by Uzair on that run plus a fresh frontier-only run (DeepSeek-1017 1/2 clean, results/.../fresh-deepseek-episodes.jsonl): new-tasks/README.md"
+   },
+   "band": {
+    "student": "2/8",
+    "pass_rate": 0.25,
+    "on_intent": "5/6",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash-1017": "0/2"
+    },
+    "verdict": "unfair"
+   }
+  },
+  "db-go-go-toml-a02114e3-e1b": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/go-toml-a02114e3.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-go-toml-a02114e3-e1b.json",
+   "recipe": "lh_debug.py subset --repo go-toml --fixes 35f78d5908,08b09f19fe,686c980c47 --b 686c980c47 --id db-go-go-toml-a02114e3-e1b --parent db-go-go-toml-a02114e3 --hide strip",
+   "recipe_source": "commit 295becd: a02114e3 minus 82b792e, --hide strip; a02114e3's fixes from its window; B = go-toml's head (no commit since 2026-07-18)",
+   "recorded": {},
+   "built": {
+    "window_a": "39d32d68e6d853bdb9df50b58c57a619fd1b7e15",
+    "b": "686c980c47581bf19b6119b60e9a59f2aed04170",
+    "fixes": [
+     "35f78d5908",
+     "08b09f19fe",
+     "686c980c47"
+    ],
+    "milestones": 3,
+    "hidden_tests": 40,
+    "hide_mode": "strip",
+    "image": "crucible-lh-d:go-go-toml-d4fe68839d05",
+    "image_id": "sha256:e159409a03abdf925b23654ab1a87535cda148159ea3030e241c53cb1522e62c"
+   },
+   "prompt_sha256": "a13ec7214bdaddf69f8e8bdf0879a28009da3062b829f01a917546ed4804643a",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 274.3,
+    "S3_existing": {
+     "targets": 35,
+     "counts": {
+      "passed": 4473,
+      "skipped": 11
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 3,
+     "pass_rate": 0.375,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 3,
+     "n": 8,
+     "pass_rate": 0.375,
+     "on_intent": 5,
+     "labelled": 5,
+     "intent_share": 1.0,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       false,
+       false
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/go-toml-a02114e3.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "3/8",
+    "pass_rate": 0.375,
+    "on_intent": "5/5",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2",
+     "Qwen/Qwen3.5-397B-A17B": "0/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-python-black-90117fa0-e1": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/black-90117fa0.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-python-black-90117fa0-e1.json",
+   "recipe": "lh_debug.py subset --repo black --fixes fc33c25068,825c249fd2,9f9c675f27 --b 8d5a2d9f49 --since 2025-09-01 --id db-python-black-90117fa0-e1 --parent db-python-black-90117fa0",
+   "recipe_source": "the note: 90117fa0's m01 swapped for fc33c25 (afaf9411), m02/m03 and B 8d5a2d9 from 90117fa0's window, its 2025-09-01 cutoff (fc33c25 is from 2026-04)",
+   "recorded": {},
+   "built": {
+    "window_a": "db01130fb5615bfa0f654562777e53b9188a520a",
+    "b": "8d5a2d9f49378d7abe2eb632df1601818de8c24e",
+    "fixes": [
+     "fc33c25068",
+     "825c249fd2",
+     "9f9c675f27"
+    ],
+    "milestones": 3,
+    "hidden_tests": 3,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:python-black-ceb4dac53714",
+    "image_id": "sha256:8d9a2b1cdbffa91cab01caa96ce8116a81dbd499c7ce8d0f890caf05e6efef59"
+   },
+   "prompt_sha256": "3cf045220699a4d6db9e13b0b7c99f85fa01bbd843001fb73ee6afaaf2d22ffe",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 3050.3,
+    "S3_existing": {
+     "targets": 11,
+     "counts": {
+      "passed": 576,
+      "skipped": 2
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 3,
+     "pass_rate": 0.375,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 3,
+     "n": 8,
+     "pass_rate": 0.375,
+     "on_intent": 5,
+     "labelled": 5,
+     "intent_share": 1.0,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       false,
+       false
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/black-90117fa0.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "3/8",
+    "pass_rate": 0.375,
+    "on_intent": "5/5",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2",
+     "Qwen/Qwen3.5-397B-A17B": "0/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-carbon-a783fb3a-h5": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/carbon-a783fb3a.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-carbon-a783fb3a-h5.json",
+   "recipe": "lh_debug.py subset --repo carbon --fixes cf685dc540,f156c6134b,d9a6370002,fcbb4ab30f,6cd20704de,9f4795f271 --b 7aa45ed --id db-go-carbon-a783fb3a-h5 --parent db-go-carbon-a783fb3a --no-link",
+   "recipe_source": "fix shas not recorded: a783fb3a's two (its group hash) plus the one carbon fix unit matching each added bug (SQL NULL #360, minute boundaries #378, same decade #375, lunar #380); their history order is the note's and the report's m01..m06. B: carbon's head, unchanged since 2026-10-20. No recorded start commit to compare",
+   "recorded": {},
+   "built": {
+    "window_a": "545080eccada0ec962b43e919d8c4ffbf3bd2905",
+    "b": "7aa45ed65ae5f5d1b720f9e59ccd8cc8678f342c",
+    "fixes": [
+     "cf685dc540",
+     "f156c6134b",
+     "d9a6370002",
+     "fcbb4ab30f",
+     "6cd20704de",
+     "9f4795f271"
+    ],
+    "milestones": 6,
+    "hidden_tests": 20,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:go-carbon-18bf23bebe8b",
+    "image_id": "sha256:246487e4e754e2188b32a285fd4257b66c293d7778bb32e2445cba05fabbd9e9"
+   },
+   "prompt_sha256": "af2a78353a48c4baeea192b6cf635c00e5ebdffb52da161faecc3cfa2918325f",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 694.1,
+    "S3_existing": {
+     "targets": 73,
+     "counts": {
+      "passed": 5344
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 1,
+     "pass_rate": 0.125,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 1,
+     "n": 8,
+     "pass_rate": 0.125,
+     "on_intent": 7,
+     "labelled": 7,
+     "intent_share": 1.0,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       true,
+       false
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/carbon-a783fb3a.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "1/8",
+    "pass_rate": 0.125,
+    "on_intent": "7/7",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2",
+     "Qwen/Qwen3.5-397B-A17B": "1/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-mvdan-sh-02a801cd-e10": {
+   "owner": "Uzair",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/mvdan-sh-02a801cd.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-mvdan-sh-02a801cd-e10.json",
+   "recipe": "(candidate, not built) subset --repo mvdan-sh --fixes 5ca0d0d807,b0ee21ee0d,a56bb30a0f,59f2be5d3a --b <c2cf6f25 or f6d205ab> --id db-go-mvdan-sh-02a801cd-e10 --parent db-go-mvdan-sh-02a801cd --no-link --hide-tests syntax/parser_test.go::TestNodeEndPos",
+   "recipe_source": "the four fixes are unique by the note (;| #, -nt/-ot, Node.End, type prefix) and their history order is the note's, but B is not recorded: Uzair's mvdan/sh clone on 2026-10-24 was at c2cf6f25 or at f6d205ab, which give different start trees, and the --hide-tests id is not recorded",
+   "recorded": {},
+   "status": "blocked",
+   "why": "recipe ambiguous: B is not recorded: Uzair's mvdan/sh clone on 2026-10-24 was at c2cf6f25 or at f6d205ab, which give different start trees, and the --hide-tests id is not recorded",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 3,
+     "pass_rate": 0.375,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 3,
+     "n": 8,
+     "pass_rate": 0.375,
+     "on_intent": 4,
+     "labelled": 5,
+     "intent_share": 0.8,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       true,
+       true
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/mvdan-sh-02a801cd.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "3/8",
+    "pass_rate": 0.375,
+    "on_intent": "4/5",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2",
+     "Qwen/Qwen3.5-397B-A17B": "2/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-carbon-93371b6f": {
+   "owner": "Haseeb",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/carbon-93371b6f.md",
+   "prompt": "data/debug/prompts/db-go-carbon-93371b6f.json",
+   "recipe": "lh_debug.py subset --repo carbon --fixes 515cf63,5c6dffc,93491ca --b 7aa45ed --no-link",
+   "recipe_source": "haseeb.md's build command; B = carbon's head (unchanged since 2026-10-20); the group hash gives the recorded id",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-carbon-93371b6f/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-carbon-93371b6f/report.json",
+    "S3_existing": {
+     "targets": 73,
+     "counts": {
+      "passed": 5355
+     }
+    }
+   },
+   "built": {
+    "window_a": "e97ee0da7a1489fe57dc3b9d032b71e1c640ad7f",
+    "b": "7aa45ed65ae5f5d1b720f9e59ccd8cc8678f342c",
+    "fixes": [
+     "515cf63792",
+     "5c6dffc7b6",
+     "93491caf72"
+    ],
+    "milestones": 3,
+    "hidden_tests": 10,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:go-carbon-18bf23bebe8b",
+    "image_id": "sha256:246487e4e754e2188b32a285fd4257b66c293d7778bb32e2445cba05fabbd9e9"
+   },
+   "prompt_sha256": "a10423cfb16258f37de57c20605791c54e23fa85b1221c866054a1e8a404fc7a",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 680.4,
+    "S3_existing": {
+     "targets": 73,
+     "counts": {
+      "passed": 5355
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare; existing suite as recorded",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.375,
+     "reward_range": [
+      0.166666,
+      1.0
+     ],
+     "rewards": [
+      1.0,
+      0.166666,
+      1.0,
+      1.0,
+      0.333334,
+      0.333334,
+      0.166666,
+      0.333334
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.1368,
+      0.6943
+     ],
+     "fair": true,
+     "flags": [],
+     "frontier": {
+      "Qwen/Qwen3.5-397B-A17B": [
+       false,
+       false
+      ],
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       false
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 0.8,
+     "keep": true,
+     "labelled": 5,
+     "n": 8,
+     "on_intent": 4,
+     "pass_rate": 0.375,
+     "passes": 3,
+     "power": {
+      "ci": [
+       0.1368,
+       0.6943
+      ],
+      "crosses": [
+       0.6
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": 17
+     },
+     "rule": {
+      "bench_hi": 0.3,
+      "min_labels": 3,
+      "skill_min": 0.7,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.38, on-intent share 0.80, a frontier solver passes"
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-carbon-93371b6f/report.json"
+   },
+   "band": {
+    "student": "3/8",
+    "pass_rate": 0.375,
+    "on_intent": "4/5",
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": "0/2",
+     "deepseek-ai/DeepSeek-V4.1-Flash": "1/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-echo-61eca05b-e2": {
+   "owner": "Haseeb",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/echo-61eca05b-e2.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-echo-61eca05b-e2.json",
+   "recipe": "lh_debug.py subset --repo echo --fixes ec9515a,cc07fa9,df5edd9,6a390cb --b 3d084be902 --id db-go-echo-61eca05b-e2 --parent db-go-echo-61eca05b --no-link --hide strip",
+   "recipe_source": "the note's build command, verbatim",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-echo-61eca05b-e2/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-echo-61eca05b-e2/report.json",
+    "S3_existing": {
+     "targets": 57,
+     "counts": {
+      "passed": 2138
+     }
+    }
+   },
+   "built": {
+    "window_a": "422340cb3d093b1870ad19319cbd1a541aab2da8",
+    "b": "3d084be9022432c5a5257924c7d74bfc3444b456",
+    "fixes": [
+     "6a390cb5a7",
+     "ec9515a829",
+     "cc07fa9574",
+     "df5edd9146"
+    ],
+    "milestones": 4,
+    "hidden_tests": 18,
+    "hide_mode": "strip",
+    "image": "crucible-lh-d:go-echo-dc7a652253a4",
+    "image_id": "sha256:d579f25ada0ecc8e059318ba31ce39e9ab54e9e87a93b16fe109a815c1782ac4"
+   },
+   "prompt_sha256": "ee16af1cb50eccaf3bad004f000d0cb826a6ac20fa54312ae3ecb1a3f78cfb29",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 427.9,
+    "S3_existing": {
+     "targets": 57,
+     "counts": {
+      "passed": 2138
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare; existing suite as recorded",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.5,
+     "reward_range": [
+      0.125,
+      1.0
+     ],
+     "rewards": [
+      0.375,
+      0.375,
+      0.25,
+      1.0,
+      1.0,
+      1.0,
+      0.125,
+      1.0
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.2152,
+      0.7848
+     ],
+     "fair": true,
+     "flags": [],
+     "frontier": {
+      "Qwen/Qwen3.5-397B-A17B": [
+       true,
+       true
+      ],
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 1.0,
+     "keep": true,
+     "labelled": 4,
+     "n": 8,
+     "on_intent": 4,
+     "pass_rate": 0.5,
+     "passes": 4,
+     "power": {
+      "ci": [
+       0.2152,
+       0.7848
+      ],
+      "crosses": [
+       0.6
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": null
+     },
+     "rule": {
+      "bench_hi": 0.3,
+      "min_labels": 3,
+      "skill_min": 0.7,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.50, on-intent share 1.00, a frontier solver passes"
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-echo-61eca05b-e2/report.json"
+   },
+   "band": {
+    "student": "4/8",
+    "pass_rate": 0.5,
+    "on_intent": "4/4",
+    "frontier": {
+     "Qwen/Qwen3.5-397B-A17B": "2/2",
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-go-mvdan-sh-dc951aeb-e1": {
+   "owner": "Haseeb",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/mvdan-sh-dc951aeb-e1.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-go-mvdan-sh-dc951aeb-e1.json",
+   "recipe": "(built in the main store, copied) subset --repo mvdan-sh --fixes 6622086,3c1ff2a,a135720 --id db-go-mvdan-sh-dc951aeb-e1 --parent db-go-mvdan-sh-dc951aeb --no-link",
+   "recipe_source": "the main store's build (B c2cf6f25, Haseeb's B), gated and re-measured there (train-remeasure-dc951aeb-e1, 2026-10-26); copied unchanged",
+   "recorded": {
+    "gates": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-mvdan-sh-dc951aeb-e1/gates.json",
+    "report": "docs/research/swarm-pipeline/07-debug-lane/fixing/results/db-go-mvdan-sh-dc951aeb-e1/report.json",
+    "S3_existing": {
+     "targets": 34,
+     "counts": {
+      "passed": 17302,
+      "skipped": 546
+     }
+    }
+   },
+   "built": {
+    "window_a": "57ae319988f8e58b4ba658df040b7be263630158",
+    "b": "c2cf6f25a6eae8154d4827ac8473b13229d3dffd",
+    "fixes": [
+     "66220867c5",
+     "3c1ff2a998",
+     "a1357206cb"
+    ],
+    "milestones": 3,
+    "hidden_tests": 31,
+    "hide_mode": "strip",
+    "image": "crucible-lh-d:go-mvdan-sh-fb7334b4418a",
+    "image_id": "sha256:c5b2e31c21433cbb3c6a7f709aa951d4323618cd616b35c35861fede3acf5802"
+   },
+   "prompt_sha256": "ba2191089ff8a56ba96dcf0bee00c7ef40dde21e6e7916a578a94e9f60bc40c3",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 822.2,
+    "S3_existing": {
+     "targets": 34,
+     "counts": {
+      "failed": 10,
+      "passed": 20057,
+      "skipped": 546
+     }
+    },
+    "run": "copied from the main store"
+   },
+   "verified": "no recorded start commit to compare; existing suite differs: recorded {'targets': 34, 'counts': {'passed': 17302, 'skipped': 546}}, now {'targets': 34, 'counts': {'failed': 10, 'passed': 20057, 'skipped': 546}}; this tree is the main store's 2026-10-25 rebuild (Go table entries of the fixes stripped from A', DESIGN 'start-tree residue'), not Haseeb's 2026-10-23 tree: its existing suite differs from Haseeb's gate record, and its band is the 2026-10-26 re-measure of this very tree, not Haseeb's report",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.125,
+     "reward_range": [
+      0.166666,
+      1.0
+     ],
+     "rewards": [
+      0.166666,
+      0.166666,
+      0.333334,
+      1.0,
+      0.333334,
+      0.333334,
+      0.333334,
+      0.166666
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.0224,
+      0.4709
+     ],
+     "fair": true,
+     "flags": [
+      "budget-bound: 3 of 7 labelled failures stopped at the tool limit (300); owner limits: re-measure at a larger limit (on-intent share without them 4/4)"
+     ],
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 0.5714,
+     "keep": true,
+     "labelled": 7,
+     "n": 8,
+     "on_intent": 4,
+     "pass_rate": 0.125,
+     "passes": 1,
+     "power": {
+      "ci": [
+       0.0224,
+       0.4709
+      ],
+      "crosses": [
+       0.1
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": null
+     },
+     "rule": {
+      "bench_hi": 0.3,
+      "min_labels": 3,
+      "skill_min": 0.5,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.12, on-intent share 0.57, a frontier solver passes"
+    },
+    "source": "data/targeting/train-remeasure-dc951aeb-e1/targeting.json (this machine, gitignored)"
+   },
+   "band": {
+    "student": "1/8",
+    "pass_rate": 0.125,
+    "on_intent": "4/7",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-rust-pulldown-cmark-e072a230-e2": {
+   "owner": "Azaan",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/pulldown-cmark-e072a230-e2.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-rust-pulldown-cmark-e072a230-e2.json",
+   "recipe": "lh_debug.py subset --repo pulldown-cmark --fixes 671cf7c,0424329,5b0ef8c --b baa6ac7 --since 2025-09-01 --id db-rust-pulldown-cmark-e072a230-e2 --parent db-rust-pulldown-cmark-e072a230 --no-link",
+   "recipe_source": "azaan.md + the note + commit b2c73fb2 (fixes, B baa6ac7, cutoff, --no-link)",
+   "recorded": {},
+   "built": {
+    "window_a": "4cd40ffb814eefad07cc531b841a74d614d60faa",
+    "b": "baa6ac73b677c43c075f5b2b8db0b47897fdc021",
+    "fixes": [
+     "04243294d8",
+     "5b0ef8c013",
+     "671cf7c52d"
+    ],
+    "milestones": 3,
+    "hidden_tests": 14,
+    "hide_mode": "strip",
+    "image": "crucible-lh-d:rust-pulldown-cmark-10fb2bd05f48",
+    "image_id": "sha256:07aaf62fde89ca95839bb0136898e9c994c41a3b5ce8856a67a34c048beeb9bc"
+   },
+   "prompt_sha256": "4a45acae58902681a723b75e20548f25f452adf88903eb7e7c39f74b8c3e54af",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 356.6,
+    "S3_existing": {
+     "targets": 4,
+     "counts": {
+      "passed": 1343
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 1,
+     "pass_rate": 0.125,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 1,
+     "n": 8,
+     "pass_rate": 0.125,
+     "on_intent": 7,
+     "labelled": 7,
+     "intent_share": 1.0,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       false
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       false,
+       false
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/pulldown-cmark-e072a230-e2.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "1/8",
+    "pass_rate": 0.125,
+    "on_intent": "7/7",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "1/2",
+     "Qwen/Qwen3.5-397B-A17B": "0/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-python-black-ae5830b7-e1": {
+   "owner": "Azaan",
+   "source_doc": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/black-ae5830b7-e1.md",
+   "prompt": "docs/research/swarm-pipeline/07-debug-lane/fixing/prompts/db-python-black-ae5830b7-e1.json",
+   "recipe": "lh_debug.py subset --repo black --fixes fc33c25,650983f,c9b1148 --b 287d5709 --since 2025-09-01 --id db-python-black-ae5830b7-e1 --parent db-python-black-ae5830b7 --no-link",
+   "recipe_source": "azaan.md + the note (B 287d5709, --no-link, default revert mode; the two stale tests hidden by the build's precheck, as the note records)",
+   "recorded": {},
+   "built": {
+    "window_a": "322112af7ea4eed7415eea656788032189dfd205",
+    "b": "287d570966edf07035498948206b37dfd35b51e3",
+    "fixes": [
+     "fc33c25068",
+     "650983f7b3",
+     "c9b1148b5b"
+    ],
+    "milestones": 3,
+    "hidden_tests": 4,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:python-black-45be882a5e06",
+    "image_id": "sha256:4fdbd5a8fd3cc15a8073d678eac04ea00243491eae522afe6db588c400e2bf80"
+   },
+   "prompt_sha256": "afe2f576b4c8385aa4188f84594d9eaa377865c5175ee44d5d654032136a3945",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": 2676.3,
+    "S3_existing": {
+     "targets": 14,
+     "counts": {
+      "passed": 674,
+      "skipped": 2
+     }
+    },
+    "run": "this pool, 2026-10-29"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "passes": 2,
+     "pass_rate": 0.25,
+     "rewards": null,
+     "reward_range": null,
+     "in_band_from": "0 < passes < n (the per-attempt rewards were not pushed)"
+    },
+    "keep": {
+     "verdict": "train",
+     "passes": 2,
+     "n": 8,
+     "pass_rate": 0.25,
+     "on_intent": 6,
+     "labelled": 6,
+     "intent_share": 1.0,
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       true,
+       true
+      ],
+      "Qwen/Qwen3.5-397B-A17B": [
+       false,
+       false
+      ]
+     }
+    },
+    "source": "docs/research/swarm-pipeline/07-debug-lane/fixing/notes/black-ae5830b7-e1.md (numbers from the note; its report.json is on the coauthor's machine, not pushed)"
+   },
+   "band": {
+    "student": "2/8",
+    "pass_rate": 0.25,
+    "on_intent": "6/6",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "2/2",
+     "Qwen/Qwen3.5-397B-A17B": "0/2"
+    },
+    "verdict": "train"
+   }
+  },
+  "db-python-black-ae5830b7-c1-516b23": {
+   "owner": "swarm",
+   "source_doc": "data/targeting/swarm-pilot (the swarm pilot, lead)",
+   "prompt": "data/debug/prompts/db-python-black-ae5830b7-c1-516b23.json",
+   "recipe": "(built in the main store by the swarm pilot, copied)",
+   "recipe_source": "the main store's window, gates and authored prompt, copied unchanged",
+   "recorded": {},
+   "built": {
+    "window_a": "da8cf5caa1670bb7153315482d2007a330fba9a1",
+    "b": "56a7ee682ada03e086f62d66ac01b752fbda21db",
+    "fixes": [
+     "fc33c25068",
+     "13e97b4499",
+     "650983f7b3",
+     "c9b1148b5b"
+    ],
+    "milestones": 2,
+    "hidden_tests": 3,
+    "hide_mode": "revert",
+    "image": "crucible-lh-d:python-black-45be882a5e06",
+    "image_id": "sha256:4fdbd5a8fd3cc15a8073d678eac04ea00243491eae522afe6db588c400e2bf80"
+   },
+   "prompt_sha256": "317e87ea3cfbce1133452063c34bf40e1f6607f50b6618aff2fba7f3e5005ceb",
+   "gates": {
+    "ok": true,
+    "passed": [
+     "S6",
+     "S5",
+     "S8",
+     "S3",
+     "S10"
+    ],
+    "seconds": null,
+    "S3_existing": {
+     "targets": 14,
+     "counts": {
+      "passed": 661,
+      "skipped": 2
+     }
+    },
+    "run": "copied from the main store"
+   },
+   "verified": "no recorded start commit to compare",
+   "status": "ready",
+   "why": "",
+   "targeting": {
+    "band": {
+     "in_band": true,
+     "n": 8,
+     "pass_rate": 0.125,
+     "reward_range": [
+      0.0,
+      1.0
+     ],
+     "rewards": [
+      0.25,
+      0.25,
+      0.25,
+      0.0,
+      0.25,
+      1.0,
+      0.25,
+      0.25
+     ]
+    },
+    "keep": {
+     "ci": [
+      0.0224,
+      0.4709
+     ],
+     "fair": true,
+     "flags": [],
+     "frontier": {
+      "deepseek-ai/DeepSeek-V4.1-Flash": [
+       false,
+       true
+      ]
+     },
+     "intent_ok": true,
+     "intent_share": 0.8571,
+     "keep": true,
+     "labelled": 7,
+     "n": 8,
+     "on_intent": 6,
+     "pass_rate": 0.125,
+     "passes": 1,
+     "power": {
+      "ci": [
+       0.0224,
+       0.4709
+      ],
+      "crosses": [
+       0.1
+      ],
+      "decided": false,
+      "n": 8,
+      "n_needed": null
+     },
+     "rule": {
+      "bench_hi": 0.3,
+      "min_labels": 3,
+      "skill_min": 0.7,
+      "train_hi": 0.6,
+      "train_lo": 0.1
+     },
+     "split": "train",
+     "verdict": "train",
+     "why": "pass rate 0.12, on-intent share 0.86, a frontier solver passes"
+    },
+    "source": "data/targeting/swarm-pilot/r2/targeting.json (this machine, gitignored)"
+   },
+   "band": {
+    "student": "1/8",
+    "pass_rate": 0.125,
+    "on_intent": "6/7",
+    "frontier": {
+     "deepseek-ai/DeepSeek-V4.1-Flash": "1/2"
+    },
+    "verdict": "train"
+   }
+  }
+ }
+}
