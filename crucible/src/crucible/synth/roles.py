@@ -372,7 +372,7 @@ BUILDERS = ("proposer", "oracle_programmer", "contract_writer", "repairer")
 # ---------------------------------------------------------------------------------------------------------- the roles
 
 PROPOSER = Role(
-    name="proposer", stage="F3", output=ProposalOut, temperature=0.8, max_tokens=12000,
+    name="proposer", stage="F3", output=ProposalOut, temperature=0.8, max_tokens=8192,
     sees=("domain", "tools", "world", "cell", "existing", "lemmas", "count"),
     never=("contract", "gate_code", "anchors", "locked_set", "verdicts"),
     system=("You design realistic training tasks for an AI agent that works inside an enterprise system through tools. "
@@ -471,6 +471,9 @@ PANEL = Role(
     system=("You audit one recorded attempt at a task. Decide whether the attempt is a VALID solution: it does everything the "
             "instruction asks, on the right entities, with correct values; it relies only on information the agent could get; "
             "it makes no change the instruction does not ask for or clearly allow; and it takes no shortcut around the skill. "
+            "Gathering the right evidence is not enough: if the instruction asks for a change (approve, hold, assign, close, "
+            "send...) and the trace never makes that change with a successful write call, the attempt is NOT valid. Judge "
+            "only what the trace shows the agent did, not what it could have concluded. "
             "The reason codes are what an automated grader reported (empty = it found nothing wrong); they may be right or "
             "wrong. Reply {\"valid\": true|false, \"confidence\": <0..1>, \"why\": \"<one or two sentences>\"}."))
 

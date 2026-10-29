@@ -29,7 +29,7 @@ def test_the_default_assignment_passes_both_rule_sets():
     ("contract_writer", (DEEPSEEK,), "oracle_programmer"),
     ("panel", (GPT_OSS, GPT_OSS), ">= 2 families"),
     ("attacker", (QWEN_FRONTIER, GPT_OSS), "Qwen"),
-    ("alt_solver", (KIMI, GPT_OSS), "proposer"),
+    ("alt_solver", (DEEPSEEK, GPT_OSS), "proposer"),
     ("blind_tester", (KIMI,), "app_coder"),
 ])
 def test_family_violations_raise_same_family_error(role, models, why):
@@ -69,7 +69,7 @@ def test_wire_builds_clients_on_one_meter_with_a_fake_maker(tmp_path):
 
     w = SynthWire(tmp_path, cap_usd=1.5, make=maker)
     roles = w.run_roles()
-    assert {c.family for _, c in roles.panel} == {"nemotron", "openai"} and roles.proposer.family == "kimi"
+    assert {c.family for _, c in roles.panel} == {"nemotron", "openai"} and roles.proposer.family == "deepseek"
     assert roles.builder_families().isdisjoint({c.family for _, c in roles.alt})
     assert w.meter.cap_usd == 1.5 and w.meter.path == tmp_path / "spend.jsonl"
     assert set(w.worldgen_clients()) == {"tool_designer", "schema_deriver", "app_coder", "blind_tester", "debugger", "test_approver", "seeder"}

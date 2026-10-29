@@ -1772,14 +1772,21 @@ factory). M1–M4 are built (M4, the model-driven roles: item 13); the debug-lan
      rejected, dropped. Artifacts: `<data>/synth/<domain>/<run>/` (proposals, per-task oracle/contract/repairs/cegis,
      calibration, panel log, human queue, lemmas, report.json/.md, usage.jsonl, spend.jsonl); the archive is
      `<data>/synth/<domain>/archive.jsonl`.
-   - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer Kimi-K2.6; oracle programmer
-     and repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT and ATK Nemotron-3-Super + gpt-oss-120b; panel
-     Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi codes, DeepSeek tests blind, Nemotron-Ultra approves
-     disputes), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
+   - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer, oracle programmer and
+     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b; ATK
+     Nemotron-3-Super + gpt-oss-120b; panel Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi-K2.6 designs
+     and codes, DeepSeek tests blind, Nemotron-Ultra approves disputes. Measured in the M4 runs: Kimi as proposer
+     deliberated in plain text past 16k tokens without reaching its JSON; gpt-oss as a solver quits after one call), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
      student is Qwen3.6-35B-A3B and is never called). One `SpendMeter` per run holds each call's worst case before it
      is sent; `usage.jsonl` attributes cost by stage tag. `extract_json` takes the last complete object (Kimi reasons in
      plain text first). CLI `scripts/synth.py` (`worldgen`, `propose`, `certify`, `report`, `budget`, `smoke`; M3 owns
      `plant`/`recall`/`evolve`) clips every run's cap to the milestone's $60 over all receipts under the data root.
+   - **First runs (2026-10-29, $7.91 of $60 for the milestone, smokes and probes included).** F1 on "IT helpdesk ticket
+     triage": 10 tools, 6 tables, 25 frozen blind tests, 60% → 100% after one code-only debug round, none dropped,
+     $0.48. Tasks, 20 proposed per domain: finance_ap 20 oracles executed → 2 certified, 2 provisional, 16 rejected
+     ($1.07); it_helpdesk 19 executed → 2 certified, 1 provisional, 16 rejected, 1 dropped, 21 repairs accepted on 10
+     tasks ($1.94). The binding rule on both is §6's "ALT has a pass from a non-builder family": the solvers misapply the
+     AP policy (duplicates, a blocked vendor's shared bank account), and the panel confirms those attempts are invalid.
 
 ## 8. Layer 4: verification and isolation
 

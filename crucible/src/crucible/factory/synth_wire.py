@@ -44,11 +44,15 @@ MILESTONE_CAP_USD = 60.0  # M4's Tinker budget (lead, 2026-10-29): enforced by t
 
 # synth role -> models (the swarm preset's families; see the module docstring for the rules they satisfy)
 SYNTH_ROLES: dict[str, tuple[str, ...]] = {
-    "proposer": (KIMI,),
+    # M4: Kimi-K2.6 deliberated in plain text past 12k-16k tokens on the generated domain (thinking on or off) and never
+    # reached its JSON; DeepSeek proposes concisely. The proposer must differ only from the contract writer (GLM).
+    "proposer": (DEEPSEEK,),
     "oracle_programmer": (DEEPSEEK,),
     "contract_writer": (GLM,),
     "repairer": (DEEPSEEK,),
-    "alt_solver": (NEMOTRON, GPT_OSS),
+    # M4 run 1: gpt-oss-120b quits after one call (it reports success it did not make) and Nemotron-3-Super misapplies the
+    # AP policy (ALT passed on 5 of 17 finance_ap tasks); Nemotron-3-Ultra solves best and leads the solvers
+    "alt_solver": (NEMOTRON_ULTRA, NEMOTRON, GPT_OSS),
     "attacker": (NEMOTRON, GPT_OSS),
     "panel": (NEMOTRON_ULTRA, GPT_OSS),
     "abstractor": (GPT_OSS,),
