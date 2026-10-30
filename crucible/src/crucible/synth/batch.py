@@ -742,7 +742,8 @@ def cand_costs(cands: Sequence[Cand], usage: Sequence[Mapping[str, Any]]) -> tup
         tag = str(r.get("tag") or "")
         st, _, rest = tag.partition(":")
         stage[st or "?"] += usd
-        cid = rest.split("#", 1)[0].split("~", 1)[0]  # "<id>~<attempt>#<agent>"
+        rest = re.sub(r"~a\d+$", "", rest)  # a role retry (``roles.ask``, item 22) is the same call's cost
+        cid = rest.split("#", 1)[0].split("~", 1)[0]  # "<id>~<attempt>#<agent>[@r<k>]"
         if st == "propose" and rest in by_batch:
             for x in by_batch[rest]:
                 per[x] += usd / len(by_batch[rest])

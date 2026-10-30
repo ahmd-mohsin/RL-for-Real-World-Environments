@@ -357,7 +357,7 @@ class Runner:
             cell = cells[b % len(cells)]
             want = min(self.cfg.batch, self.cfg.n_tasks - len(recs))
             try:
-                out = await ask(self.roles.proposer, variant("proposer", self.cfg.variant), tag="propose:batch", retries=1, domain=self.env.description,
+                out = await ask(self.roles.proposer, variant("proposer", self.cfg.variant), tag=f"propose:batch{b}", retries=1, domain=self.env.description,
                                 tools=tool_catalogue(self.tools[seed]), world=compact(self.slices[seed], 24000), cell=cell,
                                 existing=[p["instruction"] for p in proposals if "instruction" in p] or None, count=want,
                                 lemmas=list(self.cfg.lemmas) or None)
@@ -562,6 +562,8 @@ class Runner:
     def default_repairer(self, rec: TaskRecord, ctx: FalsifyContext) -> Callable[[Task, list[Counterexample]], Awaitable[Task | None]]:
         """The repairer role on one task: it sees the counterexamples and the task's own World catalogue."""
         log_path = self.dir / "tasks" / f"t{rec.n:02d}" / "repairs.jsonl"
+        calls = [0]  # a refused repair leaves the version and its counterexamples as they were: the next round's prompt
+        # is the same, so each call gets its own tag (``repair:<id>#v<version>~<k>``) and, seeded by tag, a new sample (item 22)
 
         def log(row: dict[str, Any]) -> None:
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -601,7 +603,8 @@ class Runner:
                     log(row)
 
             try:
-                out = await ask(self.roles.repairer, REPAIRER, tag=f"repair:{task.id}", check=valid, retries=2, task=task.instruction,
+                calls[0] += 1
+                out = await ask(self.roles.repairer, REPAIRER, tag=f"repair:{task.id}#v{task.version}~{calls[0]}", check=valid, retries=2, task=task.instruction,
                                 intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(tools), oracle=program_doc(task.oracle),
                                 contract=contract_doc(task.contract), counterexamples=[cx_view(c) for c in cxs[:12]], defects=DEFECTS_DOC,
                                 program_format=PROGRAM_DOC, contract_format=CONTRACT_DOC)

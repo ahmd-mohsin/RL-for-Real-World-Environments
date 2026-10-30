@@ -130,7 +130,9 @@ class Counterexample(CrucibleModel):
         probe = f.probe
         trace = f.outcome.data.get("program")
         if probe.program is None and isinstance(trace, dict) and f.outcome.passed is not None:  # an agent's attempt: replay its trace
-            probe = probe.model_copy(update={"program": Program.model_validate(trace), "expect": "fail" if f.outcome.passed else "pass"})
+            # the instruction it was judged under (item 22): a judged-valid trace says nothing about a later instruction
+            probe = probe.model_copy(update={"program": Program.model_validate(trace), "expect": "fail" if f.outcome.passed else "pass",
+                                             "data": {**probe.data, "instruction_sha": content_hash(task.instruction, 16)}})
         elif probe.expect != "property" and f.outcome.passed is not None:  # the verdict the task gave was the wrong one
             probe = probe.model_copy(update={"expect": "fail" if f.outcome.passed else "pass"})
         cid = content_hash({"task": task.id, "cls": f.cls, "op": f.op, "site": f.site, "probe": probe.digest(), "defect": f.defect}, 24)

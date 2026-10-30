@@ -42,7 +42,7 @@ from pydantic import Field
 
 from crucible.actors.llm import BudgetExceeded
 from crucible.core.schema.base import CrucibleModel
-from crucible.synth.canon import diff
+from crucible.synth.canon import content_hash, diff
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Finding, Label, Outcome, Probe
 from crucible.synth.iface import Obs, SynthWorld, ToolInfo
 from crucible.synth.program import CallRecord, Lit, Program, Run, Step
@@ -148,6 +148,22 @@ class _AgentFalsifier(BaseFalsifier):
         return [Probe(cls=self.name, op="agent", site=f"agent:{a.name}", expect="property", data={"agent": a.name, "family": a.family})
                 for a in self.agents if a.family not in self.exclude]
 
+    async def replay(self, cx: Any, task: Task, ctx: FalsifyContext) -> bool:
+        """An archived agent counterexample replays its recorded trace as a literal program (``Counterexample.of`` put it
+        in the probe), graded against ``task``. Found in the re-certification (DESIGN §7.7 item 22): the inherited
+        ``replay`` called this class's ``execute``, which runs a NEW agent attempt (a model call, a fresh sample) instead
+        of the archived trace, or fails when no agent of that name is wired. A judged-valid trace (``expect`` pass, D6)
+        is a regression test only of versions with the instruction it was judged under (``instruction_sha``, recorded
+        by ``Counterexample.of`` from item 22 on); an archived one without it fails closed."""
+        if cx.probe.program is None or cx.probe.expect not in ("fail", "pass"):
+            return False
+        sha = cx.probe.data.get("instruction_sha")
+        if cx.probe.expect == "pass" and sha is not None and sha != content_hash(task.instruction, 16):
+            return False  # a valid attempt judged under another instruction: no regression test of this version
+        probe = cx.probe.model_copy(update={"instruction": None})
+        out = await BaseFalsifier.execute(self, probe, task, ctx)
+        return bool(out.valid and out.passed is not None and out.passed != (cx.probe.expect == "pass"))
+
     async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext, *, feedback: str = "") -> Outcome:
         agent = next(a for a in self.agents if a.name == probe.data["agent"])
         r = await run_agent(agent, task, ctx, feedback=feedback)
@@ -237,8 +253,15 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
     b = budget or AgentBudget()
     attacker = role.name == ATTACKER.name
     keep_notes = "notes" in role.sees
+    uses = [0]
 
     async def runner(view: AgentView, world: SynthWorld) -> Any:
+        # one runner serves every attempt of its agent on a task: each CEGIS round, the final pass, ATK's feedback rounds.
+        # Its k-th attempt (k >= 2) tags its calls ``<tag>@r<k>``, so a wire that seeds by tag draws a new sample: with
+        # one tag a re-run on an unchanged instruction was the first attempt again (DESIGN §7.7 item 22). The first
+        # attempt keeps the bare tag (the solver pool's and the student probe's cost lookups by exact tag).
+        uses[0] += 1
+        call_tag = (tag or role.name) if uses[0] == 1 else f"{tag or role.name}@r{uses[0]}"
         tools = tool_catalogue(view.tools)
         names = {t.name for t in view.tools}
         ro = {t.name: t.read_only for t in view.tools}
@@ -257,7 +280,7 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
             if keep_notes:
                 inputs["notes"] = notes or "(empty: write your plan here on this turn)"
             doc = await client.complete_json(role.render(**inputs), schema=AgentTurn, max_tokens=role.max_tokens, temperature=role.temperature,
-                                             tag=tag or role.name)
+                                             tag=call_tag)
             turn = AgentTurn.model_validate(doc)
             if keep_notes and turn.notes:
                 notes = str(turn.notes)[:2000]

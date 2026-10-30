@@ -1749,12 +1749,17 @@ async def replay_program(task: Task, program: dict[str, Any], ctx: FalsifyContex
     return bool(ctx.grade(r, task.contract).passed)
 
 
-def archive_recheck(archive: Any, ctx: FalsifyContext, falsifiers: Callable[[], list[BaseFalsifier]] = cheap) -> Recheck:
+def archive_recheck(archive: Any, ctx: FalsifyContext, falsifiers: Callable[[], list[BaseFalsifier]] = cheap, *, heldout: float = 0.0) -> Recheck:
     """T5 on the real archive: no archived counterexample (student-probe ones included) re-opens, and no deterministic
     class confirms a counterexample on the repaired version. With held-out mutants (Part 1 V5) pass
     ``falsifiers=lambda: population(h)``: a repair is then accepted on the shown mutants only, and ``MUTHeldOut(holdout=h)``
-    stays for the certified version."""
+    stays for the certified version. ``heldout`` > 0 does that for the default population (DESIGN §7.7 item 22: the
+    re-certified pool's manifest carries the h its certificates used)."""
     from crucible.synth.archive import regress
+    from crucible.synth.falsify import population as held_population
+
+    if heldout > 0 and falsifiers is cheap:
+        falsifiers = lambda: held_population(heldout)
 
     async def check(task: Task) -> list[str]:
         fs = [*falsifiers(), ProbeReplay()]

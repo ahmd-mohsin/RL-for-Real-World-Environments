@@ -1073,9 +1073,12 @@ async def ask(client: RoleClient, role: Role, *, tag: str = "", check: Callable[
     the model as feedback, up to ``retries`` more times; then ``RoleFailed``."""
     msgs = role.render(**inputs)
     last = ""
-    for _ in range(retries + 1):
+    for k in range(retries + 1):
+        # retry k >= 1 is tagged ``<tag>~a<k>``: after the client's own JSON retries ran out, the same messages on the same
+        # tag were the same seeds, so a wire that seeds by tag returned the same unusable replies again (item 22)
+        t = (tag or role.name) if k == 0 else f"{tag or role.name}~a{k}"
         try:
-            doc = await client.complete_json(msgs, schema=role.output, max_tokens=role.max_tokens, temperature=role.temperature, tag=tag or role.name)
+            doc = await client.complete_json(msgs, schema=role.output, max_tokens=role.max_tokens, temperature=role.temperature, tag=t)
         except LLMOutputError as e:  # the client's own JSON retries ran out: one attempt of this role spent
             last = str(e)[:4000]
             continue

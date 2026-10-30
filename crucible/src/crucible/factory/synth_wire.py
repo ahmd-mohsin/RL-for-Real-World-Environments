@@ -205,23 +205,37 @@ class Usage:
 # the budget refusal behind such an error (``synth.batch.budget_cause``).
 
 
-class WireClient:
-    """``roles.RoleClient`` over an ``LLMClient``-shaped chat client (``complete(messages, ...) -> LLMResponse``)."""
+def tag_seed(tag: str, attempt: int = 0, salt: str = "") -> int:
+    """The sampling seed of one call (DESIGN §7.7 item 22): a pure function of (salt, tag, JSON retry), so the same tag
+    gives the same seed and two tags (attempts, rollouts, panel members) give independent samples. An empty salt is the
+    item-19 formula (``crc32(tag)``), which the student store's ``seed=tag`` records were drawn with."""
+    import zlib
 
-    def __init__(self, inner: Any, *, role: str, model: str, family: str, usage: Usage, json_retries: int = 2, seed_by_tag: bool = False):
+    key = tag if not salt else f"{salt}|{tag}"
+    return (zlib.crc32(key.encode()) + 1009 * attempt) % 2_147_483_647
+
+
+class WireClient:
+    """``roles.RoleClient`` over an ``LLMClient``-shaped chat client (``complete(messages, ...) -> LLMResponse``).
+
+    **Seeds (DESIGN §7.7 item 22).** Every call is seeded from its tag by default (``tag_seed``). Before, the default
+    seed was the JSON retry index (0): Tinker samples a prompt identically at one seed, so k student rollouts were one
+    trajectory copied k times (P2 pilot), the two Ultra ALT attempts were one trajectory in 120 of 216 pairs (yield-1/2),
+    and every M4, RSI-1 and yield-1/2 certificate's ALT, ATK and panel calls ran on seed 0. ``seed_by_tag=False`` keeps
+    the old behaviour for reproducing those runs (``--same-seed``). ``salt`` separates the seed streams of two clients
+    (two Ultra solvers on one tag) and of two runs (a re-certification must not redraw the stored run's samples)."""
+
+    def __init__(self, inner: Any, *, role: str, model: str, family: str, usage: Usage, json_retries: int = 2, seed_by_tag: bool = True,
+                 salt: str = ""):
         self.inner, self.role, self.model, self.family, self.usage, self.json_retries = inner, role, model, family, usage, json_retries
         self.calls = 0
-        # repeated rollouts must be independent samples: with the default seed (= the retry attempt, 0) Tinker samples one
-        # prompt identically, so k student rollouts were one trajectory copied k times (found in the P2 pilot, 2026-10-29).
-        # ``seed_by_tag``: the seed is derived from the call's tag (one tag per rollout), plus the attempt.
         self.seed_by_tag = seed_by_tag
+        self.salt = salt
 
     def _seed(self, tag: str, attempt: int) -> int:
         if not self.seed_by_tag:
             return attempt
-        import zlib
-
-        return (zlib.crc32(tag.encode()) + 1009 * attempt) % 2_147_483_647
+        return tag_seed(tag, attempt, self.salt)
 
     async def complete_json(self, messages: list[dict[str, Any]], *, schema: Any = None, max_tokens: int = 2048, temperature: float = 0.0,
                             tag: str = "") -> dict[str, Any]:
@@ -296,17 +310,22 @@ def stage_meter(parent: Any, stage: str, cap_usd: float) -> Any:
 
 class SynthWire:
     """Clients for every synth role on one run's meter (module docstring). ``stage_caps`` (stage -> USD; stages are
-    ``ROLE_STAGE``'s) adds a hard cap per stage on top of the run's cap."""
+    ``ROLE_STAGE``'s) adds a hard cap per stage on top of the run's cap.
+
+    Seeds by tag are the default (``WireClient``; DESIGN §7.7 item 22). Client ``(role, i)`` salts its seeds with
+    ``<seed_salt>|<role>#<i>``; ``seed_salt`` defaults to the run directory's name, so a resumed run redraws its own
+    seeds and another run (a re-certification of stored tasks) draws new ones."""
 
     def __init__(self, run_dir: str | Path, *, cap_usd: float, table: Mapping[str, Sequence[str]] | None = None, make: Any = None,
-                 stage_caps: Mapping[str, float] | None = None, seed_by_tag: bool = False):
+                 stage_caps: Mapping[str, float] | None = None, seed_by_tag: bool = True, seed_salt: str | None = None):
         from crucible.train.bridges.tinker.spend import SpendMeter
 
         # distinct samples per call tag (the yield arms: yield-1/2 ran the two Ultra ALT attempts on one seed, and 120 of
-        # 216 attempt pairs were the same trajectory)
+        # 216 attempt pairs were the same trajectory; every SynthWire before item 22 defaulted to seed 0)
         self.seed_by_tag = seed_by_tag
 
         self.dir = Path(run_dir)
+        self.seed_salt = self.dir.name if seed_salt is None else seed_salt
         self.table = dict(table or SYNTH_ROLES)
         self.book = check_assignment(self.table)
         self.meter = SpendMeter(cap_usd, path=self.dir / "spend.jsonl")
@@ -328,7 +347,8 @@ class SynthWire:
                 inner = self._make(spec.model, role)
             else:
                 inner = backend(spec.provider).make(spec.model, role=role, meter=self.meter_for(role))
-            self._clients[k] = WireClient(inner, role=role, model=spec.model, family=spec.family, usage=self.usage, seed_by_tag=self.seed_by_tag)
+            self._clients[k] = WireClient(inner, role=role, model=spec.model, family=spec.family, usage=self.usage, seed_by_tag=self.seed_by_tag,
+                                          salt=f"{self.seed_salt}|{role}#{i}")
         return self._clients[k]
 
     def clients(self, role: str) -> list[WireClient]:

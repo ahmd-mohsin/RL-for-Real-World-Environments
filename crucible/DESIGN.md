@@ -2644,6 +2644,80 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      duplicates of a candidate already tested). No update was accepted, as it must not be: the operators that close the
      only dev gap can show 3 gains in 64 decision units, under the MDE (0.27 at n = 60, α_t = 0.005). The E10 pilot
      (3 ablations × 3 seeds) is therefore uninformative: every Δ is 0.
+22. **Part 2 seeding default and pool re-certification (built 2026-10-30; results `docs/research/env-synthesis/runs/recert-1.md`).**
+   Real runs found four bugs that weakened every earlier certificate: every model call was on seed 0 unless a wire asked
+   for seeds by tag (items 17, 19), Ultra and Super shared one ALT runner name (item 17), ORACLE and LEAK did not count
+   in admission and MUT/TAINT/TWIN predate items 18 and 20, and V5's held-out mutants were off.
+   - **Seeds by tag are the default** (`factory/synth_wire.py`). `WireClient(seed_by_tag=True, salt="")` and
+     `SynthWire(seed_by_tag=True, seed_salt=None)`; `tag_seed(tag, attempt, salt)` = crc32(`salt|tag`) + 1009·attempt (an
+     empty salt is item 19's crc32(tag), which the student store's `seed=tag` records used). `SynthWire` salts client
+     (role, i) with `<run dir name>|<role>#<i>`: two clients of one model on one tag (Ultra ×2) draw two streams, a resumed
+     run redraws its own seeds, and another run (a re-certification) draws new ones. `seed_by_tag=False` is the old
+     behaviour (`synth.py batch --same-seed`). Every wire inherits it: the M4 CLI's `certify`/`propose`, the
+     falsifiers-2 and perfect wires (before: seed 0; RSI-2 set it by hand), the batch, worlds, compose-2 and solver-pool
+     wires (already by tag), the student wire (by tag, no salt).
+   - **Tags that collided across attempts, fixed.**
+     - `llm_agent`: one runner serves every attempt of its agent on a task (each CEGIS round, the final pass, ATK's
+       feedback rounds); its k-th attempt (k ≥ 2) tags `<tag>@r<k>`. Before, a re-run on an
+       unchanged instruction was the first attempt again. The first attempt keeps the bare tag (the solver pool's and
+       the student probe's exact-tag cost lookups).
+     - `roles.ask`: retry k ≥ 1 tags `<tag>~a<k>`; after the client's JSON retries ran out the same messages on the same
+       tag were the same seeds, so the same unusable replies came back.
+     - The repairer: `repair:<id>#v<version>~<k>` (a refused repair leaves version and counterexamples unchanged, so the
+       next round asked the identical prompt).
+     - The pipeline proposer: `propose:batch<b>`.
+     - Unchanged because unique already: ALT/ATK `<cls>:<id>#<agent>`, solver pool `~k`, student `student:<id>@<v>:<i>`,
+       panels (one member per model, a different prompt per suspect; same-model members are separated by the client salt),
+       the leak probe (cached by content), RSI's salted tags. `batch.candidate_costs` strips `~a<k>`.
+   - **ALT/ATK archive replay** (`falsify/agents.py`, found by the re-certification): an archived agent counterexample
+     inherited `BaseFalsifier.replay`, which called the class's `execute`: a NEW agent attempt (a model call, a fresh
+     sample, or a StopIteration when no agent of that name was wired) instead of the archived trace. `_AgentFalsifier.replay`
+     now grades the recorded trace as a literal program. Every earlier regression of an ALT/ATK counterexample was a
+     fresh sample. A judged-valid trace (D6, `expect` pass) is judged under one instruction: `Counterexample.of` records
+     `instruction_sha`, and the trace replays only on versions with that instruction (a repair that rewrote the
+     instruction made it no regression test); archived ones without it fail closed.
+   - **Held-out mutants in `TaskLoop`'s re-check** (`meta/rsi.archive_recheck(..., heldout=h)`): with h > 0 the default
+     population becomes `population(h)`; the manifest carries each certificate's h.
+   - **Re-certification** (`synth/recert.py`, CLI `scripts/synth_recert.py collect | det | paid | report | budget`).
+     Measurement only: the stored task version (id, version, digest) is what is certified; the World is rebuilt from its
+     `WorldRef` with `work` moved under the run (`work_world`), so no old run directory is written to; each source's
+     archived counterexamples are copied (`copy_archive`: task ids repeat across batch runs) and the source archive is
+     only read.
+     - Phase 1 (`det_job`, CPU, a `spawn` worker per task): `population(h)` + ORACLE (where a World registers policy
+       truth, named by import path), `MUTHeldOut(h)`, MUT on the whole neighbourhood (the h = 0 counterfactual), archive
+       regressions. `det_verdict` rejects for good on a confirmed counterexample, a re-opened one or a required class
+       not applicable.
+     - Phase 2 (`certify_paid`): the stored results stand in for the classes (`Stored` under `offload.Offloaded`); MUT and
+       MUT-HO suspects go to the calibrated panel (`Adjudicated`), TWIN's to the strictly calibrated TWIN panel; ALT, ATK
+       (`ConcurrentAgents`) and the LEAK probe run in `cegis.refine` with one round and a repairer that declines;
+       `pipeline.admission_policy()`. `Recorder` keeps the paid classes' findings for attribution.
+     - Statuses: certified, provisional, **on_hold** (no confirmed counterexample and no rule failure, only suspects the
+       panels did not decide), rejected; `status_h0` the same evidence without held-out mutants.
+     - `attribute`: outcome (holds, changes, held, falls, rises, stays) and causes: new_classes (ORACLE, LEAK, read
+       mutants, layered TAINT, item 18's TWIN), heldout, seed (a re-sampled model that ran before: Ultra v2, ATK, panels),
+       alt_naming (Super's ALT findings on sources where Super never ran), harness (v3), other (MUT count, drift).
+     - New certificates are written once, never overwritten (`write_new`), beside the stored `cegis.json`
+       (`tasks/tNN/certificate.<tag>.json`); the manifest (`ManifestRow`, `load_manifest`, `load_task` checks the digest)
+       is what `TaskLoop` starts from.
+   - **Results** (`runs/recert-1.md`, USD 5.11 of the 8 cap; ALT = compose-2's v3 set Super + gpt-oss + Inkling-Small,
+     because the pilot with Ultra cost USD 0.062 a task, Ultra 53% of it). 195 tasks: the learnability pool's 89, the M4
+     admissions (inside the 89), 2 frontier and 104 yield admissions. Stored 103 certified / 14 provisional / 78
+     rejected → **4 certified, 90 provisional, 10 on hold, 91 rejected** at h = 0.2 (66 / 30 / 10 / 89 at h = 0, report
+     only). Of the 117 stored admissions: 14 hold, 64 change to provisional (59 held-out mutants: about 60 distinct
+     mutants on a 30-invoice World and 20% held out leave n < 59; 5 the M4 duplicate count), 10 go on hold (undecided
+     re-sampled ALT/ATK and LEAK suspects), 29 fall (new classes 18: ORACLE 7 = exactly yield-1's 6 hand-found wrong
+     oracles plus a frontier task, LEAK 5, TWIN 3, layered TAINT 3; ALT set 3; re-sampled attackers and votes 3; legacy
+     D6 traces 3; held-out D9 survivors 2). 16 stored rejections rise to provisional (Super, which never ran in M4/RSI-1,
+     passes 10; the v3 harness 6). Live calibrations: panel λ 0.7, TWIN panel λ 0.5 (18/18, 17/17: the first live run of
+     compose-2's corrected anchors), leak panel λ 0.7 (40/40). **Open:** the holdout's n cost (a lead decision: denser
+     Worlds, or counting held-out trials in U on a final version); MUT's 240-mutant cap sample missed SwapEntity D9
+     survivors that MUT-HO found on 2 tasks (not changed: RSI-2's preregistered numbers rest on today's sampling).
+     The manifest for `TaskLoop`: `crucible/data/synth/recert/20261030-125829-recert-1/manifest.recert-1.json`.
+   - Tests: `tests/unit/test_synth_recert.py` (k attempts of one role on one task get k seeds; per-run determinism and
+     cross-run independence; `ask` retries and repeated repairs; the solver pool and the student; ALT replay of the
+     archived trace and the instruction rule; `archive_recheck(heldout=)`; collect, archive copy, the work directory;
+     both phases on scripted agents with the task never edited; on hold, outcomes and causes, never-overwritten
+     certificates; the manifest's digest check; `status_h0`).
 
 ## 8. Layer 4: verification and isolation
 
