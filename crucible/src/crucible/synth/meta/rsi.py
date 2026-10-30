@@ -500,6 +500,7 @@ class Candidate(CrucibleModel):
     op: str
     origin: str  # swarm | random | swarm:A' | swarm:A
     cites: list[str] = Field(default_factory=list)
+    spec: dict[str, Any] = Field(default_factory=dict)  # the operator itself (refused ones too: negative evidence, and E3's post-hoc transfer)
     gate: dict[str, Any] = Field(default_factory=dict)
     decision: dict[str, Any] | None = None
     refused_by: list[str] = Field(default_factory=list)  # "gate:<check>" or "R<k>"
@@ -649,7 +650,7 @@ class Loop:
 
     async def try_candidate(self, arm: Arm, spec: OperatorSpec, cites: list[str], origin: str, clusters: Sequence[Cluster], misses: Sequence[Plant],
                             r: int, rng: random.Random) -> Candidate:
-        cand = Candidate(op=spec.cls_name, origin=origin, cites=list(cites))
+        cand = Candidate(op=spec.cls_name, origin=origin, cites=list(cites), spec=spec.model_dump(mode="json"))
         lib = Library.model_validate(arm.store.get("F"))
         if spec.cls_name in lib.ops:
             cand.refused_by = ["duplicate"]

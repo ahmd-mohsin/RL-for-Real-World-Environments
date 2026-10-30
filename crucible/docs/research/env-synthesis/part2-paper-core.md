@@ -739,10 +739,11 @@ confidence. The panel prompt was tightened, and λ was set from executed-truth a
 
 | Item | Detail |
 |---|---|
-| `cegis` final re-run | Must adjudicate suspects, or a repair in the last round leaves them open. M4 works around it inline. |
-| PPI intervals for adjudicated rates | Calibration reports accuracy, coverage and a Clopper–Pearson bound per λ |
+| `cegis` final re-run | Closed in RSI-1: the final pass adjudicates its suspects (`FinalPass`). |
+| PPI intervals for adjudicated rates | Closed in RSI-1 (`meta/ppi.py`). The labels are executed-truth anchors, not suspects: the interval assumes the panel errs alike on both. |
 | Family exhaustion | Three builder families leave two checker families (Nemotron, gpt-oss) for ALT, ATK, the panel and the abstractor, so the panel judges its own family's ALT traces. A sixth non-Qwen family on Tinker would fix it. |
-| Short generated tasks | They get 30–128 distinct mutants, so many are provisional. Denser seeded Worlds (more sibling entities) are the fix. |
+| Short generated tasks | Closed in RSI-1: denser seeded Worlds (`reseed`, `--invoices`) give 22 of 24 new tasks ≥ 59 distinct mutants. The M4 counts were also inflated (a panel-wrapped MUT lost its effect deduplication: 66 reported, 20 distinct). |
+| The RSI loop (§9) | First real rounds in `runs/rsi-1.md`: no falsifier update survives R1–R10 in 5 rounds (the best misses R2 by 0.003), the planter loop finds the humanised-leak gap on dev, the DSL cannot close it, the lemma test is refused. |
 | Human queue | 53 panel abstentions on it_helpdesk (`human_queue.jsonl`) await a decision |
 
 ### 14.2 M5: the repository substrate and the real-defect set (2026-10-29)

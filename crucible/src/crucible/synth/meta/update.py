@@ -550,7 +550,9 @@ class UpdateEngine:
             fail.append(RuleFailure(rule="R9", detail=f"LCB(J'-J_control) = {gc:.4f} <= delta {delta:.4f} (control at spend {m1.cost:.3f})"))
         dec.metrics = {"j_star": m0.j, "j_new": m1.j, "j_control": mc.j, "lcb": g, "lcb_control": gc, "delta": delta, "fr_new": m1.fr, "fa_new": m1.fa,
                        "cost_new": m1.cost}
-        for item, gain in m1.item_gain.items():
+        # the marginal gains of the INCUMBENT's items (RSI-2: m1's gains also named the candidate's items, so a refused
+        # candidate entered the pruning bookkeeping and a later prune "removed" items the component never held)
+        for item, gain in m0.item_gain.items():
             if gain > 0:
                 self.last_gain[item] = round
         if not fail:

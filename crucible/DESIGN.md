@@ -1928,6 +1928,24 @@ ONL: item 14); composition (M6) is not.
      [--evidence D] [--no-control]`, `lemma-test`; `--budget rsi` clips every run to `RSI_CAP_USD` = 40 over the work's
      receipts (`work_spent`: every `spend.jsonl` whose run path carries "rsi"). Tests: `test_synth_rsi.py` (scripted
      proposers), additions in the cegis, agents, worldgen, plant and library tests.
+   - **Decisions forced by the first runs (RSI-2).** Views stratify by domain only: (domain, defect) strata gave every
+     view the same J under deterministic falsifiers, so δ = 0 and R2 degenerated (RSI-1's one acceptance is void).
+     A class's R3 noise band ignores views without the class. A planter joins only with novel plants (`plant_key`:
+     content without why texts and pattern ids) and a positive reward on them; its proposer sees its history (RSI-1
+     accepted 12 copies of existing plants with reward 0). The natural-likeness reference is the M5 real-defect set's
+     independently found P1 defects (`real_defect_features`, 47 records; `evolve --real-defects`), never the
+     falsifier-found archive. `relax_value:eq_to_in` joins the held-out planter (no swarm contract carried a tolerance,
+     so the locked set had no D3 plant). `UpdateEngine.decide` books marginal gains of the incumbent's items only (a
+     refused candidate's own gain made a later prune remove items the component never held). Candidates keep their
+     spec. The contract writer sees lemmas (`RunConfig.writer_lemmas`).
+   - **Results** (`docs/research/env-synthesis/runs/rsi-1.md`, $2.44 of the $40 cap): dense Worlds lift MUT's distinct
+     n to ≥ 59 on 22 of 24 new tasks (finance_ap 2 certified); E1 locked FR 56/72, FA 0/7, the two gaps are
+     `over_constrain:never` (0/12) and humanised leaks (14/18); E2: no F update survives the rule in 5 rounds (the
+     generic D3 operator passes the gate, closes every dev D3 plant with zero alarms, and is refused by R2/R9 at LCB
+     0.038 < δ 0.041), the random-DSL control never passes the gate, the planter loop finds the humanised-leak gap on
+     dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
+     the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
+     refused.
 
 ## 8. Layer 4: verification and isolation
 

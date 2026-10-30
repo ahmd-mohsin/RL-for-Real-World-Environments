@@ -400,7 +400,7 @@ ORACLE_PROGRAMMER = Role(
 
 CONTRACT_WRITER = Role(
     name="contract_writer", stage="F5", output=ContractOut, temperature=0.0, max_tokens=6144,
-    sees=("task", "intent", "tools", "skeleton", "effects", "answer", "contract_format"),
+    sees=("task", "intent", "tools", "skeleton", "effects", "answer", "contract_format", "lemmas"),
     never=("gate_code", "candidate_solutions", "proposer_notes", "verdicts"),
     differs_from=("proposer", "oracle_programmer"),
     system=("You generalise an exact verifier. The skeleton contract was inferred from the reference solution's executed "

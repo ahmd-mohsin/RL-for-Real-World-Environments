@@ -92,7 +92,20 @@ async def test_end_to_end_run_with_scripted_roles(tmp_path):
     assert any(t.startswith("propose:") for t in tags) and any(t.startswith("oracle:") for t in tags) and any(t.startswith("contract:") for t in tags)
     # the contract writer saw the skeleton and the effects, never the gate
     cw = rl.contract_writer.calls[0][1]["content"]
-    assert "## skeleton" in cw and "## effects" in cw and "grade(" not in cw
+    assert "## skeleton" in cw and "## effects" in cw and "grade(" not in cw and "## lemmas" not in cw
+
+
+async def test_lemmas_reach_their_roles_and_a_first_round_only_run_spends_no_paid_or_repair_call(tmp_path):
+    """The S component (§9.5): proposer lemmas reach the proposer, writer lemmas the contract writer; ``paid=False`` and
+    ``repair=False`` make a first-round-only measurement (the lemma test)."""
+    rl = roles()
+    cfg = RunConfig(n_tasks=1, batch=1, calibrate=False, lemmas=("name entities the way users do",), writer_lemmas=("pin the entity the instruction names",),
+                    paid=False, repair=False)
+    rep = await Runner(env(), rl, cfg, tmp_path / "run", tmp_path / "archive", run_id="r4").run()
+    assert "name entities the way users do" in rl.proposer.calls[0][1]["content"]
+    assert "pin the entity the instruction names" in rl.contract_writer.calls[0][1]["content"]
+    assert not any(c.calls for _, c in rl.alt) and not any(c.calls for _, c in rl.atk) and not rl.repairer.calls
+    assert rep.tasks[0].stage == "refined" and "ALT" not in rep.tasks[0].classes
 
 
 async def test_a_defective_contract_is_falsified_and_repaired(tmp_path):

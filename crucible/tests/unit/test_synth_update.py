@@ -277,3 +277,12 @@ def test_lcb_is_paired_when_it_can_be():
     b = [x - 0.05 for x in a]
     assert lcb(a, b) == pytest.approx(0.05)  # paired: the unit spread cancels
     assert lcb(a, b[:9]) < 0  # unpaired (Welch): it does not
+
+
+async def test_a_refused_candidate_never_enters_the_pruning_bookkeeping():
+    """RSI-2: the candidate's own item gains entered ``last_gain``, so a refused operator was later "pruned" from a
+    library that never held it."""
+    eng, _toy, _ = _engine()
+    await eng.calibrate()
+    d = await eng.decide(_u("weak", item_gain={"op_new": 0.3}), round=0)  # no J gain: refused
+    assert not d.accepted and "op_new" not in eng.last_gain and eng.stale(round=9) == []

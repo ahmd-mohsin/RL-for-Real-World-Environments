@@ -124,6 +124,7 @@ class RunConfig:
     show_reasons: bool = True
     max_mutants: int = 240
     lemmas: tuple[str, ...] = ()  # the S component's design rules the proposer is shown (§9.5 synthesizer loop)
+    writer_lemmas: tuple[str, ...] = ()  # ... and those the contract writer is shown (lemmas whose role is the writer)
     paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
     repair: bool = True  # off: the repairer is never called (every repair is "declined"): first-round counterexamples only
 
@@ -401,7 +402,7 @@ class Runner:
                 co: ContractOut = await ask(self.roles.contract_writer, CONTRACT_WRITER, tag=f"contract:{rec.id}", retries=1, task=p["instruction"],
                                             intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(self.tools[rec.seed]),
                                             skeleton=contract_doc(sk), effects=effects_view(r, sk.normalizers), answer=r.answer,
-                                            contract_format=CONTRACT_DOC)
+                                            contract_format=CONTRACT_DOC, lemmas=list(self.cfg.writer_lemmas) or None)
                 edits = list(co.edits)
             except RoleFailed as e:
                 edits, co = [], ContractOut(notes=f"contract writer failed: {str(e)[:300]}")

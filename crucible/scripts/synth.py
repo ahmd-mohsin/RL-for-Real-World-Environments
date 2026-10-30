@@ -456,8 +456,11 @@ def cmd_lemma_test(a: argparse.Namespace) -> None:
 
     out = rsi_dir(a)
     lem = json.loads(Path(a.lemmas).read_text())
-    texts = [x["rule"] if isinstance(x, dict) else str(x) for x in lem]
-    texts = [t for t in texts if t][: a.max_lemmas]
+    rows = [(x.get("applies_to", "proposer"), x["rule"]) if isinstance(x, dict) else ("proposer", str(x)) for x in lem]
+    rows = [(r, t) for r, t in rows if t][: a.max_lemmas]
+    texts = [t for _, t in rows]
+    prop = tuple(t for r, t in rows if r in ("proposer", "oracle_programmer", "repairer"))  # the proposer sees these (the others have no lemma input)
+    writer = tuple(t for r, t in rows if r == "contract_writer")
     root = data_root(a)
     a.tag = a.tag or "rsi-lemma"
     cap = run_cap(a, root)
@@ -466,10 +469,11 @@ def cmd_lemma_test(a: argparse.Namespace) -> None:
     wire = SynthWire(d, cap_usd=cap)
     res: dict = {}
 
-    async def arm(name: str, lemmas: tuple[str, ...]) -> list:
+    async def arm(name: str, lemmas: tuple[str, ...], wl: tuple[str, ...] = ()) -> list:
         ad = d / name
         ad.mkdir()
-        cfg = RunConfig(n_tasks=a.n, batch=a.batch, max_rounds=1, concurrency=a.concurrency, calibrate=False, lemmas=lemmas, paid=False, repair=False)
+        cfg = RunConfig(n_tasks=a.n, batch=a.batch, max_rounds=1, concurrency=a.concurrency, calibrate=False, lemmas=lemmas, writer_lemmas=wl, paid=False,
+                        repair=False)
         r = Runner(_env(a, ad), wire.run_roles(), cfg, ad, ad / "archive", run_id=f"{a.run_id}-{name}", cost=wire.cost, families=wire.families())
         r.roles.panel = ()  # MUT suspects stay suspects: the rate counts confirmed counterexamples only
         before = wire.meter.spent
@@ -479,7 +483,7 @@ def cmd_lemma_test(a: argparse.Namespace) -> None:
 
     async def go() -> None:
         ctl = await arm("control", ())
-        trt = await arm("treated", tuple(texts))
+        trt = await arm("treated", prop, writer)
         had = lambda t: bool(t.first_round_confirmed)
         built = lambda ts: [t for t in ts if t.stage == "refined"]
         bc, bt = built(ctl), built(trt)
