@@ -114,3 +114,15 @@ def test_near_variants_always_differ():
     for v in ("Acme Inc.", "Bo", "Nordic Supplies Ltd", 1200, 19.5, True, "x"):
         for _ in range(20):
             assert near_variant(v, rng) != v
+
+
+def test_rows_are_rejection_sampled_against_rules_and_absolute_spreads_do_not_overflow():
+    # pilot 1: independent draws broke "used <= entitled"; an sd given in the value's units overflowed the log sigma
+    schema = {"bal": {"key": "id", "fields": {"id": "string", "entitled": "integer", "used": "integer", "amount": "number"}}}
+    spec = DataSpec.model_validate({"tables": [{"table": "bal", "rows": 60, "rules": ["used <= entitled"], "fields": {
+        "id": {"kind": "seq", "prefix": "B-"}, "entitled": {"kind": "int", "min": 5, "max": 30}, "used": {"kind": "int", "min": 0, "max": 30},
+        "amount": {"kind": "number", "dist": "lognormal", "mean": 2500, "sd": 4000, "min": 10, "max": 90000}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    assert [r["id"] for r in g.tables["bal"]] == [f"B-{i}" for i in range(1, 61)]  # redraws release their sequence numbers
+    assert len({r["amount"] for r in g.tables["bal"]}) > 30

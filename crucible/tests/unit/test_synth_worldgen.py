@@ -181,3 +181,18 @@ async def test_the_seed_density_knob_and_reseed(tmp_path):
         assert len((await w.canon()).collection("desk", "tickets")) == 38
     finally:
         await w.close()
+
+
+def test_conformance_refuses_parameters_the_design_lacks_and_tests_may_not_invent_arguments():
+    # World-families pilot 1: a hidden acting_user_id parameter on every write tool (impersonation), passed by the tests
+    from crucible.synth.roles import SchemaOut, ToolDesignOut, ToolTestsOut
+    from crucible.synth.worldgen import check_tests, conformance
+
+    d = ToolDesignOut.model_validate(DESIGN)
+    info = {"tools": [{"name": t["name"], "read_only": t.get("read_only", False), "writes": t.get("writes", []),
+                       "params": [p["name"] for p in t["params"]] + (["acting_user_id"] if t["name"] == "close_ticket" else [])} for t in DESIGN["tools"]]}
+    assert any("parameters not in the design ['acting_user_id']" in p for p in conformance(info, d))
+    bad = json.loads(json.dumps(TESTS))
+    bad["tests"][3]["calls"][0]["args"]["acting_user_id"] = "U-1"
+    with pytest.raises(ValueError, match="has no parameters"):
+        check_tests(ToolTestsOut.model_validate(bad), d, SchemaOut.model_validate(SCHEMA))

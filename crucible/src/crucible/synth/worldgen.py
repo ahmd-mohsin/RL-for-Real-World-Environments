@@ -49,6 +49,7 @@ from crucible.synth.roles import (
     AppCodeOut,
     ApproveOut,
     DebugOut,
+    Role,
     RoleClient,
     RoleFailed,
     SchemaOut,
@@ -135,6 +136,7 @@ def check_schema(s: SchemaOut, d: ToolDesignOut) -> None:
 
 def check_tests(tests: ToolTestsOut, d: ToolDesignOut, s: SchemaOut) -> None:
     tools = {t.name for t in d.tools}
+    params = {t.name: {p.name for p in t.params} for t in d.tools}
     tables = {t.name: t for t in s.tables}
     ids = [t.id for t in tests.tests]
     if len(set(ids)) != len(ids):
@@ -145,6 +147,10 @@ def check_tests(tests: ToolTestsOut, d: ToolDesignOut, s: SchemaOut) -> None:
         for c in t.calls:
             if c.tool.split(".")[-1] not in tools:
                 raise ValueError(f"test {t.id}: unknown tool {c.tool!r}")
+            extra = sorted(set(c.args) - params[c.tool.split(".")[-1]])
+            if extra:
+                raise ValueError(f"test {t.id}: {c.tool} has no parameters {extra} (only {sorted(params[c.tool.split('.')[-1]])}); state the "
+                                 "acting user and other context through the fixture, never as an argument the design does not have")
         for tn, rows in t.fixture.items():
             if tn not in tables:
                 raise ValueError(f"test {t.id}: fixture table {tn!r} is not in the schema")
@@ -176,7 +182,9 @@ def check_seed(seed: SeedOut, s: SchemaOut) -> None:
 
 
 def conformance(info: Mapping[str, Any], d: ToolDesignOut) -> list[str]:
-    """The registered tools against the design: names, read_only flags, write declarations."""
+    """The registered tools against the design: names, read_only flags, write declarations, and parameters (an extra
+    parameter is refused: World-families pilot 1 found an App whose write tools took a hidden ``acting_user_id``, an
+    impersonation shortcut around every permission check)."""
     got = {t["name"]: t for t in info.get("tools", [])}
     out = []
     for t in d.tools:
@@ -184,6 +192,13 @@ def conformance(info: Mapping[str, Any], d: ToolDesignOut) -> list[str]:
         if g is None:
             out.append(f"tool {t.name} is not registered")
             continue
+        if "params" in g:
+            extra_p = sorted(set(g["params"]) - {p.name for p in t.params})
+            missing_p = sorted({p.name for p in t.params} - set(g["params"]))
+            if extra_p:
+                out.append(f"tool {t.name}: parameters not in the design {extra_p} (remove them)")
+            if missing_p:
+                out.append(f"tool {t.name}: design parameters the code does not take {missing_p}")
         if bool(g["read_only"]) != t.read_only:
             out.append(f"tool {t.name}: read_only is {g['read_only']}, the design says {t.read_only}")
         if not t.read_only and sorted(g["writes"]) != sorted(t.writes):
@@ -200,10 +215,21 @@ def _design_json(d: ToolDesignOut) -> dict[str, Any]:
     return d.model_dump(mode="json")
 
 
+def _hint(detail: str) -> str:
+    """What a failure the code cannot fix within the design means (World-families pilot 1: a debugger spent three
+    rounds on a test that needed a write the design does not declare, and never disputed it)."""
+    if "undeclared write" in detail:
+        return ("\nHINT: the design does not let this tool write that table, and you may not change the design. If the test needs that "
+                "write, the test contradicts the design: dispute it.")
+    if "parameters not in the design" in detail or "design parameters the code does not take" in detail:
+        return "\nHINT: the tool's parameters must be exactly the design's."
+    return ""
+
+
 async def test_and_debug(out: Path, design: ToolDesignOut, design_doc: Mapping[str, Any], schema_doc: Mapping[str, Any], code: AppCodeOut,
                          tests: ToolTestsOut, frozen: str, clients: Mapping[str, RoleClient], rep: WorldgenReport, *, max_debug_rounds: int = 3,
                          max_drop_share: float = 0.25, exclude_tools: frozenset[str] | set[str] = frozenset(), app_api: str = APP_API_DOC,
-                         tag: str = "worldgen") -> list[str]:
+                         tag: str = "worldgen", debugger_role: Role = DEBUGGER) -> list[str]:
     """Run the frozen blind tests (and the conformance check) in the sandbox; while any fails, the debugger edits the code
     only, and a disputed test is dropped only on a third family's approval (module docstring). Returns the dropped test
     ids; on failure ``rep.status`` is ``rejected:tests`` with the reason. ``exclude_tools``: registered tools that are not
@@ -242,9 +268,9 @@ async def test_and_debug(out: Path, design: ToolDesignOut, design_doc: Mapping[s
         if not failing or rnd == max_debug_rounds:
             break
         rep.debug_rounds = rnd + 1
-        fails = [{"test": by_id.get(r["id"]), "id": r["id"], "detail": r["detail"]} for r in failing][:20]
+        fails = [{"test": by_id.get(r["id"]), "id": r["id"], "detail": r["detail"] + _hint(r["detail"])} for r in failing][:20]
         try:
-            fix: DebugOut = await ask(clients["debugger"], DEBUGGER, tag=f"{tag}:debug", check=code_ok, retries=1, design=dict(design_doc),
+            fix: DebugOut = await ask(clients["debugger"], debugger_role, tag=f"{tag}:debug", check=code_ok, retries=1, design=dict(design_doc),
                                       schema=dict(schema_doc), code=code.code, failures=fails, app_api=app_api)
         except RoleFailed as e:
             history.append({"round": rnd, "debugger_failed": str(e)[:500]})

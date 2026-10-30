@@ -31,7 +31,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from crucible.synth.datagen import DataSpec, Generated, NoiseItem, integrity
+from crucible.synth.datagen import DataSpec, DataSpecError, Generated, NoiseItem, eval_expr, integrity
 from crucible.synth.domain import DomainSpec
 from crucible.synth.families import (
     PAGE_PARAMS,
@@ -55,6 +55,7 @@ from crucible.verify.calibrate import clopper_pearson_upper
 KIT_TABLE_NAMES = ("documents", "policy_params", "colleagues")
 N_MIN = 59
 CODES = ("NOT_FOUND", "INVALID_ARGUMENT", "INVALID_STATE", "PERMISSION_DENIED", "CONFLICT")
+PAGEISH = frozenset({"page", "page_size", "per_page", "limit", "offset", "cursor"})
 
 
 class _M(BaseModel):
@@ -196,6 +197,13 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
     for k, v in params.items():
         if rows.get(k) != v:
             reasons.append(f"policy_params.{k} = {rows.get(k)!r} but the instance's policy variant is {v!r}")
+    dspec = DomainSpec.model_validate_json((app / "domain.json").read_text())
+    for c in dspec.param_constraints:
+        try:
+            if not eval_expr(c, params):
+                reasons.append(f"the policy variant breaks the constraint {c!r}")
+        except DataSpecError as e:
+            reasons.append(f"param constraint {c!r} cannot be evaluated: {e}")
     templates = {d["doc_id"]: d for d in _jread(app / "docs.json")["documents"]}
     docs = {d["doc_id"]: d for d in seed.get("documents", [])}
     doc_checks = 0
@@ -214,19 +222,25 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
     design = _jread(app / "design.json")
     stale = {(t.table, f): v for t in spec.tables if t.stale for f, v in t.stale.set.items()}
     enum_checks, enum_bad = 0, []
+    def norm(x: str) -> str:
+        return re.sub(r"[\s_\-]+", "_", x.strip().lower())
+
     for tool in design.get("tools", []):
+        if tool.get("read_only"):
+            continue
         for p in tool.get("params", []):
             if not p.get("enum"):
                 continue
             allowed = {str(x) for x in p["enum"]}
-            for tn, rws in g.tables.items():
+            for tn in tool.get("writes") or []:  # the table the tool writes that field of (pilot 1: comparing every table's
+                rws = g.tables.get(tn) or []     # "status" against one tool's enum was a false alarm)
                 if not rws or p["name"] not in rws[0]:
                     continue
                 vals = {str(r.get(p["name"])) for r in rws if r.get(p["name"]) is not None and r.get(p["name"]) != stale.get((tn, p["name"]))}
                 enum_checks += 1
-                extra = sorted(vals - allowed)
-                if extra and len(extra) / max(1, len(vals)) > 0.5:  # the field holds another vocabulary than the tool accepts
-                    enum_bad.append(f"{tool['name']}.{p['name']} accepts {sorted(allowed)[:8]} but {tn}.{p['name']} holds {extra[:6]}")
+                clash = sorted(v for v in vals - allowed if norm(v) in {norm(a) for a in allowed})  # "In Progress" vs "in_progress"
+                if clash or (vals and not vals & allowed):  # another spelling, or another vocabulary altogether
+                    enum_bad.append(f"{tool['name']}.{p['name']} accepts {sorted(allowed)[:8]} but {tn}.{p['name']} holds {sorted(vals - allowed)[:6]}")
     reasons += enum_bad[:5]
     unused = []
     for t in spec.tables:
@@ -320,7 +334,7 @@ async def surface_gate(inst: Path) -> GateResult:
         for n, t in tools.items():
             names = {p["name"] for p in t.get("params", [])}
             req = [p["name"] for p in t.get("params", []) if p.get("required")]
-            if not t.get("read_only") or req:
+            if not t.get("read_only") or set(req) - PAGEISH:  # pilot 1: page and page_size may be required
                 continue
             for s in PAGE_PARAMS:
                 if s <= names:
@@ -376,6 +390,26 @@ async def surface_gate(inst: Path) -> GateResult:
         if crashes:
             reasons.append(f"write tools crash instead of refusing: {[(r['tool'], r['probe']) for r in crashes][:4]}")
         det["coded_share"] = round(sum(r["coded"] for r in probed) / max(1, len(probed)), 3)
+        # impersonation: a write tool must not accept the acting user (or another "who" argument) the design does not have
+        acting = "acting_user_id"
+        if (inst / "domain.json").exists():
+            acting = DomainSpec.model_validate_json((inst / "domain.json").read_text()).permissions.acting_param
+        user_key = next(iter(first.values()), "U-1")
+        imp = []
+        for n, t in tools.items():
+            ex = calls.get(n)
+            if t.get("read_only") or not ex:
+                continue
+            test, call = ex[0]
+            kt = _key_tables(test, sm)
+            base = {a: (first.get(kt[str(v)], v) if isinstance(v, str | int) and not isinstance(v, bool) and str(v) in kt else v)
+                    for a, v in (call.get("args") or {}).items()}
+            o = await w.call(f"{app}.{n}", {**base, acting: user_key})
+            if not (o.error or "").startswith("bad arguments"):
+                imp.append(n)
+        det["impersonation_accepted"] = imp
+        if imp:
+            reasons.append(f"write tools accept the acting user as an argument (impersonation): {imp[:6]}")
     finally:
         await w.close()
     # permission: a passing blind test expects a refusal from a tool that declares PERMISSION_DENIED
@@ -472,11 +506,33 @@ async def obscurity_gate(inst: Path) -> GateResult:
         if lost:
             reasons.append(f"colleague facts their keywords do not reach: {lost[:4]}")
         seen: set[str] = set()
-        for n, t in {t["name"]: t for t in design["tools"]}.items():
-            if not t.get("read_only") or any(p.get("required") for p in t.get("params", [])):
+        rtools = {t["name"]: t for t in design["tools"] if t.get("read_only")}
+        for n, t in rtools.items():
+            if {p["name"] for p in t.get("params", []) if p.get("required")} - PAGEISH:
                 continue
             for out in await _page_all(w, f"{app}.{n}", {p["name"] for p in t.get("params", [])}):
                 _strings(out, seen)
+        # then follow links, as a person would: a get tool keyed by a table's id, called on the ids listed so far (two hops)
+        key_of = {tn: v["key"] for tn, v in sm.items()}
+        getters = []
+        for n, t in rtools.items():
+            req = [p["name"] for p in t.get("params", []) if p.get("required")]
+            if len(req) == 1:
+                tn = next((x for x, k in key_of.items() if req[0] in (k, f"{x}_id", f"{x.rstrip('s')}_id", f"{x.lower()}_id")), None)
+                if tn is not None:
+                    getters.append((n, req[0], tn))
+        asked: set[tuple[str, str]] = set()
+        for _hop in range(2):
+            for n, arg, tn in getters:
+                ids = [str(r.get(key_of[tn])) for r in seed.get(tn, []) if str(r.get(key_of[tn])) in seen][:60]
+                for k in ids:
+                    if (n, k) in asked:
+                        continue
+                    asked.add((n, k))
+                    o = await w.call(f"{app}.{n}", {arg: k})
+                    if o.ok:
+                        _strings(o.value, seen)
+        det["link_calls"] = len(asked)
         cover = {}
         for tn in targets(design, _jread(inst / "schema.json")):
             if tn not in sm:

@@ -151,6 +151,7 @@ class DomainSpec(_M):
     knobs: list[KnobSpec] = Field(default_factory=list)
     policy_params: list[PolicyParam] = Field(default_factory=list)
     rules: list[str] = Field(default_factory=list)
+    param_constraints: list[str] = Field(default_factory=list)  # expressions over policy parameter names every variant satisfies
     permissions: PermissionSpec = Field(default_factory=PermissionSpec)
     colleagues: list[ColleagueSpec] = Field(default_factory=list)
     apps: list[AppSpec] = Field(default_factory=list)
@@ -257,6 +258,18 @@ def check_spec(s: DomainSpec) -> None:
         raise ValueError("permissions need the user table and at least 2 roles with what each may do and its limits")
     if not any(p.name == s.permissions.acting_param for p in s.policy_params):
         raise ValueError(f"add the policy parameter {s.permissions.acting_param} (type ref, table {s.permissions.user_table}): the acting user")
+    from crucible.synth.datagen import DataSpecError, eval_expr, expr_names
+
+    defaults = {p.name: p.default for p in s.policy_params}
+    for c in s.param_constraints:
+        try:
+            bad = expr_names(c) - set(defaults)
+            if bad:
+                raise ValueError(f"param constraint {c!r} names unknown parameters {sorted(bad)}")
+            if not eval_expr(c, defaults):
+                raise ValueError(f"param constraint {c!r} does not hold for the defaults")
+        except DataSpecError as e:
+            raise ValueError(f"param constraint {c!r}: {e}") from None
     if len(s.rules) < 3:
         raise ValueError("state at least 3 business rules")
     if not s.common_practice:
@@ -281,7 +294,8 @@ DOMAIN_SPEC_WRITER = Role(
             "\"policy_params\": [{\"name\", \"type\": \"number|integer|string|boolean|ref\", \"default\", \"choices\", \"min\", \"max\", "
             "\"unit\", \"meaning\", \"table\"}] (4 to 8: thresholds, limits, windows, required approvals; include acting_user_id of "
             "type ref whose table is the user table), "
-            "\"rules\": [<business rules in words, naming the parameters>], "
+            "\"rules\": [<business rules in words, naming the parameters>], \"param_constraints\": [<expressions over parameter names that "
+            "any policy variant must keep, e.g. \"vip_window_days >= standard_window_days\">], "
             "\"permissions\": {\"user_table\", \"roles\": [{\"role\", \"may\": [...], \"limits\": {...}}], \"acting_param\": \"acting_user_id\"}, "
             "\"colleagues\": [{\"title\", \"knows\": [<kinds of facts not in the records>]}] (1 to 3), "
             "\"common_practice\": true, \"rationale\"}."))

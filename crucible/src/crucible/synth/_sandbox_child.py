@@ -47,8 +47,17 @@ SAFE_BUILTINS = ("abs", "all", "any", "bool", "dict", "divmod", "enumerate", "fi
                  "True", "False", "None", "NotImplemented", "print", "__build_class__")
 
 
+# Modules the allowed stdlib imports lazily from C at run time, through the calling frame's ``__import__`` (ours):
+# ``datetime.strptime`` imports ``_strptime``, ``strftime`` imports ``time``. Without them both raise ImportError inside
+# model code, which an App's own ``except Exception`` turns into a wrong answer no debugger can fix (World-families
+# pilot 1: an insurance App's date-range figures). The App's *source* still cannot import them: the AST check uses
+# ``ALLOWED_IMPORTS`` only.
+INTERNAL_IMPORTS = frozenset({"_strptime", "time", "locale", "_locale", "calendar", "encodings", "_datetime", "_decimal", "_pydecimal", "numbers"})
+
+
 def _namespace(allowed: frozenset[str], tool_error: type) -> dict[str, Any]:
     real_import = builtins.__import__
+    allowed = allowed | INTERNAL_IMPORTS
 
     def guarded_import(name: str, globals: Any = None, locals: Any = None, fromlist: Any = (), level: int = 0) -> Any:
         if level or name.split(".")[0] not in allowed:
@@ -268,7 +277,8 @@ async def serve(args: argparse.Namespace, out: Any) -> None:
                 val = [await _run_test(s, t) for t in req.get("tests") or []]
             elif op == "info":
                 pw = s.build({})
-                val = {"tools": [{"name": t.name.split(".", 1)[1], "read_only": t.read_only, "writes": [x.split(".", 1)[1] for x in (t.writes or [])]}
+                val = {"tools": [{"name": t.name.split(".", 1)[1], "read_only": t.read_only, "writes": [x.split(".", 1)[1] for x in (t.writes or [])],
+                                  "params": sorted((t.input_schema.get("properties") or {}).keys())}
                                  for t in await pw.tools()]}
             else:
                 raise ValueError(f"unknown op {op!r}")

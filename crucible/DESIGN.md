@@ -2015,6 +2015,39 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      `check_assignment` checks every role against `worldroles.ALL_ROLES`; `WORLDS_CAP_USD` = 30 over receipts whose path
      carries "worlds". `scripts/synth.py worlds catalogue|build|instances|calibrate|gate|report` (`scripts/synth_worlds.py`);
      `build --parallel` runs families concurrently, the run's cap split between them.
+   - **Fixes forced by the pilot's real calls and gates** (each with a regression test):
+     - *Impersonation, twice.* Kimi's first design passed `acting_user_id` to all nine write tools of a returns App; after
+       the design check refused it, the blind tests passed it as an argument and the coder added it as a hidden
+       optional parameter (conformance compared names, flags and writes only). Now: the design check refuses any
+       acting-user argument; `worldgen.conformance` compares parameters (an extra one is refused) for every World, F1's
+       too; `check_tests` refuses an argument the design lacks; the surface gate calls every write tool with the acting
+       user as an extra argument and requires the binding error.
+     - *The sandbox broke `strptime`/`strftime`.* Their C code imports `_strptime` / `time` through the frame's
+       `__import__`, which is the child's guard, so they raised ImportError inside model code; an App's `except` made it
+       "invalid date format" and three debug rounds could not fix it. `_sandbox_child.INTERNAL_IMPORTS` admits those
+       internal modules at run time; the App's source still cannot import them (the AST check is unchanged). The M4
+       it_helpdesk World never called either.
+     - *Budgets.* F1's 20k-token coder budget does not fit a 9–14 tool App once Kimi's reasoning counts (every first
+       attempt ended at the limit): `FAMILY_APP_CODER` / `FAMILY_DEBUGGER` (64k), larger designer, data and document
+       budgets; the schema deriver moves to GLM for families (Kimi spent its 8192 tokens reasoning).
+     - *The data generator.* Rows are rejection-sampled against the table's rules (independent `used` / `entitled`
+       draws broke `used <= entitled` on a third of the rows); a lognormal spread above 3 is read as an absolute standard
+       deviation (one spec gave sd 4000 for a mean of 2500 and overflowed); any stage exception fails the stage with its
+       reason instead of crashing the family; the data writer is asked for `lookup` master copies (no family had one, so
+       no conflicting source could be planted).
+     - *Policy variants* scale the default (0.5–2×, nice values, clipped) instead of spanning the range (a 50%
+       restocking fee), and redraw until the spec's `param_constraints` hold (new field; `check_spec` checks them on the
+       defaults; the integrity gate on every variant).
+     - *Gate bugs:* list tools whose `page`/`page_size` are required were skipped by the pagination and listing probes;
+       the enum check compared one tool's `status` with every table's `status` (now only the tables the tool writes, and
+       it flags another spelling or a disjoint vocabulary); target records reachable only through links now count (two
+       hops through get tools keyed by a table's id); the permission check replays the blind test's refusal on its own
+       fixture and requires PERMISSION_DENIED in the message (any refusal counted before).
+     - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
+       be disputed (a procurement App spent three rounds on one).
+     - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).
+     - *Accounting:* a stopped run loses the receipts of calls in flight; conservative estimates are booked by hand
+       (`kind: unbooked_estimate`) so the cap stays honest.
    - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`): see the run report for the numbers and every issue the
      real calls and the gates found, with its fix.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome

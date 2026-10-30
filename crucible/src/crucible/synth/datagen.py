@@ -401,7 +401,11 @@ def _num(g: Mapping[str, Any], rng: random.Random) -> float:
     dist = g.get("dist", "uniform")
     if dist == "lognormal":
         mean = float(g.get("mean", (lo + hi) / 2) or 1.0)
-        v = rng.lognormvariate(math.log(max(mean, 1e-9)), float(g.get("sd", 0.75)))
+        sd = abs(float(g.get("sd", 0.75)))
+        # pilot 1: a spec gave the spread in the value's own units (sd 4000 for a mean of 2500), which overflows as a log
+        # sigma; a spread above 3 is read as an absolute standard deviation and converted
+        sigma = sd if sd <= 3 else math.sqrt(math.log(1 + (sd / max(mean, 1e-9)) ** 2))
+        v = rng.lognormvariate(math.log(max(mean, 1e-9)), min(sigma, 3.0))
     elif dist == "normal":
         v = rng.gauss(float(g.get("mean", (lo + hi) / 2)), float(g.get("sd", (hi - lo) / 6 or 1.0)))
     else:
@@ -525,6 +529,37 @@ class _Sampler:
             return self.pick_pool(table, f, keys, True)
         return self.rng.choice(keys)
 
+    def row(self, t: TableGen, order: list[str], tries: int = 40) -> dict[str, Any]:
+        """One row, **rejection-sampled against the table's rules**: a draw that breaks a rule is redrawn (its unique
+        values and sequence number released), up to ``tries`` times; the last draw is kept and ``integrity`` reports it.
+        Pilot 1: a leave-balance spec drew ``used`` and ``entitled`` independently, so ``used <= entitled`` failed on a
+        third of the rows and the swarm could not express the dependency."""
+        seq0 = dict(self.seq)
+        row: dict[str, Any] = {}
+        for _ in range(tries):
+            before = {k: set(v) for k, v in self.used.items()}
+            self.seq = dict(seq0)
+            row = {}
+            try:
+                for f in order:
+                    row[f] = self.gen(t, f, t.fields[f], row)
+            except (OverflowError, ZeroDivisionError, TypeError, ValueError) as e:
+                if isinstance(e, DataSpecError):
+                    raise
+                raise DataSpecError(f"table {t.table}: a generator failed: {type(e).__name__}: {e}") from None
+            ok = True
+            for r in t.rules:
+                try:
+                    ok = bool(eval_expr(r, row))
+                except DataSpecError:
+                    ok = True  # an unevaluable rule is integrity's to report
+                if not ok:
+                    break
+            if ok:
+                return row
+            self.used = before
+        return row
+
     def run(self) -> Generated:
         for t, order in self.compiled:
             kf = self.key_of(t.table)
@@ -532,9 +567,7 @@ class _Sampler:
             self.out[t.table] = rows
             self.by_key[t.table] = {}
             for _ in range(self.n_rows(t)):
-                row: dict[str, Any] = {}
-                for f in order:
-                    row[f] = self.gen(t, f, t.fields[f], row)
+                row = self.row(t, order)
                 if str(row[kf]) in self.by_key[t.table]:
                     raise DataSpecError(f"table {t.table}: key {row[kf]!r} repeats")
                 rows.append({f: row[f] for f in t.fields})  # the schema's field order

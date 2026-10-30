@@ -144,6 +144,29 @@ async def test_sandbox_cannot_write_outside_its_work_dir_and_has_no_key(tmp_path
     assert os.environ["TINKER_API_KEY"] == "sk-not-a-real-key"  # the parent's environment is untouched; the child got _env() only
 
 
+DATES = '''import datetime
+def build(app):
+    @app.tool(read_only=True)
+    def list_tickets(ctx, status: str = "open") -> dict:
+        """Dates through the stdlib's lazy C-level imports."""
+        d = datetime.datetime.strptime("2026-01-01", "%Y-%m-%d")
+        return {"day": d.strftime("%A %d %B"), "status": status}
+'''
+
+
+async def test_stdlib_lazy_imports_work_but_source_imports_stay_refused(tmp_path):
+    # World-families pilot 1: strptime/strftime raised ImportError inside model code (their C code imports _strptime and
+    # time through the guarded __import__), and the App's own except turned it into a wrong answer
+    w = SandboxWorld(make_app(tmp_path, DATES), tmp_path / "work")
+    try:
+        await w.reset(0)
+        o = await w.call("desk.list_tickets", {})
+        assert o.error is None and o.value["day"] == "Thursday 01 January"
+    finally:
+        await w.close()
+    assert any("import time" in p for p in check_code("import time\n" + DATES))
+
+
 async def test_refuses_code_that_fails_the_static_check(tmp_path):
     d = make_app(tmp_path, "import os\n" + CODE)
     with pytest.raises(CodeRejected):

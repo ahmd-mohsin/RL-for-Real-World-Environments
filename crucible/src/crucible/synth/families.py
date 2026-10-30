@@ -51,6 +51,7 @@ from crucible.synth.roles import (
     APP_API_DOC,
     APP_CODER,
     BLIND_TESTER,
+    DEBUGGER,
     SCHEMA_DERIVER,
     TEST_FORMAT_DOC,
     AppCodeOut,
@@ -148,8 +149,14 @@ def realism_design_problems(d: ToolDesignOut, acting_param: str = "acting_user_i
     return out
 
 
+# Pilot 1: a family App (9 to 14 tools with permission checks and policy parameters) does not fit F1's 20k-token coder
+# budget once Kimi's reasoning is counted (every first attempt ended at the limit, $0.13 each). Same roles, same
+# family rules, larger budgets.
+FAMILY_APP_CODER = APP_CODER.model_copy(update={"max_tokens": 64000})
+FAMILY_DEBUGGER = DEBUGGER.model_copy(update={"max_tokens": 64000})
+
 FAMILY_DESIGNER = Role(
-    name="family_designer", stage="W1", output=ToolDesignOut, temperature=0.3, max_tokens=16384,
+    name="family_designer", stage="W1", output=ToolDesignOut, temperature=0.3, max_tokens=32768,
     sees=("domain_spec", "realism", "guidance"),
     never=("tests", "tasks"),
     system=("You design the tool API of a self-contained internal enterprise application from its domain specification, tool first: "
@@ -194,7 +201,7 @@ class ActorsOut(_M):
 
 
 DATA_SPEC_WRITER = Role(
-    name="data_spec_writer", stage="W2", output=DataSpec, temperature=0.4, max_tokens=24000,
+    name="data_spec_writer", stage="W2", output=DataSpec, temperature=0.4, max_tokens=48000,
     sees=("domain_spec", "design", "schema", "datagen_format", "feedback"),
     never=("tests", "tasks", "contract"),
     system=("You write the data generator of an enterprise application: for every table of the schema (except the platform tables "
@@ -203,11 +210,14 @@ DATA_SPEC_WRITER = Role(
             "in order (history before today), every reference pointing at a row that exists, and enough rows that tasks can choose among "
             "many similar records (tables tasks act on: 40 to 80 rows; reference tables: 8 to 30). Give each table people search by a "
             "near_duplicate rule and each table with a status a stale rule. Rows must satisfy the tools' preconditions often enough "
-            "that most records can be acted on (e.g. most invoices pending), and the acting user's table must hold users of every role.\n"
+            "that most records can be acted on (e.g. most invoices pending), and the acting user's table must hold users of every role. "
+            "Where a real record keeps a copy of a master value (a customer's name or tier on a request, a supplier's name on an "
+            "order, an employee's department on a leave request), generate the copy with lookup, as real systems denormalise. "
+            "Write each rule so that one row decides it (the generator redraws rows that break a rule).\n"
             "Reply with the generator JSON object (keys tables, notes)."))
 
 DOC_WRITER = Role(
-    name="doc_writer", stage="W3", output=DocsOut, temperature=0.4, max_tokens=16384,
+    name="doc_writer", stage="W3", output=DocsOut, temperature=0.4, max_tokens=24000,
     sees=("domain_spec", "design", "policy_params", "data_notes", "doc_format"),
     never=("tests", "tasks", "contract"),
     system=("You write the internal documents of a company's department: the policy, the standard operating procedures, an FAQ and a "
@@ -440,7 +450,9 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         try:
             await fn()
             r.status = "done"
-        except (RoleFailed, ValueError, SandboxError, DataSpecError) as e:
+        except Exception as e:
+            if type(e).__name__ in ("BudgetExceeded", "TinkerCapReached"):
+                raise
             r.status, r.note = "failed", f"{type(e).__name__}: {str(e)[:1200]}"
             st.status = f"rejected:{name}"
             st.reasons.append(r.note)
@@ -504,7 +516,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
             if probs:
                 raise ValueError("the module fails the sandbox's static check: " + "; ".join(probs[:8]))
 
-        c: AppCodeOut = await ask(clients["app_coder"], APP_CODER, tag="family:code", check=code_ok, retries=2, design=design_doc(d, sp),
+        c: AppCodeOut = await ask(clients["app_coder"], FAMILY_APP_CODER, tag="family:code", check=code_ok, retries=2, design=design_doc(d, sp),
                                   schema=s.model_dump(mode="json"), app_api=APP_API_DOC + "\n" + KIT_API_DOC)
         (app / "app.py").write_text(c.code)
 
@@ -526,7 +538,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         rep = WorldgenReport(keyword=keyword, app=d.app, families=st.families)
         dropped = await test_and_debug(app, d, design_doc(d, sp), s.model_dump(mode="json"), AppCodeOut(code=(app / "app.py").read_text()), tests, frozen,
                                        clients, rep, max_debug_rounds=cfg.max_debug_rounds, max_drop_share=cfg.max_drop_share,
-                                       exclude_tools=KIT_NAMES, app_api=APP_API_DOC + "\n" + KIT_API_DOC, tag="family")
+                                       exclude_tools=KIT_NAMES, app_api=APP_API_DOC + "\n" + KIT_API_DOC, tag="family", debugger_role=FAMILY_DEBUGGER)
         st.tests_dropped, st.pass_history, st.debug_rounds = dropped, list(rep.pass_history), rep.debug_rounds
         if rep.status.startswith("rejected"):
             raise ValueError("; ".join(rep.reasons))
@@ -671,10 +683,25 @@ def _ref_candidates(g: Generated, schema: Mapping[str, Mapping[str, Any]], p: Po
 
 
 def policy_variant(spec: DomainSpec, cfg: InstanceConfig, g: Generated, schema: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """The instance's policy parameter values: the spec's defaults for instance 0, else a seeded draw (numbers from
-    nice values in [min, max] around the default, choices uniformly, booleans flipped half the time); ref parameters (the
-    acting user) always a seeded eligible row. ``cfg.params`` overrides."""
+    """The instance's policy parameter values: the spec's defaults for instance 0, else a seeded draw (numbers: the
+    default scaled by 0.5 to 2, rounded to a nice value, clipped to [min, max]; choices uniformly; booleans flipped half
+    the time), redrawn until the spec's ``param_constraints`` hold (else the defaults); ref parameters (the acting user)
+    always a seeded eligible row. ``cfg.params`` overrides. Pilot 1: draws spread over the whole range gave a 50%
+    restocking fee and windows out of order."""
+    from crucible.synth.datagen import DataSpecError, eval_expr
+
     rng = random.Random(f"policy/{cfg.family}/{cfg.seed}")
+    for _ in range(30):
+        out = _draw_params(spec, cfg, g, schema, rng)
+        try:
+            if all(eval_expr(c, out) for c in spec.param_constraints):
+                return out
+        except DataSpecError:
+            break
+    return {**_draw_params(spec, cfg.model_copy(update={"index": 0}), g, schema, rng), **cfg.params}
+
+
+def _draw_params(spec: DomainSpec, cfg: InstanceConfig, g: Generated, schema: Mapping[str, Mapping[str, Any]], rng: random.Random) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for p in spec.policy_params:
         if p.name in cfg.params:
@@ -688,9 +715,9 @@ def policy_variant(spec: DomainSpec, cfg: InstanceConfig, g: Generated, schema: 
             out[p.name] = p.default
             continue
         if p.type in ("number", "integer") and isinstance(p.default, int | float):
-            lo = p.min if p.min is not None else p.default * 0.5
-            hi = p.max if p.max is not None else p.default * 2
-            cand = sorted({_nice(lo + (hi - lo) * f) for f in (0.2, 0.35, 0.5, 0.65, 0.8)} | {p.default})
+            lo = p.min if p.min is not None else -float("inf")
+            hi = p.max if p.max is not None else float("inf")
+            cand = sorted({min(hi, max(lo, _nice(p.default * f))) for f in (0.5, 0.75, 1.25, 1.5, 2.0)} | {p.default})
             v = rng.choice(cand)
             out[p.name] = round(v) if p.type == "integer" or isinstance(p.default, int) else v
         elif p.choices:

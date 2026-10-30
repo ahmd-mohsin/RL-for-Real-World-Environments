@@ -159,6 +159,7 @@ async def test_every_gate_passes_on_a_good_instance(built, tmp_path):
     assert d["reached"] >= 2 and d["best"] >= 59 and d["targets"]["tickets"] >= 40
     assert g.gates["determinism"].details["regenerated_identical"] and all(g.gates["determinism"].details["replays"].values())
     assert g.gates["surface"].details["permission_tests"] == ["assign_perm", "prio_critical"]
+    assert g.gates["surface"].details["impersonation_accepted"] == []  # the acting user cannot be passed as an argument
     assert g.gates["obscurity"].details["params_unreachable"] == [] and g.gates["obscurity"].details["discoverable"]["tickets"] == 1.0
     assert json.loads((Path(rep.dir) / "gates.json").read_text())["usable"] is True
 
