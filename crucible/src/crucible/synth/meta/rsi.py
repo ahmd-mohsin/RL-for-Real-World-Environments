@@ -29,6 +29,7 @@ Everything model-driven is injected (``Proposers``); tests pass scripted ones, `
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import random
@@ -36,9 +37,9 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal, Protocol
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.synth.canon import cjson, content_hash
@@ -49,7 +50,20 @@ from crucible.synth.meta.abstract import Cluster, PlantVerdict, miss_clusters, n
 from crucible.synth.meta.library import Library, OperatorSpec, accept_planter, birth_gate
 from crucible.synth.meta.plant import FEATURES, Plant, Planter, PlantOp, base_planter, feature_matrix, held_out_planter, mmd, plant_all
 from crucible.synth.meta.recall import PlantSet, RecallMatrix, capture_recapture, measure, residual, set_digest
-from crucible.synth.meta.update import Decision, Evidence, Ledger, Measurement, RuleFailure, ThetaStore, Update, UpdateConfig, UpdateEngine, View, leakage_critic
+from crucible.synth.meta.update import (
+    Decision,
+    Evidence,
+    Ledger,
+    Measurement,
+    RuleFailure,
+    ThetaStore,
+    Update,
+    UpdateConfig,
+    UpdateEngine,
+    View,
+    kl,
+    leakage_critic,
+)
 from crucible.synth.program import Fn, Lit, Program
 from crucible.synth.task import Task
 
@@ -278,12 +292,18 @@ def plant_key(p: Plant) -> str:
 
 
 class Pool:
-    """The dev plants by the planter version that produced them (``P@<v>``), and the dev anchors."""
+    """The dev plants by the planter version that produced them (``P@<v>``), and the dev anchors.
+
+    **The decision split** (``split``; paired mode, R1-strict): a share of the dev *source tasks* per domain is reserved
+    for decisions. Their plants (of every planter, past and future) are the only units a decision view draws, and they
+    are never shown to a proposer, a birth gate or the planter loop (``proposal_ids``). Units of one source stay on one
+    side, so a candidate never meets a sibling plant of a unit it was built from."""
 
     def __init__(self, anchors: Sequence[Task]):
         self.plants: dict[str, Plant] = {}
         self.by_planter: dict[str, list[str]] = {}
         self.anchors = list(anchors)
+        self.decide_sources: set[str] = set()
 
     def add(self, key: str, plants: Iterable[Plant]) -> None:
         ids = self.by_planter.setdefault(key, [])
@@ -296,41 +316,115 @@ class Pool:
         q = Pool(self.anchors)
         q.plants = dict(self.plants)
         q.by_planter = {k: list(v) for k, v in self.by_planter.items()}
+        q.decide_sources = set(self.decide_sources)
         return q
 
     def domains(self) -> list[str]:
         return sorted({p.domain for p in self.plants.values()})
 
+    def split(self, frac: float, *, seed: int = 0) -> set[str]:
+        """Reserve ``frac`` of each domain's source tasks (at least one when the domain has two) for decisions."""
+        by: dict[str, set[str]] = {}
+        for p in self.plants.values():
+            by.setdefault(p.domain, set()).add(p.source_id)
+        out: set[str] = set()
+        for _d, srcs in sorted(by.items()):
+            ss = sorted(srcs, key=lambda s: content_hash({"src": s, "seed": seed, "split": "decide"}, 16))
+            k = round(frac * len(ss))
+            if len(ss) >= 2:
+                k = min(max(k, 1), len(ss) - 1)
+            else:
+                k = 0
+            out |= set(ss[:k])
+        self.decide_sources = out
+        return out
+
+    def is_decide(self, pid: str) -> bool:
+        return self.plants[pid].source_id in self.decide_sources
+
+    def decide_ids(self) -> list[str]:
+        return [i for i in self.plants if self.is_decide(i)]
+
+    def proposal_ids(self) -> list[str]:
+        return [i for i in self.plants if not self.is_decide(i)]
+
+    def proposal_plants(self) -> list[Plant]:
+        return [self.plants[i] for i in self.proposal_ids()]
+
 
 class Sampler:
-    """R1's fresh views (module docstring): seeded and stratified by planter version and domain."""
+    """R1's fresh views (module docstring): seeded and stratified by planter version and domain.
 
-    def __init__(self, pool: Pool, *, frac: float = 0.6, seed: int = 0):
+    ``strict`` (paired mode): a ``decide`` or ``prune`` view is up to ``n_max`` units drawn without replacement from the
+    decision split's units no earlier decision consumed (``consume``/``release`` keep the bank; a reserved unit is
+    never handed out twice); every other purpose (calibration, A/A, audits) draws from the proposal split only.
+    ``fixed`` (the E10 ablation of R1): every view is the first one, reused."""
+
+    def __init__(self, pool: Pool, *, frac: float = 0.6, seed: int = 0, strict: bool = False, n_max: int = 60, fixed: bool = False):
         self.pool, self.frac, self.seed, self.n = pool, frac, seed, 0
+        self.strict, self.n_max, self.fixed = strict, n_max, fixed
+        self.consumed: set[str] = set()
+        self.reserved: set[str] = set()
+        self._first: View | None = None
 
     def draw(self, tag: str, plants: Sequence[str] | None = None, frac: float | None = None) -> list[str]:
         rng = random.Random(f"view/{self.seed}/{tag}")
         out: list[str] = []
+        keep = None if plants is None else set(plants)
         for _k, ids in sorted(self.pool.by_planter.items()):
             # strata: domain only. RSI-1 stratified by (domain, defect) too: with deterministic falsifiers every such view
             # had the same J, so the measured noise floor was δ = 0 and R2 degenerated to "any positive LCB"
             by: dict[str, list[str]] = {}
-            for i in ids if plants is None else [x for x in ids if x in set(plants)]:
+            for i in ids if keep is None else [x for x in ids if x in keep]:
                 by.setdefault(self.pool.plants[i].domain, []).append(i)
             for _d, xs in sorted(by.items()):
                 k = max(1, round((frac or self.frac) * len(xs)))
                 out += rng.sample(sorted(xs), min(k, len(xs)))
         return out
 
+    def remaining(self) -> list[str]:
+        return sorted(i for i in self.pool.decide_ids() if i not in self.consumed and i not in self.reserved)
+
     async def __call__(self, round: int, purpose: str, used: frozenset[str]) -> View:
-        for _ in range(64):
+        if self.fixed and self._first is not None:
+            return self._first
+        anchors = [a.id for a in self.pool.anchors]
+        if self.strict and purpose in ("decide", "prune"):
             self.n += 1
-            ids = self.draw(f"{round}/{purpose}/{self.n}")
-            h = content_hash({"plants": sorted(ids), "anchors": sorted(a.id for a in self.pool.anchors)}, 32)
-            if h not in used:
-                break
-        return View(hash=h, round=round, domains=self.pool.domains(), planters=sorted(self.pool.by_planter), seed=self.n,
-                    payload={"plants": ids, "anchors": [a.id for a in self.pool.anchors]})
+            rem = self.remaining()
+            ids = random.Random(f"decide/{self.seed}/{round}/{purpose}/{self.n}").sample(rem, min(self.n_max, len(rem)))
+            self.reserved |= set(ids)
+            h = content_hash({"plants": sorted(ids), "anchors": sorted(anchors), "n": self.n, "strict": True}, 32)
+            v = View(hash=h, round=round, domains=self.pool.domains(), planters=sorted(self.pool.by_planter), seed=self.n, strict=True,
+                     payload={"plants": ids, "anchors": anchors})
+        else:
+            restrict = self.pool.proposal_ids() if self.strict else None
+            for _ in range(64):
+                self.n += 1
+                ids = self.draw(f"{round}/{purpose}/{self.n}", plants=restrict)
+                h = content_hash({"plants": sorted(ids), "anchors": sorted(anchors)}, 32)
+                if h not in used:
+                    break
+            v = View(hash=h, round=round, domains=self.pool.domains(), planters=sorted(self.pool.by_planter), seed=self.n,
+                     payload={"plants": ids, "anchors": anchors})
+        if self.fixed:
+            self._first = v
+        return v
+
+    def consume(self, view: View, units: Sequence[str]) -> None:
+        self.consumed |= set(units)
+        self.reserved -= set(units)
+
+    def release(self, view: View, units: Sequence[str]) -> None:
+        self.reserved -= set(units)
+
+    def state(self) -> dict[str, Any]:
+        return {"n": self.n, "consumed": sorted(self.consumed)}
+
+    def load(self, d: Mapping[str, Any]) -> None:
+        self.n = int(d.get("n", 0))
+        self.consumed = set(d.get("consumed", []))
+        self.reserved = set()
 
 
 def population(theta_f: Any, base: Callable[[], list[BaseFalsifier]] = cheap) -> list[BaseFalsifier]:
@@ -350,49 +444,73 @@ async def verdicts(plants: Sequence[Plant], falsifiers: Sequence[BaseFalsifier],
 
 class FEvaluator:
     """``update.Evaluator`` for F updates (module docstring). ``budget`` (R9's control): the incumbent re-run with MUT's
-    neighbourhood enlarged until its probe spend reaches the candidate's."""
+    neighbourhood enlarged until its probe spend reaches the candidate's. ``view.eval_seed`` selects the falsifiers'
+    seed (MUT's sibling sample, NULL's random calls, TWIN, PERT): paired mode's A/A replicates and decisions. ``shards``
+    (a ``par.ShardPool`` holding the pool's plants and anchors) evaluates in worker processes; without it, evaluations
+    run one at a time in this process (a lock: the Worlds are shared)."""
 
-    def __init__(self, pool: Pool, ctx: FalsifyContext, *, base: Callable[[], list[BaseFalsifier]] = cheap):
-        self.pool, self.ctx, self.base = pool, ctx, base
-        self._big: dict[int, FalsifyContext] = {}
+    def __init__(self, pool: Pool, ctx: FalsifyContext, *, base: Callable[[], list[BaseFalsifier]] = cheap, shards: Any = None,
+                 seeded: dict[tuple[int, int], FalsifyContext] | None = None):
+        self.pool, self.ctx, self.base, self.shards = pool, ctx, base, shards
+        self._big: dict[tuple[int, int], FalsifyContext] = {} if seeded is None else seeded  # shared: results are a function of (seed, task, class)
+        self._lock = asyncio.Lock()
 
-    def _ctx_for(self, max_mutants: int) -> FalsifyContext:
-        if max_mutants not in self._big:
-            c = FalsifyContext(max_mutants=max_mutants)
+    def ctx_for(self, max_mutants: int, seed: int) -> FalsifyContext:
+        if max_mutants == self.ctx.max_mutants and seed == self.ctx.seed:
+            return self.ctx
+        k = (max_mutants, seed)
+        if k not in self._big:
+            c = FalsifyContext(max_mutants=max_mutants, seed=seed)
             c._worlds = self.ctx._worlds  # share the Worlds (one per WorldRef), not the class cache
-            self._big[max_mutants] = c
-        return self._big[max_mutants]
+            self._big[k] = c
+        return self._big[k]
 
-    async def measure(self, theta_f: Any, plant_ids: Sequence[str], anchor_ids: Sequence[str], ctx: FalsifyContext) -> Measurement:
-        fs = population(theta_f, self.base)
+    async def _units(self, theta_f: Any, plants: Sequence[Plant], anchors: Sequence[Task], max_mutants: int, seed: int) -> tuple[dict[str, PlantVerdict], dict[str, bool], int]:
+        if self.shards is not None:
+            await self.shards.add(plants=[p for p in plants if p.id not in self.shards.known], tasks=[a for a in anchors if a.id not in self.shards.known])
+            res = await self.shards.evaluate(theta_f, [*(p.id for p in plants), *(a.id for a in anchors)], seed=seed, max_mutants=max_mutants)
+            vs = {p.id: PlantVerdict(plant_id=p.id, hit=res[p.id]["hit"], suspect_only=res[p.id]["suspect"]) for p in plants}
+            alarms = {a.id: bool(res[a.id]["hit"]) for a in anchors}
+            return vs, alarms, sum(r["probes"] for r in res.values())
+        async with self._lock:
+            ctx = self.ctx_for(max_mutants, seed)
+            fs = population(theta_f, self.base)
+            vs, probes = await verdicts(plants, fs, ctx)
+            alarms = {}
+            for a in anchors:
+                res = await run_classes(a, fs, ctx, cache=True)
+                probes += sum(len(r.findings) for r in res)
+                alarms[a.id] = any(r.applicable and r.c for r in res)
+            return vs, alarms, probes
+
+    async def measure(self, theta_f: Any, plant_ids: Sequence[str], anchor_ids: Sequence[str], *, max_mutants: int | None = None, seed: int | None = None) -> Measurement:
         plants = [self.pool.plants[i] for i in plant_ids]
-        vs, probes = await verdicts(plants, fs, ctx)
+        anchors = [a for a in self.pool.anchors if a.id in set(anchor_ids)]
+        mm = self.ctx.max_mutants if max_mutants is None else max_mutants
+        vs, alarms, probes = await self._units(theta_f, plants, anchors, mm, self.ctx.seed if seed is None else seed)
         units = [1.0 if vs[p.id].hit else 0.0 for p in plants]
         by_d: dict[str, list[float]] = {}
         for p, u in zip(plants, units, strict=True):
             by_d.setdefault(p.defect, []).append(u)
-        anchors = [a for a in self.pool.anchors if a.id in set(anchor_ids)]
-        alarms = 0
-        for a in anchors:
-            res = await run_classes(a, fs, ctx, cache=True)
-            probes += sum(len(r.findings) for r in res)
-            alarms += any(r.applicable and r.c for r in res)
-        ops = [f.name for f in fs if f.name.startswith("OP:")]
+        ops = list(Library.model_validate(theta_f or {}).ops)  # keys are the compiled class names (OP:<name>@<v>)
         gain = {}
         for op in ops:
             only = sum(1 for p in plants if vs[p.id].hit == [op])
             gain[op] = only / len(plants) if plants else 0.0
         n_units = len(plants) + len(anchors)
         return Measurement(j_units=units, unit_domains=[p.domain for p in plants], fr={d: sum(x) / len(x) for d, x in by_d.items()},
-                           fa=alarms / len(anchors) if anchors else 0.0, cost=PROBE_USD * probes / max(1, n_units), item_gain=gain)
+                           fa=sum(alarms.values()) / len(anchors) if anchors else 0.0, cost=PROBE_USD * probes / max(1, n_units), item_gain=gain,
+                           unit_ids=[p.id for p in plants], unit_classes=[p.defect for p in plants], unit_clusters=[p.source_id for p in plants],
+                           n_anchors=len(anchors))
 
     async def __call__(self, theta: Any, view: View, budget: float | None) -> Measurement:
         f = theta.data.get("F")
-        m = await self.measure(f, view.payload["plants"], view.payload["anchors"], self.ctx)
+        seed = view.eval_seed
+        m = await self.measure(f, view.payload["plants"], view.payload["anchors"], seed=seed)
         if budget is None or budget <= m.cost:
             return m
         mm = min(4000, math.ceil(self.ctx.max_mutants * budget / max(m.cost, 1e-12)))
-        return await self.measure(f, view.payload["plants"], view.payload["anchors"], self._ctx_for(mm))
+        return await self.measure(f, view.payload["plants"], view.payload["anchors"], max_mutants=mm, seed=seed)
 
 
 # ---------------------------------------------------------------------------------------------------------- proposers
@@ -478,6 +596,30 @@ DEFAULT_GUIDANCE = [("An operator must make the checker ACCEPT a wrong run (expe
                     "that change nothing the checker reads find nothing."),
                     "Keep operators generic: globs like * or *.get_* and selectors, never names or values of one application."]
 
+# E10: one regulariser removed at a time (part2-paper-core §9.6). Each maps onto the rules the update engine switches
+# off (``UpdateConfig.disabled``) and, for R1 and the planter's natural-likeness, onto the loop itself.
+ABLATIONS: dict[str, dict[str, Any]] = {
+    "none": {},
+    "R1": {"disabled": ["R1"], "fixed_view": True},  # every decision on one reused view
+    "R3": {"disabled": ["R3"]},  # no per-class FR / P3 / P4 non-regression (archive and FA stay: they are hard validity rules)
+    "R4": {"disabled": ["R4"]},  # no trust region on the task distribution
+    "R5": {"disabled": ["R5"]},  # no edit budget, no cost bar, no pruning
+    "R7": {"disabled": ["R7"]},  # no transfer requirement
+    "R8": {"disabled": ["R8"]},  # no judge-only round cap
+    "NL": {"natural_likeness": False},  # the planter's MMD bar off
+}
+
+
+class StopRules(CrucibleModel):
+    """When a continuous run stops (the preregistration fixes these before the run; ``Loop.stop_reason``)."""
+
+    max_rounds: int | None = None  # None: EvolveConfig.rounds
+    max_spend_usd: float | None = None
+    futility_rounds: int | None = None  # this many consecutive rounds with no accepted F update and no planter accepted
+    min_headroom: float = 0.0  # ... and dev headroom at or below this (when measured)
+    max_rollbacks: int | None = None
+    max_pool_kl: float | None = None  # Goodhart alarm: KL(class mix of the dev pool now ‖ at round 0)
+
 
 class EvolveConfig(CrucibleModel):
     rounds: int = 4
@@ -494,6 +636,27 @@ class EvolveConfig(CrucibleModel):
     mu_margin: float = 1.1  # μ = margin × MMD(base dev plants, natural defects): a candidate planter may not be less natural
     audit: bool = True
     update: UpdateConfig = Field(default_factory=lambda: UpdateConfig(rounds=4, min_band=0.02))
+    # -- RSI-2 statistics (runs/rsi-stats.md); all off by default (RSI-1's behaviour) ------------------------------------
+    decide_frac: float = 0.5  # paired mode: the share of each domain's dev sources reserved for decisions
+    planter_reward: Literal["miss", "headroom"] = "miss"  # headroom: a planter must plant misses some expressible operator catches
+    headroom: bool = False  # measure dev headroom every round (the P/F game's trajectory)
+    natural_likeness: bool = True  # E10 "NL" switches the planter's MMD bar off
+    fixed_view: bool = False  # E10 "R1": decisions reuse one view
+    ablation: str = "none"
+    locked_gate: bool = False  # a decision reads the locked set through the reusable holdout (generalisation gate "G")
+    holdout_threshold: float = 0.04
+    holdout_sigma: float = 0.01
+    holdout_budget: int = 10
+    locked_tolerance: float = 0.0  # G: the holdout's answer for the locked gain must be ≥ −tolerance
+    meta_min: int = 4  # the meta loop tests A' against A only with at least this many candidates per side
+    stop: StopRules = Field(default_factory=StopRules)
+
+    def ablated(self, name: str) -> EvolveConfig:
+        """This configuration with one E10 ablation applied (``ABLATIONS``)."""
+        a = ABLATIONS[name]
+        upd = self.update.model_copy(update={"disabled": sorted({*self.update.disabled, *a.get("disabled", [])})})
+        return self.model_copy(update={"update": upd, "fixed_view": a.get("fixed_view", self.fixed_view),
+                                       "natural_likeness": a.get("natural_likeness", self.natural_likeness), "ablation": name})
 
 
 class Candidate(CrucibleModel):
@@ -519,9 +682,12 @@ class RoundRow(CrucibleModel):
     rollback: dict[str, Any] | None = None
     dev: dict[str, Any] = Field(default_factory=dict)  # the head's recall on the whole dev pool (J proxy, report only)
     locked: dict[str, Any] = Field(default_factory=dict)  # summary() of the locked-set matrix (report only)
+    family: dict[str, Any] = Field(default_factory=dict)  # summary() on the held-out World family (report only)
+    game: dict[str, Any] = Field(default_factory=dict)  # the P/F game: recall, misses, headroom, planter rewards, drift
     lemmas: list[dict[str, Any]] = Field(default_factory=list)
     strategies: list[str] = Field(default_factory=list)
     info: dict[str, Any] = Field(default_factory=dict)
+    stop: str | None = None
 
 
 @dataclass
@@ -536,6 +702,11 @@ class Arm:
     family: str = ""
     rows: list[RoundRow] = field(default_factory=list)
     guidance: list[str] = field(default_factory=lambda: list(DEFAULT_GUIDANCE))
+    dir: Path | None = None
+    ctx: FalsifyContext | None = None
+    planter_history: list[dict[str, Any]] = field(default_factory=list)
+    stopped: str | None = None
+    holdout: Any = None  # the arm's Thresholdout over the locked set (generalisation gate), when enabled
 
 
 def _lits(p: Program) -> list[Any]:
@@ -573,22 +744,55 @@ def _cluster_plants(cites: Sequence[str], clusters: Sequence[Cluster], pool: Poo
     return [pool.plants[i] for i in ids if i in pool.plants]
 
 
+def class_mix(plants: Iterable[Plant]) -> dict[str, float]:
+    return dict(Counter(p.defect for p in plants))
+
+
+def plant_size(plants: Sequence[Plant]) -> dict[str, float]:
+    """Goodhart's "task size" for planted tasks: the mean contract-diff size and witness length (log1p features)."""
+    if not plants:
+        return {"diff_size": 0.0, "witness_len": 0.0}
+    return {k: round(sum(p.features.get(k, 0.0) for p in plants) / len(plants), 4) for k in ("diff_size", "witness_len")}
+
+
 class Loop:
-    """E2/E3's driver: one or more arms over a shared locked set (module docstring)."""
+    """E2/E3's driver: one or more arms over a shared locked set (module docstring).
+
+    **Continuous and resumable.** Every arm keeps its versioned Θ (``theta/``), its hash-chained ledger (with write-ahead
+    ``test`` records of every α spend and decision-unit reservation), its rows, and a ``state.json`` written after every
+    round (the engine's floor, spender, used views and units, pruning bookkeeping, the sampler's consumed units, the
+    planter history and the plants accepted planters added, in ``plants.jsonl``). ``run(resume=True)`` continues an
+    arm from its last completed round; a crashed round is redone, and what its tests spent stays spent.
+
+    **Stopping** (``StopRules``, fixed by the preregistration): the round cap, the spend cap, the α budget, the decision
+    split running dry, futility (rounds without an accepted update or planter while the dev headroom is gone), too many
+    rollbacks, a Goodhart alarm on the dev pool's class mix.
+
+    **Student signals** enter only through the existing channels: ``natural_refresh`` re-reads the archive every round,
+    so online-monitor counterexamples the panel confirmed (class ONL) become natural clusters for the abstractor (F); the
+    S and K channels are in ``meta/signals.py``. Student reward never enters J.
+    """
 
     def __init__(self, root: Path, pool: Pool, locked: PlantSet, locked_anchors: Sequence[Task], natural: Sequence[Counterexample], *,
                  ctx: FalsifyContext, report_ctx: FalsifyContext, config: EvolveConfig, dev_sources: Sequence[Task] = (), builders: Sequence[str] = (),
                  natural_sources: Mapping[str, Task] | None = None, spend: Callable[[], float] | None = None,
-                 reference: Sequence[dict[str, float]] | None = None):
+                 reference: Sequence[dict[str, float]] | None = None, family: PlantSet | None = None, family_anchors: Sequence[Task] = (),
+                 natural_refresh: Callable[[], Sequence[Counterexample]] | None = None, shards: Callable[[], Any] | None = None,
+                 make_ctx: Callable[[], FalsifyContext] | None = None, seeded: dict[tuple[int, int], FalsifyContext] | None = None):
         self.root, self.base_pool, self.locked, self.locked_anchors = Path(root), pool, locked, list(locked_anchors)
         self.dev_sources = list(dev_sources)
-        self.planter_history: list[dict[str, Any]] = []
         self.natural = list(natural)
         self.ctx, self.report_ctx, self.cfg = ctx, report_ctx, config
         self.builders = list(builders)
         self.natural_sources = dict(natural_sources or {})
         self.spend = spend or (lambda: 0.0)
         self.arms: list[Arm] = []
+        self.family, self.family_anchors = family, list(family_anchors)
+        self.natural_refresh = natural_refresh
+        self.make_shards = shards
+        self.make_ctx = make_ctx
+        self.seeded = seeded  # seeded contexts shared by every arm of this loop (only without make_ctx: they share the Worlds)
+        self.headroom_cache: Any = None
         # the natural-likeness reference: given (the independently found real defects), else the archive's natural
         # counterexamples (falsifier-found: a weaker reference, used only when no independent set exists)
         ref = list(reference) if reference else [natural_features(c) for c in self.natural]
@@ -596,6 +800,13 @@ class Loop:
         self.reference = ref
         base = [p.features for p in pool.plants.values()]
         self.mu = (self.cfg.mu_margin * mmd(feature_matrix(base), feature_matrix(ref))) if base and ref else 0.0
+        if not self.cfg.natural_likeness:
+            self.mu = math.inf
+        self.mix0 = class_mix(pool.plants.values())
+
+    @property
+    def planter_history(self) -> list[dict[str, Any]]:  # RSI-1's attribute: the loop arm's history
+        return self.arms[0].planter_history if self.arms else []
 
     def arm(self, name: str, propose_ops: ProposeOps, *, family: str = "") -> Arm:
         d = self.root / name
@@ -606,26 +817,80 @@ class Loop:
             store.init("S", {"version": 1, "lemmas": [], "retired": []})
             store.init("A", {"guidance": list(DEFAULT_GUIDANCE)})
         pool = self.base_pool.copy()
-        pool.by_planter = {f"P@{store.head('P')}": [i for ids in pool.by_planter.values() for i in ids]}
-        sampler = Sampler(pool, frac=self.cfg.view_frac, seed=int(content_hash({"arm": name, "seed": self.cfg.seed}, 8), 16) % 10_000)
-        ev = FEvaluator(pool, self.ctx)
+        pool.by_planter = {"P@1": [i for ids in pool.by_planter.values() for i in ids]}
+        st = self.cfg.update.stats
+        if st.paired and not pool.decide_sources:
+            pool.split(self.cfg.decide_frac, seed=self.cfg.seed)
+        sampler = Sampler(pool, frac=self.cfg.view_frac, seed=int(content_hash({"arm": name, "seed": self.cfg.seed}, 8), 16) % 10_000,
+                          strict=st.paired, n_max=st.n_max, fixed=self.cfg.fixed_view)
+        ctx = self.make_ctx() if self.make_ctx is not None else self.ctx
+        ev = FEvaluator(pool, ctx, shards=self.make_shards() if self.make_shards is not None else None, seeded=self.seeded if self.make_ctx is None else None)
         eng = UpdateEngine(store, ev, sampler, config=self.cfg.update, ledger=Ledger(d / "ledger.jsonl"))
-        a = Arm(name=name, store=store, engine=eng, pool=pool, sampler=sampler, evaluator=ev, propose_ops=propose_ops, family=family)
+        a = Arm(name=name, store=store, engine=eng, pool=pool, sampler=sampler, evaluator=ev, propose_ops=propose_ops, family=family, dir=d, ctx=ctx)
+        if self.cfg.locked_gate:
+            eng.holdout_gate = self._holdout_gate(a)
         self.arms.append(a)
         return a
 
+    # -- state ------------------------------------------------------------------------------------------------------
+    def save_state(self, arm: Arm) -> None:
+        assert arm.dir is not None
+        arm.dir.mkdir(parents=True, exist_ok=True)
+        doc = {"round": arm.rows[-1].round if arm.rows else -1, "engine": arm.engine.state(), "sampler": arm.sampler.state(),
+               "planter_history": arm.planter_history, "by_planter": arm.pool.by_planter, "decide_sources": sorted(arm.pool.decide_sources),
+               "rows": [r.model_dump(mode="json") for r in arm.rows], "stopped": arm.stopped}
+        tmp = arm.dir / "state.json.tmp"
+        tmp.write_text(json.dumps(doc, default=str))
+        tmp.replace(arm.dir / "state.json")
+
+    def load_state(self, arm: Arm) -> int:
+        """Restore an arm from its ``state.json``; returns the last completed round (−1: a fresh arm)."""
+        assert arm.dir is not None
+        p = arm.dir / "state.json"
+        if not p.exists():
+            return -1
+        doc = json.loads(p.read_text())
+        extra = arm.dir / "plants.jsonl"
+        if extra.exists():
+            for line in extra.read_text().splitlines():
+                if line.strip():
+                    pl = Plant.model_validate_json(line)
+                    arm.pool.plants.setdefault(pl.id, pl)
+        arm.pool.by_planter = {k: list(v) for k, v in doc["by_planter"].items()}
+        arm.pool.decide_sources = set(doc.get("decide_sources", []))
+        arm.engine.load_state(doc["engine"])
+        arm.sampler.load(doc["sampler"])
+        arm.sampler.consumed |= arm.engine.used_units
+        arm.planter_history = list(doc.get("planter_history", []))
+        arm.rows = [RoundRow.model_validate(r) for r in doc.get("rows", [])]
+        arm.guidance = list(arm.store.get("A")["guidance"])
+        arm.stopped = None  # re-judged by stop_reason under the (possibly extended) configuration of the resumed run
+        return int(doc.get("round", -1))
+
     # -- per round ---------------------------------------------------------------------------------------------------
     def evidence_plants(self, arm: Arm) -> list[Plant]:
+        """What proposers and gates may see: the proposal split (paired mode keeps the decision split out of it)."""
         doms = self.cfg.evidence_domains
-        return [p for p in arm.pool.plants.values() if doms is None or p.domain in doms]
+        src = arm.pool.proposal_plants() if self.cfg.update.stats.paired else list(arm.pool.plants.values())
+        return [p for p in src if doms is None or p.domain in doms]
 
     async def head_verdicts(self, arm: Arm, plants: Sequence[Plant]) -> dict[str, PlantVerdict]:
-        vs, _ = await verdicts(plants, population(arm.store.get("F")), self.ctx)
+        vs, _ = await verdicts(plants, population(arm.store.get("F")), arm.ctx or self.ctx)
         return vs
 
     def _natural(self) -> list[Counterexample]:
         doms = self.cfg.evidence_domains
         return [c for c in self.natural if doms is None or c.domain in doms]
+
+    def refresh_natural(self) -> int:
+        """Channel (b): re-read the archive (natural counterexamples, the panel-confirmed ONL ones from student rollouts
+        among them). Returns how many are new."""
+        if self.natural_refresh is None:
+            return 0
+        have = {c.id for c in self.natural}
+        new = [c for c in self.natural_refresh() if c.id not in have]
+        self.natural += new
+        return len(new)
 
     def _sources(self, cites: Sequence[str], clusters: Sequence[Cluster], arm: Arm, rng: random.Random, misses: Sequence[Plant]) -> tuple[list[Plant | Task], str]:
         """A candidate's birth-gate sources: plants of the miss clusters it cites (else natural-defect tasks of the natural
@@ -656,10 +921,12 @@ class Loop:
             cand.refused_by = ["duplicate"]
             return cand
         sources, dom = self._sources(cites, clusters, arm, rng, misses)
-        others = [i for i in arm.sampler.draw(f"gate/{r}/{spec.cls_name}", frac=1.0) if arm.pool.plants[i].domain != dom]
+        visible = set(arm.pool.proposal_ids()) if self.cfg.update.stats.paired else None
+        others = [i for i in arm.sampler.draw(f"gate/{r}/{spec.cls_name}", plants=None if visible is None else sorted(visible), frac=1.0)
+                  if arm.pool.plants[i].domain != dom]
         fresh = [arm.pool.plants[i] for i in rng.sample(others, min(len(others), self.cfg.gate_fresh))]
         try:
-            g = await birth_gate(spec, sources=sources, fresh=fresh, anchors=arm.pool.anchors, ctx=self.ctx, cost_bar=self.cfg.cost_bar, early_stop=True)
+            g = await birth_gate(spec, sources=sources, fresh=fresh, anchors=arm.pool.anchors, ctx=arm.ctx or self.ctx, cost_bar=self.cfg.cost_bar, early_stop=True)
         except Exception as e:  # noqa: BLE001 - an operator that crashes on a task is refused, never fatal
             cand.refused_by = [f"gate:error:{type(e).__name__}"]
             cand.gate = {"error": str(e)[:300]}
@@ -680,24 +947,73 @@ class Loop:
         cand.refused_by = dec.rules
         return cand
 
-    async def planter_round(self, arm: Arm, r: int, proposers: Proposers, row: RoundRow) -> None:
-        if proposers.planters is None:
-            return
-        vs = await self.head_verdicts(arm, list(arm.pool.plants.values()))
+    def _holdout_gate(self, arm: Arm) -> Any:
+        """The generalisation gate "G" on the locked set, read only through Thresholdout (every access logged in the arm's
+        ``holdout_access.jsonl``, never the held-out value itself): the locked recall gain of Θ′ over Θ, answered by the
+        holdout only when it disagrees with the dev gain by more than the noisy threshold, must be ≥ −tolerance."""
+        from crucible.synth.meta.stats import Thresholdout
+
+        async def locked_gain(theta: Any, cand: Any) -> float:
+            fs0, fs1 = population(theta.data.get("F")), population(cand.data.get("F"))
+            m0 = await measure(self.locked.plants, [], fs0, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
+            m1 = await measure(self.locked.plants, [], fs1, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
+            h0 = {o.plant_id: bool(o.hit) for o in m0.plants}
+            h1 = {o.plant_id: bool(o.hit) for o in m1.plants}
+            return sum(h1[k] - h0[k] for k in h0) / max(1, len(h0))
+
+        values: dict[str, float] = {}
+        assert arm.dir is not None
+        ho = Thresholdout(lambda q: values[q], threshold=self.cfg.holdout_threshold, sigma=self.cfg.holdout_sigma, budget=self.cfg.holdout_budget,
+                          seed=self.cfg.seed, log=arm.dir / "holdout_access.jsonl")
+        arm.holdout = ho
+
+        async def gate(theta: Any, cand: Any, u: Update, train_gain: float) -> list[RuleFailure]:
+            if ho.budget > 0:
+                values[u.id] = await locked_gain(theta, cand)
+            ans = ho.ask(u.id, train_gain, purpose="decide:G")
+            values.pop(u.id, None)
+            if ans.refused:
+                return [RuleFailure(rule="G", detail="the reusable holdout's budget is spent (fail closed)")]
+            if ans.answer < -self.cfg.locked_tolerance:
+                return [RuleFailure(rule="G", detail=f"locked-set gain (holdout answer) {ans.answer:.4f} < -{self.cfg.locked_tolerance}")]
+            return []
+
+        return gate
+
+    async def _propose_planters(self, arm: Arm, r: int, proposers: Proposers) -> tuple[list[PlantOp], dict[str, Any]] | Exception:
+        vs = await self.head_verdicts(arm, self.evidence_plants(arm))
         rates: dict[str, list[int]] = {}
-        for p in arm.pool.plants.values():
+        for p in self.evidence_plants(arm):
             rates.setdefault(f"{p.op.name}:{p.op.variant}", []).append(0 if vs[p.id].hit else 1)
         miss_rates = {k: round(sum(v) / len(v), 3) for k, v in sorted(rates.items())}
         mix = dict(Counter(c.defect or "?" for c in self._natural()).most_common())
         try:
-            ops, info = await proposers.planters(miss_rates=miss_rates, natural_mix=mix, k=self.cfg.planter_candidates, round=r,
-                                                 history=self.planter_history[-12:])
+            assert proposers.planters is not None
+            return await proposers.planters(miss_rates=miss_rates, natural_mix=mix, k=self.cfg.planter_candidates, round=r, history=arm.planter_history[-12:])
         except Exception as e:  # noqa: BLE001 - a failed proposal is recorded
-            row.planter_decisions.append({"error": f"{type(e).__name__}: {str(e)[:300]}"})
+            return e
+
+    async def _headroom(self, arm: Arm, plants: Sequence[Plant], vs: Mapping[str, PlantVerdict]) -> Any:
+        from crucible.synth.meta.headroom import HeadroomCache, catchable
+
+        if self.headroom_cache is None:
+            self.headroom_cache = HeadroomCache()
+        missed = [p.id for p in plants if not vs[p.id].hit]
+        anchors = [a for a in arm.pool.anchors if a.id not in arm.pool.decide_sources]
+        return await catchable(plants, missed, anchors, arm.ctx or self.ctx, cache=self.headroom_cache)
+
+    async def planter_round(self, arm: Arm, r: int, proposers: Proposers, row: RoundRow, proposed: Any = None) -> None:
+        if proposers.planters is None:
             return
+        got = proposed if proposed is not None else await self._propose_planters(arm, r, proposers)
+        if isinstance(got, Exception):
+            row.planter_decisions.append({"error": f"{type(got).__name__}: {str(got)[:300]}"})
+            return
+        ops, info = got
         held = {(o.name, o.variant) for o in held_out_planter().ops} - {(o.name, o.variant) for o in base_planter().ops}
         tasks = list(self.dev_sources)
         fs = population(arm.store.get("F"))
+        ctx = arm.ctx or self.ctx
         for i, op in enumerate(ops[: self.cfg.planter_candidates]):
             if (op.name, op.variant) in held:  # a planter may never produce the locked set's variants on dev
                 row.planter_decisions.append({"op": op.key, "accepted": False, "refused_by": ["locked-variant"]})
@@ -709,7 +1025,7 @@ class Loop:
                 return leakage_critic(Update(id="planter", component="P", data=pl.model_dump(mode="json"), diff=cjson([o.params for o in pl.ops]), evidence=ev))
 
             try:
-                dec, plants = await accept_planter(cand, tasks, self.ctx, reference=self.reference, mu=self.mu, falsifiers=fs, critic=critic,
+                dec, plants = await accept_planter(cand, tasks, ctx, reference=self.reference, mu=self.mu, falsifiers=fs, critic=critic,
                                                    population=[p.features for p in arm.pool.plants.values()])
             except Exception as e:  # noqa: BLE001
                 row.planter_decisions.append({"op": op.key, "accepted": False, "refused_by": [f"error:{type(e).__name__}"], "detail": str(e)[:300]})
@@ -717,18 +1033,29 @@ class Loop:
             # RSI-1: parameterisations that do not change a plant (a factor on eq_to_any, another why text) re-planted copies
             # of existing plants, and planters the population already catches entirely were accepted every round. A
             # planter now joins only with NOVEL plants (content without why texts) and a positive reward (§9.3: P is
-            # rewarded for planting defects the current F misses), measured on the novel plants.
+            # rewarded for planting defects the current F misses), measured on the novel plants. Paired mode: the reward
+            # is measured on the novel plants of PROPOSAL sources only (the decision split's verdicts never reach a
+            # proposer); its novel plants on decision sources join the decision split.
             have = {plant_key(p) for p in arm.pool.plants.values()}
             novel = [p for p in plants if plant_key(p) not in have]
-            nvs, _ = await verdicts(novel, fs, self.ctx) if novel else ({}, 0)
-            reward = sum(1 for p in novel if not nvs[p.id].hit) / len(novel) if novel else 0.0
+            visible = [p for p in novel if p.source_id not in arm.pool.decide_sources]
+            nvs, _ = await verdicts(visible, fs, ctx) if visible else ({}, 0)
+            missed = [p for p in visible if not nvs[p.id].hit]
+            reward = len(missed) / len(visible) if visible else 0.0
             checks = {**dec.checks, "novel": bool(novel), "rewarded": reward > 0}
+            if not self.cfg.natural_likeness:
+                checks["natural_like"] = True
+            head = None
+            if self.cfg.planter_reward == "headroom":  # the P/F game: a miss no expressible operator could catch gives F nothing to learn
+                h = await self._headroom(arm, visible, nvs) if missed else None
+                head = (len(h.catchable) / len(visible)) if h is not None and visible else 0.0
+                checks["headroom"] = head > 0
             ok = all(checks.values())
             d = {"op": op.key, "params": op.params, "accepted": ok, "checks": checks, "mmd": dec.mmd, "mu": self.mu, "miss_rate": reward,
-                 "kept": len(novel), "planted": dec.kept, "refused_by": [k for k, v in checks.items() if not v]}
+                 "headroom_reward": head, "kept": len(novel), "planted": dec.kept, "refused_by": [k for k, v in checks.items() if not v]}
             plants = novel
-            self.planter_history.append({"round": r, "op": f"{op.name}:{op.variant}", "params": op.params, "accepted": ok, "refused_by": d["refused_by"],
-                                         "reward": round(reward, 3), "novel_plants": len(novel)})
+            arm.planter_history.append({"round": r, "op": f"{op.name}:{op.variant}", "params": op.params, "accepted": ok, "refused_by": d["refused_by"],
+                                        "reward": round(reward, 3), "headroom": None if head is None else round(head, 3), "novel_plants": len(novel)})
             if ok:
                 data = arm.store.get("P")
                 data["planters"].append(cand.model_dump(mode="json"))
@@ -736,16 +1063,63 @@ class Loop:
                 arm.store.set_head("P", v)
                 arm.engine.head_digest["P"] = arm.store.digest("P", v)
                 arm.pool.add(f"P@{v}", plants)
+                if arm.dir is not None:
+                    arm.dir.mkdir(parents=True, exist_ok=True)
+                    with (arm.dir / "plants.jsonl").open("a") as fh:
+                        for p in plants:
+                            fh.write(p.model_dump_json() + "\n")
                 d["version"] = v
             arm.engine.ledger.append(Decision(kind="update", round=r, update_id=f"{arm.name}/r{r}/planter/{op.key}", component="P", accepted=ok,
                                               evaluated=True, failed=[RuleFailure(rule="P", detail=k) for k, v in checks.items() if not v],
-                                              metrics={k: d[k] for k in ("mmd", "mu", "miss_rate", "kept")}))
+                                              metrics={k: d[k] for k in ("mmd", "mu", "miss_rate", "headroom_reward", "kept")}))
             row.planter_decisions.append(d)
             row.info.setdefault("planter_info", info)
+
+    def _meta_decision(self, arm: Arm, r: int, row: RoundRow, alt_gl: list[str], ev_plants: Sequence[Plant]) -> None:
+        """The meta loop (A): A' replaces A when its candidates pass the birth gate more often. Paired mode: a one-sided
+        Fisher exact test at an α_t of the run's spender (with fewer than ``meta_min`` candidates a side, no test is spent
+        and A' is refused: two against two can never reach significance)."""
+        def rate(tag: str) -> tuple[int, int]:
+            cs = [c for c in row.candidates if c.origin.endswith(":" + tag)]
+            return sum(1 for c in cs if not any(x.startswith("gate:") for x in c.refused_by)), len(cs)
+
+        pa, na = rate("A")
+        pb, nb = rate("A'")
+        leaks = leakage_critic(Update(id="A", component="A", data={"guidance": alt_gl}, diff=cjson(alt_gl), evidence=evidence_of(ev_plants[:200], self.builders, [])))
+        metrics: dict[str, Any] = {"pass_A": [pa, na], "pass_A2": [pb, nb]}
+        fail: list[RuleFailure] = []
+        if leaks:
+            fail.append(RuleFailure(rule="R6", detail=", ".join(leaks[:6])))
+        if self.cfg.update.stats.paired:
+            from crucible.synth.meta.stats import fisher_one_sided
+
+            if min(na, nb) < self.cfg.meta_min:
+                fail.append(RuleFailure(rule="R2", detail=f"meta test needs >= {self.cfg.meta_min} candidates per side (A {na}, A' {nb}): not tested"))
+            elif not fail and not arm.engine.spender.exhausted:
+                sp = arm.engine._spend(f"{arm.name}/r{r}/guidance", r, None)
+                p = fisher_one_sided(pb, nb, pa, na)
+                arm.engine.spender.record(sp.t, p <= sp.alpha_t)
+                metrics.update({"t": sp.t, "alpha_t": sp.alpha_t, "fisher_p": p})
+                if not p <= sp.alpha_t:
+                    fail.append(RuleFailure(rule="R2", detail=f"gate pass rate A' {pb}/{nb} vs A {pa}/{na}: Fisher p {p:.4f} > alpha_t {sp.alpha_t:.5f}"))
+            elif arm.engine.spender.exhausted:
+                fail.append(RuleFailure(rule="R2", detail="the run's α budget is spent"))
+        elif not (nb > 0 and na > 0 and pb / nb > pa / na):
+            fail.append(RuleFailure(rule="R2", detail=f"gate pass rate A' {pb}/{nb} not above A {pa}/{na}"))
+        ok = not fail
+        if ok:
+            v = arm.store.put("A", {"guidance": alt_gl})
+            arm.store.set_head("A", v)
+        arm.engine.ledger.append(Decision(kind="update", round=r, update_id=f"{arm.name}/r{r}/guidance", component="A", accepted=ok, evaluated=True,
+                                          failed=fail, metrics=metrics))
+        row.guidance_decision = {"accepted": ok, **metrics, "rules": [f.rule for f in fail], "new": alt_gl}
 
     async def run_round(self, arm: Arm, r: int, proposers: Proposers) -> RoundRow:
         row = RoundRow(arm=arm.name, round=r)
         rng = random.Random(f"{self.cfg.seed}/{arm.name}/{r}")
+        new_nat = self.refresh_natural()
+        if new_nat:
+            row.info["natural_new"] = new_nat
         ev_plants = self.evidence_plants(arm)
         vs = await self.head_verdicts(arm, ev_plants)
         misses_c = miss_clusters(ev_plants, vs)
@@ -755,6 +1129,9 @@ class Loop:
         lib = Library.model_validate(arm.store.get("F"))
         k = self.cfg.candidates
         props: list[tuple[OperatorSpec, list[str], str]] = []
+        # the planter proposal (a swarm call) runs while this round's operator proposals and decisions run
+        pl_task = asyncio.create_task(self._propose_planters(arm, r, proposers)) if (self.cfg.planter_loop and arm.name == "loop"
+                                                                                       and proposers.planters is not None) else None
         gl = list(arm.store.get("A")["guidance"])
         alt_gl: list[str] | None = None
         if arm.name == "loop" and self.cfg.meta_loop and proposers.guidance is not None and arm.rows and arm.rows[-1].candidates:
@@ -766,9 +1143,14 @@ class Loop:
                 row.info["guidance_error"] = f"{type(e).__name__}: {str(e)[:300]}"
         try:
             arms_g = [(gl, "A", k)] if alt_gl is None else [(gl, "A", k - k // 2), (alt_gl, "A'", k // 2)]
-            for g, tag, kk in arms_g:
-                ops, info = await arm.propose_ops(clusters=[c.shown() for c in nat_c], misses=[c.shown() for c in misses_c], guidance=g,
-                                                  library=[s.model_dump(mode="json") for s in lib.ops.values()], k=kk, round=r, tag=tag)
+            outs = await asyncio.gather(*(arm.propose_ops(clusters=[c.shown() for c in nat_c], misses=[c.shown() for c in misses_c], guidance=g,
+                                                          library=[s.model_dump(mode="json") for s in lib.ops.values()], k=kk, round=r, tag=tag)
+                                          for g, tag, kk in arms_g), return_exceptions=True)
+            for (_g, tag, kk), out in zip(arms_g, outs, strict=True):
+                if isinstance(out, BaseException):
+                    row.info.setdefault("propose_error", f"{type(out).__name__}: {str(out)[:300]}")
+                    continue
+                ops, info = out
                 props += [(s, c, f"{'random' if arm.name == 'control' else 'swarm'}:{tag}") for s, c in ops[:kk]]
                 row.lemmas += info.get("lemmas", [])
                 row.strategies += info.get("strategies", [])
@@ -779,26 +1161,10 @@ class Loop:
         for spec, cites, origin in props:
             cand = await self.try_candidate(arm, spec, cites, origin, clusters, missed, r, rng)
             row.candidates.append(cand)
-        if alt_gl is not None:  # the meta loop: A' is kept when its candidates pass the gate more often than A's (paired round)
-            def rate(tag: str) -> tuple[int, int]:
-                cs = [c for c in row.candidates if c.origin.endswith(":" + tag)]
-                return sum(1 for c in cs if not any(x.startswith("gate:") for x in c.refused_by)), len(cs)
-
-            pa, na = rate("A")
-            pb, nb = rate("A'")
-            leaks = leakage_critic(Update(id="A", component="A", data={"guidance": alt_gl}, diff=cjson(alt_gl),
-                                          evidence=evidence_of(ev_plants[:200], self.builders, [])))
-            ok = nb > 0 and na > 0 and pb / nb > pa / na and not leaks
-            fail = [] if ok else [RuleFailure(rule="R2", detail=f"gate pass rate A' {pb}/{nb} not above A {pa}/{na}")] if not leaks else [
-                RuleFailure(rule="R6", detail=", ".join(leaks[:6]))]
-            if ok:
-                v = arm.store.put("A", {"guidance": alt_gl})
-                arm.store.set_head("A", v)
-            arm.engine.ledger.append(Decision(kind="update", round=r, update_id=f"{arm.name}/r{r}/guidance", component="A", accepted=ok, evaluated=True,
-                                              failed=fail, metrics={"pass_A": [pa, na], "pass_A2": [pb, nb]}))
-            row.guidance_decision = {"accepted": ok, "pass_A": [pa, na], "pass_A2": [pb, nb], "rules": [f.rule for f in fail], "new": alt_gl}
-        if self.cfg.planter_loop and arm.name == "loop":
-            await self.planter_round(arm, r, proposers, row)
+        if alt_gl is not None:
+            self._meta_decision(arm, r, row, alt_gl, ev_plants)
+        if pl_task is not None:
+            await self.planter_round(arm, r, proposers, row, proposed=await pl_task)
 
         def remove(data: Any, items: list[str]) -> Any:
             lib2 = Library.model_validate(data)
@@ -814,38 +1180,122 @@ class Loop:
         if self.cfg.audit:
             au = await arm.engine.audit(r)
             row.rollback = {"applied": au.accepted, **_round_metrics(au.metrics)}
-        row.library = sorted(Library.model_validate(arm.store.get("F")).ops)
-        row.planters = len(arm.store.get("P")["planters"])
-        dev_vs, _ = await verdicts(list(arm.pool.plants.values()), population(arm.store.get("F")), self.ctx)
-        row.dev = {"recall": round(sum(1 for v in dev_vs.values() if v.hit) / max(1, len(dev_vs)), 4), "n": len(dev_vs)}
-        row.locked = await self.locked_summary(arm)
+        await self._report(arm, row)
         row.info["spend_usd"] = round(self.spend(), 4)
         arm.rows.append(row)
         return row
+
+    async def _report(self, arm: Arm, row: RoundRow) -> None:
+        row.library = sorted(Library.model_validate(arm.store.get("F")).ops)
+        row.planters = len(arm.store.get("P")["planters"])
+        allp = list(arm.pool.plants.values())
+        dev_vs, _ = await verdicts(allp, population(arm.store.get("F")), arm.ctx or self.ctx)
+        row.dev = {"recall": round(sum(1 for v in dev_vs.values() if v.hit) / max(1, len(dev_vs)), 4), "n": len(dev_vs)}
+        prop = self.evidence_plants(arm) if self.cfg.update.stats.paired else allp
+        hits = sum(1 for p in prop if dev_vs[p.id].hit)
+        game: dict[str, Any] = {"f_recall": round(hits / max(1, len(prop)), 4), "missed": len(prop) - hits, "n": len(prop),
+                                "planters": row.planters, "pool_kl": round(kl(class_mix(allp), self.mix0), 4), "size": plant_size(allp),
+                                "library": len(row.library)}
+        if self.reference and allp:
+            game["pool_mmd"] = round(mmd(feature_matrix([p.features for p in allp]), feature_matrix(self.reference)), 4)
+        if self.cfg.update.stats.paired:
+            game["decide_left"] = len(arm.sampler.remaining())
+            game["alpha_spent"] = round(arm.engine.spender.total, 6)
+            game["tests"] = len(arm.engine.spender.spent)
+        rewards = [d.get("miss_rate") for d in row.planter_decisions if d.get("accepted")]
+        game["planter_rewards"] = rewards
+        if self.cfg.headroom:
+            h = await self._headroom(arm, prop, dev_vs)
+            game["headroom_abs"] = round(h.headroom_abs, 4)
+            game["headroom_rel"] = round(h.headroom_rel, 4)
+            game["headroom_by_class"] = h.by_class
+            game["headroom_witnesses"] = dict(list(h.witnesses.items())[:6])
+        row.game = game
+        row.locked = await self.locked_summary(arm)
+        if self.family is not None:
+            fm = await measure(self.family.plants, self.family_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.family.name,
+                               set_kind="locked", purpose="report")
+            row.family = summary(fm)
 
     async def locked_summary(self, arm: Arm) -> dict[str, Any]:
         m = await measure(self.locked.plants, self.locked_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.locked.name,
                           set_kind="locked", purpose="report")
         return summary(m)
 
-    async def run(self, proposers: Proposers, *, control: bool = True, save: Callable[[], None] | None = None) -> list[RoundRow]:
-        loop = self.arm("loop", proposers.ops or random_proposer(self.cfg.seed), family=proposers.family)
-        arms = [loop] + ([self.arm("control", random_proposer(self.cfg.seed + 1))] if control else [])
+    def stop_reason(self, arm: Arm, r: int) -> str | None:
+        st = self.cfg.stop
+        if r >= (st.max_rounds or self.cfg.rounds):
+            return "max_rounds"
+        if st.max_spend_usd is not None and self.spend() >= st.max_spend_usd:
+            return "spend"
+        if self.cfg.update.stats.paired:
+            if arm.engine.spender.exhausted:
+                return "alpha_spent"
+            if len(arm.sampler.remaining()) < self.cfg.update.stats.n_min:
+                return "decision_split_dry"
+        rb = sum(1 for x in arm.rows if x.rollback and x.rollback.get("applied"))
+        if st.max_rollbacks is not None and rb >= st.max_rollbacks:
+            return "rollbacks"
+        if st.max_pool_kl is not None and arm.rows and arm.rows[-1].game.get("pool_kl", 0.0) > st.max_pool_kl:
+            return "goodhart_pool_kl"
+        if st.futility_rounds:
+            tail = [x for x in arm.rows if x.round > 0][-st.futility_rounds:]
+            if len(tail) == st.futility_rounds and not any(c.accepted for x in tail for c in x.candidates) \
+                    and not any(d.get("accepted") for x in tail for d in x.planter_decisions) \
+                    and all(x.game.get("headroom_abs", 0.0) <= st.min_headroom for x in tail):
+                return "futility"
+        return None
+
+    async def _start(self, a: Arm) -> None:
+        await a.engine.calibrate(0)
+        r0 = RoundRow(arm=a.name, round=0, library=[], planters=1)
+        await self._report(a, r0)
+        r0.info = {"noise_floor": a.engine.floor.model_dump(mode="json") if a.engine.floor else None, "mu": self.mu,
+                   "decide_sources": sorted(a.pool.decide_sources), "decide_units": len(a.pool.decide_ids())}
+        a.rows.append(r0)
+        self.save_state(a)
+
+    async def run(self, proposers: Proposers, *, control: bool = True, save: Callable[[], None] | None = None, resume: bool = False,
+                  max_new_rounds: int | None = None) -> list[RoundRow]:
+        """Run (or, with ``resume``, continue) every arm round after round until a stop rule fires. The arms run
+        concurrently (each with its own Worlds when ``make_ctx`` is given): the control arm's CPU work overlaps the loop
+        arm's swarm calls."""
+        if not self.arms:
+            self.arm("loop", proposers.ops or random_proposer(self.cfg.seed), family=proposers.family)
+            if control:
+                self.arm("control", random_proposer(self.cfg.seed + 1))
+        arms = list(self.arms)
+        last = {a.name: (self.load_state(a) if resume else -1) for a in arms}
+        await asyncio.gather(*(self._start(a) for a in arms if last[a.name] < 0))
         for a in arms:
-            await a.engine.calibrate(0)
-            r0 = RoundRow(arm=a.name, round=0, library=[], planters=1)
-            dev_vs, _ = await verdicts(list(a.pool.plants.values()), population(a.store.get("F")), self.ctx)
-            r0.dev = {"recall": round(sum(1 for v in dev_vs.values() if v.hit) / max(1, len(dev_vs)), 4), "n": len(dev_vs)}
-            r0.locked = await self.locked_summary(a)
-            r0.info = {"noise_floor": a.engine.floor.model_dump(mode="json") if a.engine.floor else None, "mu": self.mu}
-            a.rows.append(r0)
+            last[a.name] = max(last[a.name], 0)
         if save:
             save()
-        for r in range(1, self.cfg.rounds + 1):
+        done = 0
+
+        async def step(a: Arm) -> None:
+            r = last[a.name] + 1
+            row = await self.run_round(a, r, proposers)
+            last[a.name] = r
+            a.stopped = self.stop_reason(a, r)
+            row.stop = a.stopped
+            self.save_state(a)
+
+        while True:
             for a in arms:
-                await self.run_round(a, r, proposers)
-                if save:
-                    save()
+                why = None if a.stopped else self.stop_reason(a, last[a.name])
+                if why is not None:
+                    a.stopped = why
+                    if a.rows:
+                        a.rows[-1].stop = why
+                    self.save_state(a)
+            live = [a for a in arms if a.stopped is None]
+            if not live or (max_new_rounds is not None and done >= max_new_rounds):
+                break
+            await asyncio.gather(*(step(a) for a in live))
+            done += 1
+            if save:
+                save()
         return [row for a in arms for row in a.rows]
 
 
@@ -883,3 +1333,355 @@ def refusals(rows: Sequence[RoundRow]) -> dict[str, dict[str, int]]:
 
 def plants_digest(plants: Sequence[Plant]) -> str:
     return set_digest(plants)
+
+
+# ---------------------------------------------------------------------------------------------------------- the per-task probe loop
+#
+# RSI at task-creation time (lead, 2026-10-29; runs/rsi-stats.md §P). Nothing here trains anything:
+#   1. a task is created (admitted by its certificate);
+#   2. the student runs on it as PROBE rollouts (``StudentProbe``: the learnability agent's runner);
+#   3. each outcome is classified (``OutcomeClassifier``: the learnability agent's classifier) as an intended pass (the
+#      skill was used), an intended fail (a genuine skill gap), an unintended pass (shortcut, leak, vacuous check, frame
+#      hole, hack path) or an unintended fail (ambiguous instruction, hidden information, over-strict check, World or
+#      tool bug, contradictory docs, unsolvable variant);
+#   4. unintended outcomes WITH executed or calibrated evidence become counterexamples (executed: a replayable student
+#      program with the verdict the task should have given) or panel-adjudicated suspects, and drive a repair of the
+#      task, its World instance or its contract through the existing CEGIS repairer under the monotone archive;
+#   5. the lesson is lifted into the system: the counterexample enters the archive (natural clusters → falsifier
+#      operators, through ``Loop``), the repair becomes a candidate design lemma for the writers, a World or tool bug
+#      becomes a World-builder fix; system-level updates are accepted only under the update rule with generalisation
+#      (R7 on held-out domains, the held-out World family, the locked set through the reusable holdout);
+#   6. repeat, round after round.
+#
+# The regularisers of a task repair (``ProbeRules``; every one is checked, non-compensatory):
+#   T1 evidence      a repair needs ≥ 1 unintended outcome with executed or calibrated evidence. Judged-only (uncalibrated)
+#                    or evidence-free "unintended" labels are demoted: a failure becomes an unattributed fail, treated as
+#                    a skill gap; a pass becomes a suspect for the panel queue. No repair is ever triggered by a pass rate.
+#   T2 no easing     every intended (and unattributed) fail's program is replayed on the repaired task: one that now
+#                    passes means the repair eased a genuine skill gap → refused.
+#   T3 no tightening every intended pass's program is replayed: one that now fails means the repair over-constrained
+#                    the task (a new D6) → refused.
+#   T4 closes        every unintended pass's program must now fail and every executed unintended fail's (valid)
+#                    program must now pass: the repair fixes what it was justified by.
+#   T5 archive       the monotone archive: no archived counterexample re-opens; the deterministic classes stay clean.
+#   T6 caps          ≤ ``max_repairs`` per task; calibrated-only (judge) evidence stops after ``judge_cap`` repairs of a
+#                    task without new executed evidence (R8).
+#   T7 attribution   a failure counts as task-caused only with an independent check: an unintended fail claiming the
+#                    task cannot be solved as stated (ambiguous, hidden information, unsolvable, contradictory docs) is
+#                    demoted when an ALT solver of a non-student, non-builder family solved the same task.
+# J and every acceptance gate never read the student pass rate (``ProbeLoop.decide`` never receives it). The
+# student-tuning drift monitor (``TuningMonitor``) reads it on re-probes of repaired tasks, for an alarm only.
+
+OutcomeKind = Literal["intended_pass", "intended_fail", "unintended_pass", "unintended_fail", "masked"]
+Evid = Literal["executed", "calibrated", "judged", "none"]
+UNSOLVABLE_CLAIMS = ("ambiguous", "hidden_info", "unsolvable", "contradictory_docs")
+WORLD_MECHANISMS = ("world_bug", "tool_bug", "contradictory_docs")
+PASS_MECHANISMS = ("shortcut", "leak", "vacuous_check", "frame_hole", "hack")
+FAIL_MECHANISMS = ("ambiguous", "hidden_info", "over_strict", "world_bug", "tool_bug", "contradictory_docs", "unsolvable")
+
+
+class ProbeOutcome(CrucibleModel):
+    """One classified probe rollout, as this loop consumes the outcome classifier (extra fields are ignored)."""
+
+    model_config = ConfigDict(extra="ignore")
+    i: int
+    passed: bool | None
+    kind: OutcomeKind
+    mechanism: str = ""
+    defect: str | None = None
+    evidence: Evid = "none"
+    alt_solved: bool | None = None  # an independent ALT solver (another family) solved the same task
+    alt_family: str = ""
+    program: dict[str, Any] | None = None  # the rollout as a literal program (replayable)
+    note: str = ""
+
+
+class OutcomeClassifier(Protocol):
+    async def classify(self, task: Task, rollouts: Sequence[Any]) -> list[ProbeOutcome]: ...
+
+
+class ProbeRepairer(Protocol):
+    """The existing CEGIS repairer (task, World instance or contract) under the monotone archive."""
+
+    async def __call__(self, task: Task, counterexamples: list[Counterexample]) -> Task | None: ...
+
+
+class ProbeRules(CrucibleModel):
+    rollouts: int = 8
+    max_repairs: int = 3
+    judge_cap: int = 2
+    student_family: str = ""
+    builder_families: list[str] = Field(default_factory=list)
+    reprobe: int = 0  # re-probe rollouts after a repair (the drift monitor only; 0: no re-probe)
+
+
+class TaskProbe(CrucibleModel):
+    """One task's probe round: the counted outcomes, the counterexamples, the repair decision and the lifted lessons."""
+
+    task_id: str
+    version: int
+    round: int
+    outcomes: list[ProbeOutcome] = Field(default_factory=list)
+    counted: dict[str, int] = Field(default_factory=dict)  # kind -> count, after demotions
+    demoted: list[str] = Field(default_factory=list)
+    counterexamples: list[str] = Field(default_factory=list)
+    suspects: list[str] = Field(default_factory=list)  # unintended passes without executed evidence: the panel queue
+    repair: Literal["none", "accepted", "refused", "declined", "capped"] = "none"
+    refused_by: list[str] = Field(default_factory=list)
+    new_version: int | None = None
+    lessons: dict[str, list[str]] = Field(default_factory=dict)  # archive | lemma | world_fix -> ids
+    drift: dict[str, float] | None = None
+
+
+class ProbeReplay(BaseFalsifier):
+    """Replays archived student-probe counterexamples (class PROBE) in the monotone archive's regressions; it proposes
+    nothing itself."""
+
+    name: ClassVar[str] = "PROBE"
+
+    async def propose(self, task: Task, ctx: FalsifyContext) -> list[Any]:
+        return []
+
+
+def probe_counterexample(task: Task, o: ProbeOutcome) -> Counterexample | None:
+    """An executed unintended outcome as an archive counterexample: the student's program with the verdict the task
+    should have given (an unintended pass must fail; an over-strict or World-caused fail of a valid program must pass)."""
+    if o.evidence != "executed" or o.program is None or o.kind not in ("unintended_pass", "unintended_fail"):
+        return None
+    from crucible.synth.falsify.base import Probe as _Probe
+
+    prog = Program.model_validate(o.program)
+    expect = "fail" if o.kind == "unintended_pass" else "pass"
+    probe = _Probe(cls="PROBE", op=o.mechanism or o.kind, site=f"rollout{o.i}", program=prog, expect=expect)
+    cid = content_hash({"task": task.id, "v": task.version, "probe": probe.digest(), "kind": o.kind}, 24)
+    return Counterexample(id=f"cx-{cid}", domain=task.domain, task_id=task.id, task_version=task.version, cls="PROBE", op=probe.op, site=probe.site,
+                          defect=o.defect, label="confirmed", probe=probe)
+
+
+def count_outcome(o: ProbeOutcome, rules: ProbeRules) -> tuple[OutcomeKind | Literal["unattributed_fail", "suspect"], str | None]:
+    """T1 and T7: the kind this loop acts on, and the demotion reason when it differs from the classifier's."""
+    if o.kind == "masked" or o.passed is None:
+        return "masked", None
+    if o.kind.endswith("_pass") != bool(o.passed):  # the trusted grader's verdict decides pass or fail; a label that contradicts it is void
+        return "masked", f"rollout {o.i}: labelled {o.kind} but the grader says {'pass' if o.passed else 'fail'} (ignored)"
+    if o.kind in ("intended_pass", "intended_fail"):
+        return o.kind, None
+    if o.evidence not in ("executed", "calibrated"):
+        return ("suspect", f"rollout {o.i}: {o.kind} with {o.evidence} evidence (T1)") if o.kind == "unintended_pass" else \
+               ("unattributed_fail", f"rollout {o.i}: {o.kind} with {o.evidence} evidence (T1)")
+    if o.kind == "unintended_fail" and o.mechanism in UNSOLVABLE_CLAIMS and o.alt_solved and o.alt_family and o.alt_family != rules.student_family \
+            and o.alt_family not in rules.builder_families:
+        return "unattributed_fail", f"rollout {o.i}: claims {o.mechanism}, but the independent {o.alt_family} solver solved the task (T7)"
+    return o.kind, None
+
+
+class TuningMonitor(CrucibleModel):
+    """Student-tuning drift: on re-probed repaired tasks, the change of the student's pass rate that the fixed defects do
+    not explain. Per task: d = p_after − (passes_before − unintended_passes)/n_before; a fixed unintended fail may
+    explain a rise of up to unintended_fails/n_before; u = d − clip(d, 0, that bound). The alarm fires when at least
+    ``min_tasks`` tasks give a mean u whose 95% bootstrap interval excludes 0 and whose size exceeds ``threshold``.
+    It reads pass rates; nothing that accepts anything reads it."""
+
+    threshold: float = 0.1
+    min_tasks: int = 5
+    rows: list[dict[str, float]] = Field(default_factory=list)
+
+    def add(self, *, n_before: int, passes_before: int, unintended_passes: int, unintended_fails: int, n_after: int, passes_after: int) -> dict[str, float]:
+        base = (passes_before - unintended_passes) / n_before
+        d = passes_after / n_after - base
+        hi = unintended_fails / n_before
+        u = d - min(max(d, 0.0), hi)
+        row = {"d": round(d, 6), "explained_max": round(hi, 6), "unexplained": round(u, 6)}
+        self.rows.append(row)
+        return row
+
+    def alarm(self) -> dict[str, Any]:
+        from crucible.synth.meta.stats import bootstrap_ci
+
+        us = [r["unexplained"] for r in self.rows]
+        if len(us) < self.min_tasks:
+            return {"alarm": False, "n": len(us), "why": f"fewer than {self.min_tasks} re-probed repaired tasks"}
+        m = sum(us) / len(us)
+        lo, hi = bootstrap_ci(us, seed=len(us))
+        on = abs(m) > self.threshold and (lo > 0 or hi < 0)
+        return {"alarm": on, "n": len(us), "mean_unexplained": round(m, 4), "ci95": [round(lo, 4), round(hi, 4)]}
+
+
+Replayer = Callable[[Task, dict[str, Any]], Awaitable[bool | None]]  # program -> passes the task's contract (None: no verdict)
+Recheck = Callable[[Task], Awaitable[list[str]]]  # the monotone archive and the deterministic classes: failures, [] = clean
+LemmaLift = Callable[[Task, Task, list[Counterexample]], Awaitable[list[Any]]]
+
+
+async def replay_program(task: Task, program: dict[str, Any], ctx: FalsifyContext) -> bool | None:
+    """Run a literal program on the task's World and grade it with the task's contract (the trusted grader)."""
+    r = await ctx.run(task, Program.model_validate(program))
+    if r.error is not None and r.error.startswith("agent:"):
+        return None
+    return bool(ctx.grade(r, task.contract).passed)
+
+
+def archive_recheck(archive: Any, ctx: FalsifyContext, falsifiers: Callable[[], list[BaseFalsifier]] = cheap) -> Recheck:
+    """T5 on the real archive: no archived counterexample (student-probe ones included) re-opens, and no deterministic
+    class confirms a counterexample on the repaired version."""
+    from crucible.synth.archive import regress
+
+    async def check(task: Task) -> list[str]:
+        fs = [*falsifiers(), ProbeReplay()]
+        rep = await regress(archive, task, ctx, fs)
+        out = [f"archive: {x} re-opened" for x in rep.reopened]
+        res = await run_classes(task, falsifiers(), ctx)
+        out += [f"{r.cls} confirms a counterexample" for r in res if r.applicable and r.c]
+        return out
+
+    return check
+
+
+class ProbeLoop:
+    """The per-task student-probe → classify → repair → lift loop (section comment above). Continuous and resumable:
+    every task's rounds are appended to a hash-chained ledger (``probe_ledger.jsonl``: kinds ``probe`` and ``repair``)
+    and ``state.json`` keeps each task's current version, repairs and judge streak."""
+
+    def __init__(self, root: Path, *, probe: Any, classify: OutcomeClassifier, repair: ProbeRepairer, replay: Replayer, recheck: Recheck,
+                 archive: Any = None, lift_lemmas: LemmaLift | None = None, rules: ProbeRules | None = None, monitor: TuningMonitor | None = None):
+        self.root = Path(root)
+        self.probe, self.classify, self.repair, self.replay, self.recheck = probe, classify, repair, replay, recheck
+        self.archive, self.lift_lemmas = archive, lift_lemmas
+        self.rules = rules or ProbeRules()
+        self.monitor = monitor or TuningMonitor()
+        self.ledger = Ledger(self.root / "probe_ledger.jsonl")
+        self.tasks: dict[str, Task] = {}
+        self.repairs: dict[str, int] = {}
+        self.judge_streak: dict[str, int] = {}
+        self.history: list[TaskProbe] = []
+        self.lemma_candidates: list[Any] = []
+        self.world_fixes: list[dict[str, Any]] = []
+        self._load()
+
+    def _load(self) -> None:
+        p = self.root / "state.json"
+        if not p.exists():
+            return
+        d = json.loads(p.read_text())
+        self.tasks = {k: Task.model_validate(v) for k, v in d.get("tasks", {}).items()}
+        self.repairs = {k: int(v) for k, v in d.get("repairs", {}).items()}
+        self.judge_streak = {k: int(v) for k, v in d.get("judge_streak", {}).items()}
+        self.history = [TaskProbe.model_validate(x) for x in d.get("history", [])]
+        self.monitor = TuningMonitor.model_validate(d["monitor"]) if d.get("monitor") else self.monitor
+        self.world_fixes = list(d.get("world_fixes", []))
+
+    def save(self) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        doc = {"tasks": {k: t.model_dump(mode="json") for k, t in self.tasks.items()}, "repairs": self.repairs, "judge_streak": self.judge_streak,
+               "history": [h.model_dump(mode="json") for h in self.history], "monitor": self.monitor.model_dump(mode="json"), "world_fixes": self.world_fixes}
+        tmp = self.root / "state.json.tmp"
+        tmp.write_text(json.dumps(doc, default=str))
+        tmp.replace(self.root / "state.json")
+
+    def add_tasks(self, tasks: Iterable[Task]) -> None:
+        for t in tasks:
+            self.tasks.setdefault(t.id, t)
+
+    async def decide(self, task: Task, new: Task, outcomes: Sequence[tuple[ProbeOutcome, str]], cxs: Sequence[Counterexample]) -> list[str]:
+        """T2–T5 on a candidate repair. It is given the counted outcomes and their programs, never a pass rate."""
+        why: list[str] = []
+        for o, kind in outcomes:
+            if o.program is None:
+                continue
+            ok = await self.replay(new, o.program)
+            if ok is None:
+                continue
+            if kind in ("intended_fail", "unattributed_fail") and ok:
+                why.append(f"T2: rollout {o.i} ({kind}) now passes: the repair eases a skill gap")
+            elif kind == "intended_pass" and not ok:
+                why.append(f"T3: rollout {o.i} (intended pass) now fails: the repair over-constrains the task")
+            elif kind == "unintended_pass" and ok:
+                why.append(f"T4: rollout {o.i} (unintended pass, {o.mechanism}) still passes")
+            elif kind == "unintended_fail" and o.evidence == "executed" and o.mechanism not in WORLD_MECHANISMS and not ok:
+                why.append(f"T4: rollout {o.i} (unintended fail, {o.mechanism}) still fails")
+        why += [f"T5: {x}" for x in await self.recheck(new)]
+        return why
+
+    async def probe_task(self, task: Task, round: int) -> TaskProbe:
+        rules = self.rules
+        rec = TaskProbe(task_id=task.id, version=task.version, round=round)
+        rollouts = await self.probe.rollouts(task, rules.rollouts)
+        for r in rollouts:  # the loop may see each rollout's outcome, never an aggregate it could tune towards
+            if isinstance(r, Mapping) and any(r.get(k) is not None for k in ("pass_rate", "p_hat")):
+                raise ValueError("a probe rollout carries an aggregate pass rate")
+        outs = await self.classify.classify(task, rollouts)
+        rec.outcomes = list(outs)
+        counted: list[tuple[ProbeOutcome, str]] = []
+        for o in outs:
+            kind, why = count_outcome(o, rules)
+            counted.append((o, kind))
+            if why:
+                rec.demoted.append(why)
+            if kind == "suspect":
+                rec.suspects.append(f"rollout{o.i}")
+        rec.counted = dict(Counter(k for _, k in counted))
+        unintended = [(o, k) for o, k in counted if k in ("unintended_pass", "unintended_fail")]
+        cxs = [c for o, _ in unintended if (c := probe_counterexample(task, o)) is not None]
+        rec.counterexamples = [c.id for c in cxs]
+        if self.archive is not None and cxs:
+            rec.lessons["archive"] = self.archive.add_all(cxs)
+        for o, _ in unintended:
+            if o.mechanism in WORLD_MECHANISMS:
+                fix = {"task_id": task.id, "domain": task.domain, "world": task.world.model_dump(mode="json"), "mechanism": o.mechanism, "rollout": o.i,
+                       "evidence": o.evidence, "round": round}
+                self.world_fixes.append(fix)
+                rec.lessons.setdefault("world_fix", []).append(f"{task.id}/rollout{o.i}")
+        self.ledger.append(Decision(kind="probe", round=round, update_id=f"{task.id}@{task.version}", component="T", evaluated=True, accepted=True,
+                                    metrics={"counted": rec.counted, "demoted": rec.demoted, "counterexamples": rec.counterexamples}))
+        if not unintended:  # T1: nothing unintended with evidence, nothing to repair (an intended fail is a skill gap: never eased)
+            self.history.append(rec)
+            return rec
+        executed = any(o.evidence == "executed" for o, _ in unintended)
+        n = self.repairs.get(task.id, 0)
+        if n >= rules.max_repairs or (not executed and self.judge_streak.get(task.id, 0) >= rules.judge_cap):
+            rec.repair, rec.refused_by = "capped", [f"T6: {n} repairs, judge streak {self.judge_streak.get(task.id, 0)}"]
+            self.history.append(rec)
+            return rec
+        new = await self.repair(task, list(cxs))
+        if new is None:
+            rec.repair = "declined"
+        else:
+            why = await self.decide(task, new, counted, cxs)
+            rec.refused_by = why
+            if why:
+                rec.repair = "refused"
+            else:
+                rec.repair, rec.new_version = "accepted", new.version
+                self.tasks[task.id] = new
+                self.repairs[task.id] = n + 1
+                self.judge_streak[task.id] = 0 if executed else self.judge_streak.get(task.id, 0) + 1
+                if self.lift_lemmas is not None:
+                    lem = await self.lift_lemmas(task, new, list(cxs))
+                    self.lemma_candidates += lem
+                    rec.lessons["lemma"] = [getattr(x, "id", str(x)) for x in lem]
+                if rules.reprobe:
+                    after = await self.probe.rollouts(new, rules.reprobe, start=rules.rollouts)
+                    graded = [r for r in after if getattr(r, "passed", None) is not None]
+                    nb = sum(1 for o, k in counted if k != "masked")
+                    if graded and nb:
+                        rec.drift = self.monitor.add(n_before=nb, passes_before=sum(1 for o, k in counted if k != "masked" and o.passed),
+                                                     unintended_passes=sum(1 for _, k in counted if k == "unintended_pass"),
+                                                     unintended_fails=sum(1 for _, k in counted if k == "unintended_fail"),
+                                                     n_after=len(graded), passes_after=sum(1 for r in graded if r.passed))
+        self.ledger.append(Decision(kind="repair", round=round, update_id=f"{task.id}@{task.version}", component="T", evaluated=True,
+                                    accepted=rec.repair == "accepted", to_version=rec.new_version,
+                                    failed=[RuleFailure(rule=x.split(":", 1)[0], detail=x) for x in rec.refused_by], metrics={"repair": rec.repair}))
+        self.history.append(rec)
+        return rec
+
+    async def run_round(self, round: int, *, ids: Sequence[str] | None = None) -> list[TaskProbe]:
+        out = [await self.probe_task(self.tasks[i], round) for i in (ids or sorted(self.tasks))]
+        self.save()
+        return out
+
+    def summary(self) -> dict[str, Any]:
+        tot: Counter[str] = Counter()
+        for h in self.history:
+            tot.update(h.counted)
+        return {"probed": len(self.history), "counted": dict(tot), "repairs": dict(Counter(h.repair for h in self.history)),
+                "counterexamples": sum(len(h.counterexamples) for h in self.history), "suspects": sum(len(h.suspects) for h in self.history),
+                "world_fixes": len(self.world_fixes), "lemma_candidates": len(self.lemma_candidates), "drift": self.monitor.alarm()}
