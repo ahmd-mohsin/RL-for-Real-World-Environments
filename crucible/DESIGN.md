@@ -2456,6 +2456,79 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      clusters and the critic, the blind oracle, the stage meter, unique ALT names, calibration with concurrent builds,
      read errors in the oracle, serial mode under backpressure, two seeds for two attempts of one model).
 
+21. **Part 2 RSI statistics (built 2026-10-29; `runs/rsi-stats.md`, `runs/rsi-2-prereg.md`; part2-paper-core §9 text
+   proposed there, not yet folded in).**
+   - **Paired mode of the update rule** (`meta/update.py`, `UpdateConfig.stats = StatsConfig(paired=True)`; M3's rule is
+     unchanged when off). δ is **δ_AA**: ≥ 5 A/A replicates, the unchanged Θ against itself on one fresh view at two
+     independent evaluator seeds (`View.eval_seed`: MUT's sibling sample, NULL's random calls, TWIN, PERT),
+     δ_AA = max(2·sd, max |d̄_r|), raise-only; the between-view δ is kept as `delta_spread`. **R2** is a one-sided test
+     by betting (`meta/stats.betting_test`, Waudby-Smith & Ramdas; aGRAPA bets, c = 0.75) of E[J′ − J] ≤ δ_AA at α_t,
+     Θ and Θ′ at independent seeds; the view is evaluated in chunks of fresh units and stops on crossing 1/α_t
+     (anytime-valid) or at futility (mean gain ≤ δ_AA after `n_futility` units); unevaluated units are released.
+     R3–R7 compare Θ′ and Θ at the same seed, as M3 did; R9 is a second betting test at the same α_t. Every evaluated
+     decision reports t, α_t, the e-value, the stop, and the paired effect with bootstrap and cluster-bootstrap (by
+     source task) intervals (`stats.effect`). `UpdateConfig.disabled` switches rules off for E10 only (recorded).
+   - **Run-level error control** (`stats.AlphaSpender`): one spender per arm, online Bonferroni (α/t_max, preregistered
+     t_max; or α·6/(π²t²)); P(any non-improving update accepted in a run) ≤ Σ α_t ≤ α by the union bound, given
+     conditionally valid tests. α spends: R2/R9 (one α_t), prunes (non-inferiority, E[J′ − J] ≤ −δ_AA), the meta loop
+     (one-sided Fisher exact, only with ≥ 4 candidates a side; RSI-1's 2/2 vs 0/2 acceptances had p = 1/6). Not spent:
+     audits (protective) and planter acceptance (executed checks). A write-ahead `test` record (t, α_t, the reserved
+     units) enters the ledger before evaluation, so a crash never returns α or units.
+   - **R1-strict** (`rsi.Pool.split`, `rsi.Sampler(strict=True)`): `decide_frac` of each domain's dev source tasks
+     form the decision split; decision and prune views draw fresh units from it without replacement and each unit is
+     used by one decision; proposers, birth gates, miss clusters, planter rewards and headroom see only the proposal
+     split; calibration, A/A and audit views come from the proposal split; planter plants on decision sources join the
+     decision split. The engine refuses a view that reuses a consumed unit or leaves fewer than `n_min`.
+   - **Generalisation gate G** (`Loop(locked_gate=True)`): the locked recall gain of Θ′ over Θ through
+     `stats.Thresholdout` (threshold, Laplace noise, budget; fail closed when spent), every access logged in the arm's
+     `holdout_access.jsonl` without the held-out value; off by default. A held-out World family (`Loop(family=...)`) is
+     measured every round, report only.
+   - **Power** (`stats.mcnemar_power`, `plants_needed`, `mde`, `power_table`, `betting_power`, `betting_mde`): exact
+     one-sided conditional McNemar power by enumeration; a recall gain of 0.2 needs 33 paired plants at power 0.8
+     (MDE 0.215 at n = 30).
+   - **Headroom** (`meta/headroom.py`): the share of dev plants the population misses that some expressible operator
+     (6,206 bodies of the DSL on the random control's constants × 6 label rules) catches with no alarm on the dev
+     anchors; distinct programs per task run once and every label rule is applied to the stored outcomes (cached across
+     rounds). `EvolveConfig.planter_reward = "headroom"`: a planter joins only when its novel proposal-split plants hold
+     a miss some expressible operator catches. The P/F game's trajectory is `RoundRow.game`.
+   - **E10** (`meta/ablate.py`, `rsi.ABLATIONS`, `EvolveConfig.ablated`): R1 (one reused view), R3, R4, R5, R7, R8, NL
+     (the planter's MMD bar) removed one at a time at equal budget, ≥ 3 seeds; J, locked FR, transfer (held-out family,
+     else locked domains outside the evidence), pool class KL, plant size, MMD, library size; mean, sd, t interval and the
+     paired Δ to the full loop.
+   - **Continuous, resumable loop** (`rsi.Loop.run(resume=True)`, `StopRules`): `state.json` per arm after every round
+     (engine state, sampler bank, planter history, `plants.jsonl`), the ledger replayed for write-ahead records; stops:
+     max rounds, spend, α spent, decision split dry, futility, rollbacks, pool-KL Goodhart alarm. Arms run concurrently
+     (`make_ctx`: own Worlds), so a model-free arm's CPU work overlaps the swarm calls; the planter proposal runs
+     concurrently with the round's operator decisions. `meta/par.ShardPool`: persistent `spawn` workers, units sharded
+     by a stable hash so each shard's per-seed class cache keeps every unit it measured (`FEvaluator(shards=...)`).
+   - **The per-task probe loop** (`rsi.ProbeLoop`; lead, 2026-10-29: RSI at task-creation time, not after training).
+     The student's probe rollouts (`StudentProbe`, the learnability agent's runner) are classified (`OutcomeClassifier`,
+     the learnability agent's; `ProbeOutcome` is the record consumed) as intended pass / intended fail / unintended pass
+     / unintended fail; executed unintended outcomes become PROBE counterexamples (the student's program with the verdict
+     the task should have given; `ProbeReplay` re-runs them in archive regressions) and drive a CEGIS repair of the task,
+     World instance or contract; lessons are lifted (archive → natural clusters → F; repair → lemma candidates; World or
+     tool bug → `world_fixes`). T1 evidence only (judged or evidence-free labels demoted; a label contradicting the grader
+     is void), T2 a repair that makes an intended or unattributed fail pass is refused (never ease a skill gap), T3 one
+     that makes an intended pass fail is refused, T4 it must close what justified it, T5 monotone archive and clean
+     deterministic classes (`archive_recheck`), T6 caps, T7 an "unsolvable as stated" fail is demoted when an ALT solver
+     of a non-student, non-builder family solved the task. No pass rate reaches a decision; `TuningMonitor` alarms on
+     re-probed pass-rate changes the fixed defects do not explain. The RL-time online monitor is not an input.
+   - **Tests**: `test_synth_rsi_stats.py` (betting level at the null boundary and power, bootstrap and cluster intervals,
+     A/A, spending, the run-level guarantee by simulation against an uncorrected rule, exact tests and power, Thresholdout,
+     paired engine decisions, R1-strict, state replay, gate G, the whole engine's FWER under null updates),
+     `test_synth_rsi_loop2.py` (headroom on the fixtures, the paired loop's decision split and resume, stop rules,
+     ablations, E10 over 3 seeds, the shard pool, betting power, and the probe loop with a scripted student: an
+     unintended pass archived, repaired and lifted; easing, tightening and no-op repairs refused; skill gaps and
+     unevidenced labels never repaired; World-builder fixes and caps; the drift monitor).
+   - **Measured** (`runs/rsi-stats.md` §0): δ_AA = 0.0196 on the rsi-2 dev pool (0.0327 on RSI-1's 75-unit view) against
+     RSI-1's between-view δ 0.0407; per-unit seed discordance 0.64%. RSI-1's best update (7 gains, 0 losses in 75) is
+     refused by the paired test too (e-value 4.2; the normal LCB 0.038 was an approximation). Dev headroom 7/125 (all
+     panel-only D3 `eq_to_any` gaps, every one expressible). After item 20 the locked sets are at 100% recall; five new
+     held-out D3 variants (`plant.held_out_planter_v2`) restore misses on the fixtures but not on the 7 real locked
+     sources: the locked set measures non-regression only until the 10 x 10 pool. The A/A replicates found TWIN alarming
+     on one clean it_helpdesk source at seeds 3 and 6 (fixed: per-seed anchor re-check, source-relative hits). Pilot runs
+     and costs: `runs/rsi-stats.md` §5.
+
 ## 8. Layer 4: verification and isolation
 
 Every gate declares its kind (M7 R6): `gate`, a rule the instruction states (its failure zeroes the reward and the

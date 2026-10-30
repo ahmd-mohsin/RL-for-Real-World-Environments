@@ -17,7 +17,30 @@ part2-paper-core §9 (marked **Proposed §9 text** below) plus the evidence behi
 | **Headroom (dev)** | 7 of 125 dev plants are missed by the population (all `relax_value:eq_to_any`, D3, MUT suspects only); **all 7** are caught by some expressible operator with no anchor alarm (e.g. `mutate_arg(*, written_key values) expect fail confirm always`): **headroom 5.6% absolute, 100% relative**; 34,132 of 37,236 grammar operators raise no anchor alarm; 7,625 distinct programs executed. Unchanged by DESIGN item 20 (the new population's dev misses are the same 7). |
 | **Headroom (locked, after item 20)** | the new population catches 72/72 rsi-2 locked plants: the old locked sets have no headroom and can no longer measure a gain. The four RSI-2 D3 variants (`held_out_planter_v2`) restore it: see §0.1. |
 
-<!-- LOCKEDV2 -->
+### 0.1 The locked set after DESIGN item 20
+
+The item-20 population (MUT with read mutants, layered TAINT) catches every plant of the rsi-1 and rsi-2 locked sets.
+A locked set at 100% recall can show a regression but never a gain. Five new held-out D3 variants were added to the
+planter (`held_out_planter_v2`; `relax_value:eq_to_regex`, `eq_to_ne`, `approx_rel`, `where_in`, `any_last`, disjoint
+from the dev variants). On the fixture tasks they plant witnessed defects the population misses (MUT reaches suspects
+only: `test_the_v2_held_out_d3_variants_...`). On the 7 real rsi-2 locked sources they do not:
+
+| locked set | planter | plants | population recall | headroom | post-hoc gain of RSI-1's 3 gate-passing operators |
+|---|---|---|---|---|---|
+| rsi-2 (old) | held_out_planter, cap 2 | 72 | 72/72 (item 20's run) | 0 | — |
+| rsi-2c | held_out_planter, cap 6 | 81 (measured before item 20 merged) | — | — | — |
+| rsi-2v2 | v2 (4 D3 variants), cap 6 | 83 | 83/83 | 0 | 0, 0, 0 |
+| rsi-2v3 | v2 + `any_last`, cap 6 | 84 (D3 4) | 84/84 | 0 | 0, 0, 0 |
+
+**Finding.** On today's sources the only planted defects the population misses are the dev set's 7
+`relax_value:eq_to_any` plants on it_helpdesk tasks (MUT suspects that need the panel). No held-out variant tried (18
+in all) reproduces that gap on the locked sources. **The locked set cannot measure a gain on the current pool; it
+measures non-regression only (gate G).** What would change this: (1) the 10 × 10 pool's 30 locked tasks (more task
+shapes, more chances for the panel-only D3 gap); (2) planters found by the P loop with the headroom reward, on dev
+first; (3) with MUT's suspects adjudicated by the panel (the M4 `Adjudicated` wrapper), even the dev gap closes and
+dev headroom is 0. RSI-2's preregistration therefore makes headroom a precondition (prereg §6).
+
+<!-- PILOT -->
 
 ## 1. What was wrong with RSI-1's update test
 
@@ -199,4 +222,14 @@ user's specification (independent seeds, δ_AA as the bar) is kept.
 
 ## 4. Open issues
 
-<!-- OPEN -->
+| Issue | Detail |
+|---|---|
+| Power is the binding constraint | Run-level control plus the A/A margin needs ~240 fresh units for a 0.1 gain (α_t = 0.005). The 10 × 10 pool's decision split (~375 units) supports one or two full tests. A 0.056 gain (RSI-1's best) is not detectable in any feasible RSI-2 decision. |
+| No locked headroom | After item 20, 18 held-out variants give 0 misses on the 7 real locked sources. The locked set measures non-regression until the larger pool or the P loop provides headroom. |
+| Dev headroom is panel-only | The 7 dev misses are MUT suspects (D3 `eq_to_any`). With MUT adjudicated by the panel they close, and dev headroom is 0: the F loop then has nothing to learn from planted defects alone. |
+| D1, D3, D4, D8 under-powered | ~1 witnessed plant per 7 source tasks; ~210 sources for 30 per class. Needs new held-out variants with ≥ 1 witnessed plant per task for these classes. |
+| Super-population validity | The betting test is exact for exchangeable units of the decision population. Plants of one source task are correlated; the cluster bootstrap is reported beside every decision, but the guarantee itself treats plants as exchangeable. |
+| The probe loop's interfaces | `StudentProbe` and `OutcomeClassifier` are the learnability agent's; `ProbeOutcome` is defined here as the record consumed. When their classifier lands, a thin adapter maps its output; T1–T7 hold whatever it emits. The probe loop has run only with a scripted student (the student was never called). |
+| The between-view δ and R3 bands | R3's per-class bands are still between-view (M3), on proposal-split views; on a small proposal split the views repeat and the bands are the configured minimum (0.02). |
+| Parallel workers | A killed parent leaves its shard workers computing until their current request ends (they exit at the next pipe read). |
+| Two anchors with real leaks | item 20 lists the fixture `ap/hold-1003` and it_helpdesk `t02` as D7 candidates for a person to settle; `t02` is also the anchor TWIN alarms on at seeds 3 and 6 (dropped as an anchor in paired mode). |

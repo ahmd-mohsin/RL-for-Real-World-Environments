@@ -440,10 +440,10 @@ def cmd_evolve(a: argparse.Namespace) -> None:
     cfg = _paired_config(a)
     pools: list[ShardPool] = []
 
-    def shards():
-        sp = ShardPool(a.workers)
-        pools.append(sp)
-        return sp
+    def shards():  # one pool for both arms (pilot p2: a pool per arm measured every shared unit twice)
+        if not pools:
+            pools.append(ShardPool(a.workers))
+        return pools[0]
 
     loop = _make_loop(a, cfg, d, lambda: wire.meter.spent, shards)
     props = swarm_proposers(wire.client("abstractor"), planter_client=wire.client("abstractor"))

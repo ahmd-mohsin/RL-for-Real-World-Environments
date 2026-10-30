@@ -19,7 +19,7 @@ The production target: **10 environments × 10 tasks = 100 admitted tasks**.
 
 Assignment is fixed before the run by a seeded hash of the environment names, with the constraint that the held-out
 family shares its World family with none of the other nine. Plants: the dev planter (`base_planter`) on dev sources; the
-held-out planter (`held_out_planter`, disjoint variants, `max_per_op = 6`) on locked and family sources. Expected yields
+held-out planter (`held_out_planter_v2`: the M3 held-out variants plus five RSI-2 D3 variants, disjoint from dev, `max_per_op = 6`) on locked and family sources. Expected yields
 (from rsi-2: 12.5 dev plants per task; locked yields in §5): about 375 decision units, 375 proposal plants.
 
 ## 2. Hypotheses
@@ -130,6 +130,7 @@ intervals, not as tests.
 | rollbacks | stop at 2 rollbacks |
 | Goodhart | stop when the dev pool's class-mix KL against round 0 exceeds 0.5 |
 | drift | the probe loop's repairs stop when the drift alarm fires |
+| headroom precondition | measured at round 0 on the proposal split and on the locked set. If dev headroom is 0 and the P loop's headroom-rewarded planters add none in rounds 1–2, the F loop stops (`futility`) and H1–H3 are reported as **not testable on this pool**, never as a negative result. If the locked set's headroom is 0, gate G still runs (non-regression) and H1–H3 rest on the held-out family alone. (On the rsi-2 pool after DESIGN item 20: dev headroom 7/125, all panel-only D3 gaps; locked headroom 0 under 18 held-out variants.) |
 
 ## 7. Analysis plan
 
