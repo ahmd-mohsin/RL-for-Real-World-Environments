@@ -2,13 +2,17 @@
 """crucible.synth M5 on the debug lane's training pool (part2-paper-core §14 M5). CPU and local Docker only; no model call.
 
     python scripts/synth_debug.py migrate  --pool P --out D [--tasks a,b]     # stored gate verdicts recomputed through the adapter
-    python scripts/synth_debug.py certify  --pool P --out D [--tasks a,b] [--max-hunks 16] [--no-visible]
+    python scripts/synth_debug.py certify  --pool P --out D [--tasks a,b] [--max-hunks 16] [--no-visible] [--attack --cap USD [--attack-rounds 3]]
     python scripts/synth_debug.py realdefects --out D [--records R] [--synth-data S] [--debug-store T] [--execute]
 
 ``--pool`` is a debug root of training windows (``data/debug-pool``); ``--out`` is where reports go (the main checkout's
 ``crucible/data/synth/debug``: never a temporary directory). Tasks default to the manifest's ``ready`` list
 (``docs/research/swarm-pipeline/07-debug-lane/training-pool/pool.json``). Docker containers are ``crucible-lh-d-synth-*``,
 at most ``--parallel`` (default 4) at once, removed by name at the end.
+
+``certify --attack`` (Part 1 V2) is the one paid mode: the role table's attackers (``SynthWire``, never the student's
+family) attack each task for up to ``--attack-rounds`` rounds with the failed checks fed back, the panel decides each pass,
+and ``--cap`` bounds the spend (``certificates/spend.json``).
 """
 
 from __future__ import annotations
@@ -83,14 +87,30 @@ async def certify(args: argparse.Namespace) -> int:
     pool = open_pool(Path(args.pool), parallel=args.parallel)
     out = Path(args.out) / "certificates"
     table: dict[str, Any] = {}
+    wire = roles = None
+    if args.attack:
+        from crucible.factory.synth_wire import SynthWire
+
+        if args.cap <= 0:
+            raise SystemExit("--attack calls paid models: give --cap USD")
+        wire = SynthWire(out, cap_usd=args.cap)
+        roles = wire.run_roles()
     try:
         for wid in ready(args.tasks):
             t0 = time.monotonic()
             task = pool.task(wid)
             env = patch_env(task)
             runner = lane_runner(task, parallel=args.parallel)
+            kw: dict[str, Any] = {}
+            if roles is not None:
+                from crucible.synth.falsify.agents import AgentBudget, Panel, PanelMember, llm_atk
+
+                kw = {"attackers": [llm_atk(n, c, budget=AgentBudget(max_calls=args.atk_calls, max_turns=args.atk_calls + 2), tag=f"ATK:{wid}") for n, c in roles.atk],
+                      "exclude_families": {"qwen"}, "attack_rounds": args.attack_rounds,
+                      "panel": Panel(members=[PanelMember(n, c) for n, c in roles.panel], lam=0.7, queue=out / "human_queue.jsonl", tag=f"adjudicate:{wid}")
+                      if len(roles.panel) >= 2 else None}
             try:
-                cert, results = await certify_patch(env, runner, prior=prior_of(pool.gates(wid)), max_hunks=args.max_hunks, visible=not args.no_visible)
+                cert, results = await certify_patch(env, runner, prior=prior_of(pool.gates(wid)), max_hunks=args.max_hunks, visible=not args.no_visible, **kw)
             finally:
                 runner.close()
             fs = findings_summary(results)
@@ -106,6 +126,8 @@ async def certify(args: argparse.Namespace) -> int:
             print(f"removed leftover containers: {left}")
     prev = json.loads((out / "summary.json").read_text()).get("tasks", {}) if (out / "summary.json").is_file() else {}
     write(out, "summary.json", {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "tasks": {**prev, **table}})
+    if wire is not None:
+        write(out, "spend.json", wire.cost())
     return 0
 
 
@@ -146,6 +168,10 @@ def main() -> None:
         if name == "certify":
             p.add_argument("--max-hunks", type=int, default=16)
             p.add_argument("--no-visible", action="store_true")
+            p.add_argument("--attack", action="store_true", help="Part 1 V2: run the role table's attackers (paid)")
+            p.add_argument("--attack-rounds", type=int, default=3)
+            p.add_argument("--atk-calls", type=int, default=24, help="tool calls per attack round")
+            p.add_argument("--cap", type=float, default=0.0, help="USD cap for --attack")
     p = sub.add_parser("realdefects")
     p.add_argument("--out", required=True)
     p.add_argument("--records", default="")

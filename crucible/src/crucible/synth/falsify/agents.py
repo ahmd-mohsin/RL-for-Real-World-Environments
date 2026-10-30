@@ -8,7 +8,8 @@ a literal ``Program`` (``trace_program``) that the archive can replay like any m
 - **ALT** (alternative solvers from families that built nothing in the task): a pass is a clean D6 trial; a failure is a
   **suspect D6** (adjudicated: was it a valid solution the contract rejects?).
 - **ATK** (attackers told to pass without doing the skill): a pass is a **suspect D8** (the panel decides D7/D8); a
-  failure is clean.
+  failure is clean. ``rounds`` > 1 (Part 1 V2: 3) gives a failed attacker another attempt from a fresh World, told which
+  checks its last attempt failed (the grader's reason codes, never the contract); the first passing round is the outcome.
 
 **LLM runners** (``llm_agent``): a tool-calling loop over a ``roles.RoleClient`` with a call budget (``AgentBudget``).
 Each turn the model sees the instruction, the tool catalogue and the history of its calls (observations cut to
@@ -113,7 +114,8 @@ def trace_view(calls: Sequence[CallRecord], obs_chars: int = 1200) -> list[dict[
             for c in calls]
 
 
-async def run_agent(agent: AgentSpec, task: Task, ctx: FalsifyContext) -> Run:
+async def run_agent(agent: AgentSpec, task: Task, ctx: FalsifyContext, *, feedback: str = "") -> Run:
+    """One attempt in a fresh World; ``feedback`` is appended to the instruction the agent sees (never to the run's)."""
     w = await ctx.world(task)
     await w.reset(task.seed)
     tools = await w.tools()
@@ -122,7 +124,7 @@ async def run_agent(agent: AgentSpec, task: Task, ctx: FalsifyContext) -> Run:
     err = None
     answer = None
     try:
-        answer = await agent.runner(AgentView(instruction=task.instruction, tools=tools), rec)  # type: ignore[arg-type]
+        answer = await agent.runner(AgentView(instruction=task.instruction + feedback, tools=tools), rec)  # type: ignore[arg-type]
     except Exception as e:
         if isinstance(e, BudgetExceeded):  # the run's spend cap: stop, never a failed attempt
             raise
@@ -143,9 +145,9 @@ class _AgentFalsifier(BaseFalsifier):
         return [Probe(cls=self.name, op="agent", site=f"agent:{a.name}", expect="property", data={"agent": a.name, "family": a.family})
                 for a in self.agents if a.family not in self.exclude]
 
-    async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext) -> Outcome:
+    async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext, *, feedback: str = "") -> Outcome:
         agent = next(a for a in self.agents if a.name == probe.data["agent"])
-        r = await run_agent(agent, task, ctx)
+        r = await run_agent(agent, task, ctx, feedback=feedback)
         if r.error is not None and r.error.startswith("agent:"):  # the model or its client failed: no attempt, not a trial
             return Outcome(valid=False, error=r.error, data={"family": agent.family, "calls": len(r.calls)})
         v = ctx.grade(r, task.contract)
@@ -163,6 +165,25 @@ class ALT(_AgentFalsifier):
 
 class ATK(_AgentFalsifier):
     name: ClassVar[str] = "ATK"
+
+    def __init__(self, agents: list[AgentSpec] | None = None, *, exclude_families: set[str] | None = None, rounds: int = 1):
+        super().__init__(agents, exclude_families=exclude_families)
+        self.rounds = max(1, int(rounds))
+
+    async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext, *, feedback: str = "") -> Outcome:
+        """Up to ``rounds`` attempts (Part 1 V2, 2606.16062: wrong solutions with the failure logs fed back, 3 rounds): a
+        failed round's reason codes go into the next round's instruction; the first passing round, or the last, is the
+        outcome (``data["round"]``). A round that is not a trial (the model failed) ends the attack."""
+        o = await super().execute(probe, task, ctx)
+        for i in range(2, self.rounds + 1):
+            if o.passed or not o.valid:
+                break
+            fb = ("\n\nAn earlier attempt of yours was graded and did not pass. The checks it failed: "
+                  + (", ".join(o.reasons[:12]) or "unknown") + ". Start again from the original repository.")
+            o = await super().execute(probe, task, ctx, feedback=fb)
+            o.data["round"] = i
+        o.data.setdefault("round", 1)
+        return o
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         return ("suspect", "D8") if outcome.passed else ("clean", None)

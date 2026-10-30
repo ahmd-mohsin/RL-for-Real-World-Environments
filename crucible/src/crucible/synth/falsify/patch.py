@@ -584,7 +584,7 @@ NOT_APPLICABLE = {
     "TWIN": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys",
     "PERT": "the start tree is one mined commit; distractor entities have no meaning for test-graded code",
     "ALT": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending",
-    "ATK": "paid (attackers): not run in M5",
+    "ATK": "paid (attackers): run only when certify_patch is given attackers (Part 1 V2)",
     "ONL": "online: applies to eval and training rollouts (falsify.online), none in a certificate run",
 }
 
@@ -618,14 +618,25 @@ async def prefetch(task: Task, ctx: FalsifyContext, env: PatchEnv, classes: Sequ
 
 
 async def certify_patch(env: PatchEnv, runner: ExecRunner, *, prior: Mapping[str, Any] | None = None, policy: AdmissionPolicy | None = None,
-                        max_hunks: int = MAX_HUNKS, visible: bool = True) -> tuple[Certificate, list[ClassResult]]:
-    """Every applicable class on one patch task, in ``run_classes`` order; the others recorded as not applicable."""
+                        max_hunks: int = MAX_HUNKS, visible: bool = True, attackers: Sequence[Any] = (), exclude_families: Collection[str] = (),
+                        attack_rounds: int = 3, panel: Any = None) -> tuple[Certificate, list[ClassResult]]:
+    """Every applicable class on one patch task, in ``run_classes`` order; the others recorded as not applicable.
+
+    Part 1 V2 (2026-10-30): ``attackers`` (``agents.AgentSpec``, e.g. ``agents.llm_atk``; paid) run ATK on the task, each
+    for up to ``attack_rounds`` rounds with the failed checks fed back, skipping ``exclude_families`` (the builder's, the
+    suite's and the student's); a pass is a suspect D8 that ``panel`` (``agents.Panel``) decides when given. Without
+    attackers ATK stays not applicable, as before."""
+    from crucible.synth.falsify.agents import ATK, Adjudicated
+
     task = env.task()
     ctx = env.context(runner)
     classes = patch_classes(env, runner, prior=prior, max_hunks=max_hunks, visible=visible)
+    if attackers:
+        atk = ATK(list(attackers), exclude_families=set(exclude_families), rounds=attack_rounds)
+        classes.append(Adjudicated(atk, panel) if panel is not None else atk)
     await prefetch(task, ctx, env, classes, runner)
     results = await run_classes(task, classes, ctx)
-    results += [ClassResult(cls=k, applicable=False, reason=why) for k, why in NOT_APPLICABLE.items()]
+    results += [ClassResult(cls=k, applicable=False, reason=why) for k, why in NOT_APPLICABLE.items() if not (k == "ATK" and attackers)]
     return certify(task, results, policy or PATCH_POLICY), results
 
 

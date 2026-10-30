@@ -2200,3 +2200,37 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   generators, framework_health, `WorkspaceHarness` or the Tinker trainer (the Claude-builder file excluded, finance on its
   `PYTHONPATH`): 1068 passed, 7 skipped. Ruff check and lint-imports clean.
 - **Merge notes.** In `WorkspaceHarness.run`: `defect` after the A1 lines, `_task_defect` after `_limit_penalty`.
+
+## 91. Part 1 V2: per-task attack rounds with the failed checks fed back, and the attack on the training pool
+
+- **Item.** V2 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("Per-task hackability H(t): K wrong
+  solutions from a family other than the builder's, the suite's and the student's, 3 rounds with the failure logs fed
+  back, applied in the real World. Any pass means fix before keeping. Attack transcripts become negatives"; 2606.16062:
+  28.5% of sampled SWE-bench Verified tasks accept a wrong patch, the audit cost $6.04 for 49 tasks). `synth`'s ATK ran
+  each attacker once, and never on the training pool's code tasks (`NOT_APPLICABLE["ATK"]`: paid). Already there, not
+  redone: the attacker role and its strategy library, the panel that decides each pass (D7/D8), the archive that keeps a
+  passing attack's program as a replayable counterexample (the "transcripts become negatives" half). Not taken: a real
+  attack run (paid: it waits for the user's go-ahead with a cost estimate).
+- **Files.** `src/crucible/synth/falsify/agents.py` (`ATK(rounds=)`, `ATK.execute`, `run_agent(feedback=)`,
+  `_AgentFalsifier.execute(feedback=)`, module doc), `src/crucible/synth/falsify/patch.py` (`certify_patch(attackers=,
+  exclude_families=, attack_rounds=3, panel=)`, `NOT_APPLICABLE["ATK"]` text), `scripts/synth_debug.py` (`certify --attack
+  --cap USD [--attack-rounds 3] [--atk-calls 24]`, `certificates/spend.json`), `tests/unit/test_part1_attack_rounds.py`
+  (new, 3 tests).
+- **Public names.** `ATK(..., rounds=)`, `run_agent(..., feedback=)`, `certify_patch(..., attackers=, exclude_families=,
+  attack_rounds=, panel=)`.
+- **Behaviour.** `ATK(rounds=1)` is unchanged (every existing caller). With `rounds` > 1 an attacker whose attempt failed
+  attempts again in a fresh World, its instruction followed by "An earlier attempt of yours was graded and did not pass.
+  The checks it failed: <reason codes>"; the run's recorded instruction stays the task's. The first passing round (a
+  suspect D8, `data["round"]`) or the last failing one is the outcome; a round the model itself failed ends the attack.
+  `certify_patch` adds ATK (wrapped in `Adjudicated` when a panel is given) only when attackers are passed, never their
+  excluded families; without attackers the result is as before. `synth_debug.py certify --attack` builds the role table's
+  attackers and panel (`SynthWire.run_roles`: today Nemotron and OpenAI families, Qwen excluded) under `--cap`.
+- **Formats.** ATK outcomes carry `data["round"]`; `certificates/spend.json` after an `--attack` run.
+- **Tests.** `test_part1_attack_rounds.py` (new, 3: on the fixture task, whose hidden tests check one input per function,
+  a scripted attacker that special-cases only `add` fails, reads `MISSING_REQUIRED:c_m02` in round 2, special-cases `mul`
+  too and passes: a suspect D8 at round 2; one round alone misses the hole; `certify_patch` runs ATK only when given
+  attackers, leaves the certificate open on the suspect, and an attacker of an excluded family makes ATK not applicable).
+  The file fails on the code before (no `rounds`). The synth suite with entries 89 and 91: 326 passed, 14 skipped. The
+  attacker and panel clients build under a cap without a call ($0). Ruff check and lint-imports clean.
+- **Merge notes.** `crucible.synth` is under active work on `main`: `ATK.__init__`/`execute` replace the two-line class
+  body; `run_agent` and `_AgentFalsifier.execute` gain one keyword each.
