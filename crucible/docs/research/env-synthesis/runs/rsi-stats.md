@@ -10,7 +10,7 @@ part2-paper-core §9 (marked **Proposed §9 text** below) plus the evidence behi
 
 | Item | Result |
 |---|---|
-| **δ_AA vs RSI-1's δ** | A/A, 5 replicates (seed pairs (1,2)…(9,10)) on the rsi-2 dev pool: replicate mean differences −0.016, 0, 0.008, 0, 0.008 on 125 units, **δ_AA = 0.0196**; on RSI-1's own 75-unit calibration view **δ_AA = 0.0327**. RSI-1's between-view δ was **0.0407**. Per-unit A/A discordance 0.64%: the seed changes 0–2 of 125 verdicts (MUT's sibling sample on it_helpdesk `eq_to_any` plants). |
+| **δ_AA vs RSI-1's δ** | A/A, 5 replicates (seed pairs (1,2)…(9,10)) on the rsi-2 dev pool: replicate mean differences −0.016, 0, 0.008, 0, 0.008 on 125 units, **δ_AA = 0.0196**; on RSI-1's own 75-unit calibration view **δ_AA = 0.0327**. RSI-1's between-view δ was **0.0407**. Per-unit A/A discordance 0.64%: the seed changes 0–2 of 125 verdicts (MUT's sibling sample on it_helpdesk `eq_to_any` plants). Re-measured on the merged population (items 18 and 20, source-relative hits): the same δ_AA (0.0196 and 0.0327; replicate means −0.016, 0.008, 0, 0, 0.008), the same discordance, flips only on `eq_to_any` plants. On the 60-unit proposal-split A/A view of the pilots: δ_AA = 0.041. |
 | **RSI-1's decisions, re-tested (report only)** | 3 of RSI-1's 14 evaluated decisions can be reconstructed exactly (the views from the sampler's seeds, matched by hash; J matches the ledger to 4 decimals); the other 11 had no stored operator spec. The best (`mutate_written_value_other_seen`, the one that "missed R2 by 0.003"): 7 gains, 0 losses on 75 units, mean 0.093, bootstrap 95% [0.040, 0.160], cluster bootstrap [0.028, 0.159]. The paired betting test against δ_AA = 0.0327: e-value 4.2 (needs 60 at α/3, 20 even uncorrected); anytime LCB −0.004 at α = 0.05. At independent seeds: mean 0.067–0.093, e-values 3.4–4.2. **The paired machinery also refuses it, more firmly**: RSI-1's normal LCB (0.038) was an approximation that does not hold for 7 discrete gains in 75; the binding constraint was the sample, not δ. The two other candidates: 2 and 3 gains, e-value 1.0. |
 | **Run-level error (simulation)** | 0.000 for T = 5–40 null candidates (§3), against 0.20–0.80 for the uncorrected per-test rule |
 | **Power (per class, locked)** | 33 paired plants detect a 0.2 recall gain at power 0.8 (71 for 0.1); rsi-2 locked: D6 12 plants (MDE 0.50), D7 18 (0.36), D10 13 (0.47); D1, D3, D4, D8 have 1–2 plants (no detectable effect). Raising `max_per_op` to 6 adds 9 plants (81): the cap is not the constraint, the source tasks are. Full table in `rsi-2-prereg.md` §5. |
@@ -70,7 +70,24 @@ every one refused by R2 (futility at 20 units, mean gain 0, interval [0, 0]), R7
 novel, one rewarded 0; headroom reward 0); dev headroom 6.6% (4 of 61 proposal plants, all expressible). Control arm, 2
 rounds × 8 random-DSL operators: none past the gate. Total pilot spend so far $0.006.
 
-<!-- PILOTRES2 -->
+| 14 | p5 (2 rounds, loop arm, 8 candidates, $0.0031) | with fix 12, three candidates (`mutate_written_value_shift`, `_suffix`, `_scale`) each caught all 4 proposal-split misses (the panel-only D3 `eq_to_any` plants), so the operators are real; but each took its own test on 20 fresh units and stopped for futility at a gain of 0: the decision split holds 3 such plants among 64 units. The three tests again used 60 units and ended the run | a candidate whose proposal-split catches are all held by a candidate already sent to a test this round is not tested (`gate:no_new_catches`) |
+
+**What the pilot shows about RSI-2's power (the key result).** The loop finds operators that close the only dev gap
+(4 of 4 proposal plants), and the run-level-controlled test correctly refuses to accept them on 20 decision units that
+contain at most one plant of that gap. The gain these operators can show on the decision split is 3/64 = 0.047; the MDE
+at n = 60 and α_t = 0.005 is 0.27 (prereg §5). On this pool no update can be accepted, by construction, and that is
+the right outcome: there is no evidence that would survive run-level error control.
+
+**E10 pilot** (none, R7, NL × seeds 0, 1, 2; 1 round, 4 swarm candidates each, salts per seed so the proposals differ;
+$0.018, 57 min): 0 accepted updates in all 9 runs, so J, locked FR (81/84), transfer, pool KL, plant size and library size
+are identical across ablations (every Δ is 0 with interval [0, 0]). Six of the nine runs sent 1–2 candidates to a test;
+with R7 switched off R7 never appears among the refusals and R2/R9 still refuse. The harness works; the ablation is
+uninformative until the loop accepts something (it needs headroom and decision units first).
+
+**Costs.** smoke1 $0.0027, p2 and p3 $0 (crashed before a model call: issues 7 and 9), p4 $0.0031, p5 $0.0031, E10 pilot
+$0.0181: **$0.0269 of the $30 pilot cap** (every receipt under `rsi2-pilot-*`). The shared Part 2 total was $83.39 of $150
+at the end. CPU: the A/A replicates and every pilot ran on the shard pool (8–12 workers); a 2-round paired pilot takes
+26–35 minutes, mostly the first measurement of each unit at each seed.
 
 ## 1. What was wrong with RSI-1's update test
 

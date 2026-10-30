@@ -2546,7 +2546,11 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      held-out D3 variants (`plant.held_out_planter_v2`) restore misses on the fixtures but not on the 7 real locked
      sources: the locked set measures non-regression only until the 10 x 10 pool. The A/A replicates found TWIN alarming
      on one clean it_helpdesk source at seeds 3 and 6 (fixed: per-seed anchor re-check, source-relative hits). Pilot runs
-     and costs: `runs/rsi-stats.md` §5.
+     and costs: `runs/rsi-stats.md` §5 ($0.027 of the $30 pilot cap; 14 problems found and fixed, among them zero-gain
+     candidates spending the decision split: the paired-mode gate now requires a new proposal-split catch and refuses
+     duplicates of a candidate already tested). No update was accepted, as it must not be: the operators that close the
+     only dev gap can show 3 gains in 64 decision units, under the MDE (0.27 at n = 60, α_t = 0.005). The E10 pilot
+     (3 ablations × 3 seeds) is therefore uninformative: every Δ is 0.
 
 ## 8. Layer 4: verification and isolation
 
