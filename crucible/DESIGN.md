@@ -2013,7 +2013,8 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      pack is realistic, its framework degradations placeholder / toy / incoherent are not).
    - **Wire and CLI**: `WORLD_ROLE_TABLE` (merged over `SYNTH_ROLES` by the CLI; the schema deriver moves to GLM there),
      `check_assignment` checks every role against `worldroles.ALL_ROLES`; `WORLDS_CAP_USD` = 30 over receipts whose path
-     carries "worlds". `scripts/synth.py worlds catalogue|build|instances|calibrate|gate|report` (`scripts/synth_worlds.py`);
+     carries "worlds", and the shared backstop is `MILESTONE_CAP_USD` from the environment when set (the Part 2 total,
+     $150, lead 2026-10-29; the module constant 60 is the M4-era default). `scripts/synth.py worlds catalogue|build|instances|calibrate|gate|report` (`scripts/synth_worlds.py`);
      `build --parallel` runs families concurrently, the run's cap split between them.
    - **Fixes forced by the pilot's real calls and gates** (each with a regression test):
      - *Impersonation, twice.* Kimi's first design passed `acting_user_id` to all nine write tools of a returns App; after

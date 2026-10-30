@@ -45,8 +45,11 @@ def worlds_cap(a: argparse.Namespace) -> float:
     root = data_root(a)
     ms = milestone_spent(root)
     ws = work_spent(root, "worlds")
-    cap = min(float(a.cap), round(WORLDS_CAP_USD - ws, 4), round(MILESTONE_CAP_USD - ms, 4))
-    print(f"milestone spend {ms:.4f} of {MILESTONE_CAP_USD}; worlds spend {ws:.4f} of {WORLDS_CAP_USD}; this run's cap {cap:.4f}", flush=True)
+    # the shared backstop: the Part 2 total (lead, 2026-10-29: $150, set as MILESTONE_CAP_USD in the environment; the
+    # module's 60 is the M4-era cap and stays the default)
+    shared = float(os.environ.get("MILESTONE_CAP_USD") or MILESTONE_CAP_USD)
+    cap = min(float(a.cap), round(WORLDS_CAP_USD - ws, 4), round(shared - ms, 4))
+    print(f"shared spend {ms:.4f} of {shared}; worlds spend {ws:.4f} of {WORLDS_CAP_USD}; this run's cap {cap:.4f}", flush=True)
     if cap < 0.02:
         raise SystemExit("the worlds budget is spent: refusing to start")
     if not os.environ.get("TINKER_API_KEY"):
