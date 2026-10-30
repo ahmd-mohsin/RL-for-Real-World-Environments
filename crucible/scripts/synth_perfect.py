@@ -554,6 +554,8 @@ async def _panel_for(a: argparse.Namespace, root: Path, d: Path, tasks: list[Any
 
     wire = SynthWire(d, cap_usd=_cap(a, root))
     panel = Panel(members=[PanelMember(f"panel-{c.family}", c) for c in wire.clients("panel")], lam=0.7, queue=d / "human_queue.jsonl")
+    from crucible.synth.program import Program
+
     ctx = FalsifyContext()
     anchors = []
     try:
@@ -562,9 +564,19 @@ async def _panel_for(a: argparse.Namespace, root: Path, d: Path, tasks: list[Any
             anchors.append(Anchor(task=t, attempt=Attempt(trace=trace_view(o.calls), answer=o.answer), valid=True, kind="oracle"))
             v = ctx.grade(empty_run(o.start, t.instruction), t.contract)
             anchors.append(Anchor(task=t, attempt=Attempt(trace=[], answer=None, reasons=v.reasons), valid=False, kind="noop"))
+            # π* without its last write: a near miss with executed truth (graded and failing), harder than a no-op
+            ws = [i for i, s in enumerate(t.oracle.steps) if not next((c.read_only for c in o.calls if c.step == s.id), True)]
+            if ws:
+                prog = Program(steps=[s for i, s in enumerate(t.oracle.steps) if i != ws[-1]], answer=t.oracle.answer)
+                r = await ctx.run(t, prog)
+                g = ctx.grade(r, t.contract)
+                if not g.passed:
+                    anchors.append(Anchor(task=t, attempt=Attempt(trace=trace_view(r.calls), answer=r.answer, reasons=g.reasons), valid=False,
+                                          kind="minus_last_write"))
     finally:
         await ctx.close()
-    cal = await calibrate(panel, anchors, floor=0.7)
+    # DESIGN item 20's stricter rule: a λ qualifies only with enough decided anchors of both truths; none → refuse to decide
+    cal = await calibrate(panel, anchors, floor=0.7, min_decided=max(6, len(anchors) // 2), require_both=True, refuse_uncalibrated=True)
     out["panel_calibration"] = cal.model_dump(mode="json")
     return wire, panel
 

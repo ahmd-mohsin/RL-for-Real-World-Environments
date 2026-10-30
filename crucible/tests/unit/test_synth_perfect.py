@@ -418,6 +418,12 @@ def test_requests_admission_cap_r4_and_comparison(tmp_path: Any) -> None:
     recs = [DifficultyRecord(key=DifficultyKey(task_id="a", task_version=1, task_digest="d", student="s"), decision="too_hard")]
     reqs = requests_from([_att("a", "decision", i=0), _att("a", "decision", i=1), _att("b", "completion", i=0)], recs)
     assert len(reqs) == 1 and reqs[0].direction == "ease" and reqs[0].knobs == {"derive_vs_given": -1} and reqs[0].traces == 2
+    # only rollouts the outcome classifier called a skill gap are targets (one of the two is not: no cluster of 2 left)
+    assert requests_from([_att("a", "decision", i=0), _att("a", "decision", i=1)], recs, skill_gaps={("a", 1, "s", 0)}) == []
+    from crucible.synth.frontier import request_text
+
+    txt = request_text(reqs[0], "a decision on one entity")
+    assert txt.startswith("a decision on one entity") and "is now stated in the request" in txt
     pool = [PoolEntry(task_id=f"o{i}", cell=c) for i, c in enumerate(["decide", "kb", "rule", "decide", "kb", "rule", "decide", "kb"])]
     cands = [PoolEntry(task_id=f"x{i}", cell="decide", targeted=True, request="r") for i in range(4)]
     admitted, refused, info = admit(pool, cands, FrontierPolicy(kappa=1.0, h_min=0.0))

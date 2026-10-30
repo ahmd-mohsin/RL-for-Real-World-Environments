@@ -1949,7 +1949,7 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
-   (`learnability`, `novelty`, `perfect`, `frontier`, `outcome`). Results: `docs/research/env-synthesis/runs/perfect-1.md`.
+   (`learnability`, `novelty`, `perfect`, `frontier`, `frontier-round`, `outcome`). Results: `docs/research/env-synthesis/runs/perfect-1.md`.
    - **P2** (`learn.py`). `StudentProbe` protocol: `rollouts(task, n, start)` → graded `Rollout`s (the trusted grader;
      an infrastructure failure is masked, outside n; a broken agent protocol is the student's failure, `stop =
      "protocol"`); `AgentStudentProbe` over any `AgentRunner`, one `FalsifyContext` per concurrent rollout
@@ -2028,14 +2028,29 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      P4 and `perfect` on every new task.
    - **Outcome classifier** (`outcome.py`; the probe side of the task-creation RSI loop, no training). Per rollout:
      `intended_pass` (constrained values observed before written, π*'s effects), `intended_fail` (a skill-mode first
-     wrong step on a task with π* passing and TAINT clean), `unintended_pass` (vacuous; a leaked derive value with the
-     evidence unread; a constrained value never observed; an affordance, frame hole, lax requirement or lax value with
-     the defect confirmed on the task), `unintended_fail` (grader error; π* fails C; REP nondeterminism; only unstated
-     trace constraints fail; the answer equals π*'s up to format; a TAINT D5 value that the failing patterns need),
-     else `uncertain`. **Decision (the key rule):** an unintended label needs task-level executed evidence; a failure
-     that is not a clean skill gap and has none is `uncertain`, so the loop never eases a task toward the student's
-     pass rate. `TaskEvidence` (REP, TAINT, NULL, RED, TWIN, EVID, MUT optional; ALT history) once per task. The
-     calibrated swarm panel (λ from oracle and no-op anchors) decides only the residue.
+     wrong step on a task with π* passing and TAINT clean), `unintended_pass` (vacuous; a constrained value never
+     observed; an affordance, frame hole, lax requirement or lax value with the defect confirmed on the task),
+     `unintended_fail` (grader error; π* fails C; REP nondeterminism; only unstated trace constraints fail; the answer
+     equals π*'s up to format; a TAINT D5 value that a failing pattern or answer check needs), else `uncertain`.
+     **Decision (the key rule):** an unintended label needs task-level executed evidence; a failure that is not a clean
+     skill gap and has none is `uncertain`, so the loop never eases a task toward the student's pass rate.
+     `TaskEvidence` (REP, TAINT with item 20's leak matcher, NULL, RED, TWIN, EVID, MUT optional; ALT history) once per
+     task. The swarm panel decides only the residue, calibrated with item 20's strict rule (`min_decided`, both truths,
+     refuse when uncalibrated) on oracle, no-op and minus-last-write anchors. **Decisions forced by the real rollouts:** a
+     pass with a leaked derive value and unread evidence is the residue, not decisive (the D7 matcher fired on
+     "duplicates" as a verb and π* reads receipts a duplicate rejection never needs); a panel *valid* verdict cannot
+     clear a task-level leak (on the fixture leak both members said valid at ≥ 0.99: the attempt follows the leaky
+     instruction), so it stays `uncertain`; answer-check constants relate a D5 value to an ANSWER failure. The frontier
+     targets only `intended_fail` rollouts (`requests_from(skill_gaps=...)`).
+   - **Results (PERFECT-1, `runs/perfect-1.md`, $5.55 of $15).** 89 training-side tasks, 664 student rollouts ($0.0037
+     each, $0.027 per band decision): 47 too hard, 19 in band, 23 too easy. Predictor LOO MAE 0.229 vs 0.313 constant,
+     band accuracy 0.44 (0.34–0.54): untrusted, it skipped nothing; ALT history is the best single feature, the one-call
+     proxy estimate carries none. On-intent share 0.87 (finance_ap) and 0.34 (it_helpdesk, TWIN D9 on 21 rejected
+     tasks); admitted-only 11/11. Near-duplicate θ = 0.865 (w = 1, gate 0.5): TPR 1.00, FPR 0.008 on 174/3401 labelled
+     pairs. Perfect: 3 finance_ap tasks admitted, one valid in-band task refused as a duplicate. Outcome classifier:
+     known-label cases 25/26 decided, all right, 0 skill gaps called defects; real rollouts 424 intended_fail, 132
+     intended_pass, 52 unintended_fail (hidden information on 7 tasks), 1 unintended_pass, 67 uncertain. One real
+     frontier round (4 + 4 tasks): targeted 0 perfect (the eased task was too easy), control 1: no difference at n = 4.
    - **Exports for the RSI loop** (no reward, no pass count, no p̂ crosses): `learn.band_verdicts` → `BandVerdict
      {task_id, task_version, task_digest, domain, student, checkpoint, simulator, time_mode, decision: too_hard|in_band|
      too_easy|null, confident, error, source: measured|predictor|none, rollouts, cost_usd}`; `learn.band_examples` →
