@@ -546,7 +546,7 @@ class UpdateEngine:
         if self.on("R1"):
             # paired mode: calibration (A/A) and audit views come from the proposal split and may repeat on a small pool:
             # they test nothing that can be accepted; decisions are fresh by their units (R1-strict, below)
-            if v.hash in self.used and not (self.paired and purpose in ("calibrate", "audit")):
+            if v.hash in self.used and not (self.paired and purpose in ("calibrate", "aa", "audit")):
                 fail.append(RuleFailure(rule="R1", detail=f"view {v.hash[:12]} was used before"))
                 return None
             if v.locked:
@@ -618,7 +618,7 @@ class UpdateEngine:
             if len(st.seeds) < 2 * k:
                 raise ValueError(f"the A/A floor needs {2 * k} distinct evaluator seeds (have {len(st.seeds)})")
             fail = []
-            v = await self._view(round, "calibrate", fail)
+            v = await self._view(round, "aa", fail)
             if v is None:
                 raise RuntimeError(f"the A/A view needs a fresh view: {fail[0].detail}")
             pairs = [(st.seeds[2 * r], st.seeds[2 * r + 1]) for r in range(k)]

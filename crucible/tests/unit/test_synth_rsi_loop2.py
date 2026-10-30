@@ -437,3 +437,34 @@ async def test_hits_are_source_relative_and_an_anchor_that_alarms_at_any_seed_is
     arm.evaluator = ev
     bad = await loop.clean_anchors(arm)
     assert bad == {p.source_id: [3]} and p.source_id not in {a.id for a in arm.pool.anchors} and p.source_id in arm.pool.dropped
+
+
+async def test_the_paired_loop_runs_on_shards_with_concurrent_gates(tmp_path):
+    from crucible.synth.meta.par import ShardPool
+
+    ctx, _clean, _, dev_src, locked_src, dev, locked, _, nat, nat_tasks = await _ready()
+    pool = Pool(dev_src)
+    pool.add("P@1", dev.plants)
+    pools: list = []
+
+    def shards():
+        sp = ShardPool(2)
+        pools.append(sp)
+        return sp
+
+    cfg = _paired_cfg(rounds=1, headroom=False, planter_reward="miss", candidates=3)
+    loop = Loop(tmp_path, pool, locked, locked_src, nat, ctx=ctx, report_ctx=FalsifyContext(), config=cfg, dev_sources=dev_src, builders=["deepseek"],
+                natural_sources=nat_tasks, shards=shards)
+
+    async def ops(*, k, round, misses, **_):
+        cites = [misses[0]["cluster"]] if misses else []
+        return [(EXTRA_READ.model_copy(update={"name": f"x{round}_{i}"}), cites) for i in range(k)], {"lemmas": [], "strategies": []}
+
+    try:
+        rows = await loop.run(Proposers(ops=ops, family="openai"), control=False)
+    finally:
+        for p in pools:
+            p.close()
+    r1 = rows[-1]
+    assert r1.round == 1 and len(r1.candidates) == 3 and all(c.gate or c.refused_by for c in r1.candidates)
+    assert all("checks" in c.gate for c in r1.candidates if c.gate)

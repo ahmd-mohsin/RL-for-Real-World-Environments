@@ -85,9 +85,22 @@ def _dump(path: Path, doc: object) -> None:
     print(f"wrote {path}", flush=True)
 
 
+def keys_from(a: argparse.Namespace) -> None:
+    """``--env-from <dir>``: the nearest ``.env`` of that directory (the repo's own parser, ``core.config._dotenv``) fills
+    this process's environment for the Tinker key only; nothing is printed or written."""
+    if not getattr(a, "env_from", None) or os.environ.get("TINKER_API_KEY"):
+        return
+    from crucible.core.config import _dotenv
+
+    v = _dotenv(Path(a.env_from)).get("TINKER_API_KEY")
+    if v:
+        os.environ["TINKER_API_KEY"] = v
+
+
 def pilot_cap(a: argparse.Namespace, root: Path) -> float:
     from crucible.factory.synth_wire import work_spent
 
+    keys_from(a)
     spent = work_spent(root, "rsi2-pilot")
     cap = min(float(a.cap), round(PILOT_CAP_USD - spent, 4))
     print(f"RSI-2 pilot spend so far {spent:.4f} of {PILOT_CAP_USD}; this run's cap {cap:.4f}", flush=True)
@@ -364,6 +377,9 @@ def _natural(root: Path, domains: list[str]):
     return arch, cxs, nat_tasks
 
 
+_REPORT: dict = {}  # E10: one report context for every arm (the locked-set measurements are a function of the population)
+
+
 def _make_loop(a: argparse.Namespace, cfg, d: Path, spend, shards_factory, seeded=None):
     from crucible.synth.falsify import FalsifyContext
     from crucible.synth.meta.rsi import Loop, load_real_defects, real_defect_features
@@ -377,7 +393,7 @@ def _make_loop(a: argparse.Namespace, cfg, d: Path, spend, shards_factory, seede
     def refresh():
         return [c for dm in domains if arch.path(dm).exists() for c in arch.records(dm)]
 
-    return Loop(d, _pool(dev, dev_src), locked, locked_src, cxs, ctx=FalsifyContext(), report_ctx=FalsifyContext(), config=cfg, dev_sources=dev_src,
+    return Loop(d, _pool(dev, dev_src), locked, locked_src, cxs, ctx=FalsifyContext(), report_ctx=_REPORT.setdefault("ctx", FalsifyContext()) if seeded is not None else FalsifyContext(), config=cfg, dev_sources=dev_src,
                 builders=["deepseek", "glm", "kimi"], natural_sources=nat_tasks, spend=spend, reference=ref, natural_refresh=refresh, shards=shards_factory,
                 seeded=seeded)
 
@@ -470,6 +486,7 @@ def cmd_e10(a: argparse.Namespace) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None)
+    ap.add_argument("--env-from", default=None, help="a directory whose nearest .env supplies TINKER_API_KEY to this process (never printed)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p: argparse.ArgumentParser) -> None:

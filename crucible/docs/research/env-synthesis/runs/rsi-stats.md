@@ -1,0 +1,191 @@
+# RSI statistics: a rigorous update test, run-level error control, power, headroom, and the per-task probe loop
+
+Date: 2026-10-29. Code: `crucible/src/crucible/synth/meta/{stats,update,rsi,headroom,ablate,par}.py`; tests
+`tests/unit/test_synth_rsi_stats.py`, `tests/unit/test_synth_rsi_loop2.py`; real-data CLI `scripts/synth_rsi2.py`.
+Data: `crucible/data/synth/rsi/rsi-2/stats/` and `rsi-2/rsi2-pilot-*` (gitignored). This file is the proposed text for
+part2-paper-core §9 (marked **Proposed §9 text** below) plus the evidence behind it. The preregistration of RSI-2 is
+`runs/rsi-2-prereg.md`.
+
+<!-- RESULTS -->
+
+## 1. What was wrong with RSI-1's update test
+
+| Problem | Consequence |
+|---|---|
+| δ was the spread of J across *different* views (between-view sampling noise) | The test statistic is a *paired* difference on one view, whose noise is far smaller. The bar measured the wrong noise. |
+| "Fresh" views were overlapping 60% draws from one fixed pool of 125 plants | R1 held only for view hashes: every decision re-read most of the same plants, and the abstractor's miss clusters were drawn from those same plants |
+| Each candidate was tested at a one-sided 95% normal LCB, with no correction | Candidates × rounds is a multiple-testing problem. With T looks at noise the family-wise error grows like 1 − 0.95^T. |
+| The meta loop accepted A′ on gate pass rates of 2/2 vs 0/2 | The exact one-sided p-value of 2/2 vs 0/2 is 1/6. Those two acceptances were not evidence. |
+| The locked set had 1 plant for D1, D3 and D4 | A per-class recall change was undetectable: the minimum detectable effect at n = 1 does not exist |
+
+## 2. Proposed §9 text
+
+### 9.4′ R1 and R2, replaced
+
+**Proposed §9 text.** *Units and the null.* An update u: Θ → Θ′ is evaluated on n decision units (planted tasks). Unit i
+gives D_i = Y_i(Θ′, s′) − Y_i(Θ, s) ∈ [−1, 1], with s and s′ two independent evaluator seeds (the falsifiers' random
+choices: MUT's sibling sample, NULL's random calls, TWIN's twins, PERT's perturbations). The null of the test is
+
+> H_u: E[D] ≤ δ_AA, the update is no better than the unchanged Θ is against itself.
+
+*The noise floor, δ_AA.* Before the loop, the unchanged Θ is evaluated against itself on one fresh view with k ≥ 5
+disjoint pairs of independent seeds (A/A replicates). Each replicate gives the mean paired difference d̄_r. The floor is
+δ_AA = max(2·sd(d̄_r), max_r |d̄_r|). It is measured at the decision view's size, is never tuned, and only moves up (a
+recalibration keeps the maximum). M3's between-view δ is still computed and reported (`delta_spread`), but it is not the
+bar: the decision statistic is paired, so the reference noise must be the paired noise of an update that changes
+nothing. The A/A distribution is exactly the null distribution of the decision statistic for Θ′ = Θ.
+
+*The test.* R2 holds when a one-sided test by betting (Waudby-Smith & Ramdas, JRSS-B 2024) rejects H_u at level α_t.
+On X_i = (D_i + 1)/2 and m = (δ_AA + 1)/2 the wealth K_n = Π_{i≤n} (1 + λ_i (X_i − m)), with predictable bets
+λ_i ∈ [0, c/m] (aGRAPA, c = 3/4), is a non-negative supermartingale under H_u. Ville's inequality gives
+P(sup_n K_n ≥ 1/α_t) ≤ α_t, so the test is valid at every stopping time. The evaluation therefore runs in chunks of fresh
+units and stops as soon as the wealth crosses 1/α_t (accept R2), or when, after n_fut units, the mean gain is at or below
+δ_AA (refuse: futility only lowers power). Units never evaluated are released and stay fresh. R2's anytime lower
+confidence bound (the largest null mean the test still rejects) is reported with the paired-bootstrap 95% interval and
+the cluster bootstrap by source task (plants of one task are correlated).
+
+*R3–R7* compare Θ′ and Θ at the *same* seed (common random numbers), exactly as M3 did. *R9* is a second betting test,
+of J′ − J_control, at the same α_t.
+
+*R1, strict.* A share of each domain's dev source tasks is reserved as the **decision split**. Decision views draw their
+units without replacement from the decision split's units that no earlier decision consumed. The decision split is never
+shown to a proposer, the birth gate or the planter loop. Calibration, A/A and audit views draw from the proposal split.
+A planter's new plants on decision sources join the decision split. Every α spend and every unit reservation is written
+to the ledger (a `test` record) **before** the units are evaluated, so a crashed round never gets its α or its units back.
+
+### 9.4″ Error control over a whole run
+
+**Proposed §9 text.** Every decision that can accept something is a test t with a level α_t fixed before its data are
+drawn, from one spender per loop run (per arm): online Bonferroni, α_t = α / t_max for t ≤ t_max (t_max preregistered),
+0 afterwards; or, open-ended, α_t = α·6/(π² t²). **Theorem.** If each test t is valid conditional on everything before it
+(P(reject_t | F_{t−1}) ≤ α_t whenever H_t is true), then
+
+> P(some non-improving update is accepted in the run) ≤ Σ_t P(reject_t, H_t true) = Σ_t E[1{H_t} P(reject_t | F_{t−1})] ≤ Σ_t α_t ≤ α.
+
+The union bound needs no assumption on the dependence between tests, and the candidate of test t may depend on
+anything before it (the abstractor's proposals, the previous outcomes). Conditional validity comes from Ville's
+inequality for the betting test, given that the units of test t are exchangeable draws that nothing before t has seen:
+that is what R1-strict guarantees. Alpha-investing and online e-BH control the false discovery rate, not this
+family-wise error, so they are not used.
+
+**What the guarantee covers.** "Non-improving" means E[D] ≤ δ_AA on the decision-split population at the time of the test
+(planted defects of the current and every past planter, on dev source tasks the proposers never saw). It does not by
+itself cover generalisation to other domains, other World families or other operator variants. Those are the
+generalisation gates (9.4‴).
+
+**What else spends α.** R9 (same α_t as R2); a prune (a non-inferiority test, H: E[J′ − J] ≤ −δ_AA, on fresh units; a
+prune buys cost, not J, and must show it costs no more than the floor); the meta loop A (a one-sided Fisher exact test of
+the birth-gate pass rate of A′ against A, only with ≥ 4 candidates a side: 2 against 2 can never reach significance); the
+lemma gate of S (its McNemar or Newcombe test at the α_t it is handed). **What does not.** An audit (it can only roll
+back, never accept: tested at a fixed 0.05) and planter acceptance (witness validity, novelty, natural-likeness and
+reward are executed checks, not an improvement claim).
+
+### 9.4‴ Generalisation is the acceptance test
+
+**Proposed §9 text.** A system-level update is accepted only if, beyond R1–R10:
+- **R7** its gain appears on dev domains that produced none of its evidence;
+- **G (locked set)** the locked set does not regress. Any decision that reads held-out data goes through a reusable
+  holdout (Thresholdout, Dwork et al., Science 2015): the gate asks for the locked recall gain of Θ′ over Θ and receives
+  the dev value unless the locked value differs by more than a noisy threshold, in which case it receives a noisy
+  locked value and the holdout's budget drops by one. Every access is logged (`holdout_access.jsonl`: the query, the
+  purpose, whether the holdout was revealed, the budget left, never the held-out value). Budget spent: the gate fails
+  closed. G is off by default (no loop reads the locked set); RSI-2's preregistration turns it on.
+- **The held-out World family** (a family no round's evidence came from) is measured every round and reported; no
+  decision reads it. It is the headline measure of generalisation.
+
+### 9.3′ The P/F game produces headroom
+
+**Proposed §9 text.** *Headroom* is the share of dev plants the current population misses that some operator expressible
+in the DSL catches with no false alarm on the dev anchors (`meta/headroom.py`; the grammar is the DSL on the random
+control's constants: 6,206 bodies × 6 label rules = 37,236 operators). It bounds what one round of DSL operators can add to J. A planter is
+rewarded for headroom, not for misses alone: it joins the population only if its novel plants on proposal sources contain
+a miss some expressible operator could catch. A miss nothing expressible catches is a DSL blind spot, reported, but it
+gives F nothing to learn. The game's trajectory (F's recall, the misses, headroom, the planter rewards, the pool's class
+KL and MMD to the real-defect reference) is reported every round.
+
+### 9.5′ The per-task probe loop (RSI at task-creation time)
+
+**Proposed §9 text (replaces "the frontier loop" and every mention of RL training as an input).** RSI runs when tasks are
+created, not after training:
+1. a task is created and admitted by its certificate;
+2. the student runs on it as **probe rollouts** (not training);
+3. each outcome is classified: **intended pass** (the skill was used), **intended fail** (a genuine skill gap),
+   **unintended pass** (a shortcut, a leak, a vacuous check, a frame hole, a hack path), **unintended fail** (an ambiguous
+   instruction, hidden information, an over-strict check, a World or tool bug, contradictory docs, an unsolvable variant);
+4. unintended outcomes with executed or calibrated evidence become counterexamples (an executed one is the student's own
+   program with the verdict the task should have given, class PROBE in the archive) or panel-adjudicated suspects, and
+   drive a repair of the task, its World instance or its contract through CEGIS under the monotone archive;
+5. the lesson is lifted: the counterexample enters the archive and, through natural clusters, the falsifier loop; the
+   repair becomes a candidate design lemma for the writers; a World or tool bug becomes a World-builder fix;
+6. this repeats, round after round.
+
+The regularisers of a per-task repair (all checked, non-compensatory):
+
+| # | Rule | What it prevents |
+|---|---|---|
+| T1 | **Evidence only.** A repair needs ≥ 1 unintended outcome with executed or calibrated evidence. A judged-only or evidence-free "unintended" failure is demoted to an unattributed fail and treated as a skill gap; such a pass goes to the panel queue. A label that contradicts the trusted grader's verdict is void. | Repairs justified by opinion; tuning by pass rate |
+| T2 | **Never ease a skill gap.** Every intended (and unattributed) fail's program is replayed on the repaired task; one that now passes refuses the repair. | Making tasks easier for the student |
+| T3 | **Never over-constrain.** Every intended pass's program is replayed; one that now fails refuses the repair. | A repair that adds a D6 |
+| T4 | **Close what justified it.** Every unintended pass must now fail; every executed unintended fail of a valid program must now pass. | Cosmetic repairs |
+| T5 | **Monotone archive.** No archived counterexample re-opens (student-probe ones included); the deterministic classes stay clean. | Forgetting |
+| T6 | **Caps.** ≤ 3 repairs per task; calibrated-only (judge) evidence stops after 2 repairs without new executed evidence. | Self-verification saturation (R8) |
+| T7 | **Independent attribution.** A failure that claims the task cannot be solved as stated (ambiguous, hidden information, unsolvable, contradictory docs) is demoted when an ALT solver of a non-student, non-builder family solved the same task. | Calling a skill gap a task defect |
+
+**J and every acceptance gate never use the raw student pass rate.** The repair decision is a function of the counted
+outcomes and the replays of their programs; no aggregate pass rate reaches it, and a rollout carrying one is refused.
+**The student-tuning drift monitor** reads pass rates for one purpose, an alarm: on re-probed repaired tasks,
+d = p_after − (passes_before − unintended_passes)/n_before; a fixed unintended fail explains a rise of up to
+unintended_fails/n_before; the unexplained part u = d − clip(d, 0, that bound) is averaged over tasks, and the alarm fires
+when at least 5 tasks give a mean |u| above 0.1 with a 95% bootstrap interval that excludes 0. An alarm stops the loop's
+task repairs for review; nothing is accepted because of it.
+
+**System-level updates** lifted from the probe loop (falsifier operators, lemmas, World-builder fixes) are accepted only
+under 9.4–9.4‴: a fresh-unit paired test at an α_t of the run's spender, R7 on held-out domains, the locked set through
+the reusable holdout, the held-out World family reported.
+
+**Interfaces consumed.** The student-probe runner is the learnability agent's `StudentProbe` (`rollouts(task, n, start)`
+→ graded `Rollout`s with a replayable literal program). The outcome classifier (`OutcomeClassifier.classify(task,
+rollouts)` → `ProbeOutcome`: index, the grader's verdict, kind, mechanism, defect, evidence ∈ executed / calibrated /
+judged / none, `alt_solved` and its family, the program) is the learnability agent's; `meta/rsi.py` defines the record it
+consumes and enforces T1–T7 whatever the classifier says. The online monitor during RL training is a separate safety net
+and is **not** an input to this loop.
+
+### 9.6′ What the paper reports about the loop (additions)
+
+- δ_AA with its replicates, beside the between-view spread;
+- per test: t, α_t, the e-value, the stopping point, the paired effect with its bootstrap and cluster-bootstrap intervals;
+- the run's α spent and the decision split's units left;
+- headroom and the P/F game's trajectory;
+- E10 ablations at equal budget, ≥ 3 seeds, with paired differences to the full loop;
+- the probe loop's outcome counts, demotions, repairs and refusals by rule, lifted lessons, and the drift monitor.
+
+## 3. Proof sketch and simulation of the run-level guarantee
+
+The guarantee is the union bound above; the only property each test needs is conditional validity, which the betting
+supermartingale gives under exchangeable fresh units. Simulations (scripted fakes, `test_synth_rsi_stats.py`):
+
+**Family-wise error of a run of T null candidates** (every candidate's true gain is 0; units: ties, with ±1 seed noise at
+3% a side; 40 units per test; δ_AA from 5 A/A replicates per run; 2,000 runs per row):
+
+| T tests | ours: betting at α/T against δ_AA | uncorrected: one-sided normal LCB₉₅ > 0 (M3's rule with a 0 floor) | uncorrected LCB₉₅ > δ_AA |
+|---|---|---|---|
+| 5 | 0.000 | 0.204 | 0.004 |
+| 10 | 0.000 | 0.323 | 0.004 |
+| 20 | 0.000 | 0.556 | 0.006 |
+| 40 | 0.000 | 0.798 | 0.011 |
+
+The machinery end to end (calibrate + decide in paired mode, 120 runs of 6 null updates each, scripted evaluator with
+3% seed flips) accepts no null update (`test_the_whole_engine_keeps_the_run_level_error_under_alpha`); the betting test
+holds its level at the null boundary (E[D] = δ, 1,500 draws: rejection rate within 0.05 + 3 se).
+
+**The price is power.** Betting at α_t with the A/A margin is conservative: the observed family-wise error is 0, far
+under 0.05. Power at α_t = 0.0025 for a true gain g on n units (same noise model): n = 40: 0.00 (g 0.1), 0.02 (0.2),
+0.13 (0.3); n = 80: 0.01, 0.24, 0.72; n = 160: 0.08, 0.81, 0.99. With the real seed noise of the rsi-2 pool (0.64%
+discordance) the minimum detectable gains are in the preregistration (§5): 0.094 at 240 units, 0.061 at 375.
+Two levers stay within the rules: larger decision views (power grows with n, δ_AA shrinks as 1/√n), and fewer
+preregistered tests (t_max). Common random numbers would remove the seed noise from D but not the A/A margin, and the
+user's specification (independent seeds, δ_AA as the bar) is kept.
+
+## 4. Open issues
+
+<!-- OPEN -->

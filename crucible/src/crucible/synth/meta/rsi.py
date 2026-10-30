@@ -400,6 +400,13 @@ class Sampler:
             h = content_hash({"plants": sorted(ids), "anchors": sorted(anchors), "n": self.n, "strict": True}, 32)
             v = View(hash=h, round=round, domains=self.pool.domains(), planters=sorted(self.pool.by_planter), seed=self.n, strict=True,
                      payload={"plants": ids, "anchors": anchors})
+        elif purpose == "aa":  # the A/A view: the decision size (n_max units) when the proposal split has them
+            self.n += 1
+            prop = sorted(self.pool.proposal_ids() if self.strict else self.pool.plants)
+            ids = random.Random(f"aa/{self.seed}/{round}/{self.n}").sample(prop, min(self.n_max, len(prop)))
+            h = content_hash({"plants": sorted(ids), "anchors": sorted(anchors), "aa": True}, 32)
+            v = View(hash=h, round=round, domains=self.pool.domains(), planters=sorted(self.pool.by_planter), seed=self.n,
+                     payload={"plants": ids, "anchors": anchors})
         else:
             restrict = self.pool.proposal_ids() if self.strict else None
             for _ in range(64):
@@ -934,8 +941,35 @@ class Loop:
         same = [p for p in plants if p.domain == dom]
         return rng.sample(same, min(len(same), self.cfg.gate_sources)), dom
 
-    async def try_candidate(self, arm: Arm, spec: OperatorSpec, cites: list[str], origin: str, clusters: Sequence[Cluster], misses: Sequence[Plant],
-                            r: int, rng: random.Random) -> Candidate:
+    async def _gate_par(self, arm: Arm, spec: OperatorSpec, sources: Sequence[Plant | Task], fresh: Sequence[Plant]) -> Any:
+        """``library.birth_gate`` on the shards (the same four checks; the operator alone, every unit in parallel), so a
+        round's candidates are gated concurrently."""
+        from crucible.synth.meta.library import GateReport
+
+        sh = arm.evaluator.shards
+        lib = Library().add(spec, 0).model_dump(mode="json")
+        src_plants = [s for s in sources if isinstance(s, Plant)]
+        src_tasks = [s for s in sources if not isinstance(s, Plant)]
+        await sh.add(plants=[p for p in [*src_plants, *fresh] if p.id not in sh.known], tasks=[t for t in [*arm.pool.anchors, *src_tasks] if t.id not in sh.known])
+        ids = [*(a.id for a in arm.pool.anchors), *(s.id for s in sources), *(p.id for p in fresh)]
+        res = await sh.evaluate(lib, ids, seed=arm.evaluator.ctx.seed, max_mutants=arm.evaluator.ctx.max_mutants, base=False)
+        alarms = [a.id for a in arm.pool.anchors if res[a.id]["hit"]]
+        repro = [bool(res[s.id]["hit"]) for s in sources]
+        src_ids = {s.source_id if isinstance(s, Plant) else s.id for s in sources}
+        src_doms = {s.domain for s in sources}
+        others = [p for p in fresh if p.source_id not in src_ids and p.domain not in src_doms]
+        hits = [p.id for p in others if res[p.id]["hit"]]
+        n = len(set(ids))
+        ppt = sum(r["probes"] for r in res.values()) / n if n else 0.0
+        checks = {"reproduces_sources": bool(repro) and all(repro), "finds_on_other_domains": len(hits) >= 1, "zero_false_alarms": not alarms,
+                  "under_cost_bar": ppt <= self.cfg.cost_bar}
+        return GateReport(op=spec.cls_name, passed=all(checks.values()), checks=checks,
+                          detail={"false_alarms": alarms, "reproduced": repro, "transfer_hits": hits, "transfer_candidates": len(others), "probes_per_task": ppt})
+
+    def _prepare(self, arm: Arm, spec: OperatorSpec, cites: list[str], origin: str, clusters: Sequence[Cluster], misses: Sequence[Plant], r: int,
+                 rng: random.Random) -> tuple[Candidate, list[Plant | Task], str, list[Plant]] | Candidate:
+        """A candidate's gate inputs, drawn in proposal order from the round's rng (so a concurrent gate phase stays
+        reproducible)."""
         cand = Candidate(op=spec.cls_name, origin=origin, cites=list(cites), spec=spec.model_dump(mode="json"))
         lib = Library.model_validate(arm.store.get("F"))
         if spec.cls_name in lib.ops:
@@ -946,16 +980,32 @@ class Loop:
         others = [i for i in arm.sampler.draw(f"gate/{r}/{spec.cls_name}", plants=None if visible is None else sorted(visible), frac=1.0)
                   if arm.pool.plants[i].domain != dom]
         fresh = [arm.pool.plants[i] for i in rng.sample(others, min(len(others), self.cfg.gate_fresh))]
+        return cand, sources, dom, fresh
+
+    async def _gate(self, arm: Arm, spec: OperatorSpec, prep: tuple[Candidate, list[Plant | Task], str, list[Plant]]) -> Any:
+        cand, sources, dom, fresh = prep
         try:
-            g = await birth_gate(spec, sources=sources, fresh=fresh, anchors=arm.pool.anchors, ctx=arm.ctx or self.ctx, cost_bar=self.cfg.cost_bar, early_stop=True)
+            if arm.evaluator.shards is not None:
+                g = await self._gate_par(arm, spec, sources, fresh)
+            else:
+                g = await birth_gate(spec, sources=sources, fresh=fresh, anchors=arm.pool.anchors, ctx=arm.ctx or self.ctx, cost_bar=self.cfg.cost_bar,
+                                     early_stop=True)
         except Exception as e:  # noqa: BLE001 - an operator that crashes on a task is refused, never fatal
             cand.refused_by = [f"gate:error:{type(e).__name__}"]
             cand.gate = {"error": str(e)[:300]}
-            return cand
+            return None
         cand.gate = {"checks": g.checks, "transfer_hits": len(g.detail.get("transfer_hits", [])), "false_alarms": len(g.detail.get("false_alarms", [])),
                      "reproduced": g.detail.get("reproduced"), "probes_per_task": round(g.detail.get("probes_per_task", 0.0), 2), "evidence_domain": dom}
         if not g.passed:
             cand.refused_by = [f"gate:{k}" for k, v in g.checks.items() if not v]
+            return None
+        return g
+
+    async def _decide_candidate(self, arm: Arm, spec: OperatorSpec, prep: tuple[Candidate, list[Plant | Task], str, list[Plant]], r: int) -> Candidate:
+        cand, sources, dom, _fresh = prep
+        lib = Library.model_validate(arm.store.get("F"))
+        if spec.cls_name in lib.ops:
+            cand.refused_by = ["duplicate"]
             return cand
         src_plants = [s for s in sources if isinstance(s, Plant)]
         ev = evidence_of(src_plants, self.builders, [dom])
@@ -967,6 +1017,31 @@ class Loop:
         cand.accepted = dec.accepted
         cand.refused_by = dec.rules
         return cand
+
+    async def try_candidate(self, arm: Arm, spec: OperatorSpec, cites: list[str], origin: str, clusters: Sequence[Cluster], misses: Sequence[Plant],
+                            r: int, rng: random.Random) -> Candidate:
+        prep = self._prepare(arm, spec, cites, origin, clusters, misses, r, rng)
+        if isinstance(prep, Candidate):
+            return prep
+        if await self._gate(arm, spec, prep) is None:
+            return prep[0]
+        return await self._decide_candidate(arm, spec, prep, r)
+
+    async def try_candidates(self, arm: Arm, props: Sequence[tuple[OperatorSpec, list[str], str]], clusters: Sequence[Cluster], misses: Sequence[Plant],
+                             r: int, rng: random.Random) -> list[Candidate]:
+        """Every candidate of a round: inputs drawn in order; on shards the birth gates run concurrently (independent
+        evaluations); the update rule then decides the gate-passing ones one at a time, in proposal order (each decision
+        may change the incumbent the next is compared with)."""
+        if arm.evaluator.shards is None:
+            return [await self.try_candidate(arm, s, c, o, clusters, misses, r, rng) for s, c, o in props]
+        preps = [self._prepare(arm, s, c, o, clusters, misses, r, rng) for s, c, o in props]
+        todo = [(i, p) for i, p in enumerate(preps) if not isinstance(p, Candidate)]
+        gates = await asyncio.gather(*(self._gate(arm, props[i][0], p) for i, p in todo))
+        out: list[Candidate] = [p if isinstance(p, Candidate) else p[0] for p in preps]
+        for (i, p), g in zip(todo, gates, strict=True):
+            if g is not None:
+                out[i] = await self._decide_candidate(arm, props[i][0], p, r)
+        return out
 
     def _holdout_gate(self, arm: Arm) -> Any:
         """The generalisation gate "G" on the locked set, read only through Thresholdout (every access logged in the arm's
@@ -1179,9 +1254,7 @@ class Loop:
                     row.info.setdefault("parse_errors", []).extend(info["errors"])
         except Exception as e:  # noqa: BLE001 - a failed proposal round is recorded; the round still measures
             row.info["propose_error"] = f"{type(e).__name__}: {str(e)[:300]}"
-        for spec, cites, origin in props:
-            cand = await self.try_candidate(arm, spec, cites, origin, clusters, missed, r, rng)
-            row.candidates.append(cand)
+        row.candidates += await self.try_candidates(arm, props, clusters, missed, r, rng)
         if alt_gl is not None:
             self._meta_decision(arm, r, row, alt_gl, ev_plants)
         if pl_task is not None:

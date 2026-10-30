@@ -52,7 +52,7 @@ def _worker(conn: Any, base_name: str) -> None:  # pragma: no cover - runs in th
 
     async def evaluate(req: dict[str, Any]) -> dict[str, Any]:
         lib = Library.model_validate(req.get("theta_f") or {})
-        fs = [*base(), *lib.falsifiers()]
+        fs = [*(base() if req.get("base", True) else []), *lib.falsifiers()]
         ctx = ctx_for(int(req["seed"]), int(req["max_mutants"]))
         out = {}
         for uid in req["ids"]:
@@ -124,14 +124,14 @@ class ShardPool:
                 self.known.add(t.id)
         await asyncio.gather(*(self._ask(w, {"op": "add", "plants": ps, "tasks": ts}) for w, (ps, ts) in by.items()))
 
-    async def evaluate(self, theta_f: Any, ids: Sequence[str], *, seed: int, max_mutants: int) -> dict[str, dict[str, Any]]:
+    async def evaluate(self, theta_f: Any, ids: Sequence[str], *, seed: int, max_mutants: int, base: bool = True) -> dict[str, dict[str, Any]]:
         missing = [i for i in ids if i not in self.known]
         if missing:
             raise KeyError(f"units not on any shard: {missing[:3]}")
         by: dict[int, list[str]] = {}
         for i in dict.fromkeys(ids):
             by.setdefault(shard_of(i, self.workers), []).append(i)
-        reps = await asyncio.gather(*(self._ask(w, {"op": "eval", "theta_f": theta_f, "ids": xs, "seed": seed, "max_mutants": max_mutants})
+        reps = await asyncio.gather(*(self._ask(w, {"op": "eval", "theta_f": theta_f, "ids": xs, "seed": seed, "max_mutants": max_mutants, "base": base})
                                       for w, xs in by.items()))
         out: dict[str, dict[str, Any]] = {}
         for r in reps:
