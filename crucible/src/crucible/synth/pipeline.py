@@ -561,9 +561,9 @@ class Runner:
             hook = self.agent_log
             return lambda row: hook(rec, name, row)
 
-        alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}",
+        alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}#{n}",
                         finish_nudge=self.cfg.alt_finish_nudge, log=sink(n)) for n, c in self.roles.alt]
-        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}", log=sink(n)) for n, c in self.roles.atk]
+        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}#{n}", log=sink(n)) for n, c in self.roles.atk]
         paid = [x for x in (ALT(alts, exclude_families=builders) if alts else None, ATK(atks, exclude_families=builders) if atks else None) if x]
         if not self.cfg.paid:
             paid = []
