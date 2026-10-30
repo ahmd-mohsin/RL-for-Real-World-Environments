@@ -527,3 +527,15 @@ async def test_the_probe_loop_consumes_the_learnability_classifier(tmp_path):
     else:  # anything it cannot decide is never repaired
         assert rec.repair == "none"
     assert labels[2] in ("intended_fail", "uncertain") and "unintended_fail" not in rec.counted  # a wrong article is a skill gap, never a task defect
+
+
+async def test_a_candidate_that_adds_nothing_on_the_proposal_split_spends_no_alpha(tmp_path):
+    await _ready()
+    loop = _loop(tmp_path, _paired_cfg(rounds=1, headroom=False, planter_loop=False, meta_loop=False), own_worlds=False)
+    rows = await loop.run(_proposers(), control=False)
+    arm = loop.arms[0]
+    for c in rows[-1].candidates:
+        if c.gate and all(c.gate.get("checks", {}).values()):  # passed the four M3 checks
+            assert c.gate.get("adds_on_proposal", 0) > 0 or c.refused_by == ["gate:adds_on_proposal"]
+    spent = len(arm.engine.spender.spent)
+    assert spent == sum(1 for c in rows[-1].candidates if c.decision is not None)  # only candidates that add something reach a test

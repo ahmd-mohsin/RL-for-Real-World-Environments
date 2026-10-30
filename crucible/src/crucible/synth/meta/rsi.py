@@ -822,6 +822,7 @@ class Loop:
         self.seeded = seeded  # seeded contexts shared by every arm of this loop (only without make_ctx: they share the Worlds)
         self.headroom_cache: Any = None
         self._report_lock = asyncio.Lock()
+        self._round_misses: dict[str, list[Plant]] = {}  # arm -> the proposal-split plants its incumbent misses this round
         # the natural-likeness reference: given (the independently found real defects), else the archive's natural
         # counterexamples (falsifier-found: a weaker reference, used only when no independent set exists)
         ref = list(reference) if reference else [natural_features(c) for c in self.natural]
@@ -1005,7 +1006,37 @@ class Loop:
         if not g.passed:
             cand.refused_by = [f"gate:{k}" for k, v in g.checks.items() if not v]
             return None
+        if self.cfg.update.stats.paired:
+            # pilot p4: three candidates passed the gate on plants the population already caught, then spent α and 60 of
+            # the 64 decision units showing a gain of 0. A candidate must first catch a proposal-split plant the
+            # incumbent misses (proposal data only: the decision split stays unseen)
+            misses = self._round_misses.get(arm.name, [])
+            adds = await self._adds(arm, spec, misses)
+            cand.gate["adds_on_proposal"] = len(adds)
+            if not adds:
+                cand.refused_by = ["gate:adds_on_proposal"]
+                return None
         return g
+
+    async def _adds(self, arm: Arm, spec: OperatorSpec, misses: Sequence[Plant]) -> list[str]:
+        """The proposal-split misses of the incumbent that the operator alone confirms a counterexample on."""
+        if not misses:
+            return []
+        if arm.evaluator.shards is not None:
+            sh = arm.evaluator.shards
+            await sh.add(plants=[p for p in misses if p.id not in sh.known])
+            res = await sh.evaluate(Library().add(spec, 0).model_dump(mode="json"), [p.id for p in misses], seed=arm.evaluator.ctx.seed,
+                                    max_mutants=arm.evaluator.ctx.max_mutants, base=False)
+            return [p.id for p in misses if res[p.id]["hit"]]
+        from crucible.synth.meta.library import compile_operator
+
+        op = compile_operator(spec)
+        out = []
+        for p in misses:
+            (r,) = await run_classes(p.task, [op], arm.ctx or self.ctx, cache=True)
+            if r.applicable and r.c:
+                out.append(p.id)
+        return out
 
     async def _decide_candidate(self, arm: Arm, spec: OperatorSpec, prep: tuple[Candidate, list[Plant | Task], str, list[Plant]], r: int) -> Candidate:
         cand, sources, dom, _fresh = prep
@@ -1260,6 +1291,7 @@ class Loop:
                     row.info.setdefault("parse_errors", []).extend(info["errors"])
         except Exception as e:  # noqa: BLE001 - a failed proposal round is recorded; the round still measures
             row.info["propose_error"] = f"{type(e).__name__}: {str(e)[:300]}"
+        self._round_misses[arm.name] = missed
         row.candidates += await self.try_candidates(arm, props, clusters, missed, r, rng)
         if alt_gl is not None:
             self._meta_decision(arm, r, row, alt_gl, ev_plants)
