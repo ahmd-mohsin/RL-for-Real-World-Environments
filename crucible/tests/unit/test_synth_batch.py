@@ -376,6 +376,28 @@ async def test_serial_mode_with_backpressure_does_not_wait_forever_for_calibrati
     assert not [x for x in load_cands(tmp_path / "a0") if x.status in ("pending", "error")]
 
 
+async def test_two_attempts_of_one_model_get_two_seeds(tmp_path):
+    """yield-1/2: both Ultra ALT attempts sent one prompt on seed 0, and 120 of 216 pairs were one trajectory twice. The
+    pipeline tags each agent's calls with its name and the batch wire seeds by tag."""
+    from crucible.factory.synth_wire import SynthWire
+
+    seeds: list[int] = []
+
+    class Inner:
+        async def complete(self, msgs, **kw):
+            seeds.append(kw["seed"])
+
+            class R:
+                text, raw_finish, cost_usd = '{"done": true, "final": null}', "stop", 0.0
+            return R()
+
+    w = SynthWire(tmp_path, cap_usd=1.0, make=lambda model, role: Inner(), seed_by_tag=True)
+    (n0, c0), (n1, c1) = w.run_roles().alt[:2]
+    await c0.complete_json([], tag=f"ALT:t1#{n0}")
+    await c1.complete_json([], tag=f"ALT:t1#{n1}")
+    assert seeds[0] != seeds[1]
+
+
 def test_a_read_that_errors_is_evidence_not_a_dead_oracle():
     """yield-1: the blind oracle read the purchase order a po_mismatch invoice bills; it does not exist, and the oracle was
     dropped as dead. A read-only error is evidence; a refused write still is a problem."""

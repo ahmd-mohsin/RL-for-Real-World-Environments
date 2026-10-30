@@ -2278,16 +2278,24 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      4. **Calibration lost a built task**: the batch swapped `Runner.ready` while other builds appended to it.
      5. **Unthrottled proposing** queued 30+ candidates per arm ahead of refine, so the soft limit could not act:
         backpressure (`max_backlog`).
+     6. **A calibration deadlock in serial mode**: the paused proposer left fewer built tasks than calibration's anchors;
+        calibration now runs when nothing is being built.
+     7. **One seed for every call** (item 19's finding): the two Ultra ALT attempts were one trajectory in 120 of 216
+        pairs in yield-1/2 (both arms alike). ALT/ATK calls carry the agent's name in their tag
+        (`ALT:<task>#<agent>`) and the batch wire seeds by tag (`SynthWire(seed_by_tag=)`; `--same-seed` restores the
+        old behaviour); with seeds 27 of 79 pairs still coincide (short trajectories at temperature 0.3).
    - **Findings** (`docs/research/env-synthesis/runs/yield-1.md`). With DeepSeek proposing, 16 of 31 stored finance_ap
      oracles pin a decision the pack's policy does not reach (the oracle programmer copied the proposer's derive), and 14
      of the 31 `ALT:no_pass` rejections had a wrong oracle; the blind v2 oracle is right on 29 of 31. On correct tasks
-     the solvers' weakness is real (Ultra 4 of 12). At equal caps on fresh proposals (yield-1, and yield-2 before its
-     cap), the improved arm `a1` admits 4.49 per USD (95% 3.19–5.90) against `a0`'s 2.21 (1.24–3.32), difference 2.28
-     (0.57–4.03); 0 of its admitted finance_ap tasks has a wrong oracle, against 3 of `a0`'s. The lemma batch is refused
+     the solvers' weakness is real (Ultra 4 of 12). At equal caps on fresh proposals, pooled over yield-1, yield-2 (before
+     its cap) and yield-3 (seeded, item 20's falsifiers), the improved arm `a1` admits 4.36 per USD (95% 3.23–5.55)
+     against `a0`'s 2.20 (1.38–3.13), difference 2.15 (0.71–3.63); 0 of its 44 admitted tasks has a wrong finance_ap
+     oracle, against 5 of `a0`'s 23. Speed: the serial-equivalent time over the wall clock is 6.1–6.9 per arm and 11–17
+     with the arms side by side; `a1` admits 37–51 tasks per hour (70–98 s of wall clock each). The lemma batch is refused
      by the gate (the first-round rate did not fall, J fell, spend 48% higher). The clarity self-check dropped 1 wrong
      and 3 right oracles of 19 at about USD 0.02 a call and stays off by default (arm `a1c`).
-   - **Open (structural, reported).** A task whose oracle and ALT solvers make the same mistake is certified: three
-     admitted finance_ap tasks contradict the pack's policy (compound cases where this World's own rule order decides the
+   - **Open (structural, reported).** A task whose oracle and ALT solvers make the same mistake is certified: six
+     admitted finance_ap tasks over yield-1–3 (5 of `a0`, 1 of `a1_lemmas`) contradict the pack's policy (compound cases where this World's own rule order decides the
      reason code, and a tolerance edge); no falsifier class checks the reference decision against the World's rules,
      and the panel judges only failing ALT attempts. The same wrong oracles poison calibration (oracle traces are the
      "valid" anchors: yield-2 `a0` fell to λ = 0.95, uncalibrated).
@@ -2296,7 +2304,7 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      names, the finish nudge, `Resilient` retries and bound, a wrapped cap refusal, dedup, pre-filters/agreement/
      reconcile, the scheduler, per-candidate cost and the bootstrap, failure modes, mining a run directory, lemma
      clusters and the critic, the blind oracle, the stage meter, unique ALT names, calibration with concurrent builds,
-     read errors in the oracle).
+     read errors in the oracle, serial mode under backpressure, two seeds for two attempts of one model).
 
 ## 8. Layer 4: verification and isolation
 
