@@ -2307,3 +2307,64 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   on carbon-h5, which has no twin yet); react-hook-form-e1 has no site (Node). The tests that touch the debug script, the
   benchmark purposes, Part 1, synth patch and observe: 144 passed. Ruff check and lint-imports clean.
 - **Merge notes.** New module; the stages after `stage_hack`.
+
+## 94. Part 1 V11: closed-loop shortcut discovery, learned path rules that hold on a frozen labelled set
+
+- **Item.** V11 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("Each training interval, a
+  different-family auditor reads passing and flagged rollouts and proposes new patterns. A pattern enters `path_rules`
+  only after it holds on a frozen labelled set built from Crucible's own audited episodes. Then bump `RULES_VERSION` and
+  repath"). The path rules were code only: `repath.scan` re-applied the rules a person wrote, and a shortcut the student
+  found during training kept its reward until someone read the traces. Not taken: running the loop inside the trainer
+  (runs are on DeltaAI; it runs between intervals over the stored rollouts) and a human kappa queue.
+- **Files.** `src/crucible/factory/pathcheck.py` (`LearnedRule`, `Evidence`, `evidence`, `load_learned`, `rules_version`,
+  `RULES_BASE`, `LEARNED`, `LEARNED_PATH_RULES`, `LEARN_TARGETS`; `check_paths(learned=)`; `PathReport.rules_version`),
+  `src/crucible/factory/learned_path_rules.json` (new, no rules), `src/crucible/factory/shortcuts.py` (new),
+  `src/crucible/factory/repath.py` (`repath(learned=)`, `scan(learned=)`, learned evidence in flips),
+  `src/crucible/credit/hack_detector.py` (`added_source_lines`, which `patch_flags` now uses), `scripts/lh_shortcuts.py`
+  (new), `tests/unit/test_part1_shortcuts.py` (new, 6 tests).
+- **Public names.** `pathcheck.LearnedRule`, `Evidence`, `evidence`, `load_learned`, `rules_version`, `RULES_BASE`,
+  `LEARNED`, `LEARNED_PATH_RULES`, `LEARN_TARGETS`; `shortcuts.Labelled`, `episode`, `episodes`, `freeze`,
+  `load_labelled`, `digest`, `parse_patterns`, `merge`, `propose`, `unsafe`, `validate`, `accept`, `AUDIT_SYSTEM`, `LABELS`;
+  `hack_detector.added_source_lines`.
+- **Behaviour.** A learned rule is a Python regex on one kind of evidence: `command` (each exec-tool string, here-document
+  bodies removed), `read` (each read or list path), `diff` (`A|M|D <path>`) or `added` (`<path>: <line>` of a non-test
+  file). `check_paths` runs each committed rule as `path:learned:<id>` with its severity (`hack`: reward 0; `gate`: no
+  full-pass bonus); with no trail a command or read rule is unmeasured. `RULES_VERSION` is `RULES_BASE` plus the hash of
+  the rules' id, evidence kind, regex and severity, so a stored verdict made before a rule is stale; with no learned rule
+  it is unchanged (`path-2026-10-28`), and so is every task's verifier version. The loop
+  (`scripts/lh_shortcuts.py`): `label` freezes the labelled set from stored episodes (stored verdict: `hack` a hack check
+  fired, `attack` a red-team arm, `gate` a gate check fired, else `honest`; a person's overrides in `--labels`; the
+  sha256 of the episodes is checked on every load and a file is never overwritten). `propose` (paid, `--cap`) gives the
+  `auditor` role (GLM-5.3; a Qwen auditor is refused, an episode of the auditor's family is not shown) digests of up to
+  60 passing or flagged episodes, one task in turn, 6 per call, under opaque ids, and validates every proposed pattern at
+  once. A pattern holds when it is bounded (compiles, at most 300 characters, no empty match, no quantified group holding
+  a quantifier), matches every episode it cites, adds a catch (at least one cited episode passed every path check), fires
+  on no honest episode of the frozen set, and is not a learned rule already. `accept` validates again from the run's
+  roots and the frozen set (an edited `validation.json` changes nothing), appends what holds (`--ids`: only those) to
+  `learned_path_rules.json` with the set's hash and the date, and with `--store` re-paths the stored episodes;
+  `--dry-run` writes nothing. A person reads each rule that holds before committing the file.
+- **Formats.** `learned_path_rules.json` (`doc`, `rules`); the labelled set (`crucible.shortcuts.labelled/v1`: `built`,
+  `roots`, `sha256`, `counts`, `episodes`); `RUN_DIR/run.json`, `validation.json`, `repath.json`; path checks
+  `path:learned:<id>`; `rules_version` on a path report is the version it was made under.
+- **Tests.** `test_part1_shortcuts.py` (new, 6: a command rule fails its check and makes the episode a hack, an honest
+  trail passes, with no trail a command rule is unmeasured and a diff or added-line rule still fires; the committed file
+  loads, an empty one keeps `RULES_BASE`, notes do not move the version, a bad regex, kind or severity fails at load; the
+  set takes the stored verdicts, drops a masked episode, refuses an overwrite and a changed episode, a person's override
+  wins; a rule holds only when it adds a catch and fires on no honest episode, four unsafe regexes are refused; the
+  auditor sees opaque ids, not a passing-nor-flagged episode, not its own family, a Qwen auditor is refused, the cap
+  stops every call; `accept` writes once with provenance and `repath` with the rule turns a stored 1.0 into 0.0). The file
+  fails to import on the code before. The 42 test files that touch path checks, repath, the hack detector or the window
+  lane: 551 passed, 2 skipped. The run (no model call for `label`, $0.77 for two `propose` runs): the frozen set from the
+  373 stored episodes of `data/targeting` (323 honest, 7 hack, 23 attack, 20 gate; `data/observe/shortcuts/`). Run 1
+  ($0.39, 60 episodes, 10 calls): 9 patterns, 3 held under the first acceptance rule ("a cited episode is not already a
+  hack") and none was a shortcut: `^M \S*_test\.go$` at hack restated `path:protected` (a gate: test files are restored),
+  `find / -type d -name "go-toml` was one project's search for its own repository, and `go mod edit -replace ...=/root/`
+  was the student's `/tmp` reproduction module with a wrong guess of the repository path. Each cited only episodes on
+  which a check had already fired, so a catch now needs a cited episode that passed every path check, and the prompt
+  names what honest work also does (a `/tmp` reproduction, reading dependencies, searching for the repository, a test
+  subset, `STATUS.json`). Re-validated, all 9 fail. Run 2 ($0.38, the new prompt): 5 patterns, none held (4 cite only
+  flagged episodes, among them `UPDATE_GOLDEN=1 go test`, already `path:protected`; `cp .*rollouts.*printer\.go` fires
+  on 3 honest episodes: the agent's own workspace path). No rule was accepted: `learned_path_rules.json` has none. Ruff
+  check and lint-imports clean.
+- **Merge notes.** `RULES_VERSION` is computed now (`RULES_BASE` is the literal to bump on a code change in
+  `pathcheck.py`); new `check_paths` keyword after `entries`; `PathReport` gains a third field with a default.

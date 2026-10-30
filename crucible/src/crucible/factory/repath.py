@@ -15,12 +15,12 @@ A rule that needs the tests to run again (a protected-path restore, a new hidden
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crucible.factory.pathcheck import PathRules, check_paths, trail_from_trace
+from crucible.factory.pathcheck import LearnedRule, PathRules, check_paths, rules_version, trail_from_trace
 
 TRAIL_CHECKS = ("path:install", "path:network", "path:history")
 
@@ -70,9 +70,10 @@ def rules_for(window: Mapping[str, Any], base_dir: Path, **over: Any) -> PathRul
     return replace(r, **over) if over else r
 
 
-def repath(attempt: Path, window: Mapping[str, Any], base_dir: Path, *, rules: PathRules | None = None, phi_weight: float = 0.5) -> Repath | None:
-    """The attempt's path checks and reward under ``rules`` (default: the window's current rules). None when the attempt has
-    no graded end state (masked, or no report) or no trail."""
+def repath(attempt: Path, window: Mapping[str, Any], base_dir: Path, *, rules: PathRules | None = None, phi_weight: float = 0.5,
+           learned: Sequence[LearnedRule] | None = None) -> Repath | None:
+    """The attempt's path checks and reward under ``rules`` (default: the window's current rules) and the learned rules
+    (default: the committed ones). None when the attempt has no graded end state (masked, or no report) or no trail."""
     from crucible.factory.generators.debug import scope
     from crucible.factory.lanes.windows import path_reward
 
@@ -85,7 +86,7 @@ def repath(attempt: Path, window: Mapping[str, Any], base_dir: Path, *, rules: P
     patch = patch_p.read_text(errors="replace") if patch_p.exists() else ""
     with scope(str(window.get("lang") or "python")):
         r = rules or rules_for(window, base_dir)
-        pr = check_paths(r, patch=patch, trail=trail_from_trace(trace), trail_source="trace.json")
+        pr = check_paths(r, patch=patch, trail=trail_from_trace(trace), trail_source="trace.json", learned=learned)
         pw = path_reward(meta, pr, float(meta.get("phi_weight") or phi_weight))
     old_gates = {k: v for k, v in (rep.get("gates") or {}).items() if k.startswith("path:")}
     new_gates = pr.gates()
@@ -94,7 +95,8 @@ def repath(attempt: Path, window: Mapping[str, Any], base_dir: Path, *, rules: P
                      if old_gates.get(k) != new_gates.get(k) and not (k not in old_gates and new_gates.get(k) == "pass"))
 
     def ev(checks: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
-        return {c["id"]: list(c.get("evidence") or [])[:3] for c in checks if c.get("id") in TRAIL_CHECKS and c.get("evidence")}
+        return {c["id"]: list(c.get("evidence") or [])[:3] for c in checks
+                if (c.get("id") in TRAIL_CHECKS or str(c.get("id")).startswith("path:learned:")) and c.get("evidence")}
 
     old_checks = ((meta.get("path") or {}).get("checks")) or []
     return Repath(str(attempt), task_of(attempt), arm_of(attempt),
@@ -112,11 +114,13 @@ def attempts(roots: Iterable[Path]) -> list[Path]:
     return out
 
 
-def scan(roots: Iterable[Path], store: Path, *, rules_over: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def scan(roots: Iterable[Path], store: Path, *, rules_over: Mapping[str, Any] | None = None, learned: Sequence[LearnedRule] | None = None) -> dict[str, Any]:
     """Re-path every stored attempt under ``roots`` against the window records in ``store`` (``<store>/<split>/tasks/<id>``:
-    ``window.json`` and its start tree ``base/``). Returns the flips (reward or a path verdict changed) and a summary."""
-    from crucible.factory.pathcheck import RULES_VERSION
+    ``window.json`` and its start tree ``base/``), with ``learned`` rules (default: the committed ones). Returns the flips
+    (reward or a path verdict changed) and a summary."""
+    from crucible.factory.pathcheck import LEARNED
 
+    version = rules_version(LEARNED if learned is None else learned)
     windows: dict[str, tuple[dict[str, Any], Path] | None] = {}
     flips: list[dict[str, Any]] = []
     seen = skipped = stale = 0
@@ -129,17 +133,17 @@ def scan(roots: Iterable[Path], store: Path, *, rules_over: Mapping[str, Any] | 
         if w is None:
             skipped += 1
             continue
-        r = repath(a, w[0], w[1], rules=rules_for(w[0], w[1], **rules_over) if rules_over else None)
+        r = repath(a, w[0], w[1], rules=rules_for(w[0], w[1], **rules_over) if rules_over else None, learned=learned)
         if r is None:
             skipped += 1
             continue
         seen += 1
-        stale += r.old.get("rules_version") != RULES_VERSION  # graded under older path rules (or before the stamp)
+        stale += r.old.get("rules_version") != version  # graded under older path rules (or before the stamp)
         if r.flipped:
             flips.append(r.to_json())
     up = [f for f in flips if (f["new"]["reward"] or 0) > (f["old"]["reward"] or 0)]
     down = [f for f in flips if (f["new"]["reward"] or 0) < (f["old"]["reward"] or 0)]
-    return {"attempts": seen, "skipped": skipped, "stale_verdicts": stale, "rules_version": RULES_VERSION, "flipped": len(flips), "reward_up": len(up), "reward_down": len(down),
+    return {"attempts": seen, "skipped": skipped, "stale_verdicts": stale, "rules_version": version, "flipped": len(flips), "reward_up": len(up), "reward_down": len(down),
             "full_pass_gained": sum(1 for f in flips if f["new"]["full_pass"] and not f["old"]["full_pass"]),
             "by_task": {t: sum(1 for f in flips if f["task"] == t) for t in sorted({f["task"] for f in flips})}, "flips": flips,
             "rules_over": dict(rules_over or {})}

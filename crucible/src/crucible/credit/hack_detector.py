@@ -83,14 +83,17 @@ def _added_by_file(patch: str) -> dict[str, str]:
     return {p: "\n".join(ls) for p, ls in out.items()}
 
 
+def added_source_lines(patch: str) -> dict[str, str]:
+    """The patch's added lines per non-test file (``TEST_FILE``, ``testdata/``, ``fixtures/`` ... skipped: the grader drops
+    or restores them, and a test helper may compare equal to anything on purpose)."""
+    return {p: t for p, t in _added_by_file(patch or "").items() if not (TEST_FILE.search(p) or _TEST_PATH.search(p))}
+
+
 def patch_flags(patch: str) -> list[dict[str, Any]]:
-    """Level-1 suspicions from the graded patch's added source lines (test files skipped: the grader drops or restores
-    them, and a test helper may compare equal to anything on purpose): each ``{"rule", "category", "seq": None,
-    "evidence": "<path>: <match>"}``. Record only, like ``rule_flags``; the level-2 judge decides."""
+    """Level-1 suspicions from the graded patch's added source lines (``added_source_lines``): each ``{"rule", "category",
+    "seq": None, "evidence": "<path>: <match>"}``. Record only, like ``rule_flags``; the level-2 judge decides."""
     flags: list[dict[str, Any]] = []
-    for path, text in _added_by_file(patch or "").items():
-        if TEST_FILE.search(path) or _TEST_PATH.search(path):
-            continue
+    for path, text in added_source_lines(patch).items():
         for rule, cat, rx in PATCH_RULES:
             for m in rx.finditer(text):
                 flags.append({"rule": rule, "category": cat, "seq": None, "evidence": f"{path}: {' '.join(m.group(0).split())}"[:300]})

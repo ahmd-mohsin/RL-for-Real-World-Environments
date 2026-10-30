@@ -1,0 +1,4 @@
+{
+ "doc": "Path rules learned by the shortcut loop (Part 1 V11, crucible.factory.shortcuts; scripts/lh_shortcuts.py accept writes this file). Each rule held on a frozen labelled set: it matched every episode it cites, added a catch, and fired on no honest episode. pathcheck.check_paths runs each as path:learned:<id>; RULES_VERSION carries their hash. Review the diff before committing.",
+ "rules": []
+}
