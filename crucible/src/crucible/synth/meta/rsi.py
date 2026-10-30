@@ -2101,7 +2101,9 @@ class TaskLoop(ProbeLoop):
             why.append(f"G7: pool entropy {entropy(cells):.3f} < H_min {self.rules.h_min}")
         return why
 
-    async def step(self, task: Task, round: int) -> TaskDecision:
+    async def step(self, task: Task, round: int, *, diagnosis: tuple[Sequence[Any], Sequence[ProbeOutcome]] | None = None) -> TaskDecision:
+        """One typed decision. ``diagnosis``: rollouts and their classified outcomes measured before (the learnability
+        records of the pool), used instead of drawing new ones; their indices are marked used, so acceptance stays fresh."""
         rules = self.rules
         root = self.of.get(task.id, task.id)
         lin = self.lineages.setdefault(root, Lineage(root=root, members=[task.id]))
@@ -2114,9 +2116,14 @@ class TaskLoop(ProbeLoop):
             dec.move, dec.why = "RETIRE", [f"G5: {lin.rounds} rounds (the cap) without a lawful decision"]
             return self._record(dec)
         lin.rounds += 1
-        rolls, idx = await self._fresh(task, rules.k_diag)
+        if diagnosis is not None:
+            rolls, outs = list(diagnosis[0]), list(diagnosis[1])
+            idx = [int(getattr(r, "i", j)) for j, r in enumerate(rolls)]
+            self.next_index[root] = max(self.next_index.get(root, 0), max(idx, default=-1) + 1)
+        else:
+            rolls, idx = await self._fresh(task, rules.k_diag)
+            outs = await self.classify.classify(task, rolls)
         dec.rollouts["diagnosis"] = idx
-        outs = await self.classify.classify(task, rolls)
         counted = [(o, *count_outcome(o, rules)) for o in outs]
         dec.counted = dict(Counter(k for _, k, _ in counted))
         dec.why += [w for _, _, w in counted if w]

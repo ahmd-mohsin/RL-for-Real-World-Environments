@@ -2513,13 +2513,32 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      deterministic classes (`archive_recheck`), T6 caps, T7 an "unsolvable as stated" fail is demoted when an ALT solver
      of a non-student, non-builder family solved the task. No pass rate reaches a decision; `TuningMonitor` alarms on
      re-probed pass-rate changes the fixed defects do not explain. The RL-time online monitor is not an input.
+   - **The typed per-task loop** (`rsi.TaskLoop`, a `ProbeLoop`; lead, 2026-10-30: every task gets a correct decision,
+     not every task is admitted). Per round: the **ORACLE precondition** (`falsify/oracle.py`: the `ORACLE` class
+     confirms D6 op `policy` when a World's registered policy truth calls the reference decision wrong, e.g.
+     `synth_wire.finance_ap_truth`; not applicable without a truth; `decision_disagreement`: ≥ 2 independent runs that
+     *changed* a pinned decision field to one other value dispute it), then REPAIR (wrong oracle, or a counted unintended
+     outcome), HOLD (disputed oracle → panel review; mostly uncertain rollouts; band undecided at k_max), DESCEND /
+     ASCEND (band too hard / too easy: one declared knob step → a new variant, the original kept), KEEP (in band),
+     RETIRE (no lawful knob, a move against the lineage's direction, 2 refusals, the round cap). G1 evidence-gated
+     edits, G2 frozen skill and cell plus P3 probes, G3 re-certification under the archive, G4 sample splitting (the
+     diagnosis's rollout indices never accept; acceptance draws fresh indices in looks 4/8/12/16 through `learn.decide`;
+     a repair is accepted only if the same mechanism does not recur), G5 one step, ≤ 3 rounds, a direction lock per
+     lineage, G6 an independent ALT family solves every variant, G7 the pool's cell KL and entropy, G8 lifts to the
+     update rule, G9 the ledger. `step(diagnosis=...)` reuses pre-measured rollouts. `ComposeKnobs`: ASCEND by
+     `compose.apply_knob` (distractors, paginate); DESCEND only by undoing a recorded harder knob (plain tasks have no
+     lawful easier knob: reported to the lead as a disagreement).
    - **Tests**: `test_synth_rsi_stats.py` (betting level at the null boundary and power, bootstrap and cluster intervals,
      A/A, spending, the run-level guarantee by simulation against an uncorrected rule, exact tests and power, Thresholdout,
      paired engine decisions, R1-strict, state replay, gate G, the whole engine's FWER under null updates),
      `test_synth_rsi_loop2.py` (headroom on the fixtures, the paired loop's decision split and resume, stop rules,
      ablations, E10 over 3 seeds, the shard pool, betting power, and the probe loop with a scripted student: an
      unintended pass archived, repaired and lifted; easing, tightening and no-op repairs refused; skill gaps and
-     unevidenced labels never repaired; World-builder fixes and caps; the drift monitor).
+     unevidenced labels never repaired; World-builder fixes and caps; the drift monitor; the real `synth.outcome` classifier
+     through `LearnClassifier`), `test_synth_taskloop.py` (DESCEND on fresh rollouts keeping the original, ASCEND and the
+     direction lock, KEEP, RETIRE without a lawful knob, G2/G6/G7 refusals, REPAIR accepted only on fresh rollouts, a
+     wrong oracle repaired first and a disputed one held, uncertain evidence held, ORACLE and solver disagreement on the
+     fixture, a pre-measured diagnosis).
    - **Measured** (`runs/rsi-stats.md` §0): δ_AA = 0.0196 on the rsi-2 dev pool (0.0327 on RSI-1's 75-unit view) against
      RSI-1's between-view δ 0.0407; per-unit seed discordance 0.64%. RSI-1's best update (7 gains, 0 losses in 75) is
      refused by the paired test too (e-value 4.2; the normal LCB 0.038 was an approximation). Dev headroom 7/125 (all

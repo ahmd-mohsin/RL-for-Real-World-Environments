@@ -210,6 +210,56 @@ skips the customer email an unintended pass ("lax requirement", decided by execu
 ("skill_gap: decision"); the shortcut is archived as a PROBE counterexample and the repair is accepted under T2–T5. The
 online monitor during RL training is a separate safety net and is **not** an input to this loop.
 
+### 9.5″ The typed decision per task (`rsi.TaskLoop`)
+
+**Proposed §9 text.** "Works for all tasks" means every task gets a correct, typed decision, not that every task is
+admitted. Per task and round:
+
+| Decision | When | Action |
+|---|---|---|
+| (precondition) **ORACLE** | before any difficulty move | the reference decision is checked against the World's executed rules (`falsify.oracle.ORACLE`, a falsifier class: a registered policy truth says `wrong` → confirmed D6, op `policy`) and against independent runs (`decision_disagreement`: ≥ 2 runs agree on another value of a pinned decision field they actually changed) |
+| **REPAIR** | the oracle is wrong; or an unintended fail or pass with executed or calibrated evidence | CEGIS repair of the oracle, contract, World instance or instruction; T1–T7 |
+| **HOLD** | the reference decision is disputed (panel review queued); more than half the graded rollouts are uncertain; the band test does not decide at k_max | nothing is edited |
+| **DESCEND** | intended fails, band too hard | one declared knob step easier → a new variant; the original is kept as the harder rung |
+| **ASCEND** | intended passes, band too easy | one declared knob step harder (distractors, paginate, actor, derive, depth) → a new variant |
+| **KEEP** | in band, valid | the lineage is kept |
+| **RETIRE** | no declared knob in the needed direction; a move against the lineage's direction; 2 refused edits; the round cap | out of the band pool (the task and its archive stay) |
+
+| # | Regulariser | As built |
+|---|---|---|
+| G1 | Evidence-gated edits | a REPAIR cites a counted unintended outcome (T1) or the ORACLE counterexample; a move cites a declared knob and its direction |
+| G2 | Frozen intent | the variant or repair keeps the skill and the cell and passes the P3 probes (`p3_check`: `intent.p3`, EVID SWAP TAINT TWIN); else refused |
+| G3 | Full re-certification under the monotone archive | `recheck` (archive regressions incl. PROBE and ORACLE counterexamples, the deterministic classes) after every edit |
+| G4 | Sample splitting | the diagnosis's rollout indices are never reused: acceptance draws fresh indices (new seeds), sequentially in looks of 4, 8, 12, 16 (k_max) through `learn.decide`; a repair is accepted only if no unintended outcome of the same mechanism recurs on the fresh rollouts; a variant only if its fresh band moved in the declared direction |
+| G5 | Bounded movement | one knob step per round; ≤ 3 rounds per lineage; a lineage that moved up is never moved down (and the reverse): RETIRE |
+| G6 | Not tuned to the student | a variant must be solved by an independent ALT family (`alt_check`, non-student, non-builder); the drift monitor watches repairs; knob moves are logged as knob calibration (predicted vs realised band) |
+| G7 | Pool regularisation | KL(the pool's cell histogram with the variant ‖ the pool at the start) ≤ κ, entropy ≥ H_min; originals are never retired by a variant |
+| G8 | System-level lifts | archive counterexamples, lemma candidates and World-builder fixes go to the update rule (R1–R10, the generalisation gates) |
+| G9 | Ledger and rollback | every decision is a ledger record; a repair is a new version and a variant a new task, the previous ones restorable |
+
+**Where I disagree with the spec, with reasons.**
+1. **DESCEND has almost no lawful move today.** Every knob of `compose` is declared "harder". A plain swarm task has
+   no declared easier knob that keeps the skill: stating a derived value gives the decision away (D7), dropping a
+   requirement is D1, shortening the program changes what is taught. The only lawful easier moves are structural
+   inverses on tasks that were built harder (undo a recorded knob: fewer distractors, no pagination; drop the last part
+   of a composition). `ComposeKnobs` implements exactly those. On the 89-task pool, most of the 47 too-hard tasks are
+   plain tasks, so they will be **RETIRED** ("no declared knob makes this task easier"), not descended. Generating
+   easier rungs needs new declared easier knobs (or building tasks as ladders from the start), which is a design
+   decision for the lead, not something to improvise in the loop.
+2. **"Frozen intent card" and "derive instead of given" conflict.** ASCEND's derive knob moves a value from the
+   instruction to the intent card's derive list. I freeze the skill, the cell and the P3 result; the given/derive
+   lists may move only by that declared knob.
+3. **DESCEND and ASCEND are steered by the student's band.** That is the point of a curriculum, so the regularisers
+   cannot remove it; they bound it (one declared step, a direction lock, an independent solver, fresh rollouts, the KL
+   trust region). The drift monitor is the right alarm for repairs (where the pass rate should move only as the fixed
+   defects explain); for knob moves the pass rate is supposed to move, so they are logged as knob calibration.
+4. **Uncertain outcomes (67 of 676) must not count toward "too hard".** A routed failure (protocol break, budget) is not
+   evidence of difficulty. The loop holds a task whose graded rollouts are mostly uncertain.
+5. **A wrong oracle can hide behind agreement.** The 6 finance_ap tasks fooled the oracle and the ALT solvers alike.
+   ORACLE's policy truth needs the World's executable rules; `decision_disagreement` only triggers review when the
+   *student* and other runs agree on another value, and a shared mistake of all agents stays invisible without rules.
+   For Worlds without executable rules the precondition is weaker than for finance_ap, and the report says so.
+
 ### 9.6′ What the paper reports about the loop (additions)
 
 - δ_AA with its replicates, beside the between-view spread;

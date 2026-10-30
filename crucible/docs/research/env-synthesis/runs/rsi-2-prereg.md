@@ -146,14 +146,56 @@ intervals, not as tests.
 
 ## 8. Student probes
 
-RSI runs at task-creation time. The per-task probe loop (`meta/rsi.ProbeLoop`) runs on every admitted task of the
-100-task pool: the learnability agent's probe runner (`learn.StudentProbe`, 8 rollouts, `WireClient(seed_by_tag=True)`
-so the rollouts are independent samples) and its outcome classifier (`synth.outcome`, consumed through
-`rsi.LearnClassifier`); repairs through CEGIS under the monotone archive; T1–T7; ≤ 3 repairs per task; a re-probe of 8
-rollouts after each accepted repair, for the drift monitor only. The student is the only model probed; probes are not
-training. The online monitor during RL training is a separate safety net and is not an input to RSI-2. No pass rate
-enters J or any gate. Lessons lifted from the probe loop (archive counterexamples, lemma candidates, World-builder
-fixes) become system-level candidates and are decided like every other update (§4), with the generalisation gates.
+RSI runs at task-creation time. The student is the only model probed; probes are not training. The online monitor
+during RL training is a separate safety net and is not an input to RSI-2. No pass rate enters J or any gate.
+
+### 8.1 The first real use: the typed per-task loop on the 89-task training-side pool
+
+`meta/rsi.TaskLoop` (`runs/rsi-stats.md` §9.5″), with the learnability agent's probe runner (`learn.StudentProbe`,
+`WireClient(seed_by_tag=True)`) and classifier (`synth.outcome` through `rsi.LearnClassifier`), CEGIS repairs under the
+monotone archive, `ComposeKnobs`, `ORACLE` with the finance_ap policy truth (`synth_wire.finance_ap_truth`, registered by
+the CLI) and `decision_disagreement` (min 2 agreeing runs), `intent.p3` as the P3 check, the certification's ALT solvers
+as the independent reference.
+
+**The pool as measured (learnability, 2026-10-30).** Band: 47 too hard, 19 in band, 23 too easy. Classifier, 676
+rollouts: 424 intended fail, 132 intended pass, 52 unintended fail (hidden information on 7 tasks), 1 unintended pass, 67
+uncertain. These records are the round-1 **diagnosis** (`TaskLoop.step(diagnosis=...)`): no new diagnosis rollouts are
+bought for round 1, and every acceptance rollout comes from unused indices.
+
+**Expected round-1 decisions (stated before the run).**
+
+| decision | expected tasks | basis |
+|---|---|---|
+| REPAIR | ≥ 8 | 7 tasks with hidden information (executed TAINT D5 evidence), 1 unintended pass; plus every finance_ap task the policy truth calls wrong (yield found 6 such tasks among admitted ones; how many are in this pool is not known in advance) |
+| HOLD | ≤ 20 | disputed reference decisions; tasks whose graded rollouts are mostly uncertain (67 uncertain rollouts) |
+| DESCEND | few | only tasks that carry a recorded harder knob or are compositions; plain tasks have no lawful easier move |
+| RETIRE | most of the 47 too-hard | "no declared knob makes this task easier" (see rsi-stats §9.5″, disagreement 1) |
+| ASCEND | ≤ 23 | the too-easy tasks where distractors or paginate applies and moves the signature |
+| KEEP | ~19 | in band |
+
+**Budget (student rollouts, the only cost that scales).** Acceptance: a repair needs 4 fresh rollouts (one look); a
+variant up to 16 (looks 4, 8, 12, 16). Upper bound for round 1: 8 repairs × 4 + 23 ascents × 16 + a few descents × 16 ≈
+430 rollouts; rounds 2–3 only for lineages that are still active. The band error stated by learnability at k ≤ 8 is
+0.29–0.37; the sequential looks to 16 lower it, and a task undecided at 16 is held, never moved.
+
+**Stopping rules (per task).** ≤ 3 rounds per lineage; RETIRE after 2 refused edits; HOLD tasks wait for the panel. **For
+the loop:** the drift alarm (≥ 5 re-probed repaired tasks, mean unexplained change > 0.1, interval excluding 0) stops all
+repairs; the pool-KL trust region (κ = 0.1) refuses variants once the pool's cell mix moves; the Part 2 total stays ≤ $150.
+
+**Hypotheses of the per-task loop.**
+- H7: every task gets exactly one typed decision per round, and every edit cites its evidence (G1): checked on the ledger.
+- H8: no accepted repair re-opens an archived counterexample or lets an intended fail pass (T2, T5): 0 violations by
+  construction; reported as counts of refusals by rule.
+- H9: the drift alarm does not fire on repaired tasks.
+- H10: accepted variants move in their declared direction on fresh rollouts and are solved by an independent family.
+- Reported, not tested: the decision mix against the table above; ORACLE's wrong and disputed counts by domain.
+
+### 8.2 The 10 × 10 pool
+
+The same loop on every admitted task of the 100-task pool, after the 89-task run, with the settings of §8.1.
+
+Lessons lifted from either run (archive counterexamples, lemma candidates, World-builder fixes) become system-level
+candidates and are decided like every other update (§4), with the generalisation gates.
 
 ## 9. Amendments
 

@@ -223,3 +223,12 @@ def test_rank_order(k):
     from crucible.synth.meta.rsi import RANK
 
     assert RANK["too_easy"] < RANK["in_band"] < RANK["too_hard"]
+
+
+async def test_a_pre_measured_diagnosis_is_used_and_acceptance_rollouts_stay_fresh(tmp_path):
+    loop, task, student = _loop(tmp_path, tag="hard")
+    rolls = [R(i, False, READ_ONLY) for i in range(8)]
+    outs = await Classifier().classify(task, rolls)
+    d = await loop.step(task, 1, diagnosis=(rolls, outs))
+    assert d.move == "DESCEND" and d.rollouts["diagnosis"][:8] == list(range(8))
+    assert all(i >= 8 for i in d.rollouts.get("acceptance", [])) and all(i >= 8 for _t, i in student.asked)  # nothing re-drawn at a used index
