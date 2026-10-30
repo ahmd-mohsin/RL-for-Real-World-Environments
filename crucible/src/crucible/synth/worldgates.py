@@ -421,6 +421,8 @@ async def surface_gate(inst: Path) -> GateResult:
     passed = {r["id"] for r in rep.get("results", []) if r.get("passed")}
     cands = [t for t in tests if t["id"] in passed and any(c.get("expect") == "error" and c["tool"].split(".")[-1] in perm_tools for c in t.get("calls", []))]
     perm_tests = []
+    # tests that name the code first (pilot 1: the first 8 candidates were other refusals and the permission tests came later)
+    cands.sort(key=lambda t: not any("PERMISSION_DENIED" in str(c.get("error") or "") for c in t.get("calls", [])))
     for t in cands[:8]:  # replayed on the test's own fixture: the refusal must say PERMISSION_DENIED
         errs = await _replay_errors(inst, t)
         if any("PERMISSION_DENIED" in e for e in errs):
