@@ -128,6 +128,7 @@ class RunConfig:
     writer_lemmas: tuple[str, ...] = ()  # ... and those the contract writer is shown (lemmas whose role is the writer)
     paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
     repair: bool = True  # off: the repairer is never called (every repair is "declined"): first-round counterexamples only
+    cells: tuple[str, ...] = ()  # the proposer's cells, one per batch in turn (empty: CELLS); the K loop's targeted requests
 
 
 def admission_policy() -> AdmissionPolicy:
@@ -326,7 +327,7 @@ class Runner:
         b = 0
         while len(recs) < self.cfg.n_tasks and not self.stop:
             seed = self.env.seeds[b % len(self.env.seeds)]
-            cells = self.env.cells or CELLS
+            cells = self.cfg.cells or self.env.cells or CELLS  # a run's cells (the K loop's targeted requests) override the domain's
             cell = cells[b % len(cells)]
             want = min(self.cfg.batch, self.cfg.n_tasks - len(recs))
             try:

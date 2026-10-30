@@ -565,7 +565,10 @@ class DifficultyStore:
         latest: dict[str, DifficultyRecord] = {}
         for line in self.path.read_text().splitlines():
             if line.strip():
-                r = DifficultyRecord.model_validate_json(line)
+                try:
+                    r = DifficultyRecord.model_validate_json(line)
+                except ValueError:  # a row cut by an interrupted run: skipped, the rest of the store stands
+                    continue
                 latest[r.key.id()] = r
         return list(latest.values())
 
@@ -590,7 +593,7 @@ async def measure(task: Task, probe: StudentProbe, *, spec: BandSpec | None = No
     spec = spec or BandSpec()
     key = key_of(task, probe)
     prev = store.get(key) if store is not None else None
-    if prev is not None and prev.source == "measured" and prev.decision is not None and prev.looks and prev.n >= spec.looks[-1]:
+    if prev is not None and prev.source == "measured" and prev.decision is not None and prev.looks and (prev.n >= spec.looks[-1] or prev.confident):
         return prev
     feats = dict(feats or {})
     pred: dict[str, Any] = {}

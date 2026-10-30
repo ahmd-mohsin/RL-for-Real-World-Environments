@@ -278,6 +278,31 @@ def requests_from(attributions: Sequence[Attribution], records: Sequence[Difficu
     return out
 
 
+KNOB_TEXT: dict[str, tuple[str, str]] = {  # knob -> (what +1 asks of the task, what -1 asks)
+    "distractors": ("one more look-alike entity that must not be touched", "fewer look-alike entities"),
+    "derive_vs_given": ("one more value the agent must work out from the records instead of being told",
+                        "one value the agent had to work out is now stated in the request"),
+    "dependency_depth": ("a write that depends on a value an earlier step read", "fewer steps that depend on earlier reads"),
+    "horizon": ("one more required change", "one fewer required change"),
+    "observation_hiding": ("the needed record is found only by searching, not listed", "the needed record is listed directly"),
+    "actor_info": ("one needed fact is held by a person the agent must ask", "the fact a person held is in the records"),
+}
+MODE_TEXT = {"decision": "choosing the right action under the policy", "frame_discipline": "changing only what the request asks for",
+             "derivation": "computing the right value from the records", "completion": "finishing every required change",
+             "reporting": "reporting the right figure", "acting": "acting through the write tools after reading",
+             "evidence_gathering": "reading the records the decision depends on before acting"}
+
+
+def request_text(req: TargetRequest, base: str = "") -> str:
+    """A target request as the proposer's cell: the cell, the skill the failures show missing, and the knob changes in
+    words (difficulty moves only through knobs, never through a vaguer request)."""
+    parts = [base or req.cell, f"The task must exercise {MODE_TEXT.get(req.mode, req.mode)}."]
+    for k, d in sorted(req.knobs.items()):
+        if k in KNOB_TEXT and d:
+            parts.append("Make it have " + KNOB_TEXT[k][0 if d > 0 else 1] + ".")
+    return " ".join(parts)
+
+
 def knob_kept(direction: str, sig_moved: bool, p_before: float | None, p_after: float | None) -> tuple[bool, str]:
     """Principle 15: a knob change is kept only if the behaviour signature moves and p̂ moves the declared way."""
     if not sig_moved:

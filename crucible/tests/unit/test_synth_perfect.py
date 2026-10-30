@@ -237,8 +237,10 @@ def test_evidence_removal_on_and_off_intent() -> None:
     assert [(s.coll, s.key, s.field) for s in sites] == [("tickets", "T-7", "customer")]
     good = run(p3(t, ctx))
     assert good.on_intent is True and good.trials["EVID"] == 1 and good.confirmed["EVID"] == 0
-    lax = run(p3(t3_lax_mail(), ctx))
-    assert lax.on_intent is False and lax.confirmed["EVID"] == 1 and any(r.startswith("EVID:oracle") for r in lax.reasons)
+    # the lax variant no longer checks the recipient: an unchecked value is incidental, so it has no evidence site (the
+    # pilot's finding: π* copying a ticket's own priority back was called off intent); its laxness is P1's (MUT)
+    lax = run(p3(t3_lax_mail(), ctx, classes=[EVID()]))
+    assert lax.not_applicable["EVID"].startswith("no derived value")
     # an aggregate answer (a receipts total) has no single evidence site: not a false off-intent
     assert evidence_sites(fx.t2_approve_answer(), run(ctx.oracle(fx.t2_approve_answer()))) == []
 
@@ -267,7 +269,7 @@ def test_instruction_swap_enum_and_pool() -> None:
     # pool: an always-pass contract accepts a peer task's solution
     ap = fx.always_pass()
     r = run(p3(ap, ctx, pool=[fx.t2_approve_answer(), fx.t1_hold()], classes=[SWAP(pool=[fx.t2_approve_answer(), fx.t1_hold()])]))
-    assert r.confirmed["SWAP"] >= 1
+    assert r.suspects["SWAP"] >= 1 and r.confirmed["SWAP"] == 0  # a peer's solution passing is for a judge
     # a peer with the same effect is a duplicate (no trial), reported for P4
     twin = fx.t1_hold().model_copy(update={"id": "ap/hold-1003-copy", "instruction": "Hold INV-1003 for price variance after checking its PO."})
     r2 = run(p3(fx.t1_hold(), ctx, classes=[SWAP(pool=[twin])]))
@@ -301,6 +303,8 @@ def test_signatures_near_duplicates_and_calibration() -> None:
     assert by["ap/hold-1003"].tools == ["R:ap.find_invoice", "R:ap.get_purchase_order", "W:ap.hold_invoice"]
     assert by["desk/priority-bob"].tools == ["R:desk.list_tickets", "W:desk.set_priority+"]
     assert by["ap/hold-1003"].depth == 2 and "ap.purchase_orders" in by["ap/hold-1003"].read
+    assert by["ap/hold-1003"].choices == ["ap.hold_invoice.reason=price_variance"]  # named in the tool's description
+    assert by["desk/resolve-T3"].choices == []  # its resolution is a ref: data flow, not a stated decision
     cells = {t.id: ("decision" if "hold" in t.id or "approve" in t.id else "kb" if "resolve" in t.id else "rule") for t in ts}
     pairs = run(known_pairs(ts, ctx, cells=cells, paraphrase=lambda s: "Please " + s[0].lower() + s[1:]))
     kinds = {k for *_, k in pairs}
@@ -353,7 +357,7 @@ def test_perfect_needs_all_four(tmp_path: Any) -> None:
     assert not nolearn.admit and nolearn.reasons["learnable"][0].startswith("unmeasured")
     dup = perfect(t, [sig.model_copy(update={"task_id": "other"})], store.all(), status="certified", p3=p3r, signature=sig)
     assert not dup.novel and not dup.admit
-    off = perfect(t3_lax_mail(), [], store.all(), status="certified", p3=run(p3(t3_lax_mail(), ctx)), signature=sig)
+    off = perfect(t, [], store.all(), status="certified", p3=run(p3(t_priority(relaxed=True), ctx, classes=[SWAP()])), signature=sig)
     assert not off.on_intent
     verdicts, summ = admit_pool([(t, "certified", p3r, sig), (t, "certified", p3r, sig.model_copy(update={"task_id": "again"}))], store.all())
     assert [x.admit for x in verdicts] == [True, False] and summ["admit"] == 1  # the second copy is not novel

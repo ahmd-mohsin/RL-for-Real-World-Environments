@@ -1978,11 +1978,17 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      then fail C (a pass is confirmed off intent); injected ALT agents on the removed World must fail (a pass is a
      suspect); a decoy blank (the same field of an untouched sibling, else another unused field) must leave π* passing,
      else the probe is invalid. **Decisions:** aggregates (a receipts total) and key lookups have no evidence site (the
-     first version matched values by search and called t2's total off intent through the invoice amount); records π*
-     reads but never refers to (`decision_reads`: the evidence of a decision resolved offline) get agent probes only.
+     first version matched values by search and called t2's total off intent through the invoice amount); only values
+     the contract constrains (its constants and required keys) are derived values (on the real pool, π* copying a
+     ticket's own priority back, which no pattern checks, was called off intent on 16 it_helpdesk tasks); a `derive`
+     value π* also writes is traced through that write only; records π* reads but never refers to (`decision_reads`:
+     the evidence of a decision resolved offline) get agent probes only. So EVID's oracle probe is mostly an executed
+     on-intent trial, and its agent probes are the leak test.
      `SWAP` (instruction swap): an instruction-stated literal the catalogue enumerates is swapped for another enum value
-     through ι and π* (dead twins are no trials) and C must reject π*′; every pool peer on the same World and seed must
-     have its oracle rejected by C (the same normalised effect is a duplicate, reported to P4). Both confirm D9.
+     through ι and π* (dead twins are no trials) and C must reject π*′: a pass is confirmed D9. Every pool peer on the
+     same World and seed must have its oracle rejected by C: the same normalised effect, or each solution passing the
+     other's contract, is a duplicate (reported to P4, no trial); a pass is a **suspect** D9 (on the real pool "escalate
+     T-1006 for an SLA breach" legitimately satisfies "raise T-1006 if the policy requires": only a judge can tell).
      `p3` = TAINT (derive probes, D7), TWIN (D9), EVID, SWAP; on intent when ≥ 1 valid EVID/SWAP/TWIN trial and nothing
      confirmed; `pool_report` gives the share per pool. EVID needs a perturbable World (the SQL adapter is not: n/a).
    - **P4** (`novelty.py`). `Signature`: tool pattern (R/W per call, repeats collapsed), collections read (observed
@@ -2016,7 +2022,10 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      applies R4 with `meta.update`'s `kl` and `entropy` (κ = 0.1, H_min = 0.9 × the pool's entropy unless set).
      `frontier_round` runs a targeted and an untargeted batch at the same budget from one injected proposer, `compare`
      (budget within 35%, perfect tasks per dollar with a bootstrap interval, in-band rate, targeted-mode hit rate),
-     then admits. `knob_kept` is principle 15.
+     then admits. `knob_kept` is principle 15. The real round (`synth.py frontier-round`) turns each request into the
+     proposer's cell in words (`request_text`: the cell, the missing skill, each knob change) through the one additive
+     pipeline field `RunConfig.cells` (empty: `CELLS`), runs the swarm pipeline per arm under one cap each, then P2, P3,
+     P4 and `perfect` on every new task.
    - **Outcome classifier** (`outcome.py`; the probe side of the task-creation RSI loop, no training). Per rollout:
      `intended_pass` (constrained values observed before written, π*'s effects), `intended_fail` (a skill-mode first
      wrong step on a task with π* passing and TAINT clean), `unintended_pass` (vacuous; a leaked derive value with the

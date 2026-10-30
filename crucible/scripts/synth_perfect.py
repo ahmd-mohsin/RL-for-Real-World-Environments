@@ -110,6 +110,7 @@ def cmd_learnability(a: argparse.Namespace, data_root: Callable[[argparse.Namesp
         calibrated,
         cost_report,
         features,
+        key_of,
         loo,
         measure,
         operating_characteristic,
@@ -153,18 +154,31 @@ def cmd_learnability(a: argparse.Namespace, data_root: Callable[[argparse.Namesp
             if predictor is not None:
                 order = sorted(items, key=lambda i: abs(predictor.p(feats_of[i.task.id]) - 0.5))
             pp = wire.proxy_probe(FalsifyContext, budget=budget, temperature=a.temperature, concurrency=a.concurrency) if wire and a.proxy_rollouts else None
-            for it in order:
-                left = (wire.meter.cap_usd - wire.meter.spent) if wire is not None else 1.0
-                if wire is not None and left < a.reserve:
-                    report["issues"].append(f"stopped before {it.task.id}: ${left:.3f} left < reserve {a.reserve}")
-                    break
+            sem = asyncio.Semaphore(max(1, a.parallel_tasks))  # tasks in flight; every rollout still gets its own context
+            probe.contexts.size = a.concurrency * max(1, a.parallel_tasks)
+            if pp is not None:
+                pp.contexts.size = a.concurrency * max(1, a.parallel_tasks)
+
+            async def one(it: Any) -> None:
+                async with sem:
+                    left = (wire.meter.cap_usd - wire.meter.spent) if wire is not None else 1.0
+                    if wire is not None and left < a.reserve:
+                        report["issues"].append(f"skipped {it.task.id}: ${left:.3f} left < reserve {a.reserve}")
+                        return
+                    await measure_one(it)
+
+            async def measure_one(it: Any) -> None:
                 t0 = time.time()
                 px_est = px_roll = None
-                if a.proxy_estimate and wire is not None:  # the paid non-student proxies, just before the task's band test
+                prev = store.get(key_of(it.task, probe))
+                done = prev is not None and prev.source == "measured" and prev.decision is not None and (prev.confident or prev.n >= spec.looks[-1])
+                if done:  # resumed: the stored record answers; no proxy is bought again
+                    pass
+                elif a.proxy_estimate and wire is not None:  # the paid non-student proxies, just before the task's band test
                     o = await ctx.oracle(it.task)
                     tools = await (await ctx.world(it.task)).tools()
                     px_est = await proxy_estimate(wire.proxy_client(), it.task, tools, o, student=probe.student, tag=f"proxy-est:{it.task.id}")
-                if pp is not None:
+                if pp is not None and not done:
                     rs = await pp.rollouts(it.task, a.proxy_rollouts)
                     m = [r.passed for r in rs if r.passed is not None]
                     px_roll = (sum(m) / len(m)) if m else None
@@ -184,6 +198,8 @@ def cmd_learnability(a: argparse.Namespace, data_root: Callable[[argparse.Namesp
                 report["tasks"].append(row)
                 print(json.dumps(row, default=str), flush=True)
                 _jw(d / "learnability.json", report)
+
+            await asyncio.gather(*(one(it) for it in order))
         finally:
             await ctx.close()
             await probe.contexts.close()
@@ -411,6 +427,115 @@ def cmd_frontier(a: argparse.Namespace, data_root: Callable[[argparse.Namespace]
         print(json.dumps({"cell": r.cell, "mode": r.mode, "direction": r.direction, "knobs": r.knobs, "traces": r.traces, "tasks": len(r.source_tasks)}))
 
 
+def cmd_frontier_round(a: argparse.Namespace, data_root: Callable[[argparse.Namespace], Path]) -> None:
+    """One real K round on one domain: the targeted batch (the proposer's cells are the frontier's requests in words)
+    and the untargeted control (the default cells), each ``--n`` tasks under the same cap, both certified by the swarm
+    pipeline, then measured on the student (P2), probed (P3), signed (P4) and checked; compared at equal budget and
+    admitted under the 20% cap and R4."""
+    from crucible.factory.synth_student_wire import StudentWire
+    from crucible.factory.synth_wire import SynthWire, finance_ap_env, generated_env
+    from crucible.synth.falsify import FalsifyContext
+    from crucible.synth.falsify.agents import AgentBudget
+    from crucible.synth.falsify.taint import TAINT
+    from crucible.synth.falsify.twin import TWIN
+    from crucible.synth.frontier import BatchResult, FrontierPolicy, PoolEntry, TargetRequest, TaskOutcome, admit, attribute, compare, request_text
+    from crucible.synth.intent import EVID, SWAP, p3
+    from crucible.synth.learn import BandSpec, features, measure
+    from crucible.synth.novelty import assign_cell, signature
+    from crucible.synth.perfect import load_pool, perfect
+    from crucible.synth.pipeline import CELLS, RunConfig, Runner
+
+    root = _root(a, data_root)
+    cap = _cap(a, root)
+    fr = json.loads(Path(a.attributions).read_text())
+    reqs = [TargetRequest.model_validate(r) for r in fr["requests"]]
+    reqs = sorted([r for r in reqs if any(t.startswith(a.domain + "/") for t in r.source_tasks)], key=lambda r: -r.traces)[: a.requests]
+    if not reqs:
+        raise SystemExit("no target request for this domain")
+    grid = {f"c{i + 1}": desc for i, desc in enumerate(CELLS)}
+    base = {r.id: next((d for d in CELLS if d == r.cell or grid.get(r.cell) == d), grid.get(r.cell, r.cell)) for r in reqs}
+    t_cells = tuple(request_text(r, base[r.id]) for r in reqs)
+    rid = time.strftime("%Y%m%d-%H%M%S")
+    out: dict[str, Any] = {"requests": [r.model_dump(mode="json") for r in reqs], "targeted_cells": list(t_cells), "arms": {}}
+    pool_items = load_pool(root / a.domain, statuses=("certified", "provisional"))
+    store = _store(a, root)
+
+    async def arm(name: str, cells: tuple[str, ...]) -> BatchResult:
+        d = root / a.domain / f"{rid}-perfect-frontier-{name}"
+        d.mkdir(parents=True)
+        wire = SynthWire(d, cap_usd=a.cap_arm)
+        cfg = RunConfig(n_tasks=a.n, batch=a.batch, max_rounds=a.rounds, concurrency=4, cells=cells,
+                        alt_budget=AgentBudget(max_calls=20, max_turns=24), atk_budget=AgentBudget(max_calls=12, max_turns=14))
+        if a.domain == "finance_ap":
+            env = finance_ap_env(d / "work", seeds=tuple(int(x) for x in a.seeds.split(",")), invoices=a.invoices)
+        else:
+            if not a.world:
+                raise SystemExit("a generated domain needs --world <worldgen output dir>")
+            wrep = json.loads((Path(a.world) / "worldgen_report.json").read_text())
+            design = json.loads((Path(a.world) / "design.json").read_text())
+            env = generated_env(a.world, d / "work", name=a.domain, description=f"{wrep['keyword']}: {design.get('description', '')}")
+        r = Runner(env, wire.run_roles(), cfg, d, root, run_id=d.name, cost=wire.cost, families=wire.families())
+        await r.run()
+        synth_usd = wire.cost()["total_usd"]
+        sw = StudentWire(d / "student", cap_usd=min(cap, 2.0))
+        probe = sw.probe(FalsifyContext, concurrency=4)
+        items = load_pool(root / a.domain, statuses=("certified", "provisional", "rejected"), runs=[d.name])
+        ctx = FalsifyContext()
+        outcomes = []
+        pool_sigs = [signature(i.task, await ctx.oracle(i.task), cell=assign_cell(i.task, grid, recorded=i.cell) or "",
+                               tools=await (await ctx.world(i.task)).tools()) for i in pool_items]
+        try:
+            for it in items:
+                o = await ctx.oracle(it.task)
+                req = next((r.id for r, c in zip(reqs, t_cells, strict=True) if c == it.cell), None) if name == "targeted" else None
+                cell = assign_cell(it.task, grid, recorded=base.get(req or "", it.cell)) or ""
+                modes: list[str] = []
+                rec = None
+                if it.status in ("certified", "provisional") and ctx.grade(o, it.task.contract).passed:
+                    rec = await measure(it.task, probe, spec=BandSpec(), feats=features(it.task, o, alt=tuple(it.alt) if it.alt else None),
+                                        store=store, note=f"frontier round {rid} {name}")
+                    for ro in rec.rollouts:
+                        if ro.passed is False:
+                            att = await attribute(it.task, ro, ctx, cell=cell, student=probe.student)
+                            if att.mode and not att.routed:
+                                modes.append(att.mode)
+                pr = await p3(it.task, ctx, classes=[TAINT(), TWIN(), EVID(), SWAP(pool=[i.task for i in items])])
+                sig = signature(it.task, o, cell=cell, tools=await (await ctx.world(it.task)).tools())
+                v = perfect(it.task, pool_sigs, [rec] if rec else [], status=it.status, p3=pr, signature=sig, accept_provisional=a.accept_provisional)
+                outcomes.append(TaskOutcome(task_id=it.task.id, cell=cell, perfect=v.admit, decision=rec.decision if rec else None,
+                                            cost_usd=rec.cost_usd if rec else 0.0, request=req, failed_modes=sorted(set(modes))))
+                out["arms"].setdefault(name, {}).setdefault("verdicts", []).append(v.model_dump(mode="json"))
+        finally:
+            await ctx.close()
+            await probe.contexts.close()
+        spent = synth_usd + sw.cost()["total_usd"]
+        out["arms"][name].update({"run": str(d), "synth_usd": synth_usd, "student_usd": sw.cost()["total_usd"], "tasks": len(items),
+                                  "status": dict(Counter(i.status for i in items))})
+        return BatchResult(arm=name, budget_usd=a.cap_arm, spent_usd=round(spent, 5), tasks=outcomes)  # type: ignore[arg-type]
+
+    async def go() -> None:
+        t_res = await arm("targeted", t_cells)
+        c_res = await arm("control", ())
+        cmp = compare(t_res, c_res, reqs, tol=0.35)
+        pool = [PoolEntry(task_id=i.task.id, cell=assign_cell(i.task, grid, recorded=i.cell) or "") for i in pool_items]
+        cands = [PoolEntry(task_id=o.task_id, cell=o.cell, targeted=True, request=o.request) for o in t_res.tasks if o.perfect]
+        cands += [PoolEntry(task_id=o.task_id, cell=o.cell) for o in c_res.tasks if o.perfect]
+        adm, ref, r4 = admit(pool, cands, FrontierPolicy(kappa=a.kappa)) if cmp["equal_budget"] else ([], [(c, "unequal budget") for c in cands], {})
+        out.update({"targeted": t_res.model_dump(mode="json"), "control": c_res.model_dump(mode="json"), "comparison": cmp,
+                    "admitted": [x.model_dump(mode="json") for x in adm], "refused": [{"entry": c.model_dump(mode="json"), "why": w} for c, w in ref],
+                    "r4": r4})
+
+    d0 = root / "perfect" / f"{rid}-perfect-frontier-round"
+    d0.mkdir(parents=True)
+    try:
+        asyncio.run(go())
+    finally:
+        _jw(d0 / "frontier_round.json", out)
+    print(json.dumps({"run": str(d0), "comparison": out.get("comparison"), "admitted": len(out.get("admitted") or []),
+                      "arms": {k: {x: v.get(x) for x in ("synth_usd", "student_usd", "tasks", "status")} for k, v in out["arms"].items()}},
+                     indent=1, default=str))
+
+
 # ---------------------------------------------------------------------------------------------------------- outcome
 
 
@@ -527,6 +652,7 @@ def register(sub: Any, data_root: Callable[[argparse.Namespace], Path]) -> None:
     lp.add_argument("--obs-chars", type=int, default=2000)
     lp.add_argument("--temperature", type=float, default=1.0)
     lp.add_argument("--concurrency", type=int, default=4)
+    lp.add_argument("--parallel-tasks", type=int, default=3, help="tasks measured at once")
     lp.add_argument("--proxy-estimate", action="store_true", help="one non-student proxy-model estimate per task (a feature)")
     lp.add_argument("--proxy-rollouts", type=int, default=0, help="k proxy-model rollouts per task (a feature)")
     lp.add_argument("--trust-min", type=int, default=12)
@@ -555,6 +681,23 @@ def register(sub: Any, data_root: Callable[[argparse.Namespace], Path]) -> None:
     fr.add_argument("--per-request", type=int, default=2)
     fr.add_argument("--kappa", type=float, default=0.1)
     fr.set_defaults(fn=lambda a: cmd_frontier(a, data_root))
+
+    rd = sub.add_parser("frontier-round", help="K: one real targeted vs equal-budget untargeted batch (swarm + student on Tinker)")
+    common(rd)
+    rd.add_argument("--attributions", required=True, help="a frontier.json (its requests)")
+    rd.add_argument("--domain", default="finance_ap")
+    rd.add_argument("--world", default=None, help="a generated domain's worldgen output dir")
+    rd.add_argument("--requests", type=int, default=2)
+    rd.add_argument("--n", type=int, default=6, help="tasks per arm")
+    rd.add_argument("--batch", type=int, default=3)
+    rd.add_argument("--rounds", type=int, default=2)
+    rd.add_argument("--seeds", default="0,1")
+    rd.add_argument("--invoices", type=int, default=30)
+    rd.add_argument("--cap-arm", type=float, default=1.5, help="the swarm's cap per arm (equal budget)")
+    rd.add_argument("--accept-provisional", action="store_true")
+    rd.add_argument("--kappa", type=float, default=0.1)
+    rd.add_argument("--cap", type=float, default=4.0)
+    rd.set_defaults(fn=lambda a: cmd_frontier_round(a, data_root))
 
     oc = sub.add_parser("outcome", help="the student-probe outcome classifier (intended / unintended pass or fail) for the RSI loop")
     common(oc)

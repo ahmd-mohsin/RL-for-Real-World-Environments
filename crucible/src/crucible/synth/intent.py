@@ -25,8 +25,9 @@ Needs a ``Perturbable`` World (``iface.Perturbable``); without one the class is 
   dead, not a trial) and change the effect; C must reject π*′. A pass is **confirmed D9**: the contract ignores the
   choice the instruction states.
 - **pool**: every other task of the pool on the same World and start state: C must reject that task's oracle run under
-  its own instruction. The same normalised effect is no trial (the two tasks are duplicates; P4 reports it); a pass is
-  **confirmed D9**.
+  its own instruction. The same normalised effect, or each solution passing the other's contract, is no trial (the two
+  tasks are duplicates; P4 reports it); a pass is a **suspect D9**: the peer's solution may also solve this task, so
+  only a judge can say the instruction was not followed (an enum swap is executed proof and is confirmed).
 
 ``p3(task, ctx)`` runs TAINT (its ``derive`` probes: D7), TWIN (D9), EVID and SWAP, and says ``on_intent`` = True when
 at least one valid EVID, SWAP or TWIN trial ran and nothing is confirmed, False on any confirmed finding, None
@@ -195,9 +196,21 @@ def evidence_sites(task: Task, oracle: Run, *, limit: int = 8) -> list[Site]:
     sites: dict[tuple[str, str, str, str], Site] = {}
     obs = {c.step: c for c in oracle.calls}
     order = [c.step for c in oracle.calls]
-    for u in _uses(task, oracle):
+    from crucible.synth.contract import is_glob, unglob
+    from crucible.synth.falsify.taint import contract_constants
+
+    # only values the contract constrains: a value π* writes that no pattern checks is incidental, and its evidence is
+    # not needed for success by design (pilot finding: π* copying a ticket's own priority back was called off intent)
+    consts = [v for _, _, v in contract_constants(task.contract)] + [unglob(p.key) for p in task.contract.required if not is_glob(p.key)]
+    uses = _uses(task, oracle)
+    written = [u.value for u in uses if u.where != "derive"]
+    for u in uses:
         v, where = u.value, u.where
         if _given(v, task) or (isinstance(v, str) and len(v) < 2):
+            continue
+        if not any(_loose_eq(v, c) for c in consts):
+            continue
+        if where == "derive" and any(_loose_eq(v, w) for w in written):  # its precise use is the write argument already traced
             continue
         found = None
         if u.exact:
@@ -475,10 +488,20 @@ class SWAP(BaseFalsifier):
         if same_diff(d, d0) and same_answer:
             return Outcome(valid=False, data={"same_effect": True, **({"duplicate_of": probe.data["peer"]} if probe.op == "pool" else {})})
         v = ctx.grade(r, task.contract)
+        if probe.op == "pool" and v.passed:
+            peer = next((t for t in self.pool if t.id == probe.data["peer"]), None)
+            if peer is not None and ctx.grade(o, peer.contract).passed:
+                # each task's solution passes the other's contract: the two ask for the same thing (a duplicate, P4)
+                return Outcome(valid=False, data={"mutual": True, "duplicate_of": probe.data["peer"]})
         return Outcome(passed=v.passed, reasons=v.reasons, error=r.error, data=dict(probe.data))
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
-        return ("confirmed", "D9") if outcome.passed else ("clean", None)
+        if not outcome.passed:
+            return "clean", None
+        # an enum swap changed the stated decision: executed proof; a pool peer's solution may also be a valid solution
+        # of this task (pilot finding: "escalate T-1006 for an SLA breach" also satisfies "raise T-1006 if policy requires"),
+        # so only a judge can say the instruction was not followed
+        return ("confirmed", "D9") if probe.op == "enum" else ("suspect", "D9")
 
 
 # ---------------------------------------------------------------------------------------------------------- the P3 verdict
