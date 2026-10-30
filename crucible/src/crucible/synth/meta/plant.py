@@ -85,7 +85,7 @@ class OpInfo(CrucibleModel):
 OPS: dict[str, OpInfo] = {
     "drop_required": OpInfo(defect="D1", witness="lenient", variants=["base", "last"], families=["DropStep", "Truncate", "minus_last_write"]),
     "widen_frame": OpInfo(defect="D2", witness="lenient", variants=["coll", "app", "field"], families=["ExtraWrite", "write_all", "shortcut"]),
-    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance", "eq_to_in", "eq_to_regex", "eq_to_ne", "approx_rel", "where_in"],
+    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance", "eq_to_in", "eq_to_regex", "eq_to_ne", "approx_rel", "where_in", "any_last"],
                           families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
     "vacuous_required": OpInfo(defect="D4", witness="lenient", variants=["base", "exists"], families=["DropStep", "Truncate", "minus_last_write", "noop"]),
     "hide_info": OpInfo(defect="D5", witness="hidden", variants=["sentence", "redact"]),
@@ -166,7 +166,7 @@ def held_out_planter() -> Planter:
     return Planter(id="held-out", ops=ops)
 
 
-V2_D3 = ("eq_to_regex", "eq_to_ne", "approx_rel", "where_in")
+V2_D3 = ("eq_to_regex", "eq_to_ne", "approx_rel", "where_in", "any_last")
 
 
 def held_out_planter_v2(max_per_op: int = 6) -> Planter:
@@ -469,6 +469,19 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
             req[i] = p.model_copy(update={"value": PIn(vs=[p.value.v, w])})
             out.append(_Draft(task=_with_contract(src, c.model_copy(update={"required": req}, deep=True)), site=f"{p.id}.value:in",
                               change={"target": "required", "pattern": p.id, "field": p.field, "coll": f"{p.app}.{p.coll}", "literal": p.value.v}))
+    elif op.name == "relax_value" and v == "any_last":
+        # the held-out site variant of eq_to_any: exact checks relaxed to "any" from the LAST requirement backwards, a
+        # where-predicate before the value (eq_to_any starts at the first requirement and relaxes its value first)
+        for i in reversed(range(len(c.required))):
+            p = c.required[i]
+            sites = [(f"where.{f}", f, pred.v) for f, pred in sorted(p.where.items()) if isinstance(pred, PEq)]
+            if isinstance(p.value, PEq):
+                sites.append(("value", p.field, p.value.v))
+            for site, f, lit in sites:
+                req = list(c.required)
+                req[i] = p.model_copy(update={"where": {**p.where, f: PAny()}}) if site.startswith("where.") else p.model_copy(update={"value": PAny()})
+                out.append(_Draft(task=_with_contract(src, c.model_copy(update={"required": req}, deep=True)), site=f"{p.id}.{site}:any",
+                                  change={"target": "required", "pattern": p.id, "field": f, "coll": f"{p.app}.{p.coll}", "literal": lit}))
     elif op.name == "relax_value":
         factor = float(op.params.get("factor", 100))
         for i, p in enumerate(c.required):

@@ -101,9 +101,14 @@ def pilot_cap(a: argparse.Namespace, root: Path) -> float:
     from crucible.factory.synth_wire import work_spent
 
     keys_from(a)
+    from crucible.factory.synth_wire import milestone_spent
+
     spent = work_spent(root, "rsi2-pilot")
     cap = min(float(a.cap), round(PILOT_CAP_USD - spent, 4))
-    print(f"RSI-2 pilot spend so far {spent:.4f} of {PILOT_CAP_USD}; this run's cap {cap:.4f}", flush=True)
+    shared, part2 = milestone_spent(root), float(os.environ.get("MILESTONE_CAP_USD", "150"))  # the Part 2 total (lead: $150)
+    print(f"RSI-2 pilot spend so far {spent:.4f} of {PILOT_CAP_USD}; shared Part 2 total {shared:.4f} of {part2}; this run's cap {cap:.4f}", flush=True)
+    if shared + cap > part2:
+        raise SystemExit(f"the shared Part 2 total {shared:.2f} plus this run's cap {cap:.2f} would pass ${part2:.0f}: stopping")
     if cap < 0.05:
         raise SystemExit("the pilot budget is spent: refusing to start")
     if not os.environ.get("TINKER_API_KEY"):
