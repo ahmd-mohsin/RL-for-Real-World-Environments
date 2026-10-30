@@ -250,7 +250,8 @@ admitted. Per task and round:
 | **DESCEND** | intended fails, band too hard | one declared knob step easier → a new variant; the original is kept as the harder rung |
 | **ASCEND** | intended passes, band too easy | one declared knob step harder (distractors, paginate, actor, derive, depth) → a new variant |
 | **KEEP** | in band, valid | the lineage is kept |
-| **RETIRE** | no declared knob in the needed direction; a move against the lineage's direction; 2 refused edits; the round cap | out of the band pool (the task and its archive stay) |
+| **RESERVE** (was RETIRE) | no declared knob in the needed direction; a move against the lineage's direction; 2 refused edits; the round cap | kept for stronger checkpoints, out of the band pool |
+| **RESKILL** | a valid task whose evidence shows another skill than its label (§9.5‴) | the intent card re-labelled; kept or reserved by its fresh band |
 
 | # | Regulariser | As built |
 |---|---|---|
@@ -263,6 +264,33 @@ admitted. Per task and round:
 | G7 | Pool regularisation | KL(the pool's cell histogram with the variant ‖ the pool at the start) ≤ κ, entropy ≥ H_min; originals are never retired by a variant |
 | G8 | System-level lifts | archive counterexamples, lemma candidates and World-builder fixes go to the update rule (R1–R10, the generalisation gates) |
 | G9 | Ledger and rollback | every decision is a ledger record; a repair is a new version and a variant a new task, the previous ones restorable |
+
+### 9.5‴ RESKILL and RESERVE (the lead's decision, 2026-10-30)
+
+**Proposed §9 text.** The order of moves is ORACLE → REPAIR → RESKILL / DESCEND / ASCEND → KEEP or **RESERVE**. RESERVE
+replaces RETIRE: a task with no lawful move is kept for stronger checkpoints, never deleted. **RESKILL** re-labels a
+valid task whose label does not match the skill it exercises: a too-hard task that needs a more advanced skill, or a
+task whose evidence shows another skill (e.g. a "derive X" task whose instruction states X). The task is kept if it is a
+good task under the new label.
+
+| # | Rule | As built |
+|---|---|---|
+| RS1 | An existing skill | the new skill is one of the domain's `DomainSpec` skills; no invented skill |
+| RS2 | The label comes from the task's evidence | `INTENT_DERIVER`, a non-builder role, reads the oracle program, its taint map and the executed effects (`derivation_evidence`). It never sees the student, a rollout, a pass rate, a band or the current label. Every derive value must be something π* writes or answers that the instruction does not state |
+| RS3 | Full re-verification | P3 under the new card (EVID, SWAP, TAINT, TWIN), the leak check with the new derive set (layered TAINT plus any L2 LEAK class), full re-certification under the monotone archive |
+| RS4 | Good under the new cell | novelty against the pool tasks of the new cell; the band on fresh rollouts (sample splitting) places the task: in band → KEEP, out of band → RESERVE under its honest label |
+| RS5 | Pool regularisation | the move counts in the cell-KL trust region and the entropy floor; at most `reskill_cap` (20%) of a round's tasks are re-labelled |
+| RS6 | No ping-pong, reversible | one attempt per lineage; the old card and version are in the ledger; `rollback_reskill` restores them |
+
+**DESCEND's lawful moves** are the skill-preserving easier knobs a variant World makes cheap: undo a recorded harder
+knob, `fewer_distractors` (drop one distractor clone) and `unpaginate`. Each is kept only if π* still runs and passes the
+contract on the easier World. derive → given under the same skill is forbidden; it is a RESKILL to a lookup-and-apply
+skill, honestly labelled. Shorter horizon applies to compositions (a recorded part), and clearer tool descriptions would
+need description overrides in `compose.VariantWorld`. Neither is built.
+
+**What this changes in my earlier disagreement 1.** RESKILL gives too-hard tasks an honest outcome. They do not become
+easier: a task re-labelled to a more advanced skill is still too hard for this student, so it is RESERVED (kept, labelled
+correctly) rather than KEPT. Only an in-band task whose label was wrong is KEPT under its new label.
 
 **Where I disagree with the spec, with reasons.**
 1. **DESCEND has almost no lawful move today.** Every knob of `compose` is declared "harder". A plain swarm task has

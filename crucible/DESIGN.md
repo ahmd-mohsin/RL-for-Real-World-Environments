@@ -2604,6 +2604,23 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      update rule, G9 the ledger. `step(diagnosis=...)` reuses pre-measured rollouts. `ComposeKnobs`: ASCEND by
      `compose.apply_knob` (distractors, paginate); DESCEND only by undoing a recorded harder knob (plain tasks have no
      lawful easier knob: reported to the lead as a disagreement).
+   - **RESKILL and RESERVE** (lead's decision, 2026-10-30; `meta/reskill.py`, `TaskLoop._try_reskill`). Order of moves:
+     ORACLE, REPAIR, then RESKILL / DESCEND / ASCEND, then KEEP or RESERVE (RETIRE is renamed: a task with no lawful
+     move is kept for stronger checkpoints, never deleted). RESKILL re-labels a valid task's intent card with the skill
+     its evidence shows. `INTENT_DERIVER` (a non-builder role; `swarm_deriver`) reads the oracle program, its taint map
+     and the executed effects (`derivation_evidence`), never a rollout, a pass rate, a band or the current label.
+     RS1 the skill is one of the domain's `DomainSpec` skills (`domain_skills`); RS2 every derive value is something π*
+     writes or answers and the instruction does not state (a stated value makes it lookup-and-apply); RS3 P3 under the
+     new card (`p3_checker`: `intent.p3`), the leak check with the new derive set (`leak_checker`: layered TAINT plus
+     any L2 class) and full re-certification under the monotone archive; RS4 novelty in the new cell
+     (`novelty_checker`) and the band on fresh rollouts, which places the task (in band → kept, out of band →
+     reserved under its honest label); RS5 the pool's cell KL and entropy with the task moved, and a per-round cap
+     (`reskill_cap`, default 0.2 of the round's tasks); RS6 one attempt per lineage, the old card and version in the
+     ledger and `rollback_reskill`. DESCEND gains the skill-preserving easier knobs a variant World makes cheap
+     (`fewer_distractors`, `unpaginate`, each verified by π* still passing the contract); derive → given is never an
+     easier move. Tests: `test_synth_reskill.py` (accepted, kept and rolled back; a too-hard task reserved under a
+     harder label; RS1–RS4 each refusing and the loop moving on; RS5's trust region and cap; ORACLE and REPAIR before
+     RESKILL; a confirmed label; the deriver's inputs and feedback; the default checks; the easier knobs).
    - **Tests**: `test_synth_rsi_stats.py` (betting level at the null boundary and power, bootstrap and cluster intervals,
      A/A, spending, the run-level guarantee by simulation against an uncorrected rule, exact tests and power, Thresholdout,
      paired engine decisions, R1-strict, state replay, gate G, the whole engine's FWER under null updates),

@@ -1930,7 +1930,7 @@ class ProbeLoop:
 #   DESCEND       intended fails, band too hard: one declared knob step easier → a NEW variant; the original is kept
 #   ASCEND        intended passes, band too easy: one declared knob step harder → a new variant
 #   KEEP          in band, valid
-#   RETIRE        no lawful move (no declared knob in the direction, a move against the lineage's direction), or
+#   RESERVE       (was RETIRE; lead, 2026-10-30: kept for stronger checkpoints, never deleted) no lawful move (no declared knob in the direction, a move against the lineage's direction), or
 #                 repeated refusals / the round cap without new executed information
 #   HOLD          the evidence does not decide (a disputed oracle, or most failures uncertain): nothing is edited
 #
@@ -1949,7 +1949,7 @@ class ProbeLoop:
 #   G8 system-level lifts go to the update rule (R1–R10, generalisation gates); nothing here changes Θ
 #   G9 every decision is ledgered; a variant or repair is a new version, the previous one restorable
 
-TaskMove = Literal["REPAIR", "DESCEND", "ASCEND", "KEEP", "RETIRE", "HOLD"]
+TaskMove = Literal["REPAIR", "RESKILL", "DESCEND", "ASCEND", "KEEP", "RESERVE", "HOLD"]
 RANK = {"too_easy": 0, "in_band": 1, "too_hard": 2}
 
 
@@ -1978,6 +1978,7 @@ class TaskRules(ProbeRules):
     kappa: float = 0.1
     h_min: float = 0.0
     require_alt: bool = True
+    reskill_cap: float = 0.2  # RS5: accepted RESKILLs per round ≤ max(1, cap × the tasks the round decides)
 
 
 class TaskDecision(CrucibleModel):
@@ -1996,6 +1997,7 @@ class TaskDecision(CrucibleModel):
     refused_by: list[str] = Field(default_factory=list)
     acceptance_band: dict[str, Any] | None = None
     rollouts: dict[str, list[int]] = Field(default_factory=dict)  # diagnosis | acceptance -> rollout indices
+    reskill: dict[str, Any] | None = None  # RESKILL: the old and new card, the proposal's reasons and its checks
 
 
 class Lineage(CrucibleModel):
@@ -2004,7 +2006,9 @@ class Lineage(CrucibleModel):
     members: list[str] = Field(default_factory=list)
     rounds: int = 0
     refusals: int = 0
-    status: Literal["active", "kept", "retired", "held"] = "active"
+    status: Literal["active", "kept", "reserved", "held"] = "active"
+    reskilled: bool = False  # RS6: one RESKILL attempt per lineage (accepted or refused): no ping-pong
+    original: dict[str, Any] | None = None  # RS6: the label and version before an accepted RESKILL (rollback)
 
 
 class TaskLoop(ProbeLoop):
@@ -2017,7 +2021,14 @@ class TaskLoop(ProbeLoop):
     def __init__(self, root: Path, *, probe: Any, classify: OutcomeClassifier, repair: ProbeRepairer, replay: Replayer, recheck: Recheck, knobs: Knobs,
                  ctx: FalsifyContext, oracle: Any = None, p3_check: Callable[[Task], Awaitable[tuple[bool | None, list[str]]]] | None = None,
                  alt_check: Callable[[Task], Awaitable[bool | None]] | None = None, cell_of: Callable[[Task], str] | None = None, archive: Any = None,
-                 lift_lemmas: LemmaLift | None = None, rules: TaskRules | None = None, monitor: TuningMonitor | None = None):
+                 lift_lemmas: LemmaLift | None = None, rules: TaskRules | None = None, monitor: TuningMonitor | None = None,
+                 derive_intent: Callable[[Task, FalsifyContext], Awaitable[Any]] | None = None, skills_of: Callable[[Task], Sequence[str]] | None = None,
+                 leak_check: Callable[[Task], Awaitable[list[str]]] | None = None,
+                 novel_check: Callable[[Task, str, Sequence[Task]], Awaitable[tuple[bool, list[str]]]] | None = None):
+        self.derive_intent, self.skills_of, self.leak_check, self.novel_check = derive_intent, skills_of, leak_check, novel_check
+        self.originals: dict[str, Task] = {}  # RS6: task id -> the version before its RESKILL
+        self._round_reskills: dict[int, int] = {}
+        self._round_size: dict[int, int] = {}
         self.lineages: dict[str, Lineage] = {}
         self.of: dict[str, str] = {}  # task id -> lineage root
         self.decisions: list[TaskDecision] = []
@@ -2042,11 +2053,13 @@ class TaskLoop(ProbeLoop):
             self.decisions = [TaskDecision.model_validate(x) for x in d.get("decisions", [])]
             self.next_index = {k: int(v) for k, v in d.get("next_index", {}).items()}
             self.cells0 = dict(d.get("cells0", {}))
+            self.originals = {k: Task.model_validate(v) for k, v in d.get("originals", {}).items()}
 
     def save(self) -> None:
         super().save()
         doc = {"lineages": {k: v.model_dump(mode="json") for k, v in self.lineages.items()}, "of": self.of,
-               "decisions": [x.model_dump(mode="json") for x in self.decisions], "next_index": self.next_index, "cells0": self.cells0}
+               "decisions": [x.model_dump(mode="json") for x in self.decisions], "next_index": self.next_index, "cells0": self.cells0,
+               "originals": {k: t.model_dump(mode="json") for k, t in self.originals.items()}}
         tmp = self.root / "task_state.json.tmp"
         tmp.write_text(json.dumps(doc, default=str))
         tmp.replace(self.root / "task_state.json")
@@ -2064,7 +2077,7 @@ class TaskLoop(ProbeLoop):
         out: dict[str, float] = {}
         for tid, t in self.tasks.items():
             lin = self.lineages.get(self.of.get(tid, tid))
-            if lin is not None and lin.status == "retired":
+            if lin is not None and lin.status == "reserved":
                 continue
             c = self.cell_of(t)
             out[c] = out.get(c, 0.0) + 1.0
@@ -2126,7 +2139,7 @@ class TaskLoop(ProbeLoop):
         self.decisions.append(dec)
         self.ledger.append(Decision(kind="update", round=dec.round, update_id=f"{dec.task_id}@{dec.version}:{dec.move}", component="T", evaluated=True,
                                     accepted=dec.accepted, to_version=dec.new_version, failed=[RuleFailure(rule=x.split(":", 1)[0], detail=x) for x in dec.refused_by],
-                                    metrics={"move": dec.move, "why": dec.why[:6], "variant": dec.variant_id, "counted": dec.counted}))
+                                    metrics={"move": dec.move, "why": dec.why[:6], "variant": dec.variant_id, "counted": dec.counted, "reskill": dec.reskill}))
         return dec
 
     async def _variant_checks(self, task: Task, var: Task) -> list[str]:
@@ -2159,12 +2172,12 @@ class TaskLoop(ProbeLoop):
         root = self.of.get(task.id, task.id)
         lin = self.lineages.setdefault(root, Lineage(root=root, members=[task.id]))
         dec = TaskDecision(task_id=task.id, version=task.version, round=round, move="HOLD")
-        if lin.status in ("retired", "kept"):
-            dec.move, dec.why = ("RETIRE" if lin.status == "retired" else "KEEP"), [f"lineage already {lin.status}"]
+        if lin.status in ("reserved", "kept"):
+            dec.move, dec.why = ("RESERVE" if lin.status == "reserved" else "KEEP"), [f"lineage already {lin.status}"]
             return self._record(dec)
         if lin.rounds >= rules.max_rounds:
-            lin.status = "retired"
-            dec.move, dec.why = "RETIRE", [f"G5: {lin.rounds} rounds (the cap) without a lawful decision"]
+            lin.status = "reserved"
+            dec.move, dec.why = "RESERVE", [f"G5: {lin.rounds} rounds (the cap) without a lawful decision"]
             return self._record(dec)
         lin.rounds += 1
         if diagnosis is not None:
@@ -2202,6 +2215,8 @@ class TaskLoop(ProbeLoop):
         if graded and unc / len(graded) > rules.uncertain_hold:
             dec.move, dec.why = "HOLD", [*dec.why, f"{unc} of {len(graded)} graded rollouts uncertain: the evidence does not decide"]
             return self._record(dec)
+        if await self._try_reskill(task, dec, lin, round):
+            return dec
         band, _more, ix2 = await self._sequential_band(task, rolls)
         dec.rollouts["diagnosis"] += ix2
         dec.band = band.model_dump(mode="json") if band is not None else None
@@ -2216,15 +2231,15 @@ class TaskLoop(ProbeLoop):
         move: TaskMove = "DESCEND" if direction == "easier" else "ASCEND"
         want = "down" if direction == "easier" else "up"
         if lin.direction is not None and lin.direction != want:
-            lin.status = "retired"
-            dec.move, dec.why = "RETIRE", [*dec.why, f"G5: the lineage moved {lin.direction}; moving {want} would oscillate"]
+            lin.status = "reserved"
+            dec.move, dec.why = "RESERVE", [*dec.why, f"G5: the lineage moved {lin.direction}; moving {want} would oscillate"]
             return self._record(dec)
         if direction == "easier" and self.alt_check is not None and (await self.alt_check(task)) is False:
             dec.why.append("too hard, and no independent solver solves the original either")
         knobs = await self.knobs.moves(task, direction)
         if not knobs:
-            lin.status = "retired"
-            dec.move, dec.why = "RETIRE", [*dec.why, f"no declared knob makes this task {direction}"]
+            lin.status = "reserved"
+            dec.move, dec.why = "RESERVE", [*dec.why, f"no declared knob makes this task {direction}"]
             return self._record(dec)
         dec.move, dec.knob = move, knobs[0]
         var = await self.knobs.apply(task, knobs[0])
@@ -2249,12 +2264,97 @@ class TaskLoop(ProbeLoop):
         self.of[var.id] = root
         return self._record(dec)
 
+    # -- RESKILL (lead, 2026-10-30; meta/reskill.py) ---------------------------------------------------------------
+    async def _try_reskill(self, task: Task, dec: TaskDecision, lin: Lineage, round: int) -> bool:
+        """Re-label a valid task with the skill its evidence shows. RS1 an existing skill of the domain; RS2 the
+        derivation reads only the task's evidence (never the student) and its derive values are values π* writes or
+        answers that the instruction does not state; RS3 P3 under the new card, LEAK with the new derive set, full
+        re-certification under the monotone archive; RS4 novelty in the new cell, and the band on FRESH rollouts places
+        the task (in band: KEEP; out of band: RESERVE under its honest label); RS5 the pool's cell KL and entropy with the
+        task moved, and a per-round cap; RS6 one attempt per lineage, the old card and version kept for rollback.
+        Returns True when the RESKILL was accepted (the decision is recorded)."""
+        if self.derive_intent is None or lin.reskilled:
+            return False
+        from crucible.synth.meta.reskill import check_proposal, derivation_evidence
+
+        prop = await self.derive_intent(task, self.ctx)
+        if prop is None:
+            return False
+        old = task.intent
+        same = (prop.skill == old.skill and sorted(cjson(x) for x in prop.derive) == sorted(cjson(x) for x in old.derive)
+                and sorted(cjson(x) for x in prop.given) == sorted(cjson(x) for x in old.given))
+        if same:
+            dec.why.append("RESKILL: the derivation confirms the label")
+            return False
+        lin.reskilled = True
+        why: list[str] = []
+        ev = await derivation_evidence(task, self.ctx)
+        why += check_proposal(prop, list(self.skills_of(task)) if self.skills_of is not None else [], ev)
+        size = self._round_size.get(round, 1)
+        cap = max(1, math.floor(self.rules.reskill_cap * size))
+        if self._round_reskills.get(round, 0) >= cap:
+            why.append(f"RS5: this round's RESKILL cap ({cap} of {size} tasks) is used")
+        new = task.next_version(intent=prop.card(notes=f"RESKILL from {old.skill!r} v{task.version}: {prop.why}"[:300]))
+        oc, nc = self.cell_of(task), self.cell_of(new)
+        if not why:
+            if self.p3_check is not None:
+                on, rs = await self.p3_check(new)
+                if on is not True:
+                    why.append(f"RS3: P3 under the new card: {'; '.join(rs)[:200] or 'not on intent'}")
+            if self.leak_check is not None:
+                why += [f"RS3: LEAK under the new derive set: {x}" for x in await self.leak_check(new)]
+            why += [f"RS3: {x}" for x in await self.recheck(new)]
+        if not why:
+            cells = self.pool_cells()
+            cells[oc] = max(0.0, cells.get(oc, 0.0) - 1.0)
+            cells[nc] = cells.get(nc, 0.0) + 1.0
+            k = kl(cells, self.cells0)
+            if k > self.rules.kappa:
+                why.append(f"RS5: pool cell KL {k:.3f} > kappa {self.rules.kappa} with the task moved to {nc!r}")
+            if entropy(cells) < self.rules.h_min:
+                why.append(f"RS5: pool entropy {entropy(cells):.3f} < H_min {self.rules.h_min}")
+        if not why and self.novel_check is not None:
+            pool = [t for tid, t in self.tasks.items() if tid != task.id and self.cell_of(t) == nc]
+            ok, rs = await self.novel_check(new, nc, pool)
+            if not ok:
+                why.append(f"RS4: not novel in {nc!r}: {'; '.join(rs)[:200]}")
+        vband = None
+        if not why:
+            vband, _r, ix = await self._sequential_band(new)
+            dec.rollouts["acceptance"] = ix
+            dec.acceptance_band = vband.model_dump(mode="json") if vband is not None else None
+            if vband is None:
+                why.append("RS4: the band on fresh rollouts did not decide at k_max")
+        dec.reskill = {"from": old.model_dump(mode="json"), "to": prop.model_dump(mode="json"), "cell": [oc, nc], "refused_by": why}
+        if why:
+            dec.why.append(f"RESKILL refused: {why[0]}")
+            return False
+        assert vband is not None
+        self.originals[task.id] = task
+        self.tasks[task.id] = new
+        lin.original = {"skill": old.skill, "version": task.version, "card": old.model_dump(mode="json")}
+        lin.status = "kept" if vband.decision == "in_band" else "reserved"
+        self._round_reskills[round] = self._round_reskills.get(round, 0) + 1
+        dec.move, dec.accepted, dec.new_version = "RESKILL", True, new.version
+        dec.why.append(f"RESKILL {old.skill!r} → {prop.skill!r}; fresh band {vband.decision}: {'kept' if lin.status == 'kept' else 'reserved under its honest label'}")
+        self._record(dec)
+        return True
+
+    def rollback_reskill(self, task_id: str, round: int = 0) -> Task:
+        """RS6: restore the version before an accepted RESKILL (the lineage keeps ``reskilled``: no second attempt)."""
+        old = self.originals.pop(task_id)
+        lin = self.lineages[self.of.get(task_id, task_id)]
+        self.tasks[task_id] = old
+        lin.original, lin.status = None, "active"
+        self._record(TaskDecision(task_id=task_id, version=old.version, round=round, move="HOLD", accepted=True, why=["RESKILL rolled back"]))
+        return old
+
     def _refuse(self, dec: TaskDecision, lin: Lineage, why: list[str]) -> TaskDecision:
         dec.refused_by = why
         lin.refusals += 1
         if lin.refusals >= self.rules.max_refusals:
-            lin.status = "retired"
-            dec.why.append(f"{lin.refusals} refused edits: retired")
+            lin.status = "reserved"
+            dec.why.append(f"{lin.refusals} refused edits: reserved (kept for stronger checkpoints)")
         return self._record(dec)
 
     async def _repair(self, task: Task, dec: TaskDecision, counted: Sequence[tuple[ProbeOutcome, str, str | None]], cxs: list[Counterexample], lin: Lineage,
@@ -2264,7 +2364,7 @@ class TaskLoop(ProbeLoop):
         n = self.repairs.get(task.id, 0)
         executed = any(o.evidence == "executed" for o, k, _ in counted if k.startswith("unintended")) or why.startswith("ORACLE")
         if n >= self.rules.max_repairs or (not executed and self.judge_streak.get(task.id, 0) >= self.rules.judge_cap):
-            lin.status = "retired"
+            lin.status = "reserved"
             return self._refuse(dec, lin, [f"T6: {n} repairs, judge streak {self.judge_streak.get(task.id, 0)}"])
         new = await self.repair(task, list(cxs))
         if new is None:
@@ -2304,9 +2404,11 @@ class TaskLoop(ProbeLoop):
 
     async def run_typed_round(self, round: int, *, ids: Sequence[str] | None = None) -> list[TaskDecision]:
         out = []
-        for i in ids or sorted(self.tasks):
+        todo = list(ids or sorted(self.tasks))
+        self._round_size[round] = len(todo)
+        for i in todo:
             lin = self.lineages.get(self.of.get(i, i))
-            if lin is not None and lin.status in ("retired", "kept") and ids is None:
+            if lin is not None and lin.status in ("reserved", "kept") and ids is None:
                 continue
             out.append(await self.step(self.tasks[i], round))
             self.save()
@@ -2330,16 +2432,58 @@ class ComposeKnobs:
         self.parent: dict[str, str] = {}
 
     async def moves(self, task: Task, direction: Literal["easier", "harder"]) -> list[KnobMove]:
+        """Easier moves keep the skill (lead, 2026-10-30): undo a recorded harder knob, then the structural easier knobs
+        a variant World makes cheap: ``fewer_distractors`` (drop one distractor clone) and ``unpaginate`` (one read tool
+        returns its whole list). derive → given is never an easier move: it changes the skill (a RESKILL to
+        lookup-and-apply)."""
+        from crucible.synth.compose import split_world
+
         if direction == "easier":
+            out = []
             p = self.parent.get(task.id)
-            return [KnobMove(knob="undo", direction="easier", params={"to": p})] if p in self.rungs else []
+            if p in self.rungs:
+                out.append(KnobMove(knob="undo", direction="easier", params={"to": p}))
+            spec = split_world(task.world)
+            if any(x.op == "clone" for x in spec.perturb):
+                out.append(KnobMove(knob="fewer_distractors", direction="easier"))
+            if spec.paginate:
+                out.append(KnobMove(knob="unpaginate", direction="easier", params={"tool": min(spec.paginate)}))
+            return out
         return [KnobMove(knob=k, direction="harder") for k in self.kinds]
+
+    async def _easier_world(self, task: Task, move: KnobMove) -> Task | None:
+        """A variant World one structural step easier; kept only if π* still runs and passes the task's contract there."""
+        from crucible.synth.compose import split_world
+
+        spec = split_world(task.world)
+        if move.knob == "fewer_distractors":
+            clones = [i for i, x in enumerate(spec.perturb) if x.op == "clone"]
+            if not clones:
+                return None
+            spec = spec.model_copy(update={"perturb": [x for i, x in enumerate(spec.perturb) if i != clones[-1]]}, deep=True)
+        else:
+            tool = str(move.params.get("tool"))
+            if tool not in spec.paginate:
+                return None
+            spec = spec.model_copy(update={"paginate": {k: v for k, v in spec.paginate.items() if k != tool}}, deep=True)
+        t = task.model_copy(update={"id": f"{task.id}~{move.knob}", "version": 1, "world": spec.ref()}, deep=True)
+        try:
+            r = await self.ctx.run(t, t.oracle)
+        except Exception:  # noqa: BLE001 - a World that refuses the variant makes the knob inapplicable
+            return None
+        if r.error is not None or not self.ctx.grade(r, t.contract).passed:
+            return None
+        self.parent[t.id] = task.id
+        self.rungs[task.id] = task
+        return t
 
     async def apply(self, task: Task, move: KnobMove) -> Task | None:
         from crucible.synth.compose import KnobNotApplicable, KnobSpec, apply_knob, single
 
         if move.knob == "undo":
             return self.rungs.get(str(move.params.get("to")))
+        if move.knob in ("fewer_distractors", "unpaginate"):
+            return await self._easier_world(task, move)
         try:
             v = await apply_knob(KnobSpec(kind=move.knob, params=move.params), await single(task, self.ctx), ctx=self.ctx, writer=self.writer)
         except KnobNotApplicable:

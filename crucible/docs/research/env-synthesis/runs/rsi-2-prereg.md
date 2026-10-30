@@ -202,4 +202,25 @@ candidates and are decided like every other update (§4), with the generalisatio
 
 ## 9. Amendments
 
-None yet.
+### Amendment 1 (2026-10-30, before any RSI-2 run): RESKILL and RESERVE
+
+The lead's decision on DESCEND. Changes to §8.1, fixed before the 89-task run:
+- **Order of moves:** ORACLE precondition → REPAIR → RESKILL / DESCEND / ASCEND → KEEP or RESERVE.
+- **RESERVE replaces RETIRE.** A task with no lawful move is kept for stronger checkpoints, never deleted, and is out
+  of the band pool.
+- **RESKILL** (one attempt per lineage, `rsi-stats.md` §9.5‴): the intent card is re-labelled to the skill the task's
+  evidence shows, by `INTENT_DERIVER` on the abstractor's (non-builder) family, temperature 0, seeded by tag. The skill
+  must be a skill of the domain's `DomainSpec`. The task must pass P3 and the leak check under the new card, full
+  re-certification under the monotone archive, and novelty in the new cell. Its band on fresh rollouts (looks 4, 8, 12,
+  16) places it: in band → KEPT; out of band → RESERVED under the honest label. The pool's cell KL ≤ 0.1 and entropy
+  floor include the move, and at most 20% of a round's tasks may be re-labelled. Rollback restores the old card and
+  version.
+- **DESCEND's lawful moves:** undo a recorded harder knob, `fewer_distractors`, `unpaginate`. derive → given under the
+  same skill is forbidden; that case is a RESKILL to a lookup-and-apply skill, when the domain has one.
+- **Expected effect on the 89-task pool (replaces the RETIRE row of §8.1).** Too-hard plain tasks first try RESKILL. The
+  ones re-labelled to a more advanced skill stay too hard for this student and are RESERVED under the honest label. The
+  ones whose derivation confirms the label have no lawful easier move unless they sit on a variant World, and are also
+  RESERVED. KEEP can only grow, by in-band tasks whose label is corrected.
+- **Added hypothesis H11:** every accepted RESKILL passes RS1–RS6. This is checked on the ledger and reported as counts
+  per rule, with the old and new label of each task.
+- **Budget:** one deriver call per task attempted (89 at most). Fresh band rollouts per accepted RESKILL: up to 16.

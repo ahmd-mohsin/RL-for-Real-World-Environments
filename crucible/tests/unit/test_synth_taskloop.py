@@ -1,5 +1,5 @@
 """The typed per-task loop (meta.rsi.TaskLoop) and the ORACLE class (falsify.oracle), with a scripted student and
-classifier on the fixture AP task (no model is called): REPAIR, DESCEND, ASCEND, KEEP, RETIRE and HOLD, each regulariser
+classifier on the fixture AP task (no model is called): REPAIR, RESKILL, DESCEND, ASCEND, KEEP, RESERVE and HOLD, each regulariser
 refusing what it must, sample splitting of diagnosis and acceptance rollouts, and the reference-decision precondition."""
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ async def test_too_easy_ascends_and_a_lineage_never_moves_both_ways(tmp_path):
     loop.tasks[hard.id] = hard
     loop.of[hard.id] = task.id
     d2 = await loop.step(hard, 2)
-    assert d2.move == "RETIRE" and "oscillate" in " ".join(d2.why)
+    assert d2.move == "RESERVE" and "oscillate" in " ".join(d2.why)
 
 
 async def test_in_band_keeps_and_no_lawful_move_retires(tmp_path):
@@ -134,7 +134,7 @@ async def test_in_band_keeps_and_no_lawful_move_retires(tmp_path):
     assert d.move in ("KEEP", "HOLD")  # one in three: in band, or undecided at k_max (never an edit)
     loop2, _, _ = _loop(tmp_path / "b", tag="hard", knobs=Knobs(allow=("harder",)))
     (d2,) = await loop2.run_typed_round(1)
-    assert d2.move == "RETIRE" and "no declared knob" in " ".join(d2.why)
+    assert d2.move == "RESERVE" and "no declared knob" in " ".join(d2.why)
 
 
 async def test_variants_that_change_what_is_taught_or_lack_an_independent_solver_are_refused(tmp_path):
