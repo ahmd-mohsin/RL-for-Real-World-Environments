@@ -43,7 +43,7 @@ from crucible.synth.canon import Normalizers, diff
 from crucible.synth.cegis import CegisReport, refine
 from crucible.synth.certificate import AdmissionPolicy
 from crucible.synth.contract import Contract, grade
-from crucible.synth.falsify import ALT, ATK, DEFECTS, DETERMINISTIC, Counterexample, FalsifyContext, cheap
+from crucible.synth.falsify import ALT, ATK, DEFECTS, DETERMINISTIC, Counterexample, FalsifyContext, MUTHeldOut, population
 from crucible.synth.falsify.agents import Adjudicated, AgentBudget, Anchor, Attempt, Panel, PanelMember, calibrate, llm_alt, llm_atk, trace_view
 from crucible.synth.iface import SynthWorld, ToolInfo
 from crucible.synth.program import Program, Run
@@ -123,6 +123,7 @@ class RunConfig:
     calib_tasks: int = 4
     show_reasons: bool = True
     max_mutants: int = 240
+    heldout_mutants: float = 0.0  # Part 1 V5: the share of each MUT neighbourhood the repairer never sees (MUT-HO at certification); 0 = off
     lemmas: tuple[str, ...] = ()  # the S component's design rules the proposer is shown (§9.5 synthesizer loop)
     writer_lemmas: tuple[str, ...] = ()  # ... and those the contract writer is shown (lemmas whose role is the writer)
     paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
@@ -313,7 +314,7 @@ class Runner:
         # hooks for synth.batch (defaults: the M4 behaviour): the deterministic classes per task, a wrapper of the paid
         # classes (concurrent agents), a screen between the executed oracle and the contract writer (a reason drops the
         # task as "filtered"), and a sink for every ALT/ATK agent turn
-        self.cheap_factory: Callable[[], list[Any]] = cheap
+        self.cheap_factory: Callable[[], list[Any]] = lambda: population(cfg.heldout_mutants)
         self.wrap_paid: Callable[[list[Any]], list[Any]] | None = None
         self.screen: Callable[[TaskRecord, Task, Run], Awaitable[str | Task | None]] | None = None  # a Task: use it (intent re-derived)
         self.agent_log: Callable[[TaskRecord, str, dict[str, Any]], None] | None = None
@@ -571,13 +572,15 @@ class Runner:
             paid = self.wrap_paid(paid)
         panel = self.panel
         falsifiers = self.cheap_factory()
+        heldout: Any = MUTHeldOut(holdout=self.cfg.heldout_mutants) if self.cfg.heldout_mutants > 0 else None
         if panel is not None:  # suspects (MUT survivors, ALT failures, ATK passes) are decided as they are found
             panel = Panel(members=panel.members, lam=panel.lam, queue=panel.queue, show_reasons=panel.show_reasons, tag=f"adjudicate:{rec.id}")
             falsifiers = [Adjudicated(f, panel) if f.name == "MUT" else f for f in falsifiers]
             paid = [Adjudicated(f, panel) for f in paid]
+            heldout = Adjudicated(heldout, panel) if heldout is not None else None
         try:
             rep: CegisReport = await refine(task, repair=self.repairer(rec, ctx), ctx=ctx, archive=self.archive, falsifiers=falsifiers, paid=paid,
-                                            adjudicate=None, policy=admission_policy(), max_rounds=self.cfg.max_rounds)
+                                            adjudicate=None, policy=admission_policy(), max_rounds=self.cfg.max_rounds, heldout=heldout)
             self.record(rec, rep)
             _jwrite(tdir / "cegis.json", rep.model_dump(mode="json"))
             if panel is not None and panel.log:

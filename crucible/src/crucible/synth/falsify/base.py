@@ -362,7 +362,7 @@ async def falsify(task: Task, f: Falsifier, ctx: FalsifyContext) -> ClassResult:
 # REP runs first and gates the classes whose label rules assume a deterministic World (§5.1 rule 3): in a
 # nondeterministic World every mutant looks non-equivalent and every twin or perturbation looks like a flip, so their
 # survivors would be mislabelled.
-GATED_BY_REP = ("MUT", "TWIN", "PERT")
+GATED_BY_REP = ("MUT", "MUT-HO", "TWIN", "PERT")
 
 
 def _config_key(f: Falsifier) -> str:

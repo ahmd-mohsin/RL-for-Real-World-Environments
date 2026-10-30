@@ -17,12 +17,19 @@
           if candidate re-opens a counterexample the current version closes: refuse it (the monotone archive)
           else task ← candidate
       if the last round's repair was accepted: re-run every class on that version and ADJUDICATE its suspects (archived)
+      held-out mutants (optional): MUT-HO on the final version, its suspects adjudicated, never archived or repaired
       certify(task) → certified | provisional (c = 0, n too small for the U bound) | reject(reasons)
 
 The roles are ``Protocol``s (M4 binds them to model families through ``factory/synth_wire.py``; tests pass scripted
 ones). A repair that only partly fixes the round's counterexamples is accepted: what it leaves open is found again next
 round. What it may never do is re-open a counterexample the current version already rejects. The round cap is
 ``max_rounds`` (3). The report records every round: probe counts, the counterexamples, the repair decision.
+
+**Held-out mutants** (Part 1 V5, ``heldout``: a ``MUTHeldOut``; the rounds then run ``MUT(split="shown")``,
+``falsify.population``). The repairer sees counterexamples from the shown mutants only; the held-out share of the same
+neighbourhood runs once, on the version being certified, and a confirmed survivor rejects it (``MUT-HO:confirmed``).
+``FinalPass.heldout`` reports the kill rate on the shown and on the held-out mutants: a gap means the contract was fitted
+to what the repairer saw.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.synth.archive import Archive, regress
-from crucible.synth.certificate import AdmissionPolicy, Certificate, certify
+from crucible.synth.certificate import AdmissionPolicy, Certificate, certify, kill_rate
 from crucible.synth.contract import Contract
 from crucible.synth.falsify import cheap
 from crucible.synth.falsify.base import BaseFalsifier, ClassResult, Counterexample, FalsifyContext, Finding, run_classes
@@ -87,6 +94,7 @@ class FinalPass(CrucibleModel):
     adjudicated: int = 0
     confirmed: list[str] = Field(default_factory=list)
     archived: list[str] = Field(default_factory=list)
+    heldout: dict[str, Any] = Field(default_factory=dict)  # n, c, suspects, kill rate shown / held out
 
 
 class CegisReport(CrucibleModel):
@@ -119,7 +127,7 @@ async def _counterexamples(task: Task, results: Sequence[ClassResult], adjudicat
 
 async def refine(task: Task, *, repair: Repairer, ctx: FalsifyContext, archive: Archive, falsifiers: Sequence[BaseFalsifier] | None = None,
                  paid: Sequence[BaseFalsifier] = (), adjudicate: Adjudicator | None = None, policy: AdmissionPolicy | None = None,
-                 max_rounds: int = 3) -> CegisReport:
+                 max_rounds: int = 3, heldout: BaseFalsifier | None = None) -> CegisReport:
     cheap_f = list(falsifiers) if falsifiers is not None else cheap()
     every = [*cheap_f, *paid]
     rounds: list[RoundReport] = []
@@ -173,8 +181,20 @@ async def refine(task: Task, *, repair: Repairer, ctx: FalsifyContext, archive: 
             cxs = [Counterexample.of(task, f) for f in decided if f.label == "confirmed"]
             final.confirmed = [c.id for c in cxs]
             final.archived = archive.add_all(cxs)
+    results = list(last[1])
+    if heldout is not None:
+        if any(r.cls == "REP" and r.c > 0 for r in results):
+            ho = ClassResult(cls=heldout.name, applicable=False, reason="gated: REP confirmed nondeterminism")
+        else:
+            ho = (await _round(task, [heldout], ctx))[0]
+            if adjudicate is not None and ho.suspects:
+                await adjudicate(task, list(ho.suspects))  # decided in place; never archived, never shown to a repairer
+        mut = next((r for r in results if r.cls == "MUT" and r.applicable), None)
+        final.heldout = {"applicable": ho.applicable, "n": ho.n, "c": ho.c, "suspects": len(ho.suspects),
+                         "kill_rate_shown": kill_rate(mut) if mut is not None else None, "kill_rate_heldout": kill_rate(ho) if ho.applicable else None}
+        results.append(ho)
     reg = await regress(archive, task, ctx, every)
-    cert = certify(task, last[1], policy, reopened=reg.reopened)
+    cert = certify(task, results, policy, reopened=reg.reopened)
     status = {"certified": "admitted", "provisional": "provisional"}.get(cert.status, "rejected")
     return CegisReport(task_id=task.id, domain=task.domain, status=status, reasons=list(cert.reasons) + list(cert.provisional_for), rounds=rounds,
                        final=final, certificate=cert, task=task)

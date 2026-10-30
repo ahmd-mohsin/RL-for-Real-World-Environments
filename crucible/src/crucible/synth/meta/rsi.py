@@ -1751,7 +1751,9 @@ async def replay_program(task: Task, program: dict[str, Any], ctx: FalsifyContex
 
 def archive_recheck(archive: Any, ctx: FalsifyContext, falsifiers: Callable[[], list[BaseFalsifier]] = cheap) -> Recheck:
     """T5 on the real archive: no archived counterexample (student-probe ones included) re-opens, and no deterministic
-    class confirms a counterexample on the repaired version."""
+    class confirms a counterexample on the repaired version. With held-out mutants (Part 1 V5) pass
+    ``falsifiers=lambda: population(h)``: a repair is then accepted on the shown mutants only, and ``MUTHeldOut(holdout=h)``
+    stays for the certified version."""
     from crucible.synth.archive import regress
 
     async def check(task: Task) -> list[str]:

@@ -1,6 +1,7 @@
 """The falsifier population (part2-paper-core §5). ``cheap()`` is the deterministic set the CEGIS loop runs every round,
 in the order of §7 (REP, RED, TAINT, NULL, MUT, TWIN, PERT); ``run_classes`` schedules them (REP first, gating MUT, TWIN
-and PERT). ALT and ATK take injected agent runners (M4 wires LLMs)."""
+and PERT). ALT and ATK take injected agent runners (M4 wires LLMs). ``population(h)`` is ``cheap()`` with MUT showing only
+the mutants outside the held-out share ``h`` (Part 1 V5; ``MUTHeldOut`` runs the rest at certification)."""
 
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ from crucible.synth.falsify.base import (
     run_classes,
 )
 from crucible.synth.falsify.leak import LAYERS, LeakMatcher, LeakPanel, LeakProbe, SynonymMap
-from crucible.synth.falsify.mut import MUT
+from crucible.synth.falsify.mut import HOLDOUT, MUT, MUTHeldOut
 from crucible.synth.falsify.null import NULL
 from crucible.synth.falsify.online import OnlineMonitor
 from crucible.synth.falsify.pert import PERT
@@ -40,6 +41,13 @@ def cheap(*, synonyms: SynonymMap | None = None) -> list[BaseFalsifier]:
     return [REP(), RED(), TAINT(synonyms=synonyms), NULL(), MUT(), TWIN(), PERT()]
 
 
+def population(holdout: float = 0.0, *, synonyms: SynonymMap | None = None) -> list[BaseFalsifier]:
+    """What a repair loop runs: ``cheap()``, with MUT on its shown mutants only when ``holdout`` > 0."""
+    if holdout <= 0:
+        return cheap(synonyms=synonyms)
+    return [MUT(split="shown", holdout=holdout) if isinstance(f, MUT) else f for f in cheap(synonyms=synonyms)]
+
+
 def cheap_m3() -> list[BaseFalsifier]:
     """The population the RSI-1/2 numbers were measured with (before DESIGN §7.7 item 20): no read mutants in MUT, the
     exact-token leak matcher in TAINT. Kept so before/after matrices are measured the same way."""
@@ -53,6 +61,7 @@ __all__ = [
     "DEFECTS",
     "DETERMINISTIC",
     "GATED_BY_REP",
+    "HOLDOUT",
     "LAYERS",
     "MUT",
     "NULL",
@@ -73,6 +82,7 @@ __all__ = [
     "LeakMatcher",
     "LeakPanel",
     "LeakProbe",
+    "MUTHeldOut",
     "OnlineMonitor",
     "Outcome",
     "Probe",
@@ -82,5 +92,6 @@ __all__ = [
     "effect_signature",
     "equivalent",
     "falsify",
+    "population",
     "run_classes",
 ]

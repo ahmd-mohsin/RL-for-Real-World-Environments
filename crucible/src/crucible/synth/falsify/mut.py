@@ -34,6 +34,14 @@ get one verdict, so only the most informative of them (confirmed, then suspect, 
 counts as a trial; the others stay in the result with ``valid = False`` and ``data["duplicate_of"]``. A certificate's
 n is the number of *distinct* behaviours the contract was tested on, which is what the rule of three needs.
 
+**The held-out mutants** (Part 1 V5; GateTruth 2608.12635: testbenches revised to pass a mutant gate overfit it). Every
+mutant but Identity has a fixed bucket in [0, 1) (``bucket``: the task id, operator and site, hashed; a contract repair
+never moves it). ``MUT(split="shown", holdout=h)`` keeps the mutants at or above ``h``: what the repair loops see
+(``cegis.refine``'s rounds, the archive, ``TaskLoop``'s recheck through ``falsify.population(h)``). ``MUTHeldOut(holdout=h)``
+(class ``MUT-HO``) keeps the rest and runs only when the final version is certified; its findings are never archived or
+shown to a repairer, so a contract repaired to kill the shown mutants is caught when a held-out one survives.
+``split="all"`` (the default) is the neighbourhood as before.
+
 Label rule (§5): an equivalent mutant must pass (failing: confirmed D6); a non-equivalent one must fail. Survivors of
 DropStep on a write, Truncate that removed a write, SwapEntity on a key π* writes, ExtraWrite whose effects fall outside
 Δ*, and WrongAnswer are confirmed (D1, D1, D9, D2, and D1 without answer checks / D3 with them); any other survivor is a
@@ -42,9 +50,10 @@ suspect D3.
 
 from __future__ import annotations
 
+import hashlib
 import random
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from crucible.synth.canon import is_number
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Finding, Label, Outcome, Probe, dedupe_programs, delta_of, entity_index, key_text, typed_like, written_entities
@@ -58,6 +67,12 @@ TRACE_OPS = ("InsertRead", "ExtraList", "SwapReads")
 LIST_WORDS = ("list", "search", "find", "query", "browse", "lookup")
 MAX_READ_ARGS = 4  # argument sets per read tool (one per entity class it can name)
 RANK = {"confirmed": 0, "suspect": 1, "equivalent": 2, "clean": 3}
+HOLDOUT = 0.2  # the share of each neighbourhood held out when a split is asked for (``population``)
+
+
+def bucket(task_id: str, op: str, site: str) -> float:
+    """A mutant's fixed place in [0, 1): ``MUT``'s split keeps it shown at or above the holdout, held out below."""
+    return int(hashlib.sha256(f"{task_id}|{op}|{site}".encode()).hexdigest()[:8], 16) / 2**32
 
 
 def _refs(step: Step) -> set[str]:
@@ -255,8 +270,16 @@ class MUT(BaseFalsifier):
 
     name: ClassVar[str] = "MUT"
 
-    def __init__(self, *, trace: bool = True):
+    def __init__(self, *, trace: bool = True, split: Literal["all", "shown", "heldout"] = "all", holdout: float = HOLDOUT):
         self.trace = trace
+        self.split = split
+        self.holdout = holdout
+
+    def keeps(self, task: Task, probe: Probe) -> bool:
+        """Whether ``probe`` is in this instance's split (Identity always is)."""
+        if self.split == "all" or probe.op == "Identity":
+            return True
+        return (bucket(task.id, probe.op, probe.site) < self.holdout) == (self.split == "heldout")
 
     async def propose(self, task: Task, ctx: FalsifyContext) -> list[Probe]:
         p = task.oracle
@@ -336,7 +359,7 @@ class MUT(BaseFalsifier):
                                                 data={"q": bool(task.contract.answer)}))
         out = [Probe(cls="MUT", op="Identity", site="-", program=p, expect="pass")]
         seen = {p.digest()}
-        queues = [dedupe_programs(v, set()) for v in fam.values()]
+        queues = [dedupe_programs([x for x in v if self.keeps(task, x)], set()) for v in fam.values()]
         while any(queues) and len(out) < ctx.max_mutants:
             for q in queues:
                 if q and len(out) < ctx.max_mutants:
@@ -386,3 +409,13 @@ class MUT(BaseFalsifier):
         if op in TRACE_OPS:  # a read that changed what π* sent is no trace-only mutant: a trial of nothing
             return "clean", None
         return "suspect", "D3"
+
+
+class MUTHeldOut(MUT):
+    """The held-out mutants of a neighbourhood (class ``MUT-HO``): run only on the version being certified, never archived
+    or shown to a repairer. Labels and effect deduplication are MUT's."""
+
+    name: ClassVar[str] = "MUT-HO"
+
+    def __init__(self, *, trace: bool = True, holdout: float = HOLDOUT):
+        super().__init__(trace=trace, split="heldout", holdout=holdout)

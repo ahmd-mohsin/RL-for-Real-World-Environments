@@ -696,7 +696,7 @@ async def run_batch(setups: Sequence[ArmSetup], domains: Sequence[BatchDomain], 
     """Every arm of a batch at once over the same grid (module docstring); returns each arm's metrics."""
     cfg = cfg.effective()
     gate = asyncio.Semaphore(cfg.model_calls)
-    pool = FalsifyPool(cfg.falsify_procs, max_mutants=cfg.run_cfg.max_mutants) if cfg.falsify_procs > 0 else None
+    pool = FalsifyPool(cfg.falsify_procs, max_mutants=cfg.run_cfg.max_mutants, holdout=cfg.run_cfg.heldout_mutants) if cfg.falsify_procs > 0 else None
     root = Path(root)
     t0 = time.time()
     try:

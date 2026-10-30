@@ -2422,3 +2422,52 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   review's reading of the hacker's passes as honest fixes holds under renaming. No planted special-case was graded in a
   real World (a positive control needs a per-task patch); the unit tests carry the special-casing verdict.
 - **Merge notes.** New module; the stages after `stage_twin_arms`; one additive key in `WindowTask.grade`'s meta.
+
+## 96. Part 1 V5: held-out mutants that synth's repair loop never sees (off by default)
+
+- **Item.** V5 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("Kill 100% of crafted negatives and
+  at least X% of generic mutants ... Keep a held-out mutant set that is never used during repair"; GateTruth 2608.12635:
+  testbenches revised to pass a mutant gate overfit it). The kill floor was already there: `synth.certificate.certify`
+  rejects any confirmed MUT survivor and needs U_MUT <= 0.05. The held-out set was not: `cegis.refine`'s repairer saw the
+  counterexamples of the same MUT neighbourhood the certificate then counted (and `TaskLoop`'s recheck reran it), so a
+  contract repaired to kill exactly the shown mutants was certified. Not taken: X (the last synth run report,
+  `runs/m4/finance_ap-full2.md`, accepted 0 repairs, so there is no gap to measure yet; the certificate now reports it);
+  the debug lane (no automatic repair; `certify_patch` runs once). Off by default, at the user's decision of
+  2026-10-30: a holdout lowers MUT's n on small neighbourhoods, and RSI-2's preregistered numbers were sized on today's.
+- **Files.** `src/crucible/synth/falsify/mut.py` (`MUT(split=, holdout=)`, `MUT.keeps`, `bucket`, `HOLDOUT`, `MUTHeldOut`,
+  module doc), `src/crucible/synth/falsify/__init__.py` (`population`, exports), `src/crucible/synth/falsify/base.py`
+  (`GATED_BY_REP` gains `MUT-HO`), `src/crucible/synth/certificate.py` (`HELDOUT`, `kill_rate`, the held-out check),
+  `src/crucible/synth/cegis.py` (`refine(heldout=)`, `FinalPass.heldout`), `src/crucible/synth/pipeline.py`
+  (`RunConfig.heldout_mutants`, the rounds' population, `MUTHeldOut` at certification), `src/crucible/synth/offload.py`
+  (`FalsifyPool(holdout=)`, `_job(holdout)`), `src/crucible/synth/batch.py` (the pool gets the holdout),
+  `src/crucible/synth/meta/rsi.py` (`archive_recheck` doc), `tests/unit/test_part1_heldout_mutants.py` (new, 4 tests).
+- **Public names.** `synth.falsify.MUTHeldOut`, `HOLDOUT`, `population`; `synth.falsify.mut.bucket`; `MUT.split`,
+  `MUT.holdout`, `MUT.keeps`; `synth.certificate.HELDOUT`, `kill_rate`; `cegis.refine(heldout=)`, `FinalPass.heldout`;
+  `RunConfig.heldout_mutants`; `FalsifyPool(holdout=)`.
+- **Behaviour.** Every mutant but Identity has a fixed bucket in [0, 1) (sha256 of the task id, operator and site; a
+  contract repair never moves it). `MUT(split="shown", holdout=h)` keeps the buckets at or above h, `MUTHeldOut` (class
+  `MUT-HO`) the rest, `MUT()` (split `all`) the whole neighbourhood as before; the filter runs before sampling, so the
+  mutants drawn are unchanged otherwise. `population(h)` is `cheap()` with the shown MUT (h = 0: exactly `cheap()`).
+  `refine(..., heldout=MUTHeldOut(holdout=h))` runs the held-out class once on the version being certified (not
+  applicable when REP confirmed nondeterminism), lets the adjudicator decide its suspects, never archives it or passes it
+  to a repairer, and certifies with it: a confirmed held-out survivor rejects (`MUT-HO:confirmed=k`, whatever the policy's
+  lists; no U bound: it is a check, not a sample-size claim). `FinalPass.heldout` reports n, c, suspects and the kill rate
+  on the shown and on the held-out mutants (non-equivalent distinct mutants rejected). `RunConfig.heldout_mutants` (0.0)
+  switches the pipeline: the rounds and the offload workers run `population(h)`, the panel judges held-out suspects as it
+  judges MUT's. `TaskLoop` callers pass `archive_recheck(..., falsifiers=lambda: population(h))`.
+- **Formats.** `cegis.json` `final.heldout`; certificate class `MUT-HO`; run config `heldout_mutants`.
+- **Tests.** `test_part1_heldout_mutants.py` (new, 4: the split partitions the planted wide-frame task's 5 ExtraWrite
+  survivors into shown and held-out with Identity in both, `MUT()` is unchanged and a repair never moves a bucket; a
+  repairer that narrows the frame for exactly the invoices its counterexamples name is certified with no split (it sees
+  all 5) and rejected with one (`MUT-HO:confirmed`, held-out kill rate below the shown 1.0, no held-out site shown to it,
+  only MUT records archived); `certify` rejects a held-out survivor and is unchanged without the class; `population(0)`
+  is `cheap()`, and a worker job with a holdout runs fewer mutants). The file fails to import on the code before. The
+  synth and Part 1 unit tests: 510 passed, 14 skipped. Ruff check and lint-imports clean. No paid run. The full suite on
+  this commit with entries 94-95 (42 min): 4793 passed, 19 failed, none from entries 94-96: 8 `test_sb_claude_builder` (not
+  on this Mac), the host-calls tick test (Docker load), `agentenv_mcp_env` card tools, `ci_app` hidden checks, `cluster`
+  Ray placement, the coding pack, studio's site index and async export (all known on main), `state_adapters` local vs
+  Linux (fails the same at 4f2b3d47, before entry 94), `seal_guard` (held-out repo names in the gitignored local
+  `data/debug/funnel.jsonl` and `mine-heldout2.log` of 10-26 and 10-28), and `redteam/test_attacks` reward hacks and
+  `observe` W&B offline, which pass alone.
+- **Merge notes.** `RunConfig.heldout_mutants` after `max_mutants`; `refine` gains a last keyword; `_job` a last argument
+  with a default; RSI-2's numbers are unchanged while the switch is 0.

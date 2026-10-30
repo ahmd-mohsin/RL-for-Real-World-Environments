@@ -8,7 +8,8 @@ Suspects (awaiting adjudication) and equivalents are recorded beside it.
 A certificate is honest about its reach: it records which classes were **applicable** and why the others were not (a
 black-box World gets no frame guarantee, a World without ``perturb`` no PERT trials). Admission (``AdmissionPolicy``,
 thresholds configurable, defaults from §6):
-- every deterministic class that ran has ``c_k <= max_confirmed`` (0);
+- every deterministic class that ran has ``c_k <= max_confirmed`` (0), and so do the held-out mutants (``MUT-HO``, Part 1
+  V5: mutants no repair saw; a survivor means the contract was fitted to the shown ones);
 - ``U_k <= u_max[k]`` where a bound is set (``U_MUT <= 0.05``, which needs n >= 59 mutants);
 - every class in ``require_applicable`` ran;
 - ALT has at least one pass from a non-builder family (``require_alt_pass``); ATK has no confirmed hack;
@@ -35,6 +36,14 @@ from crucible.synth.task import Task
 from crucible.verify.calibrate import clopper_pearson_upper
 
 ALPHA = 0.05
+HELDOUT = "MUT-HO"  # synth.falsify.mut.MUTHeldOut: never in a policy's lists (no U bound: a check, not a sample-size claim)
+
+
+def kill_rate(r: ClassResult) -> float | None:
+    """The share of a mutant class's distinct non-equivalent mutants that the contract rejected (Identity, duplicates,
+    invalid runs and equivalents excluded); None with none."""
+    trials = [f for f in r.findings if f.outcome.valid and f.op != "Identity" and f.label != "equivalent"]
+    return sum(1 for f in trials if f.label == "clean") / len(trials) if trials else None
 
 
 class ClassStat(CrucibleModel):
@@ -106,7 +115,7 @@ def certify(task: Task, results: Iterable[ClassResult], policy: AdmissionPolicy 
         s = stats.get(k)
         if s is None or not s.applicable:
             why.append(f"{k}:not_applicable")
-    for k in pol.deterministic:
+    for k in [*pol.deterministic, HELDOUT]:
         s = stats.get(k)
         if s is not None and s.applicable and s.c > pol.max_confirmed:
             why.append(f"{k}:confirmed={s.c}")

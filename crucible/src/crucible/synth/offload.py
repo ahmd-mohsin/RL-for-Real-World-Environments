@@ -4,7 +4,8 @@
 classes on a dense task is about 12 s of CPU, almost all of it MUT's mutants, and while it runs the event loop serves no
 model call. With eight candidates refining at once the CPU work serialises and every model call waits behind it.
 
-**``FalsifyPool``** runs ``run_classes(task, cheap())`` for one task version in a worker process (``spawn``; the worker
+**``FalsifyPool``** runs ``run_classes(task, population(holdout))`` (``cheap()``; with MUT on its shown mutants when a
+holdout is set, Part 1 V5) for one task version in a worker process (``spawn``; the worker
 builds its own World from the task's ``WorldRef`` and its own ``FalsifyContext``) and returns the class results as JSON.
 ``falsifiers()`` gives one ``Offloaded`` stand-in per class for ``cegis.refine``: the first class asked for a task
 version starts the job, every class of that version reads its own result from it. The stand-in hands ``falsify`` the
@@ -27,20 +28,20 @@ from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
-from crucible.synth.falsify import cheap
+from crucible.synth.falsify import cheap, population
 from crucible.synth.falsify.base import BaseFalsifier, ClassResult, Counterexample, FalsifyContext, Finding, Outcome, Probe, run_classes
 from crucible.synth.task import Task
 
 
-def _job(task_json: str, max_mutants: int, names: Sequence[str]) -> str:
-    """Worker side: every named class of ``cheap()`` on one task version, in the scheduled order (REP first)."""
+def _job(task_json: str, max_mutants: int, names: Sequence[str], holdout: float = 0.0) -> str:
+    """Worker side: every named class of ``population(holdout)`` on one task version, in the scheduled order (REP first)."""
 
     async def go() -> str:
         task = Task.model_validate_json(task_json)
         ctx = FalsifyContext(max_mutants=max_mutants)
         t0 = time.monotonic()
         try:
-            res = await run_classes(task, [f for f in cheap() if f.name in set(names)], ctx)
+            res = await run_classes(task, [f for f in population(holdout) if f.name in set(names)], ctx)
         finally:
             await ctx.close()
         return json.dumps({"results": [r.model_dump(mode="json") for r in res], "cpu_s": round(time.monotonic() - t0, 3)})
@@ -51,9 +52,10 @@ def _job(task_json: str, max_mutants: int, names: Sequence[str]) -> str:
 class FalsifyPool:
     """See the module docstring. ``busy_s`` sums the workers' measured job times (the CPU the parent did not spend)."""
 
-    def __init__(self, workers: int, *, max_mutants: int = 240, names: Sequence[str] | None = None):
+    def __init__(self, workers: int, *, max_mutants: int = 240, names: Sequence[str] | None = None, holdout: float = 0.0):
         self.workers = int(workers)
         self.max_mutants = max_mutants
+        self.holdout = holdout
         self.names = tuple(names or [f.name for f in cheap()])
         self.ex = ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"))
         self._jobs: dict[tuple[str, str], asyncio.Future[str]] = {}
@@ -64,7 +66,7 @@ class FalsifyPool:
         k = (task.id, task.digest())
         if k not in self._jobs:
             loop = asyncio.get_running_loop()
-            fut = loop.run_in_executor(self.ex, _job, task.model_dump_json(), self.max_mutants, list(self.names))
+            fut = loop.run_in_executor(self.ex, _job, task.model_dump_json(), self.max_mutants, list(self.names), self.holdout)
             fut.add_done_callback(self._count)
             self._jobs[k] = fut  # type: ignore[assignment]
             self.jobs += 1
@@ -81,7 +83,7 @@ class FalsifyPool:
             self._jobs.pop(k, None)
 
     def falsifiers(self) -> list[BaseFalsifier]:
-        return [Offloaded(f, self) for f in cheap() if f.name in self.names]
+        return [Offloaded(f, self) for f in population(self.holdout) if f.name in self.names]
 
     def close(self) -> None:
         self.ex.shutdown(wait=False, cancel_futures=True)
