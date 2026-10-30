@@ -1946,6 +1946,105 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
      the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
      refused.
+19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
+   classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
+   debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
+   (`learnability`, `novelty`, `perfect`, `frontier`, `outcome`). Results: `docs/research/env-synthesis/runs/perfect-1.md`.
+   - **P2** (`learn.py`). `StudentProbe` protocol: `rollouts(task, n, start)` → graded `Rollout`s (the trusted grader;
+     an infrastructure failure is masked, outside n; a broken agent protocol is the student's failure, `stop =
+     "protocol"`); `AgentStudentProbe` over any `AgentRunner`, one `FalsifyContext` per concurrent rollout
+     (`ContextPool`: a context caches one World per `WorldRef`). The predictor is `factory.difficulty`'s form ported
+     (synth may not import factory or forge): ridge logistic on static features (steps, writes, reads, ref depth,
+     required, derive, observation-sourced literals, World size, instruction length) and non-student proxies (the
+     certificate's ALT pass share, free; proxy-model rollouts; a `DIFFICULTY_PROXY` estimate), `loo` against the
+     constant baseline with band accuracy, `calibrated` sets `trusted` only when ≥ 12 tasks and the Wilson lower bound
+     of band accuracy ≥ 0.7 beat the baseline. **Decision (the band test):** Bayesian, two looks (k = 4, 8), prior
+     Jeffreys or (trusted predictor only) Beta(p̂·s, (1 − p̂)·s), s = 2; stop when a class has posterior mass ≥ 1 − α
+     (α = 0.1); after the last look the argmax with `confident = False`. The stated error is the posterior error of
+     each decision plus the exact operating characteristic (`operating_characteristic`, indifference ±0.05 around each
+     edge): with Jeffreys the worst-case errors are 0.34 (too hard), 0.37 (in band), 0.29 (too easy); k ≤ 8 cannot
+     do better, so a too-hard call after 0/8 carries posterior error 0.19. Predictor-first: a trusted predictor whose
+     prior alone puts ≥ 0.9 on an out-of-band class skips the rollouts (`source = "predictor"`); otherwise its call is
+     recorded beside the measurement (online calibration). `DifficultyRecord` keyed by (task id, version, digest,
+     student, checkpoint, simulator, time mode), appended to `DifficultyStore` (JSONL; latest row per key; a stored
+     key is resumed, never re-bought). **Bug found by the first real rollouts:** `WireClient` sampled with seed =
+     the retry attempt (0), so Tinker returned one trajectory for every rollout of a task and p̂ was always 0 or 1;
+     `WireClient(seed_by_tag=True)` derives the seed from the call's tag (one per rollout), the student wire uses it,
+     the simulator string is `json-agent/v2:calls=20:T=1.0:seed=tag`, and the seed-0 store was moved aside as invalid.
+   - **P3** (`intent.py`). `EVID` (evidence removal): the derived values π* writes or answers (and intent `derive`
+     values) that ι and `given` do not state are traced along π*'s own refs (a direct ref's parent object, a literal's
+     taint source, a fn's ref steps) to the start-state row that agrees with the observation on most fields; that cell
+     (or a span of a long document field) is blanked by a `set` perturbation. π* with the value's literals blanked must
+     then fail C (a pass is confirmed off intent); injected ALT agents on the removed World must fail (a pass is a
+     suspect); a decoy blank (the same field of an untouched sibling, else another unused field) must leave π* passing,
+     else the probe is invalid. **Decisions:** aggregates (a receipts total) and key lookups have no evidence site (the
+     first version matched values by search and called t2's total off intent through the invoice amount); records π*
+     reads but never refers to (`decision_reads`: the evidence of a decision resolved offline) get agent probes only.
+     `SWAP` (instruction swap): an instruction-stated literal the catalogue enumerates is swapped for another enum value
+     through ι and π* (dead twins are no trials) and C must reject π*′; every pool peer on the same World and seed must
+     have its oracle rejected by C (the same normalised effect is a duplicate, reported to P4). Both confirm D9.
+     `p3` = TAINT (derive probes, D7), TWIN (D9), EVID, SWAP; on intent when ≥ 1 valid EVID/SWAP/TWIN trial and nothing
+     confirmed; `pool_report` gives the share per pool. EVID needs a perturbable World (the SQL adapter is not: n/a).
+   - **P4** (`novelty.py`). `Signature`: tool pattern (R/W per call, repeats collapsed), collections read (observed
+     objects matched to rows by their own key field) and written, contract shape tokens, **choices** (π*'s literal write
+     arguments that the catalogue enumerates or names: the decision vocabulary; refs excluded, a twin's data flow
+     differs), ref edges and depth, cell. `key()` hashes the exact pattern; novel = new key and no pool task scoring ≥ θ.
+     Score = w·signature similarity + (1 − w)·instruction similarity (token Jaccard + trigram cosine after masking
+     ids and numbers), times the **decision gate** (0.5) when both tasks write enumerated choices and the sets differ.
+     `calibrate` picks (w, gate, θ) by Youden on labelled pairs from `known_pairs`: positives TWIN twins, twins with a
+     proxy-model paraphrase (the hard positive) and paraphrases; negatives enum swaps that change the choices (the hard
+     negative), cross-cell pairs (the proposer's cells: an imperfect label, so FPR is an upper bound), cross-domain pairs.
+     `CellGrid` protocol (`cells` mapping, optional `cell_of`): `DomainSpec` will satisfy it; a plain dict works now.
+     `coverage` (share of grid cells, histogram, entropy, Gini–Simpson), `diversity` (distinct keys, mean distance,
+     near-duplicate clusters, effective tasks).
+   - **Perfect** (`perfect.py`). `perfect(task, pool, records, status, p3, signature)` → valid (certificate
+     `certified`; provisional only with `accept_provisional`), learnable (the latest record for this version and student
+     decided `in_band`), on intent, novel, `admit` = all four, reasons per property (unmeasured is False). `admit_pool`
+     adds each admitted signature before the next check (the first of two duplicates is the novel one). `load_pool`
+     reads a domain's synthesis runs (certificate status, proposer cell, ALT history) and refuses sealed roots.
+   - **K** (`frontier.py`). `attribute` replays the student's trace with a snapshot after every call and runs π* from
+     each snapshot (`reset=False`); the first wrong step is the call after which π* can no longer finish: `forbidden`
+     (it changed an entity π* never touches; an inserted row counts as touched when π* inserts in that collection) or
+     `irreversible`; all prefixes recoverable gives `wrong_write` (a required field written with another value; an
+     insert counts when it agrees with some but not all of the pattern's eq predicates), `omission`, `answer`,
+     `no_action`; `protocol`/`budget`/`unreplayable` are routed. Modes: decision, frame_discipline, derivation,
+     completion, reporting, acting, evidence_gathering (π* read a collection the student never read before the wrong
+     step). The debug lane's Φ-checkpoint findings map onto the same record (`synth_student_wire.attribution_from_finding`;
+     `lane = "debug"`). `requests_from` clusters (student, cell, mode) with ≥ 2 traces into `TargetRequest`s whose knobs
+     (`MODE_KNOBS` over §10's six) go the way the source tasks' band decisions say (too hard: ease; in band: same; too
+     easy: harden). `admit` only adds (originals never retired), refuses a targeted entry past 20% of the pool, and
+     applies R4 with `meta.update`'s `kl` and `entropy` (κ = 0.1, H_min = 0.9 × the pool's entropy unless set).
+     `frontier_round` runs a targeted and an untargeted batch at the same budget from one injected proposer, `compare`
+     (budget within 35%, perfect tasks per dollar with a bootstrap interval, in-band rate, targeted-mode hit rate),
+     then admits. `knob_kept` is principle 15.
+   - **Outcome classifier** (`outcome.py`; the probe side of the task-creation RSI loop, no training). Per rollout:
+     `intended_pass` (constrained values observed before written, π*'s effects), `intended_fail` (a skill-mode first
+     wrong step on a task with π* passing and TAINT clean), `unintended_pass` (vacuous; a leaked derive value with the
+     evidence unread; a constrained value never observed; an affordance, frame hole, lax requirement or lax value with
+     the defect confirmed on the task), `unintended_fail` (grader error; π* fails C; REP nondeterminism; only unstated
+     trace constraints fail; the answer equals π*'s up to format; a TAINT D5 value that the failing patterns need),
+     else `uncertain`. **Decision (the key rule):** an unintended label needs task-level executed evidence; a failure
+     that is not a clean skill gap and has none is `uncertain`, so the loop never eases a task toward the student's
+     pass rate. `TaskEvidence` (REP, TAINT, NULL, RED, TWIN, EVID, MUT optional; ALT history) once per task. The
+     calibrated swarm panel (λ from oracle and no-op anchors) decides only the residue.
+   - **Exports for the RSI loop** (no reward, no pass count, no p̂ crosses): `learn.band_verdicts` → `BandVerdict
+     {task_id, task_version, task_digest, domain, student, checkpoint, simulator, time_mode, decision: too_hard|in_band|
+     too_easy|null, confident, error, source: measured|predictor|none, rollouts, cost_usd}`; `learn.band_examples` →
+     `BandExample {task_id, task_version, domain, student, decision: too_easy|too_hard, features: {name: float},
+     explaining: [feature names pushing p̂ that way]}`; `frontier.export_attributions` → `{id, task_id, version, domain,
+     student, checkpoint, lane, kind, mode, routed, first_wrong_step, call_tool, cell, collections, patterns,
+     evidence_skipped, knobs: {ease: {knob: int}, harden: {knob: int}}}`; `outcome.export_outcomes` → `OutcomeRecord
+     {id, task_id, version, domain, student, checkpoint, rollout, passed, reasons: [grader codes], label, cause,
+     decided_by: execution|panel|none, evidence: {task_defects, alt, oracle_passes, replay_agrees, world_crashes,
+     evidence_skipped, unsourced_writes, outside_entities, oracle_entities_missed, non_oracle_write_tools, attribution?,
+     panel?}}`. The full JSON Schemas (pydantic) are `perfect.export_schemas()`, written by `synth.py perfect` as
+     `schemas.json` in its run dir.
+   - **Spend.** `P2_CAP_USD` = 15 for the student and every proxy and panel call of this work; each run's receipts sit
+     under `data/synth/perfect/<run>` and `work_spent(root, "perfect")` clips every run's cap.
+   - **Tests**: `test_synth_perfect.py` (band test, OC, scripted-student measurement with store and resume, predictor
+     LOO, trust and skip, EVID on/off intent, SWAP enum and pool, signatures and calibration, coverage, perfect,
+     attribution kinds, requests, cap and R4, equal-budget comparison, the round), `test_synth_outcome.py` (26 known-label
+     cases, the confusion rule, the panel residue, routing), `test_synth_perfect_cli.py`, `test_synth_student_wire.py`.
 20. **Part 2 blind spots and backlog (built 2026-10-29; results `docs/research/env-synthesis/runs/falsifiers-2.md`).**
    - **Unstated trace constraints (D6).** MUT gains `TRACE_OPS` (`falsify/mut.py`): `InsertRead` (every read tool, one
      argument set per entity class it can name, filled from π*'s arguments by name or with a key of a collection the

@@ -170,9 +170,20 @@ class Usage:
 class WireClient:
     """``roles.RoleClient`` over an ``LLMClient``-shaped chat client (``complete(messages, ...) -> LLMResponse``)."""
 
-    def __init__(self, inner: Any, *, role: str, model: str, family: str, usage: Usage, json_retries: int = 2):
+    def __init__(self, inner: Any, *, role: str, model: str, family: str, usage: Usage, json_retries: int = 2, seed_by_tag: bool = False):
         self.inner, self.role, self.model, self.family, self.usage, self.json_retries = inner, role, model, family, usage, json_retries
         self.calls = 0
+        # repeated rollouts must be independent samples: with the default seed (= the retry attempt, 0) Tinker samples one
+        # prompt identically, so k student rollouts were one trajectory copied k times (found in the P2 pilot, 2026-10-29).
+        # ``seed_by_tag``: the seed is derived from the call's tag (one tag per rollout), plus the attempt.
+        self.seed_by_tag = seed_by_tag
+
+    def _seed(self, tag: str, attempt: int) -> int:
+        if not self.seed_by_tag:
+            return attempt
+        import zlib
+
+        return (zlib.crc32(tag.encode()) + 1009 * attempt) % 2_147_483_647
 
     async def complete_json(self, messages: list[dict[str, Any]], *, schema: Any = None, max_tokens: int = 2048, temperature: float = 0.0,
                             tag: str = "") -> dict[str, Any]:
@@ -183,7 +194,7 @@ class WireClient:
         last = ""
         for attempt in range(self.json_retries + 1):
             t0 = time.monotonic()
-            r = await self.inner.complete(msgs, temperature=temperature, max_tokens=max_tokens, seed=attempt)
+            r = await self.inner.complete(msgs, temperature=temperature, max_tokens=max_tokens, seed=self._seed(tag, attempt))
             self.calls += 1
             stage = (tag or self.role).split(":", 1)[0]
             self.usage.add({"t": round(time.time(), 3), "tag": tag, "stage": stage, "role": self.role, "model": self.model, "family": self.family,

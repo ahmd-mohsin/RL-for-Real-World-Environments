@@ -20,6 +20,8 @@
     synth.py compose --domain finance_ap --invoices 30 --links 6 --chains 2 --budget compose --tag compose-1 --certify
     synth.py compose --domain it_helpdesk --world <world dir> --links 6 --budget compose --tag compose-1 --certify
     synth.py ladder  --domain it_helpdesk --world <world dir> --from <compose run dir> --chain 0 --budget compose --tag compose-ladder --certify
+  the perfect-task properties (scripts/synth_perfect.py; the student and proxies under P2_CAP_USD = 15, runs under perfect/):
+    synth.py learnability | novelty | perfect | frontier | outcome --domains finance_ap,it_helpdesk ...
 
 Artifacts: ``<data-root>/<domain>/<run-id>/`` (default data root: ``$CRUCIBLE_DATA_DIR/synth``, else the config's data
 dir + ``/synth``), the counterexample archive ``<data-root>/<domain>/archive.jsonl``. **Spend:** each run has one hard
@@ -660,6 +662,16 @@ def cmd_ladder(a: argparse.Namespace) -> None:
     print(json.dumps(out, indent=1, default=str))
 
 
+def perfect_commands():
+    """The P2-P4 and frontier subcommands (``scripts/synth_perfect.py``), loaded by path so tests can import this file."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("synth_perfect", Path(__file__).with_name("synth_perfect.py"))
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None)
@@ -794,6 +806,7 @@ def main() -> None:
             p.add_argument("--parts", default=None, help="the rungs' part counts, e.g. 2,4,8 (default: every count from --start)")
             p.add_argument("--knobs", default="distractors=3,paginate=5,actor,derive")
         p.set_defaults(fn=fn)
+    perfect_commands().register(sub, data_root)  # learnability, novelty, perfect, frontier (scripts/synth_perfect.py)
     a = ap.parse_args()
     a.fn(a)
 

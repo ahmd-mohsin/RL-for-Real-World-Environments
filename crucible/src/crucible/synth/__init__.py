@@ -14,6 +14,10 @@ M5: ``patch`` (the repository substrate: a file-tree World, the fix commit as th
 with exec checks run in custody through an injected runner, migration of stored grades), ``falsify.patch`` (MUT, NULL,
 RED, TAINT, REP on repositories), ``realdefects`` (the real-defect set, E8), ``falsify.online`` (ONL on eval and training
 rollouts).
+P2-P4 and K: ``learn`` (the student probe, the predictor, the two-look band test, difficulty records), ``intent`` (EVID
+evidence removal, SWAP instruction swap, the on-intent verdict), ``novelty`` (behaviour signatures, near duplicates,
+coverage), ``perfect`` (P1-P4 admission), ``frontier`` (snapshot-replay attribution, targeting under the cap and R4),
+``outcome`` (the student-probe outcome classifier the task-creation RSI loop reads).
 
 Layering: beside ``crucible.forge``; imports runtime, verify, world and core, never factory. LLM roles are injected.
 """
