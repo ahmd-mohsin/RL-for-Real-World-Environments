@@ -823,6 +823,7 @@ class Loop:
         self.headroom_cache: Any = None
         self._report_lock = asyncio.Lock()
         self._round_misses: dict[str, list[Plant]] = {}  # arm -> the proposal-split plants its incumbent misses this round
+        self._round_tested: dict[str, set[str]] = {}  # arm -> proposal-split catches of the candidates sent to a test this round
         # the natural-likeness reference: given (the independently found real defects), else the archive's natural
         # counterexamples (falsifier-found: a weaker reference, used only when no independent set exists)
         ref = list(reference) if reference else [natural_features(c) for c in self.natural]
@@ -1013,10 +1014,25 @@ class Loop:
             misses = self._round_misses.get(arm.name, [])
             adds = await self._adds(arm, spec, misses)
             cand.gate["adds_on_proposal"] = len(adds)
+            cand.gate["adds_ids"] = sorted(adds)
             if not adds:
                 cand.refused_by = ["gate:adds_on_proposal"]
                 return None
         return g
+
+    def _no_new(self, arm: Arm, cand: Candidate) -> bool:
+        """Paired mode: a candidate whose proposal-split catches are all caught by a candidate this round already sent to
+        a test is refused before it spends α or decision units (pilot p5: three operators catching the same 4 plants
+        took three tests and 60 units)."""
+        if not self.cfg.update.stats.paired:
+            return False
+        seen = self._round_tested.setdefault(arm.name, set())
+        mine = set(cand.gate.get("adds_ids", []))
+        if mine and mine <= seen:
+            cand.refused_by = ["gate:no_new_catches"]
+            return True
+        seen |= mine
+        return False
 
     async def _adds(self, arm: Arm, spec: OperatorSpec, misses: Sequence[Plant]) -> list[str]:
         """The proposal-split misses of the incumbent that the operator alone confirms a counterexample on."""
@@ -1060,7 +1076,7 @@ class Loop:
         prep = self._prepare(arm, spec, cites, origin, clusters, misses, r, rng)
         if isinstance(prep, Candidate):
             return prep
-        if await self._gate(arm, spec, prep) is None:
+        if await self._gate(arm, spec, prep) is None or self._no_new(arm, prep[0]):
             return prep[0]
         return await self._decide_candidate(arm, spec, prep, r)
 
@@ -1076,7 +1092,7 @@ class Loop:
         gates = await asyncio.gather(*(self._gate(arm, props[i][0], p) for i, p in todo))
         out: list[Candidate] = [p if isinstance(p, Candidate) else p[0] for p in preps]
         for (i, p), g in zip(todo, gates, strict=True):
-            if g is not None:
+            if g is not None and not self._no_new(arm, p[0]):
                 out[i] = await self._decide_candidate(arm, props[i][0], p, r)
         return out
 
@@ -1292,6 +1308,7 @@ class Loop:
         except Exception as e:  # noqa: BLE001 - a failed proposal round is recorded; the round still measures
             row.info["propose_error"] = f"{type(e).__name__}: {str(e)[:300]}"
         self._round_misses[arm.name] = missed
+        self._round_tested[arm.name] = set()
         row.candidates += await self.try_candidates(arm, props, clusters, missed, r, rng)
         if alt_gl is not None:
             self._meta_decision(arm, r, row, alt_gl, ev_plants)

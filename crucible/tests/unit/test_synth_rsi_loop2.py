@@ -539,3 +539,15 @@ async def test_a_candidate_that_adds_nothing_on_the_proposal_split_spends_no_alp
             assert c.gate.get("adds_on_proposal", 0) > 0 or c.refused_by == ["gate:adds_on_proposal"]
     spent = len(arm.engine.spender.spent)
     assert spent == sum(1 for c in rows[-1].candidates if c.decision is not None)  # only candidates that add something reach a test
+
+
+async def test_a_candidate_with_no_new_catches_this_round_is_not_tested(tmp_path):
+    from crucible.synth.meta.rsi import Candidate
+
+    await _ready()
+    loop = _loop(tmp_path, _paired_cfg(), own_worlds=False)
+    arm = loop.arm("loop", lambda **_: None)
+    a = Candidate(op="OP:a@1", origin="swarm:A", gate={"adds_ids": ["p1", "p2"]})
+    b = Candidate(op="OP:b@1", origin="swarm:A", gate={"adds_ids": ["p2"]})
+    c = Candidate(op="OP:c@1", origin="swarm:A", gate={"adds_ids": ["p2", "p3"]})
+    assert not loop._no_new(arm, a) and loop._no_new(arm, b) and b.refused_by == ["gate:no_new_catches"] and not loop._no_new(arm, c)

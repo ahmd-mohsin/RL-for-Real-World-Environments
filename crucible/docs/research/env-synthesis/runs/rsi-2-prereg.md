@@ -17,7 +17,10 @@ The production target: **10 environments × 10 tasks = 100 admitted tasks**.
 | locked set | 3 held-out environments | 30 | reports every round; decisions only through the reusable holdout (gate G) |
 | held-out World family | 1 environment of a World family no other environment belongs to | 10 | reports only; no decision ever reads it |
 
-Assignment is fixed before the run by a seeded hash of the environment names, with the constraint that the held-out
+The World families of DESIGN item 16 give the candidates: 12 usable instances from 2 families (AR collections,
+leave/absence). One of the two is the held-out family (tasks are synthesised and certified on it like any other); its
+instances never feed proposals, gates, decisions, the locked set or E3 evidence, and it is read only for reports. The
+other family may serve R7 as a held-out domain inside dev. Assignment is fixed before the run by a seeded hash of the environment names, with the constraint that the held-out
 family shares its World family with none of the other nine. Plants: the dev planter (`base_planter`) on dev sources; the
 held-out planter (`held_out_planter_v2`: the M3 held-out variants plus five RSI-2 D3 variants, disjoint from dev, `max_per_op = 6`) on locked and family sources. Expected yields
 (from rsi-2: 12.5 dev plants per task; locked yields in §5): about 375 decision units, 375 proposal plants.
