@@ -3,17 +3,26 @@
 For each literal ℓ of π* that the taint map sources from ι:
 1. **Locate** ℓ in s₀: an entity key equal to ℓ, or a cell equal to ℓ (collections π* touches first).
 2. **Sibling**: another entity e′ of that collection whose key (or cell, for a cell match) differs from ℓ and does not
-   itself occur in ι (so the twin instruction is unambiguous); up to ``twins`` siblings, seeded.
+   itself occur in ι (so the twin instruction is unambiguous), and that π* neither writes nor names in an argument (a
+   long or composed program acts on many entities: σ onto one of them collides with its own constants); up to
+   ``twins`` siblings, seeded.
 3. **Substitute** σ = {ℓ → ℓ′} (plus e's key → e′'s key when ℓ is a cell that identifies exactly one entity; a value
    several entities share, such as a customer, is a selector, and the keys it selects are re-derived instead) through
    ι (every token span), π* (every literal) and C (concrete pattern keys, predicate constants, answer constants).
-   Siblings with the same ℓ′ make one twin.
+   A cell value ℓ (not a key) moves through C only when a write call of π* sent it as an argument: a status ι names
+   for a read is not the status another step's tool writes. Siblings with the same ℓ′ make one twin.
 4. **Re-derive**: a constant of C′ that σ did not map but that equals an argument π* sent is replaced by what π*′ sent
    at the same place (an amount π* read from e is e′'s amount in the twin; a literal π* sends in both is unchanged; a
    constant no argument carries is not touched). The answer constant follows the answer.
 5. **Execute** π*′ from s₀ under ι′. If π*′ stops, or a call errors that did not error in π* (e′ cannot be acted on),
    the twin is dead: not a trial (D10 is noted for that instance, never counted against the task).
-6. **Label**: π* must fail C′ and π*′ must pass C′. Either violation is confirmed **D9**.
+6. **Label**: π* must fail C′ and π*′ must pass C′. Either violation is confirmed **D9**, unless σ cannot reach C (a
+   cell value no write carried, and C′ = C): then TWIN cannot derive the twin's contract and the violation is a
+   **suspect** D9 for the panel (compose-1: "the blocked vendor", a vendor name a long program only reads). A
+   literal that names an entity π* writes always reaches C: a contract that does not pin that entity is the D9. When
+   π* fails C′ (C is sensitive) and π*′ fails it only by changing entities neither π* nor σ touches, the literal also
+   steered a read of a later step: π*′ is no twin solution, and the probe is a suspect (compose-1: "critical" both set
+   a priority and filtered the tickets a later part escalates).
 """
 
 from __future__ import annotations
@@ -171,6 +180,11 @@ class TWIN(BaseFalsifier):
         for e in oracle.taint:
             if e.has("instruction") and not e.has("structural") and not any(_loose_eq(e.value, x) for x in lits):
                 lits.append(e.value)
+        # entities π* acts on or names (written, or a key among its arguments): a sibling must be none of them, or σ maps
+        # the literal onto an entity another step (a later part of a composition) already acts on, and C′ collides
+        wrote = written_entities(delta_of(oracle, task.contract))
+        busy = {k for _, _, k in wrote}
+        busy |= {kt for c in oracle.calls for _, x in scalar_leaves(c.args, "") if (kt := key_text(x)) is not None}
         out: list[Probe] = []
         for v in lits:
             cands = locate(v, s0, touched)
@@ -181,7 +195,7 @@ class TWIN(BaseFalsifier):
             unique = not field or sum(1 for r in rows.values() if field in r and _same(r[field], v)) == 1
             sibs: list[tuple[str, Any]] = []
             for k2, row2 in sorted(rows.items()):
-                if k2 == key:
+                if k2 == key or k2 in busy:
                     continue
                 target = row2.get(field, MISSING) if field else _conv(k2, v)
                 if target is MISSING or is_structural(target) or _same(target, v) or text_spans(target, task.instruction):
@@ -195,10 +209,17 @@ class TWIN(BaseFalsifier):
                 sigma: list[tuple[Any, Any]] = [(v, target)] + ([(key, k2)] if field and unique else [])
                 ins2 = rewrite_instruction(task.instruction, sigma)
                 prog2 = map_program(task.oracle, lambda x, sg=sigma: substitute(x, sg))
-                c2 = map_contract(task.contract, lambda kind, x, sg=sigma: substitute(x, sg))
+                # a cell value moves through C only when a write of π* carried it: a status the instruction names for a
+                # read ("the approved invoices") is not the status another step's tool writes (compose-1)
+                carried = not field or any(_same(x, v) for c in oracle.calls if not c.read_only for _, x in scalar_leaves(c.args, ""))
+                csig = sigma if carried else sigma[1:]
+                c2 = map_contract(task.contract, lambda kind, x, sg=csig: substitute(x, sg))
                 out.append(Probe(cls="TWIN", op="twin", site=f"literal:{cjson(v)}->{cjson(target)}", program=prog2, instruction=ins2, contract=c2,
                                  expect="property", data={"literal": v, "target": target, "entity": [app, coll, key], "twin": [app, coll, k2],
-                                                          "sigma": [list(s) for s in sigma]}))
+                                                          "sigma": [list(s) for s in sigma],
+                                                          # σ reaches C: a write carried ℓ, or ℓ names an entity π* writes (then C
+                                                          # must pin it: C′ = C is the insensitivity), or C′ differs
+                                                          "reaches": carried or (unique and (app, coll, key) in wrote) or c2.digest() != task.contract.digest()}))
         return out
 
     async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext) -> Outcome:
@@ -209,12 +230,28 @@ class TWIN(BaseFalsifier):
         new_err = [c.step for c in r2.calls if c.obs.error is not None and c.step not in errored_before]
         if r2.error is not None or new_err or len(r2.calls) < len(oracle.calls):
             return Outcome(valid=False, error=r2.error, data={"dead": True, "note": "D10 for this instance", "errored": new_err})
+        # a twin whose substituted value is what the written cell already holds at s₀ asks for no change: degenerate
+        lit, tgt = probe.data["literal"], probe.data["target"]
+        if oracle.start is not None and any(ch.kind == "update" and _same(ch.new, lit) and _same(oracle.start.get(ch.addr), tgt)
+                                            for ch in delta_of(oracle, task.contract)):
+            return Outcome(valid=False, data={"dead": True, "note": "the twin value is already the start value of a written cell"})
         fixed = [x for pair in probe.data["sigma"] for x in pair]
         c2 = rederive(probe.contract, oracle, r2, fixed)
         g1, g2 = ctx.grade(oracle, c2), ctx.grade(r2, c2)
-        return Outcome(data={"oracle_passes_twin": g1.passed, "twin_passes_twin": g2.passed, "g1": g1.reasons, "g2": g2.reasons})
+        # π*′ failing only by changing entities neither π* nor σ touches: the substituted literal also steered a read
+        # (a filter of a later step picks other entities), so π*′ is no solution of the twin task either (compose-1)
+        d0 = delta_of(oracle, task.contract)
+        known = {str(ch.addr) for ch in d0}
+        keys = {str(x) for pair in probe.data["sigma"] for x in pair}
+        stray = [x.split(":", 1)[1] for x in g2.reasons if x.startswith("FORBIDDEN_EFFECT:")]
+        diverged = bool(stray) and len(stray) == len(g2.reasons) and all(a not in known and not any(f"[{k}]" in a for k in keys) for a in stray)
+        return Outcome(data={"oracle_passes_twin": g1.passed, "twin_passes_twin": g2.passed, "g1": g1.reasons, "g2": g2.reasons, "diverged": diverged})
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         if outcome.data.get("oracle_passes_twin") or not outcome.data.get("twin_passes_twin"):
-            return "confirmed", "D9"
+            # a literal σ cannot carry into C (no write sent it, C′ = C): TWIN cannot derive the twin's contract, so a
+            # violation is a judgement (a read's filter that leaves the writes alone, or a real insensitivity): suspect
+            if not outcome.data.get("oracle_passes_twin") and outcome.data.get("diverged"):
+                return "suspect", "D9"  # C is sensitive (π* fails C′); π*′ wandered onto other entities: a judgement
+            return ("confirmed" if probe.data.get("reaches", True) else "suspect"), "D9"
         return "clean", None

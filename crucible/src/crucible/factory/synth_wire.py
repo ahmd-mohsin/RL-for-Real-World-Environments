@@ -80,6 +80,9 @@ SYNTH_ROLES: dict[str, tuple[str, ...]] = {
     # judges on it), the leak panel on the calibrated panel's two families
     "leak_probe": (INKLING_SMALL,),
     "leak_panel": (NEMOTRON_ULTRA, GPT_OSS),
+    # §10 composition (synth/compose.py): one instruction for a composed task, and knob rewrites; a builder family (the
+    # proposer's, which writes instructions), never a solver's, attacker's or judge's
+    "instruction_writer": (DEEPSEEK,),
 }
 
 # The six-family assignment (§14.1 "family exhaustion", 2026-10-29): with Inkling, the panel shares no family with the

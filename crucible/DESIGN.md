@@ -1631,7 +1631,7 @@ The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-c
 ("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
 `src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
 factory). M1–M5 are built (M4, the model-driven roles: item 13; M5, the repository substrate, the real-defect set and
-ONL: item 14); composition (M6) is not.
+ONL: item 14); composition, dependency depth and the difficulty knobs (part of M6) are item 18.
 
 1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
    never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
@@ -1997,6 +1997,87 @@ ONL: item 14); composition (M6) is not.
      missed), 0/11 executed alarms, one new leak on pool task mvdan-sh-dc951aeb-e1. Repository suspects (10, not 11):
      the panel is uncalibrated on code diffs (accuracy 0.55–0.79 on executed-truth anchors) and decides none; no task
      changes status. Human queue: 51 distinct items, 10 groups, 2 pivotal tasks. Inkling is the sixth family.
+18. **Part 2 composition and knobs (part2-paper-core §10; built 2026-10-29, `synth/compose.py`).** Long-horizon tasks are
+   compositions in which later work needs earlier results.
+   - **seq(τ₁..τ_k)** (`compose`). Part j runs from the state parts 1..j-1 leave; π* = π₁*;…;π_k* with steps renamed
+     `t<j>_<id>` and refs re-pointed; each part must still run and pass its own contract on that state (else
+     `CompositionError`: interference). R = ⊕ under the merged normalizers, A = ∪, Q merged (several reporting parts:
+     answer `list(a₁, a₃, …)`, the new library function `list`, check paths gain the part's position), M merged with
+     stated quotes kept (`at_most` adds the other parts' matching calls; a `never` another part breaks refuses).
+     **Decision (supersession, forced by the runs):** a pattern the composite oracle fails is examined per change it
+     covered under its own part's normalizers, mapped into the merged key space (a merged `id_canon` re-keys inserts):
+     *superseded* only if a later part wrote that very address and a later pattern covers the result (an insert is
+     never superseded; a later glob that merely matches does not own the change); else *rebased* to the exact skeleton
+     pattern of the composite change; *restored* (no net change) is recorded. par: written address sets disjoint and
+     each part alone from s₀ does the same (both under the merged normalizers: audit rows with generated ids are no
+     interference).
+   - **The instruction.** `roles.INSTRUCTION_WRITER` (DeepSeek on the swarm; differs from the solvers, attackers and
+     the panel) writes one instruction from the parts; it sees the parts' texts, stated quotes to keep, values it must
+     not state (those that flow across a boundary and no earlier part's instruction states) and the answer format, never
+     the program or the contract. Checked by execution: quotes kept, no listed value stated, TAINT confirms nothing the
+     plain concatenation (`joined`) does not, dep does not fall; feedback on each failure; fallback `joined`.
+     Cross-boundary values join the intent card's `derive`, so a later repair that states one is a TAINT D7.
+   - **Dependency depth.** An edge i → j is a use in part j (a literal, a ref, the answer) of a value not given (not in
+     ι, `given` or the tool catalogue) that an earlier observation shows inside the record of an entity part i wrote
+     (its key beside a field part i set). **Decision (the counterfactual):** confirmed when, with part i's writes
+     dropped, part j's calls or answer change or the observation no longer shows that record holding the value (a
+     literal of π₂* never changes when π₁* is dropped, but the agent could no longer have read it). dep = the longest
+     chain of confirmed edges. **Carry** edges (a literal only an earlier part's *reads* show: the agent must remember
+     it) are a context dependency, reported as `carry`, never counted in dep.
+   - **Knobs** (`KnobSpec`, `apply_knob`): typed, predicted "harder", each names the behaviour-signature features it must
+     raise (`behaviour_signature`: horizon, writes, tools, written fields, dep and edges, distractors, observed entity
+     records, pages, asks, derived literals) and is kept only if all rise. depth/horizon = more parts (`ladder`);
+     `distractors(k)` = look-alike clones of touched entities at reset, differing on every field holding a value π*
+     selects or acts on except catalogue values (PERT's clone and key machinery; stricter than PERT's
+     instruction-literal rule, which let a clone match a later part's vendor filter), list refs rebased by content
+     (Perturbable Worlds only: the finance_ap pack adapter is not); `paginate(size)` = read tools return pages
+     (`page`, `next_page`), π* reads every page, refs re-pointed, whole-list refs become `concat` of the pages;
+     `actor` = an instruction-only literal moves to a person behind `actors.ask` (the writer drops it from ι);
+     `derive` = a literal ι states and an earlier observation shows at every use is dropped from ι and added to
+     `derive`. Each rewrite must keep Δ* and the answer. The student check is a hook only (`LearnabilityProbe`,
+     `student_check`, `direction_holds`); nothing here calls the student.
+   - **Variant Worlds** (`VariantSpec`, factory `crucible.synth.compose:variant_world`): prefix program at reset (a
+     follow-up link's start state), perturbations, paginated tools, actors; a variant task is an ordinary `Task`.
+   - **Chains and ladders.** `build_chain` grows links with `pipeline.Runner` (propose → oracle → contract, no
+     falsifiers) on the prefix World of the links so far (`DomainEnv.cells`, new and additive: follow-up cells; the
+     earlier instructions and their changes in the domain text); kept, in order: a state edge into the link, a link that
+     writes, depth, carry, length; refused past `max_horizon` (48). `ladder` emits rungs of more parts, then knobs; each
+     kept rung is a new task id. `select` picks compositions toward a (horizon bin × depth) target, dep ≥ 1 preferred.
+     `certify_composed` runs `Runner.refine_one` (the full population, adjudication, repair) with MUT's cap at
+     12 × horizon and ALT/ATK budgets scaled to the horizon.
+   - **Fixes to shared code the long programs forced:** TWIN (a sibling must be no entity π* writes or names; a cell
+     value moves through C only when a write carried it; a literal σ cannot carry into C, or a twin that diverges onto
+     entities neither π* nor σ touches, is a suspect, not a confirmed D9); `select_eq(list, field, value)` in the library
+     and the parse error's hint (refs inside `select`'s literal filter were the commonest dead oracle).
+   - **CLI** `scripts/synth.py compose` (`--links --chains --cands --max-horizon --certify --reuse --only`) and
+     `ladder` (`--from <compose run> --chain --knobs distractors=3,paginate=5,actor,derive --certify`); `--budget
+     compose` caps the work at `COMPOSE_CAP_USD` = 10 over receipts under run paths carrying "compose". Tests:
+     `tests/unit/test_synth_compose.py` (scripted roles).
+   - **One statement test.** `_stated` = exact tokens or a counted hit of item 20's layered `LeakMatcher`, used by the
+     writer's must-not-state, the derive merge (a part's derive value another part's instruction states is dropped: it
+     is no leak of that part's decision) and the cross-boundary values added to `derive`.
+   - **Results** (`docs/research/env-synthesis/runs/compose-1.md`, $6.56 of the $10 cap; swarm only, no Qwen, the
+     student never called). **Long-horizon demonstrations:**
+     - it_helpdesk dense World: 49 calls, 20 writes, dep 2.
+     - finance_ap `--invoices 30`: 46 calls, 5 writes, dep 2.
+     - The ladder grows 13 → 27 → 49 → 51 calls with +3 distractors, pagination, an actor and a derive rewrite. Every
+       rung moves its signature.
+
+     **The certificate machinery holds on long programs:**
+     - REP, RED and NULL are clean;
+     - TAINT sources literals across part boundaries;
+     - MUT's distinct n is 122–212 with the cap at 12 × horizon, U 0.038–0.049 (at a cap of 240, 42–52 distinct);
+     - about 1 minute per 37–49-call composite for the deterministic population after main's read mutants.
+
+     **Every composite is rejected.** The causes are defects inherited from uncertified parts (exact free-text bodies,
+     loose answer checks, an order-dependent pick) and the ALT rule: no solver passes a 37–51-call task.
+
+     **Open:**
+     - the repairer re-emits the whole long program and breaks it (3/3), so repair should be per part;
+     - restoration (a later part undoes an earlier write, and a merged allowed pattern still permits the undone
+       value) is caught by MUT but not closed by the merge;
+     - TWIN suspects have no inline judge;
+     - the locked-set FR/FA has not been re-measured after the TWIN changes.
 
 ## 8. Layer 4: verification and isolation
 

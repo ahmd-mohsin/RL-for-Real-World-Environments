@@ -92,6 +92,7 @@ class DomainEnv:
     normalizers: Normalizers | None = None
     slice: Callable[[SynthWorld], Awaitable[dict[str, Any]]] | None = None
     max_rows: int = 40
+    cells: Sequence[str] | None = None  # the proposer's cells (default ``CELLS``); compose.py's follow-up links pass their own
 
 
 @dataclass
@@ -325,7 +326,8 @@ class Runner:
         b = 0
         while len(recs) < self.cfg.n_tasks and not self.stop:
             seed = self.env.seeds[b % len(self.env.seeds)]
-            cell = CELLS[b % len(CELLS)]
+            cells = self.env.cells or CELLS
+            cell = cells[b % len(cells)]
             want = min(self.cfg.batch, self.cfg.n_tasks - len(recs))
             try:
                 out = await ask(self.roles.proposer, PROPOSER, tag="propose:batch", retries=1, domain=self.env.description,

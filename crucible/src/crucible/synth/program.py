@@ -224,10 +224,14 @@ LIBRARY: dict[str, Callable[..., Any]] = {
     "sub": lambda a, b: _nums([a])[0] - _nums([b])[0],
     "mul": lambda a, b: _nums([a])[0] * _nums([b])[0],
     "div": _div,
+    "list": lambda *a: list(a),  # a composed task's answer: one element per part that reports (synth/compose.py)
+    # select by a value read earlier (``select``'s filter is a literal; compose-1: refs inside it were the commonest dead oracle)
+    "select_eq": lambda lst, f, v: _select(lst, {str(f): v}),
 }
 # Library argument positions that name schema (a path, a field, a digit count) or a filter whose keys are fields: their
 # literals are not task information, so taint records them as structural (a filter's values are still sourced).
-STRUCTURAL_ARGS: dict[str, dict[int, str]] = {"get": {1: "schema"}, "pluck": {1: "schema"}, "round": {1: "schema"}, "select": {1: "where"}}
+STRUCTURAL_ARGS: dict[str, dict[int, str]] = {"get": {1: "schema"}, "pluck": {1: "schema"}, "round": {1: "schema"}, "select": {1: "where"},
+                                             "select_eq": {1: "schema"}}
 
 
 # ---------------------------------------------------------------------------------------------------------- matching

@@ -16,6 +16,10 @@
     synth.py evolve  --run-id R --label e2 --rounds 4 # E2: loop arm vs equal-budget random-DSL control
     synth.py evolve  --run-id R --label e3-it --evidence it_helpdesk --no-control           # E3: one domain's evidence
     synth.py lemma-test --run-id R --domain finance_ap --lemmas <json>                      # S: lemma acceptance
+  composition, depth and knobs (part2-paper-core §10; receipts under paths with "compose", capped by COMPOSE_CAP_USD = 10):
+    synth.py compose --domain finance_ap --invoices 30 --links 6 --chains 2 --budget compose --tag compose-1 --certify
+    synth.py compose --domain it_helpdesk --world <world dir> --links 6 --budget compose --tag compose-1 --certify
+    synth.py ladder  --domain it_helpdesk --world <world dir> --from <compose run dir> --chain 0 --budget compose --tag compose-ladder --certify
 
 Artifacts: ``<data-root>/<domain>/<run-id>/`` (default data root: ``$CRUCIBLE_DATA_DIR/synth``, else the config's data
 dir + ``/synth``), the counterexample archive ``<data-root>/<domain>/archive.jsonl``. **Spend:** each run has one hard
@@ -60,6 +64,12 @@ def run_cap(a: argparse.Namespace, root: Path) -> float:
     left = round(MILESTONE_CAP_USD - spent, 4)
     cap = min(float(a.cap), left)
     print(f"milestone spend so far {spent:.4f} of {MILESTONE_CAP_USD}", flush=True)
+    if getattr(a, "budget", "milestone") == "compose":
+        if "compose" not in (getattr(a, "tag", "") or ""):
+            raise SystemExit("a composition run needs a tag containing 'compose' (its receipts are attributed by path)")
+        ws = work_spent(root, "compose")
+        cap = min(cap, round(COMPOSE_CAP_USD - ws, 4))
+        print(f"composition work spend so far {ws:.4f} of {COMPOSE_CAP_USD}", flush=True)
     if getattr(a, "budget", "milestone") == "rsi":
         if "rsi" not in (getattr(a, "tag", "") or "") and getattr(a, "cmd", "") not in ("recall", "evolve", "lemma-test", "plant"):
             raise SystemExit("an RSI run needs a tag containing 'rsi' (its receipts are attributed by path)")
@@ -72,6 +82,9 @@ def run_cap(a: argparse.Namespace, root: Path) -> float:
     if not os.environ.get("TINKER_API_KEY"):
         raise SystemExit("TINKER_API_KEY is not in the environment (set -a; . <repo>/.env; set +a)")
     return cap
+
+
+COMPOSE_CAP_USD = 10.0  # the composition work's Tinker cap (lead, 2026-10-29): every run path carries "compose"
 
 
 def new_run(root: Path, domain: str, tag: str) -> tuple[str, Path]:
@@ -506,6 +519,147 @@ def cmd_lemma_test(a: argparse.Namespace) -> None:
     print(json.dumps(res, indent=1, default=str))
 
 
+def _save(p: Path, obj: object) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(obj, indent=1, default=str) + "\n")
+
+
+def _composed_row(c) -> dict:
+    comp = c.comp
+    return {"id": c.task.id, "parts": len(comp.segments), "horizon": comp.horizon, "writes": comp.writes, "dep": comp.dep, "carry": comp.carry,
+            "dep_unconfirmed": comp.dep_unconfirmed, "edges": [[e.src, e.dst, e.kind] for e in comp.edges if e.confirmed],
+            "superseded": len(comp.superseded), "rebased": len(comp.rebased), "instruction_source": comp.instruction_source,
+            "writer_attempts": comp.writer.get("attempts"), "instruction": c.task.instruction}
+
+
+def _cert_rows(rep) -> list[dict]:
+    return [{"id": t.id, "status": t.status, "reasons": t.reasons[:6], "rounds": t.rounds, "repairs": t.repairs_accepted,
+             "classes": {k: {x: v.get(x) for x in ("n", "c", "U", "suspects", "passes") if x in v} for k, v in t.classes.items()},
+             "elapsed_s": t.elapsed_s} for t in rep.tasks]
+
+
+def cmd_compose(a: argparse.Namespace) -> None:
+    """Grow chains of dependent links with the swarm, compose each (the writer role writes the instruction) and
+    optionally certify the compositions through the full population."""
+    from crucible.factory.synth_wire import SynthWire
+    from crucible.synth.compose import CompositionError, build_chain, certify_composed, compose
+    from crucible.synth.falsify import FalsifyContext
+    from crucible.synth.pipeline import RunConfig
+
+    root = data_root(a)
+    cap = run_cap(a, root)
+    rid, d = new_run(root, a.domain, a.tag)
+    wire = SynthWire(d, cap_usd=cap)
+    env = _env(a, d)
+    roles = wire.run_roles()
+    writer = None if a.no_writer else wire.client("instruction_writer")
+    seeds = [int(x) for x in a.seeds.split(",")]
+    out: dict = {"run": str(d), "chains": [], "composed": []}
+    t0 = time.time()
+
+    async def chain(ci: int):
+        ctx = FalsifyContext(max_mutants=a.max_mutants)
+        seed = seeds[ci % len(seeds)]
+        cdir = d / f"chain{ci}"
+
+        def save(j, links, choice):
+            _save(cdir / "links.json", [t.model_dump(mode="json") for t in links])
+            with (cdir / "choices.jsonl").open("a") as fh:
+                fh.write(json.dumps(choice.model_dump(mode="json"), default=str) + "\n")
+
+        try:
+            if a.reuse:  # the links of an earlier run's chain: re-compose (and certify) without building them again
+                from crucible.synth.task import Task
+
+                links = [Task.model_validate(x) for x in json.loads((Path(a.reuse) / f"chain{ci}" / "links.json").read_text())][: a.links]
+                log = []
+                _save(cdir / "links.json", [t.model_dump(mode="json") for t in links])
+            else:
+                links, log = await build_chain(env, roles, length=a.links, run_dir=cdir, archive_root=root, seed=seed, candidates=a.cands,
+                                               cost=wire.cost, families=wire.families(), ctx=ctx, on_link=save, retries=a.link_retries,
+                                               max_horizon=a.max_horizon)
+            row = {"chain": ci, "seed": seed, "links": len(links), "choices": [x.model_dump(mode="json") for x in log]}
+            out["chains"].append(row)
+            if len(links) < 2:
+                return None
+            try:
+                c = await compose(links, ctx=ctx, writer=writer, task_id=f"{a.domain}/{rid}/c{ci}", tag=f"compose:c{ci}")
+            except CompositionError as e:
+                row["compose_error"] = str(e)[:500]
+                return None
+            _save(cdir / "composed.json", c.dump())
+            out["composed"].append(_composed_row(c))
+            return c
+        finally:
+            await ctx.close()
+
+    async def go():
+        idx = [int(x) for x in a.only.split(",")] if getattr(a, "only", None) else list(range(a.chains))
+        got = await asyncio.gather(*(chain(i) for i in idx))
+        comps = [c for c in got if c is not None]
+        out["build_s"] = round(time.time() - t0, 1)
+        if a.certify and comps:
+            cfg = RunConfig(max_rounds=a.rounds, concurrency=a.concurrency, max_mutants=a.max_mutants)
+            rep = await certify_composed(comps, env, roles, run_dir=d / "certify", archive_root=root, run_id=rid, cfg=cfg, cost=wire.cost,
+                                         families=wire.families())
+            out["certify"] = _cert_rows(rep)
+            out["certify_s"] = round(time.time() - t0 - out["build_s"], 1)
+
+    try:
+        asyncio.run(go())
+    finally:
+        out["cost"] = wire.cost()
+        _save(d / "compose_summary.json", out)
+    print(json.dumps({k: v for k, v in out.items() if k != "chains"}, indent=1, default=str))
+
+
+def cmd_ladder(a: argparse.Namespace) -> None:
+    """A difficulty ladder from one stored chain: rungs of more parts, then knobs; each kept rung certified again."""
+    from crucible.factory.synth_wire import SynthWire
+    from crucible.synth.compose import KnobSpec, certify_composed, ladder
+    from crucible.synth.falsify import FalsifyContext
+    from crucible.synth.pipeline import RunConfig
+    from crucible.synth.task import Task
+
+    root = data_root(a)
+    cap = run_cap(a, root)
+    rid, d = new_run(root, a.domain, a.tag)
+    wire = SynthWire(d, cap_usd=cap)
+    env = _env(a, d)
+    src = Path(a.source) / f"chain{a.chain}" / "links.json"
+    links = [Task.model_validate(x) for x in json.loads(src.read_text())]
+    writer = None if a.no_writer else wire.client("instruction_writer")
+    knobs = []
+    for k in [x for x in a.knobs.split(",") if x]:
+        name, _, val = k.partition("=")
+        params = {"distractors": {"k": int(val or 3)}, "paginate": {"size": int(val or 5)}}.get(name, {})
+        knobs.append(KnobSpec(kind=name, params=params))
+    out: dict = {"run": str(d), "source": str(src)}
+
+    async def go():
+        ctx = FalsifyContext(max_mutants=a.max_mutants)
+        try:
+            parts = [int(x) for x in a.parts.split(",")] if a.parts else None
+            lad = await ladder(links, ctx=ctx, writer=writer, start=a.start, knobs=knobs, id_prefix=f"{a.domain}/{rid}/ladder", parts=parts)
+        finally:
+            await ctx.close()
+        out["rungs"] = [r.model_dump(mode="json", exclude={"signature"}) | {"signature": {k: r.signature.get(k) for k in ("horizon", "writes", "dep", "distractors", "observed_entities", "pages", "asks", "derived_literals")}} for r in lad.rungs]
+        for c in lad.candidates:
+            _save(d / "candidates" / (c.task.id.rsplit("/", 1)[-1].replace("~", "_") + ".json"), c.dump())
+        if a.certify and lad.candidates:
+            cfg = RunConfig(max_rounds=a.rounds, concurrency=a.concurrency, max_mutants=a.max_mutants)
+            rep = await certify_composed(lad.candidates, env, wire.run_roles(), run_dir=d / "certify", archive_root=root, run_id=rid, cfg=cfg,
+                                         cost=wire.cost, families=wire.families())
+            out["certify"] = _cert_rows(rep)
+
+    try:
+        asyncio.run(go())
+    finally:
+        out["cost"] = wire.cost()
+        _save(d / "ladder_summary.json", out)
+    print(json.dumps(out, indent=1, default=str))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None)
@@ -611,6 +765,35 @@ def main() -> None:
     lt.add_argument("--budget-tol", type=float, default=0.35)
     lt.add_argument("--cap", type=float, default=3.0)
     lt.set_defaults(fn=cmd_lemma_test)
+    for name, fn in (("compose", cmd_compose), ("ladder", cmd_ladder)):
+        p = sub.add_parser(name, help="part2-paper-core §10: chains of dependent links, compositions, ladders")
+        p.add_argument("--domain", required=True)
+        p.add_argument("--world", default=None, help="a worldgen output dir (generated domains)")
+        p.add_argument("--seeds", default="0", help="finance_ap start-state seeds (chain i uses seed i mod n)")
+        p.add_argument("--invoices", type=int, default=None, help="finance_ap density knob")
+        p.add_argument("--rounds", type=int, default=2, help="CEGIS rounds when certifying")
+        p.add_argument("--concurrency", type=int, default=3)
+        p.add_argument("--max-mutants", type=int, default=240)
+        p.add_argument("--certify", action="store_true")
+        p.add_argument("--no-writer", action="store_true", help="join the parts' instructions instead of asking the writer role")
+        p.add_argument("--budget", default="compose", choices=["milestone", "compose"])
+        p.add_argument("--cap", type=float, default=3.0)
+        p.add_argument("--tag", default="compose")
+        if name == "compose":
+            p.add_argument("--links", type=int, default=6)
+            p.add_argument("--chains", type=int, default=1)
+            p.add_argument("--cands", type=int, default=2, help="proposals per link")
+            p.add_argument("--link-retries", type=int, default=1)
+            p.add_argument("--max-horizon", type=int, default=48, help="refuse a link that takes the composition past this many calls")
+            p.add_argument("--reuse", default=None, help="an earlier compose run dir: re-compose its chains' links instead of building")
+            p.add_argument("--only", default=None, help="with --reuse: the chain numbers to use (e.g. 0,2)")
+        else:
+            p.add_argument("--from", dest="source", required=True, help="a compose run dir")
+            p.add_argument("--chain", type=int, default=0)
+            p.add_argument("--start", type=int, default=2, help="the first rung's number of parts")
+            p.add_argument("--parts", default=None, help="the rungs' part counts, e.g. 2,4,8 (default: every count from --start)")
+            p.add_argument("--knobs", default="distractors=3,paginate=5,actor,derive")
+        p.set_defaults(fn=fn)
     a = ap.parse_args()
     a.fn(a)
 

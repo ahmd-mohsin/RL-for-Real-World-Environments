@@ -335,7 +335,8 @@ An <arg> is one of:
 - a plain JSON value: a literal, e.g. "pending" or 42;
 - {"$ref": "s1.<field>.0.<field>"}: a value read from the observation of an EARLIER step (a dot path; integers index lists);
 - {"$fn": "<name>", "args": [<arg>, ...]}: a pure function: sum, min, max, round(x, digits), len, concat,
-  select(list, {field: value | {"op": "eq|ne|lt|le|gt|ge|in", "v": value}}) -> the matching items,
+  select(list, {field: value | {"op": "eq|ne|lt|le|gt|ge|in", "v": value}}) -> the matching items (literal values only),
+  select_eq(list, "field", value) -> the items whose field equals value (value may be a $ref or $fn),
   get(obj, "path") -> a value inside obj, pluck(list, "field"), add, sub, mul, div.
 Rules:
 - Straight line: no branches or loops. You resolve every decision now, from the data you are shown.
@@ -663,9 +664,39 @@ SEEDER = Role(
             "used yet, referring only to rows that exist (shown or new), and never repeat or change an existing row. "
             'Reply {"tables": {"<table>": [<row with its key field>, ...]}, "notes"}.'))
 
+class InstructionOut(_Out):
+    instruction: str
+    notes: str = ""
+
+    @field_validator("instruction")
+    @classmethod
+    def _ins(cls, v: str) -> str:
+        if len(v.strip()) < 20:
+            raise ValueError("the instruction is too short to be a task")
+        return v.strip()
+
+
+# §10 composition and knobs (synth/compose.py): one instruction for a composed task, or a knob's rewrite of one. It sees
+# the parts' instructions and the rules of the job, never the program, the contract or the gate; what it writes is
+# re-checked by TAINT (no new unsourced literal, no leak) and by the job's own checks (stated quotes kept, values omitted).
+INSTRUCTION_WRITER = Role(
+    name="instruction_writer", stage="compose", output=InstructionOut, temperature=0.3, max_tokens=4096,
+    sees=("job", "parts", "must_keep", "must_not_state", "must_mention", "answer_format", "tools"),
+    never=("contract", "oracle", "gate_code", "verdicts", "anchors"),
+    differs_from=("alt_solver", "attacker", "panel"),
+    system=("You write the instruction a real user gives an AI agent that works in an enterprise system through tools. You are "
+            "given the job and the parts of the work, in order. Write ONE instruction in plain, natural language that asks for all "
+            "of the work, in that order, as one coherent request. Keep every fact the parts state that the agent cannot look up "
+            "(names, numbers, rules), in the same spelling. Copy each text listed in must_keep word for word. Never write a value "
+            "listed in must_not_state, in any spelling: the agent must find it in the system or get it from its earlier work; "
+            "refer to it by what it is (\"the invoice you just put on hold\", \"the agent you assign\"). Mention every name listed "
+            "in must_mention. Never add requirements, steps, facts or decisions the parts do not contain. When answer_format is "
+            "given, end the instruction by saying exactly what to report, in that form.\n"
+            'Reply {"instruction": "...", "notes": "..."}.'))
+
 ROLES: dict[str, Role] = {r.name: r for r in (PROPOSER, ORACLE_PROGRAMMER, CONTRACT_WRITER, REPAIRER, ALT_SOLVER, ATTACKER, PANEL, ABSTRACTOR,
                                               TOOL_DESIGNER, SCHEMA_DERIVER, APP_CODER, BLIND_TESTER, DEBUGGER, TEST_APPROVER, SEEDER,
-                                              LEAK_PROBE, LEAK_PANEL)}
+                                              LEAK_PROBE, LEAK_PANEL, INSTRUCTION_WRITER)}
 
 
 # ---------------------------------------------------------------------------------------------------------- family rules
@@ -764,7 +795,8 @@ def _plain(v: Any, where: str) -> Any:
     """A literal container may not hide a ref (it would never be resolved)."""
     if isinstance(v, dict):
         if "$ref" in v or "$fn" in v:
-            raise ValueError(f"{where}: a $ref or $fn inside a literal list or object is not resolved; pass it as its own argument")
+            raise ValueError(f"{where}: a $ref or $fn inside a literal list or object is not resolved; pass it as its own argument "
+                             "(to filter a list by a value read earlier, use select_eq(list, \"field\", {\"$ref\": ...}))")
         return {k: _plain(x, f"{where}.{k}") for k, x in v.items()}
     if isinstance(v, list):
         return [_plain(x, f"{where}[{i}]") for i, x in enumerate(v)]
