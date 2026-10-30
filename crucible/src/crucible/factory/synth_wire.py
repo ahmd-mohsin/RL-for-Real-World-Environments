@@ -52,8 +52,9 @@ from crucible.factory.models import (
 from crucible.synth.batch import budget_cause
 from crucible.synth.iface import CrucibleWorldAdapter
 from crucible.synth.pipeline import DomainEnv, RunRoles
-from crucible.synth.roles import ROLES, family_problems
+from crucible.synth.roles import family_problems
 from crucible.synth.task import WorldRef
+from crucible.synth.worldroles import ALL_ROLES
 
 MILESTONE_CAP_USD = 60.0  # M4's Tinker budget (lead, 2026-10-29): enforced by the CLI through ``milestone_spent``
 
@@ -113,6 +114,22 @@ ROLE_STAGE: dict[str, str] = {"proposer": "propose", "oracle_programmer": "oracl
                               "debugger": "worldgen", "test_approver": "worldgen", "seeder": "worldgen"}
 
 
+# World families (synth.families, synth.catalogue, synth.worldgates): builders over three families (Kimi codes as in F1,
+# GLM writes specs and documents, DeepSeek lists domains, tests blind and writes colleagues); the realism raters are two
+# other families (never a builder's). Merged over SYNTH_ROLES by the ``worlds`` CLI.
+WORLD_ROLE_TABLE: dict[str, tuple[str, ...]] = {
+    "domain_cataloguer": (DEEPSEEK,),
+    "domain_spec_writer": (GLM,),
+    "schema_deriver": (GLM,),  # pilot 1: Kimi spent the 8192-token schema budget reasoning (finish = length)
+    "family_designer": (KIMI,),
+    "data_spec_writer": (KIMI,),
+    "doc_writer": (GLM,),
+    "actor_writer": (DEEPSEEK,),
+    "realism_rater": (NEMOTRON_ULTRA, GPT_OSS),
+}
+WORLDS_CAP_USD = 30.0  # World families and instances (lead, 2026-10-29): every receipt under a path carrying "worlds"
+
+
 def _book_roles(table: Mapping[str, Sequence[str]]) -> dict[str, str]:
     return {f"synth_{r}_{i}": m for r, ms in table.items() for i, m in enumerate(ms)}
 
@@ -122,7 +139,7 @@ def check_assignment(table: Mapping[str, Sequence[str]], *, students: Sequence[s
     book = ModelBook(roles=_book_roles(table), preset="swarm")
     studs = list(students) if students is not None else [s.family for s in book.solvers]
     fams = {r: [parse_spec(m).family for m in ms] for r, ms in table.items()}
-    probs = family_problems(fams, students=studs)
+    probs = family_problems(fams, students=studs, roles=ALL_ROLES)
     qwen = sorted(r for r, fs in fams.items() if "qwen" in fs)
     if qwen:
         probs.append(f"no Qwen model may serve a synth role (the student is Qwen): {qwen}")
@@ -302,7 +319,7 @@ class SynthWire:
         return self.stage_meters.get(ROLE_STAGE.get(role, ""), self.meter)
 
     def client(self, role: str, i: int = 0) -> WireClient:
-        if role not in ROLES:
+        if role not in ALL_ROLES:
             raise KeyError(f"unknown synth role {role!r}")
         k = (role, i)
         if k not in self._clients:
@@ -333,6 +350,12 @@ class SynthWire:
         from crucible.synth.worldgen import WORLDGEN_ROLES
 
         return {r: self.client(r) for r in WORLDGEN_ROLES}
+
+    def family_clients(self) -> dict[str, WireClient]:
+        """The World-family builder's clients (``synth.families.FAMILY_ROLES``)."""
+        from crucible.synth.families import FAMILY_ROLES
+
+        return {r: self.client(r) for r in FAMILY_ROLES}
 
     def families(self) -> dict[str, Any]:
         return {r: [{"model": parse_spec(m).model, "family": parse_spec(m).family} for m in ms] for r, ms in self.table.items()}
@@ -478,9 +501,9 @@ def _ap_verdict(task: Mapping[str, Any], wrote: Mapping[int, Mapping[str, Any]])
     return "right"
 
 
-def generated_env(app_dir: str | Path, work: str | Path, *, name: str, description: str) -> DomainEnv:
+def generated_env(app_dir: str | Path, work: str | Path, *, name: str, description: str, cells: Sequence[str] = ()) -> DomainEnv:
     d, w = str(Path(app_dir).resolve()), str(Path(work).resolve())
-    return DomainEnv(name=name, description=description, seeds=(0,),
+    return DomainEnv(name=name, description=description, seeds=(0,), cells=tuple(cells),
                      world=lambda s: WorldRef(factory="crucible.synth.worldgen:open_world", params={"dir": d, "work": w}))
 
 

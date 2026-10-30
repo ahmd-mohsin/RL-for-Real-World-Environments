@@ -74,6 +74,8 @@ class Served:
         self.schema = json.load(open(os.path.join(app_dir, "schema.json")))  # noqa: SIM115
         seed_path = os.path.join(app_dir, "seed.json")
         self.seed = json.load(open(seed_path)) if os.path.exists(seed_path) else {"tables": {}}  # noqa: SIM115
+        kit_path = os.path.join(app_dir, "kit.json")  # the framework kit (worldkit): documents, policy parameters, colleagues
+        self.kit = list(json.load(open(kit_path)).get("kinds") or []) if os.path.exists(kit_path) else []  # noqa: SIM115
         self.allowed = ALLOWED_IMPORTS
         self.app_name = self.design["app"]
         self.keys = {t["name"]: (t["key"], str(t.get("fields", {}).get(t["key"], "string")).rstrip("?")) for t in self.schema["tables"]}
@@ -105,6 +107,13 @@ class Served:
         if not callable(build):
             raise ValueError("the module defines no build(app)")  # noqa: TRY004
         build(app)
+        if self.kit:
+            from crucible.synth.worldkit import KIT_NAMES, register
+
+            clash = sorted(set(app.tools) & KIT_NAMES)
+            if clash:
+                raise ValueError(f"the module defines tools the platform provides: {clash}")
+            register(app, self.kit)
         design = {t["name"]: t for t in self.design.get("tools", [])}
         for name, td in app.tools.items():
             td.fn = self._wrap(td.fn)

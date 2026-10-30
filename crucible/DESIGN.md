@@ -1947,6 +1947,76 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
      the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
      refused.
+16. **Part 2 World families: realistic, dense Worlds at scale (built 2026-10-29; part2-paper-core §6, §11, §12).** An
+   *environment* is a **World instance** = (World family × instance config). Claude builds the framework; every domain,
+   design, App, test, data generator, document and colleague is written by the swarm (no Qwen in any role).
+   - **`DomainSpec`** (`domain.py`): Apps (collections, tools, writes), skills, knobs (the domain's own plus the generic
+     `evidence`, `distractor`, `authority`, `scope`, which the kit and the instance generator can always realise), the
+     intent-card schema, policy parameters (typed, with ranges or choices; `acting_user_id` is a `ref` to the user
+     table), business rules, the permission model, colleagues. The cell grid is skill × knob settings; `sample_cells` is
+     a balanced seeded draw (skills round-robin, every knob value about equally often), `cell_text` is what the proposer
+     reads; `DomainEnv.cells` (pipeline, additive) carries them, and `certify --world <instance>` uses them. Loaders:
+     `finance_ap_spec()` (by hand, tools bound from the World), `spec_from_world` (a family's `domain.json`, else one
+     skill per write tool of a `worldgen` design); `generate_spec` asks the `domain_spec_writer` role (GLM) with
+     `check_spec` feedback (≥ 5 skills, ≥ 2 domain knobs, 3–12 parameters with defaults in range, permissions with a
+     user table and ≥ 2 roles, `acting_user_id` present, common practice).
+   - **Catalogue** (`catalogue.py`): the framework's seed list of 16 function areas; the `domain_cataloguer` role
+     (DeepSeek) writes the domains, a few per area, shown the catalogue so far; dedupe = keyword-token Jaccard ≥ 0.6
+     (stop words removed, light stemming, acronyms expanded: AP, AR, PO, GL, HR, CRM, KYC, ...) or same function and
+     main-record Jaccard ≥ 0.6; entries not common practice are refused; an entry's function is the area asked
+     (framework-owned); resumable per area; `pick` is round-robin over functions.
+   - **The kit** (`worldkit.py`, trusted framework code registered into every family by the sandbox child from
+     `kit.json`): `documents` + `list_documents` (paged, filtered) / `read_document` / `search_documents`;
+     `policy_params` (what the App code reads, never hard-coded; no tool: rules reach the agent through documents only);
+     `colleagues` + `list_colleagues` / `ask_colleague` (deterministic: the facts whose keywords the question contains).
+     Kit tables are in `canon()`; kit tool names are refused in designs and excluded from conformance.
+   - **Families** (`families.py`, resumable per stage in `<worlds>/<family>/state.json` with wall-clock and $ per
+     stage; `restart_from` copies the App directory aside and rebuilds from a stage): spec → design (`family_designer`,
+     Kimi, held to `REALISM_SURFACE`: a paged list tool, ≥ 2 optional filters, ≥ 3 write tools with coded errors
+     NOT_FOUND / INVALID_ARGUMENT / INVALID_STATE / PERMISSION_DENIED / CONFLICT, the acting user from the session, never
+     a tool argument) → schema (+ kit tables) → code → blind tests → `worldgen.test_and_debug` (now shared with F1:
+     code-only fixes, disputed tests dropped on a third family's approval) → data generator (`data_spec_writer`:
+     a `datagen.DataSpec`, sampled, integrity-checked, loaded and smoke-tested, problems fed back) → documents
+     (`doc_writer`, GLM: templates with `{{param}}` placeholders, every parameter stated, a `data_standards` document on
+     near-duplicates, stale records and the master source) → colleagues (`actor_writer`, DeepSeek: fact templates over
+     rows) → base instance smoke → freeze (`app/world.json`: digests of every family file). The roles that see "design"
+     (schema deriver, coder, tester, debugger, approver) are F1's, shown the design plus the policy parameters, the
+     permissions and the platform notes.
+   - **Data generator** (`datagen.py`): the family's start state as data in a closed language (seq, choice, int,
+     number uniform/normal/lognormal, bool, date relative to the World clock's today, date_offset, ref with filters,
+     ref_list, lookup = a master copy, pool, template, calc over a safe expression AST, const, list, sum/count over
+     children; `when`/`else`, `null_p`), sampled deterministically per (seed, profile). Noise planted by the framework
+     and recorded in `noise.json` (never shown to the agent): near-duplicates (one field varied: typo, suffix swap,
+     digit shift), stale clones (older dates, the spec's `stale.set` marker), conflicting master copies. `integrity`:
+     types, references, declared values, dates parse / not after today / ordered, rules on non-noise rows, master
+     copies except planted conflicts, aggregates against their children.
+   - **Instances** (`make_instance`, no model call): the family files copied and re-hashed against the frozen manifest,
+     plus `seed.json` from (seed, profile ∈ standard / dense / noisy / clean, cycled; every target collection ≥ K
+     entities, K = 40 by default), a policy variant (instance 0 the defaults, else seeded nice values in range, choices,
+     flipped booleans; the acting user a seeded eligible row), documents rendered with those values, colleagues bound to
+     seeded records; `instance.json`, `noise.json`, `world.json`, and a `worldgen_report.json` so every existing path
+     (`open_world`, `certify --world`) serves it. Targets = written collections a write tool names by key (an audit log
+     the tools only append to is not one).
+   - **Gates** (`worldgates.py`, recorded per instance in `gates.json`; an instance failing any is not used, with the
+     reasons): build (kept blind tests re-run, digests, static check + refused canaries, sandbox kind not `none`);
+     determinism (regenerated seed identical, reset twice and in a fresh child identical, reference programs replay
+     identically); integrity (the data checks, policy rows = the variant, every placeholder's value in its rendered
+     document, tool enums against same-named fields); surface (page 1 ≠ page 2 at size 2, a filtering read tool, every
+     write tool given an unknown id and an unknown enum value must refuse with a ToolError, a blind test's refusal
+     replayed on its fixture must say PERMISSION_DENIED); obscurity (every parameter value in a document read through the
+     kit, every colleague fact returned to its keywords, ≥ 80% of each target collection listed by no-argument read
+     tools, paged through); density (every target ≥ K entities; per write tool a reference oracle = its passing blind-test
+     call with fixture keys replaced by instance keys of the same table, executed until it changes state, its skeleton
+     contract, MUT with effect dedup: the best reaches n ≥ 59 distinct and at least half do); panel (`realism_rater`,
+     Nemotron-3-Ultra + gpt-oss, never a builder's family, scores R1–R5 of `RUBRIC`; both agree at confidence ≥ λ or the
+     instance goes to `human_queue.jsonl`; λ from `calibrate_panel` on anchors with known truth: the reviewed finance_ap
+     pack is realistic, its framework degradations placeholder / toy / incoherent are not).
+   - **Wire and CLI**: `WORLD_ROLE_TABLE` (merged over `SYNTH_ROLES` by the CLI; the schema deriver moves to GLM there),
+     `check_assignment` checks every role against `worldroles.ALL_ROLES`; `WORLDS_CAP_USD` = 30 over receipts whose path
+     carries "worlds". `scripts/synth.py worlds catalogue|build|instances|calibrate|gate|report` (`scripts/synth_worlds.py`);
+     `build --parallel` runs families concurrently, the run's cap split between them.
+   - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`): see the run report for the numbers and every issue the
+     real calls and the gates found, with its fix.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`

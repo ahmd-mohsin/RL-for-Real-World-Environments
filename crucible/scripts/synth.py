@@ -122,6 +122,11 @@ def _env(a: argparse.Namespace, d: Path):
     if rep.get("status") != "accepted":
         raise SystemExit(f"the World at {w} was not accepted: {rep.get('status')}")
     design = json.loads((w / "design.json").read_text())
+    if (w / "domain.json").exists() and (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells
+        from crucible.synth.domain import spec_from_world
+
+        spec = spec_from_world(w)
+        return generated_env(w, d / "work", name=a.domain, description=spec.environment_text(), cells=spec.cell_texts(max(12, a.n), seed=0))
     return generated_env(w, d / "work", name=a.domain, description=f"{rep['keyword']}: {design.get('description', '')}")
 
 
@@ -993,6 +998,9 @@ def main() -> None:
     lm.add_argument("--runs", nargs="+", required=True, help="run dirs relative to the data root")
     lm.add_argument("--cap", type=float, default=0.3)
     lm.set_defaults(fn=cmd_lemmas)
+    from synth_worlds import add_parser as add_worlds  # World families and instances (scripts/synth_worlds.py)
+
+    add_worlds(sub)
     a = ap.parse_args()
     a.fn(a)
 
