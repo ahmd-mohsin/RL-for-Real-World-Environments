@@ -610,7 +610,8 @@ def cmd_train(args) -> None:
                  sc_topk=d.sc_topk if d.centered else 0, temperature=cfg.temperature)
     try:
         out = asyncio.run(train(tasks, config=cfg, run_dir=Path(args.run_dir), targeting=targeting, observe=tl._observe(args), backend=b,
-                                model=local_model(cfg.model, context=d.seq_len), **env_kw(args, tl)))
+                                model=local_model(cfg.model, context=d.seq_len), health_stop=not args.no_health_stop,
+                                **env_kw(args, tl)))
     finally:
         if args.debug:
             import lh_debug_target

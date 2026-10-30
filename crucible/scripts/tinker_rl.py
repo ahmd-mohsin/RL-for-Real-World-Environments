@@ -184,7 +184,8 @@ def cmd_train(args) -> None:
     targeting = json.loads(Path(args.targeting).read_text()) if args.targeting else None
     cfg = train_config(args)
     try:
-        out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), **_envs_kw(args)))
+        out = asyncio.run(train(tasks, config=cfg, run_dir=_out(args), targeting=targeting, observe=_observe(args), health_stop=not args.no_health_stop,
+                                **_envs_kw(args)))
     finally:
         cleanup_containers()
     write(_out(args) / "train_report.json", {k: v for k, v in out.items() if k != "steps_log"} | {"steps_log": out["steps_log"]})
@@ -320,7 +321,7 @@ def cmd_smoke_rl(args) -> None:
                       max_tokens=args.max_tokens, enable_thinking=args.thinking, learning_rate=args.lr, turn_eta=args.eta, max_groups_per_step=3)
     rep: dict = {"model": args.model}
     try:
-        out = asyncio.run(train([task], config=cfg, run_dir=out_dir / "run", **_envs_kw(args)))
+        out = asyncio.run(train([task], config=cfg, run_dir=out_dir / "run", health_stop=not args.no_health_stop, **_envs_kw(args)))
         rep.update(train=out, turns=_turn_stats(out_dir / "run" / "rollouts"))
         if out.get("sampler_path"):
             rep["adapter"] = asyncio.run(download_adapter(out["sampler_path"], out_dir / "adapter"))
@@ -424,6 +425,7 @@ def add_train_flags(p) -> None:
     p.add_argument("--format-penalty", type=float, default=0.0, help="tool_format_penalty on a malformed call's tokens (0: off; harness-reward audit R5)")
     p.add_argument("--format-penalty-mode", default="reduction", choices=["reduction", "signed"])
     p.add_argument("--max-masked-frac", type=float, default=0.5, help="stop when more than this share of the last --masked-window samples is masked (<= 0: off)")
+    p.add_argument("--no-health-stop", action="store_true", help="do not stop on an open CRITICAL framework defect (Part 1 A7; a check that misfires: record the defect with train_monitor.py fix instead where you can)")
     p.add_argument("--masked-window", type=int, default=64)
     p.add_argument("--eta", type=float, default=0.1)
     p.add_argument("--max-staleness", type=int, default=0)
