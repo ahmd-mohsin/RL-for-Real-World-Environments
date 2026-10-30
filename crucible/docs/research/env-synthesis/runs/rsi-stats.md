@@ -6,7 +6,18 @@ Data: `crucible/data/synth/rsi/rsi-2/stats/` and `rsi-2/rsi2-pilot-*` (gitignore
 part2-paper-core §9 (marked **Proposed §9 text** below) plus the evidence behind it. The preregistration of RSI-2 is
 `runs/rsi-2-prereg.md`.
 
-<!-- RESULTS -->
+## 0. Results in one table
+
+| Item | Result |
+|---|---|
+| **δ_AA vs RSI-1's δ** | A/A, 5 replicates (seed pairs (1,2)…(9,10)) on the rsi-2 dev pool: replicate mean differences −0.016, 0, 0.008, 0, 0.008 on 125 units, **δ_AA = 0.0196**; on RSI-1's own 75-unit calibration view **δ_AA = 0.0327**. RSI-1's between-view δ was **0.0407**. Per-unit A/A discordance 0.64%: the seed changes 0–2 of 125 verdicts (MUT's sibling sample on it_helpdesk `eq_to_any` plants). |
+| **RSI-1's decisions, re-tested (report only)** | 3 of RSI-1's 14 evaluated decisions can be reconstructed exactly (the views from the sampler's seeds, matched by hash; J matches the ledger to 4 decimals); the other 11 had no stored operator spec. The best (`mutate_written_value_other_seen`, the one that "missed R2 by 0.003"): 7 gains, 0 losses on 75 units, mean 0.093, bootstrap 95% [0.040, 0.160], cluster bootstrap [0.028, 0.159]. The paired betting test against δ_AA = 0.0327: e-value 4.2 (needs 60 at α/3, 20 even uncorrected); anytime LCB −0.004 at α = 0.05. At independent seeds: mean 0.067–0.093, e-values 3.4–4.2. **The paired machinery also refuses it, more firmly**: RSI-1's normal LCB (0.038) was an approximation that does not hold for 7 discrete gains in 75; the binding constraint was the sample, not δ. The two other candidates: 2 and 3 gains, e-value 1.0. |
+| **Run-level error (simulation)** | 0.000 for T = 5–40 null candidates (§3), against 0.20–0.80 for the uncorrected per-test rule |
+| **Power (per class, locked)** | 33 paired plants detect a 0.2 recall gain at power 0.8 (71 for 0.1); rsi-2 locked: D6 12 plants (MDE 0.50), D7 18 (0.36), D10 13 (0.47); D1, D3, D4, D8 have 1–2 plants (no detectable effect). Raising `max_per_op` to 6 adds 9 plants (81): the cap is not the constraint, the source tasks are. Full table in `rsi-2-prereg.md` §5. |
+| **Headroom (dev)** | 7 of 125 dev plants are missed by the population (all `relax_value:eq_to_any`, D3, MUT suspects only); **all 7** are caught by some expressible operator with no anchor alarm (e.g. `mutate_arg(*, written_key values) expect fail confirm always`): **headroom 5.6% absolute, 100% relative**; 34,132 of 37,236 grammar operators raise no anchor alarm; 7,625 distinct programs executed. Unchanged by DESIGN item 20 (the new population's dev misses are the same 7). |
+| **Headroom (locked, after item 20)** | the new population catches 72/72 rsi-2 locked plants: the old locked sets have no headroom and can no longer measure a gain. The four RSI-2 D3 variants (`held_out_planter_v2`) restore it: see §0.1. |
+
+<!-- LOCKEDV2 -->
 
 ## 1. What was wrong with RSI-1's update test
 

@@ -312,11 +312,17 @@ def cmd_headroom(a: argparse.Namespace) -> None:
 
 
 def cmd_locked(a: argparse.Namespace) -> None:
-    """A rebuilt locked set: the held-out planter's variants with a higher per-task cap, on the locked sources (or, with
-    ``--domains``, on every clean source of those held-out domains); its per-class counts and minimum detectable effects."""
-    from crucible.synth.falsify import FalsifyContext
-    from crucible.synth.meta.plant import held_out_planter, plant_all
+    """A rebuilt locked set: the held-out planter (``--planter v2``: with the four RSI-2 D3 variants) with a per-task cap,
+    on the locked sources (or, with ``--held-out-domains``, on every clean source of those domains); its per-class counts,
+    minimum detectable effects, the current population's recall on it (does it still measure anything?), its headroom
+    (misses an expressible operator catches) and, with ``--ops-from`` (an evolve run's rows.json), what each gate-passing
+    operator of that run would add (post hoc, report only)."""
+    from crucible.synth.falsify import FalsifyContext, cheap
+    from crucible.synth.meta.headroom import catchable
+    from crucible.synth.meta.library import Library, OperatorSpec
+    from crucible.synth.meta.plant import held_out_planter, held_out_planter_v2, plant_all
     from crucible.synth.meta.recall import PlantSet, SetStore
+    from crucible.synth.meta.rsi import population, verdicts
     from crucible.synth.meta.stats import mde
     from crucible.synth.task import Task
 
@@ -327,27 +333,45 @@ def cmd_locked(a: argparse.Namespace) -> None:
         doms = set(a.held_out_domains.split(","))
         sources = [t for t in tasks.values() if t.domain in doms]
         if {t.domain for t in dev_src} & doms:
-            print(f"note: held-out domains {sorted(doms)} also have dev sources; their dev plants would have to be dropped for a domain hold-out")
+            raise SystemExit(f"held-out domains {sorted(doms)} also have dev sources: a domain hold-out needs domains no dev source comes from")
     else:
         sources = list(locked_src)
-    planter = held_out_planter().model_copy(update={"max_per_op": a.max_per_op})
+    planter = (held_out_planter_v2(a.max_per_op) if a.planter == "v2" else held_out_planter().model_copy(update={"max_per_op": a.max_per_op}))
+    specs = []
+    if a.ops_from:
+        rows = json.loads(Path(a.ops_from).read_text())
+        specs = [c["spec"] for r in rows for c in r.get("candidates", []) if c.get("spec") and not any(x.startswith("gate:") for x in c.get("refused_by", []))]
 
     async def go():
         ctx = FalsifyContext()
         try:
-            return await plant_all(sources, planter, ctx)
+            batch = await plant_all(sources, planter, ctx)
+            vs, _ = await verdicts(batch.kept, cheap(), ctx)
+            missed = [p.id for p in batch.kept if not vs[p.id].hit]
+            h = await catchable(batch.kept, missed, sources, ctx)
+            adds = {}
+            for s in specs:
+                lib = Library().add(OperatorSpec.model_validate(s), 0).model_dump(mode="json")
+                v2, _ = await verdicts(batch.kept, population(lib), ctx)
+                adds[s["name"]] = sum(1 for p in batch.kept if v2[p.id].hit) - (len(batch.kept) - len(missed))
+            return batch, vs, missed, h, adds
         finally:
             await ctx.close()
 
     t = time.time()
-    batch = asyncio.run(go())
+    batch, _vs, missed, h, adds = asyncio.run(go())
     ps = PlantSet(name=f"{a.name}-locked", kind="locked", plants=batch.kept).sealed()
     SetStore(out / "sets", locked_root(a)).write(ps)
     counts = _counts(batch.kept)
     clusters = {d: len({p.source_id for p in batch.kept if p.defect == d}) for d in counts}
-    doc = {"name": ps.name, "sources": len(sources), "domains": sorted({t.domain for t in sources}), "max_per_op": a.max_per_op, "plants": len(batch.kept),
-           "discarded": len(batch.discarded), "counts": counts, "source_tasks_per_class": clusters,
-           "mde": {d: mde(n) if n else None for d, n in counts.items()}, "seconds": round(time.time() - t, 1)}
+    miss_by = {d: sum(1 for p in batch.kept if p.defect == d and p.id in set(missed)) for d in counts}
+    doc = {"name": ps.name, "planter": planter.key, "sources": len(sources), "domains": sorted({t.domain for t in sources}), "max_per_op": a.max_per_op,
+           "plants": len(batch.kept), "discarded": len(batch.discarded), "counts": counts, "source_tasks_per_class": clusters,
+           "mde": {d: mde(n) if n else None for d, n in counts.items()}, "fr_current": round(1 - len(missed) / max(1, len(batch.kept)), 4),
+           "missed_by_class": miss_by, "missed_by_op": dict(sorted({k: sum(1 for p in batch.kept if p.op.key == k and p.id in set(missed))
+                                                                     for k in {p.op.key for p in batch.kept}}.items())),
+           "headroom": {"abs": round(h.headroom_abs, 4), "rel": round(h.headroom_rel, 4), "catchable": len(h.catchable), "by_class": h.by_class},
+           "post_hoc_operator_gain": adds, "seconds": round(time.time() - t, 1)}
     _dump(stats_dir(a) / f"locked-{a.name}.json", doc)
     print(json.dumps(doc, indent=1))
 
@@ -514,6 +538,8 @@ def main() -> None:
     common(p)
     p.add_argument("--name", required=True)
     p.add_argument("--max-per-op", type=int, default=6)
+    p.add_argument("--planter", default="v2", choices=["v1", "v2"])
+    p.add_argument("--ops-from", default=None, help="an evolve run's rows.json: the post-hoc gain of its gate-passing operators")
     p.add_argument("--held-out-domains", default="", help="plant every clean source of these domains (a domain hold-out); default: the locked sources")
     p.set_defaults(fn=cmd_locked)
     for name, fn in (("evolve", cmd_evolve), ("e10", cmd_e10)):

@@ -60,7 +60,7 @@ from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.synth.canon import MISSING, Address, CanonState, cjson, content_hash, diff, is_number, same_diff
-from crucible.synth.contract import Contract, EffectPattern, PAny, PApprox, PEq, PIn, TraceConstraint, is_glob, unglob
+from crucible.synth.contract import Contract, EffectPattern, PAny, PApprox, PEq, PIn, PRegex, PRel, TraceConstraint, is_glob, unglob
 from crucible.synth.falsify.base import FalsifyContext, delta_of, entity_index, equivalent, key_text, typed_like, written_entities
 from crucible.synth.falsify.mut import MUT, key_colls
 from crucible.synth.falsify.null import NULL, borrowed_args
@@ -85,7 +85,8 @@ class OpInfo(CrucibleModel):
 OPS: dict[str, OpInfo] = {
     "drop_required": OpInfo(defect="D1", witness="lenient", variants=["base", "last"], families=["DropStep", "Truncate", "minus_last_write"]),
     "widen_frame": OpInfo(defect="D2", witness="lenient", variants=["coll", "app", "field"], families=["ExtraWrite", "write_all", "shortcut"]),
-    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance", "eq_to_in"], families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
+    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance", "eq_to_in", "eq_to_regex", "eq_to_ne", "approx_rel", "where_in"],
+                          families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
     "vacuous_required": OpInfo(defect="D4", witness="lenient", variants=["base", "exists"], families=["DropStep", "Truncate", "minus_last_write", "noop"]),
     "hide_info": OpInfo(defect="D5", witness="hidden", variants=["sentence", "redact"]),
     "over_constrain": OpInfo(defect="D6", witness="strict", variants=["before", "at_most", "never"], families=["DropStep", "DupStep", "Reorder"]),
@@ -163,6 +164,18 @@ def held_out_planter() -> Planter:
            PlantOp(name="break_solvability", variant="offset", params={"suffix": "-legacy"}),
            PlantOp(name="relax_value", variant="eq_to_in")]
     return Planter(id="held-out", ops=ops)
+
+
+V2_D3 = ("eq_to_regex", "eq_to_ne", "approx_rel", "where_in")
+
+
+def held_out_planter_v2(max_per_op: int = 6) -> Planter:
+    """The RSI-2 locked planter: ``held_out_planter``'s variants plus four D3 relaxations no earlier set had (after
+    DESIGN §7.7 item 20 the population caught every rsi-1/2 locked plant, so the old locked sets could no longer measure
+    a gain): a prefix regex for an exact string, "any change" for an exact update, a 50% relative tolerance for an exact
+    number, and a where-predicate widened to two values. Still disjoint from ``base_planter``."""
+    hp = held_out_planter()
+    return Planter(id="held-out-v2", ops=[*hp.ops, *(PlantOp(name="relax_value", variant=v) for v in V2_D3)], max_per_op=max_per_op)
 
 
 # ---------------------------------------------------------------------------------------------------------- plants
@@ -409,6 +422,39 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
                               why=op.params.get("why", "routine edits in this area are expected"))
             c2 = c.model_copy(update={"allowed": [*c.allowed, a]}, deep=True)
             out.append(_Draft(task=_with_contract(src, c2), site=f"{app}.{coll}", change={"target": "allowed", "coll": f"{app}.{coll}", "wildcard": True}))
+    elif op.name == "relax_value" and v in ("eq_to_regex", "eq_to_ne", "approx_rel", "where_in"):
+        # RSI-2 held-out D3 variants (after DESIGN item 20 the population caught every rsi-1/2 locked plant): a value
+        # check one notch too loose in a way M3's variants never were: a prefix regex, "any change", a relative
+        # tolerance, or a where-predicate set one entry too wide
+        for i, p in enumerate(c.required):
+            req = list(c.required)
+            if v == "where_in":
+                for f, pred in sorted(p.where.items()):
+                    if not isinstance(pred, PEq) or oracle.start is None:
+                        continue
+                    seen = sorted({cjson(r[f]) for _a, co, _k, r in oracle.start.entities() if f in r and r[f] is not None})
+                    others = [x for x in seen if x != cjson(pred.v)]
+                    if not others:
+                        continue
+                    req[i] = p.model_copy(update={"where": {**p.where, f: PIn(vs=[pred.v, json.loads(others[0])])}})
+                    out.append(_Draft(task=_with_contract(src, c.model_copy(update={"required": req}, deep=True)), site=f"{p.id}.where.{f}:in",
+                                      change={"target": "required", "pattern": p.id, "field": f, "coll": f"{p.app}.{p.coll}", "literal": pred.v}))
+                    break
+                continue
+            if not isinstance(p.value, PEq) or is_glob(p.field):
+                continue
+            x = p.value.v
+            if v == "eq_to_regex" and isinstance(x, str) and len(x) >= 2:
+                pred: Any = PRegex(pattern=re.escape(x[: max(1, len(x) // 2)]) + ".*")  # fullmatch: the first half, then anything
+            elif v == "eq_to_ne" and p.kind == "update" and x is not None and not isinstance(x, bool):
+                pred = PRel(rel="ne", ref="old")
+            elif v == "approx_rel" and is_number(x) and not isinstance(x, bool) and x != 0:
+                pred = PApprox(v=float(x), rel=0.5)
+            else:
+                continue
+            req[i] = p.model_copy(update={"value": pred})
+            out.append(_Draft(task=_with_contract(src, c.model_copy(update={"required": req}, deep=True)), site=f"{p.id}.value:{v}",
+                              change={"target": "required", "pattern": p.id, "field": p.field, "coll": f"{p.app}.{p.coll}", "literal": x}))
     elif op.name == "relax_value" and v == "eq_to_in":
         # eq v -> in [v, w], w another value the start state holds for that field: a value set one entry too wide
         for i, p in enumerate(c.required):

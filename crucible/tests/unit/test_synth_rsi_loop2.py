@@ -20,10 +20,10 @@ from tests.unit.test_synth_rsi import EXTRA_READ, _setup
 
 async def test_headroom_finds_what_an_expressible_operator_catches_and_never_counts_an_alarming_one():
     ctx, _clean, _, dev_src, locked_src, dev, locked, _, _, _ = await _setup()
-    from crucible.synth.falsify import cheap
+    from crucible.synth.falsify import cheap_m3  # the population before DESIGN item 20, which still misses the fixture gaps
 
     plants = [*dev.plants, *locked.plants]  # in a test the fixture's locked plants are just more plants
-    vs, _ = await verdicts(plants, cheap(), ctx)
+    vs, _ = await verdicts(plants, cheap_m3(), ctx)
     missed = [p.id for p in plants if not vs[p.id].hit]
     assert missed  # the fixture planters include gaps of the base population (over_constrain:never, eq_to_any)
     h = await catchable(plants, missed, [*dev_src, *locked_src], ctx)
@@ -468,3 +468,17 @@ async def test_the_paired_loop_runs_on_shards_with_concurrent_gates(tmp_path):
     r1 = rows[-1]
     assert r1.round == 1 and len(r1.candidates) == 3 and all(c.gate or c.refused_by for c in r1.candidates)
     assert all("checks" in c.gate for c in r1.candidates if c.gate)
+
+
+async def test_the_v2_held_out_d3_variants_plant_witnessed_misses_and_stay_disjoint_from_dev():
+    from crucible.synth.falsify import cheap
+    from crucible.synth.meta.plant import V2_D3, Planter, base_planter, held_out_planter_v2, plant_all
+    from tests.unit import synth_fixtures as fx
+
+    v2 = held_out_planter_v2()
+    assert not ({o.key for o in base_planter().ops} & {o.key for o in v2.ops}) and {o.variant for o in v2.ops} >= set(V2_D3)
+    ctx = FalsifyContext()
+    b = await plant_all(fx.anchors()[2:4], Planter(id="t", ops=[o for o in v2.ops if o.variant in ("eq_to_ne", "eq_to_regex")], max_per_op=3), ctx)
+    assert b.kept and all(p.defect == "D3" and p.witness.program is not None for p in b.kept)
+    vs, _ = await verdicts(b.kept, cheap(), ctx)
+    assert any(not vs[p.id].hit for p in b.kept)  # the population misses some: the locked set can measure a gain again
