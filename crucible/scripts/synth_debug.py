@@ -116,6 +116,10 @@ async def certify(args: argparse.Namespace) -> int:
             fs = findings_summary(results)
             row = {"status": cert.status, "reasons": cert.reasons, "provisional_for": cert.provisional_for, "classes": cert_summary(cert),
                    "applicability": applicability(results), "findings": fs, "docker_runs": len(runner.log), "seconds": round(time.monotonic() - t0, 1)}
+            # Part 1 V2: every attack with its round, calls and the checks it failed (a clean attack leaves no finding row)
+            row["attacks"] = [{"agent": f.site, "label": f.label, "passed": f.outcome.passed, "round": f.outcome.data.get("round"),
+                               "calls": f.outcome.data.get("calls"), "reasons": f.outcome.reasons[:8], "answer": str(f.outcome.data.get("answer"))[:300],
+                               "trace": f.outcome.data.get("trace")} for r in results if r.cls == "ATK" for f in r.findings]
             write(out, f"{wid}.json", {"certificate": cert.model_dump(mode="json"), **row})
             table[wid] = row
             print(f"{wid}: {cert.status} {cert.reasons} confirmed={[(c['op'], c['defect']) for c in fs['confirmed']]} "

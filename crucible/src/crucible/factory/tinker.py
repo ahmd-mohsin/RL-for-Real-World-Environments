@@ -244,7 +244,8 @@ def policy_id(model: str, checkpoint: str | None = None, provider: str = "tinker
     return f"solver:{provider}:{model}@{provider}{'-adapter' if checkpoint else ''}"
 
 
-PURPOSES = ("selection", "baseline", "control", "trained", "smoke", "fairness")  # fairness: S15's frontier solvers (a strong solver passes)
+PURPOSES = ("selection", "baseline", "control", "trained", "smoke", "fairness", "hack", "eval")  # fairness: S15's frontier solvers (a strong solver passes);
+# hack: Part 1 V2's red-team episodes (lh_debug_target.py hack): a pass breaks the task; eval: Part 1 V10's impossible twins
 
 
 def arm_settings(*, model: str, k: int, temperature: float, max_tokens: int, enable_thinking: bool, tool_limit: int | None, timeouts: Timeouts | None,
