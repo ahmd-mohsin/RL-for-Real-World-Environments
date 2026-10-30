@@ -2053,6 +2053,16 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        conversation with the last problem (up to `data_attempts`). The enum check fails only on another spelling of an
        accepted value; a disjoint vocabulary is recorded (`enum_disjoint`: usually two concepts under one field name).
        `build --redo` resets exactly the named stages.
+     - *Permission tests passed for the wrong reason.* A blind test could only say "expect error", so a NOT_FOUND
+       satisfied a permission test and the code still had no check. `ToolTestCall.error` (additive) names the code the
+       refusal must contain; the sandbox runner checks it; `check_permission_tests` counts only calls with
+       `"error": "PERMISSION_DENIED"`.
+     - *Cross-record data rules.* Every generated loss notice fell after its policy's expiry, so `open_claim` refused
+       them all. Rules, `when` and `calc` read a referenced row's field as `<ref field>.<field>` (rejection-sampled,
+       checked by `integrity`); every declared choice value occurs at least once in a table of ≥ 2× as many rows (no user
+       held the role a filter needed, so an instance could not be generated). The reference oracle tries the instance
+       rows most like the blind test's fixture row first, and the density share now counts a write tool with no
+       reference oracle as not reaching n.
      - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
        be disputed (a procurement App spent three rounds on one).
      - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).

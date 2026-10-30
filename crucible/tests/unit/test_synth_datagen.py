@@ -126,3 +126,28 @@ def test_rows_are_rejection_sampled_against_rules_and_absolute_spreads_do_not_ov
     assert integrity(spec, schema, g) == []
     assert [r["id"] for r in g.tables["bal"]] == [f"B-{i}" for i in range(1, 61)]  # redraws release their sequence numbers
     assert len({r["amount"] for r in g.tables["bal"]}) > 30
+
+
+def test_cross_record_rules_hold_and_are_checked():
+    # pilot 1: every loss notice fell after its policy's expiry, so the App refused them all
+    schema = {"policy": {"key": "pid", "fields": {"pid": "string", "start": "string", "expiry": "string", "tier": "string"}},
+              "notice": {"key": "nid", "fields": {"nid": "string", "policy_id": "string", "loss_date": "string", "cap": "number"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "policy", "rows": 20, "fields": {"pid": {"kind": "seq", "prefix": "P-"}, "start": {"kind": "date", "days_ago": [200, 700]},
+                                                  "expiry": {"kind": "date_offset", "from": "start", "min_days": 30, "max_days": 365},
+                                                  "tier": {"kind": "choice", "values": ["gold", "basic"]}}},
+        {"table": "notice", "rows": 50, "rules": ["loss_date >= policy_id.start", "loss_date <= policy_id.expiry"], "fields": {
+            "nid": {"kind": "seq", "prefix": "N-"}, "policy_id": {"kind": "ref", "table": "policy"}, "loss_date": {"kind": "date", "days_ago": [1, 700]},
+            "cap": {"kind": "number", "min": 100, "max": 900, "when": "policy_id.tier == 'gold'", "else": {"kind": "number", "min": 10, "max": 90}}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    pol = {p["pid"]: p for p in g.tables["policy"]}
+    assert all(pol[n["policy_id"]]["start"] <= n["loss_date"] <= pol[n["policy_id"]]["expiry"] for n in g.tables["notice"])
+    assert all((n["cap"] >= 100) == (pol[n["policy_id"]]["tier"] == "gold") for n in g.tables["notice"])  # a generator as the else branch
+    g.tables["notice"][0]["loss_date"] = "2025-12-31"
+    pol[g.tables["notice"][0]["policy_id"]]["expiry"] = "2025-01-01"
+    assert any("policy_id.expiry" in p for p in integrity(spec, schema, g))
+    bad = spec.model_copy(deep=True)
+    bad.tables[1].rules = ["loss_date <= nid.expiry"]
+    with pytest.raises(DataSpecError, match="not a ref field"):
+        compile_spec(bad, schema)

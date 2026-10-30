@@ -564,7 +564,22 @@ def _key_tables(test: Mapping[str, Any], sm: Mapping[str, Mapping[str, Any]]) ->
     return out
 
 
-async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 16, seed: int = 0) -> list[dict[str, Any]]:
+def _like_fixture(test: Mapping[str, Any], key: Any, tn: str, seed_tables: Mapping[str, list[dict[str, Any]]], sm: Mapping[str, Mapping[str, Any]],
+                  keys: Sequence[Any], rng: random.Random, n: int = 12) -> list[Any]:
+    """Instance keys of ``tn`` ordered by how many short scalar fields their row shares with the fixture row ``key``."""
+    kf = sm[tn]["key"]
+    fx = next((r for r in (test.get("fixture") or {}).get(tn, []) if str(r.get(kf)) == str(key)), None)
+    if fx is None:
+        return []
+    probe = {f: v for f, v in fx.items() if f != kf and isinstance(v, str | bool | int) and (not isinstance(v, str) or len(v) <= 24)}
+    allowed = {str(k) for k in keys}
+    rows = [r for r in seed_tables.get(tn, []) if str(r.get(kf)) in allowed]
+    rng.shuffle(rows)
+    rows.sort(key=lambda r: -sum(1 for f, v in probe.items() if r.get(f) == v))
+    return [r[kf] for r in rows[:n]]
+
+
+async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 24, seed: int = 0) -> list[dict[str, Any]]:
     """One reference oracle per family write tool (module docstring): its blind-test arguments with every fixture key
     replaced by an instance key of the same table, tried on seeded entities until the call succeeds and changes state."""
     design = _jread(inst / "design.json")
@@ -587,9 +602,12 @@ async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 1
             subst = {a: kt[str(v)] for a, v in args0.items() if isinstance(v, str | int) and not isinstance(v, bool) and str(v) in kt}
             if not subst or any(not keys.get(tn) for tn in subst.values()):
                 continue
-            for _ in range(attempts):
+            ranked = {a: _like_fixture(test, args0[a], tn, seed_tables, sm, keys[tn], rng) for a, tn in subst.items()}
+            for i in range(attempts):
                 tries += 1
-                args = {**args0, **{a: rng.choice(keys[tn]) for a, tn in subst.items()}}
+                # the instance rows most like the fixture's row first (same status and other short fields: pilot 1's random
+                # draws found no entity in the state record_promise needs), then seeded random ones
+                args = {**args0, **{a: (ranked[a][i] if i < len(ranked[a]) else rng.choice(keys[tn])) for a, tn in subst.items()}}
                 prog = Program(steps=[Step(id="s1", tool=f"{app}.{t['name']}", args={k: Lit(v=v) for k, v in args.items()})])
                 r = await run(world, prog, f"reference: {t['name']}", seed=0, taint=False)
                 if r.error is None and all(c.obs.ok for c in r.calls) and r.start is not None and r.end is not None and r.start.fingerprint() != r.end.fingerprint():
@@ -653,9 +671,9 @@ async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_m
         reasons.append("no reference oracle could be built from the blind tests on this instance")
     elif not reached:
         reasons.append(f"no reference oracle reaches n >= {n_min} distinct mutants (best {max(ns)})")
-    elif len(reached) / len(ns) < share:
-        reasons.append(f"only {len(reached)} of {len(ns)} reference oracles reach n >= {n_min}")
-    det = {"targets": counts, "k_min": k_min, "n_min": n_min, "references": len(ns), "reached": len(reached), "best": max(ns, default=0),
+    elif len(reached) / max(1, len(per_tool)) < share:  # a write tool with no reference oracle counts as not reaching n (pilot 1)
+        reasons.append(f"only {len(reached)} of {len(per_tool)} write tools have a reference oracle reaching n >= {n_min} ({len(ns)} have one)")
+    det = {"targets": counts, "k_min": k_min, "n_min": n_min, "write_tools": len(per_tool), "references": len(ns), "reached": len(reached), "best": max(ns, default=0),
            "median": statistics.median(ns) if ns else 0, "per_tool": per_tool}
     return GateResult(gate="density", passed=not reasons, reasons=reasons, details=det, elapsed_s=round(time.monotonic() - t0, 2)), replays
 

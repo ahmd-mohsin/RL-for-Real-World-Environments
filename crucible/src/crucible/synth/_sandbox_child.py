@@ -200,6 +200,8 @@ async def _run_test(s: Served, t: dict[str, Any]) -> dict[str, Any]:
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected success, got error {o.error}" + (f"\n{s.last_tb}" if s.last_tb else "")}
         if want == "error" and o.error is None:
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected a refusal, got {json.dumps(o.value, default=str)[:300]}"}
+        if want == "error" and c.get("error") and str(c["error"]) not in str(o.error):  # the refusal must be the one the test names
+            return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected a refusal with {c['error']}, got {o.error}"}
         if want == "error" and s.last_tb:  # a crash is not a refusal: refuse with ToolError
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: crashed instead of refusing\n{s.last_tb}"}
         if want == "ok" and c.get("result") is not None:

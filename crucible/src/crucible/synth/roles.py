@@ -253,6 +253,7 @@ class ToolTestCall(_Out):
     args: dict[str, Any] = Field(default_factory=dict)
     expect: Literal["ok", "error"] = "ok"
     result: Any = None  # a subset the result must contain (None: unchecked)
+    error: str | None = None  # expect "error": a code the refusal's message must contain (World families: PERMISSION_DENIED)
 
 
 class ToolTest(_Out):
@@ -626,7 +627,8 @@ BLIND_TESTER = Role(
 TEST_FORMAT_DOC = """TEST FORMAT
 {"tests": [{"id": "t1", "tier": "simple|medium|complex|boundary",
             "fixture": {"<table>": [<row with its key field>, ...]},
-            "calls": [{"tool": "<tool name>", "args": {...}, "expect": "ok|error", "result": <subset of the result or null>}],
+            "calls": [{"tool": "<tool name>", "args": {...}, "expect": "ok|error", "result": <subset of the result or null>,
+                       "error": <for a refusal, optionally the error code its message must contain, e.g. "PERMISSION_DENIED">}],
             "expect_state": {"<table>": {"<key>": {"<field>": <value>}}},
             "expect_absent": {"<table>": ["<key>"]}}]}
 A result subset matches when every key it names is in the result with an equal value (lists: same length, items matched in

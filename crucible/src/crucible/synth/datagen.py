@@ -143,7 +143,7 @@ class Generated(_M):
 _FUNCS = {"round": round, "min": min, "max": max, "abs": abs, "len": len}
 _ALLOWED = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, ast.USub, ast.UAdd, ast.BinOp, ast.Add, ast.Sub, ast.Mult,
             ast.Div, ast.FloorDiv, ast.Mod, ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is,
-            ast.IsNot, ast.Name, ast.Load, ast.Constant, ast.List, ast.Tuple, ast.IfExp, ast.Call)
+            ast.IsNot, ast.Name, ast.Load, ast.Constant, ast.List, ast.Tuple, ast.IfExp, ast.Call, ast.Attribute)
 
 
 def parse_expr(src: str) -> ast.Expression:
@@ -154,6 +154,8 @@ def parse_expr(src: str) -> ast.Expression:
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED):
             raise DataSpecError(f"expression {src!r}: {type(node).__name__} is not allowed")
+        if isinstance(node, ast.Attribute) and (not isinstance(node.value, ast.Name) or node.attr.startswith("_")):
+            raise DataSpecError(f"expression {src!r}: only <ref field>.<field of the referenced row> may use a dot")
         if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name) and node.func.id in (*_FUNCS, "days_between")):
             raise DataSpecError(f"expression {src!r}: only round, min, max, abs, len, days_between may be called")
     return tree
@@ -169,7 +171,14 @@ def _days_between(a: Any, b: Any) -> int:
     return (parse_date(b) - parse_date(a)).days
 
 
-def eval_expr(src: str, row: Mapping[str, Any]) -> Any:
+def expr_refs(src: str) -> set[tuple[str, str]]:
+    """The ``<ref field>.<field>`` pairs an expression reads (a cross-record rule)."""
+    return {(n.value.id, n.attr) for n in ast.walk(parse_expr(src)) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+
+
+def eval_expr(src: str, row: Mapping[str, Any], resolve: Any = None) -> Any:
+    """Evaluate ``src`` on ``row``. ``resolve(ref_field, field)`` reads a field of the row a ref field points at
+    (pilot 1: a loss date must lie within the referenced policy's period, which no per-row rule can say)."""
     tree = parse_expr(src)
     env = {**_FUNCS, "days_between": _days_between, "None": None, "True": True, "False": False}
 
@@ -178,6 +187,10 @@ def eval_expr(src: str, row: Mapping[str, Any]) -> Any:
             return ev(n.body)
         if isinstance(n, ast.Constant):
             return n.value
+        if isinstance(n, ast.Attribute):
+            if resolve is None:
+                raise DataSpecError(f"expression {src!r}: {n.value.id}.{n.attr} needs the referenced row")  # type: ignore[attr-defined]
+            return resolve(n.value.id, n.attr)  # type: ignore[attr-defined]
         if isinstance(n, ast.Name):
             if n.id in row:
                 return row[n.id]
@@ -359,6 +372,12 @@ def compile_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> lis
             bad = expr_names(r) - set(t.fields)
             if bad:
                 raise DataSpecError(f"table {t.table}: rule {r!r} names unknown fields {sorted(bad)}")
+            for rf, f in expr_refs(r):
+                rg = t.fields.get(rf) or {}
+                if rg.get("kind") != "ref":
+                    raise DataSpecError(f"table {t.table}: rule {r!r}: {rf} is not a ref field, so {rf}.{f} has no referenced row")
+                if f not in tables[rg["table"]].fields:
+                    raise DataSpecError(f"table {t.table}: rule {r!r}: {f} is not a field of {rg['table']}")
         for nf in (t.near_duplicate.vary if t.near_duplicate else []):
             if nf not in t.fields or nf == key:
                 raise DataSpecError(f"table {t.table}: near_duplicate varies {nf!r}, which is not a non-key field")
@@ -439,6 +458,8 @@ class _Sampler:
         self.used: dict[tuple[str, str], set[Any]] = {}
         self.seq: dict[str, int] = {}
         self.capped: dict[str, tuple[int, int]] = {}
+        self.idx, self.n_cur = 0, 0
+        self.cover: dict[tuple[str, str], list[Any]] = {}
 
     def n_rows(self, t: TableGen) -> int:
         """Rows wanted (scale, the density minimum), capped at what the table's unique pools can name: pilot 1's dense
@@ -465,7 +486,7 @@ class _Sampler:
         return v
 
     def gen(self, t: TableGen, f: str, g: Mapping[str, Any], row: dict[str, Any]) -> Any:
-        if g.get("when") and not eval_expr(str(g["when"]), row):
+        if g.get("when") and not eval_expr(str(g["when"]), row, self.resolver(t, row)):
             e = g.get("else")  # a literal, or a generator of its own (pilot 1: approval limits by role)
             return self.gen(t, f, e, row) if isinstance(e, dict) and "kind" in e else e
         if g.get("null_p") and self.rng.random() < float(g["null_p"]):
@@ -481,7 +502,14 @@ class _Sampler:
                 return n
             return f"{g.get('prefix', '')}{s}{g.get('suffix', '')}"
         if k == "choice":
-            return rng.choices(list(g["values"]), weights=g.get("weights"), k=1)[0]
+            vals = list(g["values"])
+            if self.n_cur >= 2 * len(vals) and self.idx < len(vals) and t.fields.get(f, {}).get("kind") == "choice" and not t.fields[f].get("when"):
+                # every declared value occurs at least once in a big enough table (pilot 1: no user held the Finance Clerk
+                # role a ref filtered on, so an instance could not be generated); the rest follow the weights
+                order = self.cover.setdefault((t.table, f), rng.sample(vals, len(vals)))
+                return order[self.idx]
+            return rng.choices(vals, weights=g.get("weights"), k=1)[0]
+
         if k == "int":
             return rng.randint(int(g.get("min", 0)), int(g.get("max", 100)))
         if k == "number":
@@ -527,7 +555,7 @@ class _Sampler:
                     return v
             raise DataSpecError(f"{t.table}.{f}: a unique template ran out of combinations")
         if k == "calc":
-            v = eval_expr(str(g["expr"]), row)
+            v = eval_expr(str(g["expr"]), row, self.resolver(t, row))
             return round(v, int(g["round"])) if g.get("round") is not None and isinstance(v, int | float) else v
         if k == "const":
             return copy.deepcopy(g.get("value"))
@@ -554,6 +582,15 @@ class _Sampler:
             return self.pick_pool(table, f, keys, True)
         return self.rng.choice(keys)
 
+    def resolver(self, t: TableGen, row: Mapping[str, Any]) -> Any:
+        def resolve(rf: str, f: str) -> Any:
+            g = t.fields.get(rf) or {}
+            if g.get("kind") != "ref" or row.get(rf) is None:
+                return None
+            return (self.by_key.get(str(g["table"]), {}).get(str(row.get(rf))) or {}).get(f)
+
+        return resolve
+
     def row(self, t: TableGen, order: list[str], tries: int = 40) -> dict[str, Any]:
         """One row, **rejection-sampled against the table's rules**: a draw that breaks a rule is redrawn (its unique
         values and sequence number released), up to ``tries`` times; the last draw is kept and ``integrity`` reports it.
@@ -575,7 +612,7 @@ class _Sampler:
             ok = True
             for r in t.rules:
                 try:
-                    ok = bool(eval_expr(r, row))
+                    ok = bool(eval_expr(r, row, self.resolver(t, row)))
                 except DataSpecError:
                     ok = True  # an unevaluable rule is integrity's to report
                 if not ok:
@@ -591,7 +628,9 @@ class _Sampler:
             rows: list[dict[str, Any]] = []
             self.out[t.table] = rows
             self.by_key[t.table] = {}
-            for _ in range(self.n_rows(t)):
+            n = self.n_rows(t)
+            for i in range(n):
+                self.idx, self.n_cur = i, n
                 row = self.row(t, order)
                 if str(row[kf]) in self.by_key[t.table]:
                     raise DataSpecError(f"table {t.table}: key {row[kf]!r} repeats")
@@ -808,9 +847,15 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                             "(not a planted conflict)")
             if (tn, k) in noise_keys:
                 continue
+            def resolve(rf: str, f: str, r: Mapping[str, Any] = r, t: TableGen = t) -> Any:
+                g = t.fields.get(rf) or {}
+                if g.get("kind") != "ref" or r.get(rf) is None:
+                    return None
+                return (by_key.get(str(g["table"]), {}).get(str(r.get(rf))) or {}).get(f)
+
             for rule in t.rules:
                 try:
-                    ok = eval_expr(rule, r)
+                    ok = eval_expr(rule, r, resolve)
                 except DataSpecError as e:
                     add(f"{tn}[{k}]: rule {rule!r} cannot be evaluated: {e}")
                     continue
@@ -879,7 +924,8 @@ Generators ({"kind": ...}):
   sum       {"table": "<child table>", "fk": "<child field referring here>", "field": "<child number field>"}
   count     {"table": "<child table>", "fk": "<child field referring here>"}
   any generator may add "when": "<expression over this row>", "else": <a value or another generator>, and "null_p": 0.1 (nullable fields only)
-Expressions: field names, literals, + - * / // %, == != < <= > >=, in, not in, and, or, not, x if c else y,
+Expressions: field names, <ref field>.<field> (a field of the row a ref field points at, e.g. loss_date <= policy_id.expiry_date),
+literals, + - * / // %, == != < <= > >=, in, not in, and, or, not, x if c else y,
 round(), min(), max(), abs(), len(), days_between(a, b). Dates are ISO text and compare as text.
 Keys use seq (or a unique pool/template). Every reference is a ref. Weights and ranges must look like a real company's data."""
 

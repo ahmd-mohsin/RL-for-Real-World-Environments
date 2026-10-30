@@ -213,7 +213,9 @@ DATA_SPEC_WRITER = Role(
             "that most records can be acted on (e.g. most invoices pending), and the acting user's table must hold users of every role. "
             "Where a real record keeps a copy of a master value (a customer's name or tier on a request, a supplier's name on an "
             "order, an employee's department on a leave request), generate the copy with lookup, as real systems denormalise. "
-            "Write each rule so that one row decides it (the generator redraws rows that break a rule).\n"
+            "State every precondition the tools check as a rule, including ones across records (a loss date within the referenced "
+            "policy's period: loss_date <= policy_id.expiry_date); the generator redraws rows that break a rule, so most records "
+            "end up valid for the tools that act on them.\n"
             "Reply with the generator JSON object (keys tables, notes)."))
 
 DOC_WRITER = Role(
@@ -311,12 +313,13 @@ def check_permission_tests(tests: ToolTestsOut, d: ToolDesignOut, spec: DomainSp
         sets_actor = any(r.get("name") == acting for r in t.fixture.get("policy_params", []))
         if not sets_actor:
             continue
-        covered |= {c.tool.split(".")[-1] for c in t.calls if c.expect == "error" and c.tool.split(".")[-1] in perm}
+        covered |= {c.tool.split(".")[-1] for c in t.calls if c.expect == "error" and c.tool.split(".")[-1] in perm and "PERMISSION_DENIED" in str(c.error or "")}
     need = max(1, (len(perm) + 1) // 2)
     if len(covered) < need:
         raise ValueError(f"write permission refusals are untested: add tests for at least {need} of {sorted(perm)} (covered {sorted(covered)}) whose "
                          f"fixture has a policy_params row {{\"name\": \"{acting}\", \"value\": <a user id>}} for a user whose role or limit does not "
-                         "allow the call, and which expect the call to be refused (PERMISSION_DENIED)")
+                         "allow the call (the fixture holds every other row the call needs, so only the permission is wrong), and whose call has "
+                         "\"expect\": \"error\", \"error\": \"PERMISSION_DENIED\"")
 
 
 def check_actors(a: ActorsOut, schema: Mapping[str, Mapping[str, Any]]) -> None:
