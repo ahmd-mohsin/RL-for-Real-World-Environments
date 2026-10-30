@@ -1,0 +1,877 @@
+{
+ "applicability": {
+  "ALT": "n/a: paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending",
+  "ATK": "n/a: paid (attackers): not run in M5",
+  "MUT": "applies",
+  "NULL": "applies",
+  "ONL": "n/a: online: applies to eval and training rollouts (falsify.online), none in a certificate run",
+  "PERT": "n/a: the start tree is one mined commit; distractor entities have no meaning for test-graded code",
+  "RED": "applies",
+  "REP": "applies",
+  "TAINT": "applies",
+  "TWIN": "n/a: a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+ },
+ "at": "2026-10-29T17:29:30",
+ "tasks": {
+  "db-go-carbon-93371b6f": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.1533,
+     "c": 0,
+     "n": 18
+    },
+    "NULL": {
+     "U": 0.3482,
+     "c": 0,
+     "n": 7
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.3482,
+     "c": 0,
+     "n": 7
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 26,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": []
+   },
+   "provisional_for": [
+    "MUT:upper=0.1533>0.05"
+   ],
+   "reasons": [],
+   "seconds": 94.5,
+   "status": "provisional"
+  },
+  "db-go-carbon-a783fb3a-h5": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.0778,
+     "c": 0,
+     "n": 37
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.3482,
+     "c": 0,
+     "n": 7
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.181,
+     "c": 0,
+     "n": 15
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 34,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": []
+   },
+   "provisional_for": [
+    "MUT:upper=0.0778>0.05"
+   ],
+   "reasons": [],
+   "seconds": 112.7,
+   "status": "provisional"
+  },
+  "db-go-echo-61eca05b-e2": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.0868,
+     "c": 0,
+     "n": 33
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.4507,
+     "c": 0,
+     "n": 5
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2209,
+     "c": 0,
+     "n": 12
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 39,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "bind.go#3"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.0868>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=1"
+   ],
+   "seconds": 72.2,
+   "status": "rejected"
+  },
+  "db-go-go-toml-a02114e3-e1b": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.0894,
+     "c": 0,
+     "n": 32
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2384,
+     "c": 0,
+     "n": 11
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 41,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [
+     {
+      "cls": "TAINT",
+      "defect": null,
+      "file": "marshaler.go",
+      "op": "report_literal",
+      "reasons": [],
+      "site": "literal:#   key = value"
+     }
+    ],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "unmarshaler.go#8"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.0894>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=1"
+   ],
+   "seconds": 57.4,
+   "status": "rejected"
+  },
+  "db-go-golang-net-6c36e4c8-e2": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.095,
+     "c": 0,
+     "n": 30
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.393,
+     "c": 0,
+     "n": 6
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.1926,
+     "c": 0,
+     "n": 14
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 32,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": []
+   },
+   "provisional_for": [
+    "MUT:upper=0.0950>0.05"
+   ],
+   "reasons": [],
+   "seconds": 206.3,
+   "status": "provisional"
+  },
+  "db-go-huma-815e1ff8": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.082,
+     "c": 0,
+     "n": 35
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.4507,
+     "c": 0,
+     "n": 5
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2058,
+     "c": 0,
+     "n": 13
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 41,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "huma.go#2"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.0820>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=1"
+   ],
+   "seconds": 112.9,
+   "status": "rejected"
+  },
+  "db-go-mvdan-sh-dc951aeb-e1": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.1129,
+     "c": 0,
+     "n": 25
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2589,
+     "c": 0,
+     "n": 10
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 34,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": []
+   },
+   "provisional_for": [
+    "MUT:upper=0.1129>0.05"
+   ],
+   "reasons": [],
+   "seconds": 102.3,
+   "status": "provisional"
+  },
+  "db-node-react-hook-form-399578e2-e1": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.1129,
+     "c": 0,
+     "n": 25
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2589,
+     "c": 0,
+     "n": 10
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 34,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/logic/createFormControl.ts#0"
+     },
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/useFieldArray.ts#0"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.1129>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=2"
+   ],
+   "seconds": 272.6,
+   "status": "rejected"
+  },
+  "db-python-black-90117fa0-e1": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.1459,
+     "c": 0,
+     "n": 19
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.2831,
+     "c": 0,
+     "n": 9
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 28,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/black/linegen.py#1"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.1459>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=1"
+   ],
+   "seconds": 301.6,
+   "status": "rejected"
+  },
+  "db-python-black-ae5830b7-c1-516b23": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.181,
+     "c": 0,
+     "n": 15
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.6316,
+     "c": 0,
+     "n": 3
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.4707,
+     "c": 1,
+     "n": 8
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 27,
+   "findings": {
+    "confirmed": [
+     {
+      "cls": "TAINT",
+      "defect": "D6",
+      "op": "visible_contradicts",
+      "reasons": [],
+      "site": "visible_contradicts",
+      "stale": [
+       "tests/test_black.py::BlackTestCase::test_lines_with_leading_tabs_expanded",
+       "tests/test_format.py::test_simple_format[docstring]"
+      ]
+     }
+    ],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/black/strings.py#0"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.1810>0.05"
+   ],
+   "reasons": [
+    "TAINT:confirmed=1",
+    "MUT:suspects=1"
+   ],
+   "seconds": 349.1,
+   "status": "rejected"
+  },
+  "db-python-black-ae5830b7-e1": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.1329,
+     "c": 0,
+     "n": 21
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 30,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/black/linegen.py#2"
+     },
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "src/black/strings.py#0"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.1329>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=2"
+   ],
+   "seconds": 352.0,
+   "status": "rejected"
+  },
+  "db-rust-pulldown-cmark-e072a230-e2": {
+   "classes": {
+    "ALT": {
+     "applicable": false,
+     "reason": "paid (alternative solvers): not run in M5; the lane's S8 records alternatives_pending"
+    },
+    "ATK": {
+     "applicable": false,
+     "reason": "paid (attackers): not run in M5"
+    },
+    "MUT": {
+     "U": 0.105,
+     "c": 0,
+     "n": 27
+    },
+    "NULL": {
+     "U": 0.3123,
+     "c": 0,
+     "n": 8
+    },
+    "ONL": {
+     "applicable": false,
+     "reason": "online: applies to eval and training rollouts (falsify.online), none in a certificate run"
+    },
+    "PERT": {
+     "applicable": false,
+     "reason": "the start tree is one mined commit; distractor entities have no meaning for test-graded code"
+    },
+    "RED": {
+     "U": 0.5271,
+     "c": 0,
+     "n": 4
+    },
+    "REP": {
+     "U": 0.0241,
+     "c": 0,
+     "n": 123
+    },
+    "TAINT": {
+     "U": 0.3482,
+     "c": 0,
+     "n": 7
+    },
+    "TWIN": {
+     "applicable": false,
+     "reason": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys"
+    }
+   },
+   "docker_runs": 36,
+   "findings": {
+    "confirmed": [],
+    "invalid": 0,
+    "report_only": [],
+    "suspects": [
+     {
+      "cls": "MUT",
+      "defect": "D1",
+      "op": "DropHunk",
+      "reasons": [],
+      "site": "pulldown-cmark/src/scanners.rs#1"
+     }
+    ]
+   },
+   "provisional_for": [
+    "MUT:upper=0.1050>0.05"
+   ],
+   "reasons": [
+    "MUT:suspects=1"
+   ],
+   "seconds": 35.2,
+   "status": "rejected"
+  }
+ }
+}

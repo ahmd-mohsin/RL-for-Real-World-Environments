@@ -159,7 +159,7 @@ name = "Only crucible.interop (and the studio and factory, above it) imports ext
 type = "forbidden"
 source_modules = [
   "crucible.core", "crucible.world", "crucible.actors", "crucible.connectors", "crucible.signals", "crucible.workflow",
-  "crucible.credit", "crucible.verify", "crucible.runtime", "crucible.forge", "crucible.accept", "crucible.train", "crucible.bench",
+  "crucible.credit", "crucible.verify", "crucible.runtime", "crucible.forge", "crucible.synth", "crucible.accept", "crucible.train", "crucible.bench",
   "crucible.observe",
 ]
 forbidden_modules = ["harbor", "agent_env", "agentenv_protocol", "verifiers", "openenv", "nemo_gym"]
@@ -181,7 +181,7 @@ forbidden_modules = ["crucible.world", "crucible.actors", "crucible.interop", "h
 name = "Only crucible.observe imports W&B and Weave: every result, graph and trace is logged (and redacted) through one module"
 type = "forbidden"
 source_modules = [
-  "crucible.cli", "crucible.studio", "crucible.factory", "crucible.interop", "crucible.train", "crucible.bench", "crucible.accept", "crucible.forge",
+  "crucible.cli", "crucible.studio", "crucible.factory", "crucible.interop", "crucible.train", "crucible.bench", "crucible.accept", "crucible.forge", "crucible.synth",
   "crucible.runtime", "crucible.verify", "crucible.credit", "crucible.workflow", "crucible.connectors", "crucible.signals", "crucible.actors",
   "crucible.world", "crucible.core",
 ]
@@ -197,7 +197,7 @@ layers = [
   "crucible.interop",
   "crucible.train | crucible.bench",
   "crucible.accept",
-  "crucible.forge",
+  "crucible.forge | crucible.synth",  # Part 2: counterexample-guided environment synthesis sits beside the forge
   "crucible.runtime",
   "crucible.verify",
   "crucible.credit",

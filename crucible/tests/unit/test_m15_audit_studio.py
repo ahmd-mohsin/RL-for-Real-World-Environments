@@ -783,7 +783,7 @@ def _terminal_lines(src: str) -> set[int]:
 def visible() -> list[tuple[str, int, str, str, bool]]:
     """(file, line, kind, text, is_code) for every visible string."""
     out = []
-    for name in ("page.html", "index.html"):
+    for name in ("page.html", "index.html", "synthesis.html"):
         if (SITE / name).exists():
             out += [(name, ln, k, t, code) for ln, k, t, code in _html(SITE / name).out]
     for f in sorted((SITE / "assets").glob("*.js")):
@@ -849,7 +849,7 @@ def test_site_sentences_are_at_most_25_words():
 @_SITE_ONLY
 def test_site_has_no_module_codes_anywhere_a_reader_can_see():
     hits = [f"{f}:{ln} ({k}) {t!r}" for f, ln, k, t, _ in visible() if CODES.search(t)]
-    for name in ("page.html", "index.html"):
+    for name in ("page.html", "index.html", "synthesis.html"):
         if (SITE / name).exists():
             hits += [f"{name}:{ln} {k}={v!r}" for ln, k, v in _html(SITE / name).ids if SCENE_CODE.match(v) or CODES.search(v)]
     for f in sorted((SITE / "assets").glob("*.js")):

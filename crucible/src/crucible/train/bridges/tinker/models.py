@@ -149,6 +149,17 @@ _HARMONY = {"kind": "reasoning", "moe": True, "thinking_kw": None, "stop_tokens"
             "off_kwargs": (("reasoning_effort", "low"),)}
 _add("openai/gpt-oss-120b", "openai", K32, _p(0.33, 0.066, 0.84, 0.737), "text", long=(K128, 2.33), **_HARMONY)
 _add("openai/gpt-oss-20b", "openai", K32, _p(0.18, 0.036, 0.45, 0.396), "text", **_HARMONY)
+# Thinking Machines Inkling (a sixth non-Qwen family, found 2026-10-29 in the live model list: its own 200k-token
+# vocabulary and <|message_*|> chat format, no Qwen tokens; 50% discount on PRICES_AS_OF, list prices kept). The template
+# has no thinking switch: a "Thinking effort level" system turn from ``reasoning_effort`` (default 0.9); "low" stands in
+# for thinking off. A reply is a thinking message, then the answer message, then <|content_model_end_sampling|> (the
+# token that ends sampling); <|end_message|> closes each message. The native tool format is not ported: the text protocol.
+_INKLING = {"kind": "reasoning", "moe": True, "thinking_kw": None, "stop_tokens": ("<|content_model_end_sampling|>",),
+            "turn_end_tokens": ("<|end_message|>",), "off_kwargs": (("reasoning_effort", "low"),)}
+_add("thinkingmachines/Inkling", "inkling", K64, _p(1.87, 0.374, 4.68, 5.61), "text", long=(K256, 11.23), list_prices=_p(3.74, 0.748, 9.36, 11.22),
+     **_INKLING)
+_add("thinkingmachines/Inkling-Small", "inkling", K64, _p(0.58, 0.116, 1.44, 1.73), "text", long=(K256, 3.47), list_prices=_p(1.16, 0.232, 2.88, 3.46),
+     **_INKLING)
 
 MODELS: dict[str, TinkerModel] = {m.name: m for m in _ROWS}
 

@@ -198,7 +198,11 @@ TEXT_PROTOCOL = ("# Tools\n\nYou can call these tools:\n{tools}\n\nTo call a too
 
 def split_thinking(text: str) -> tuple[str | None, str]:
     """(reasoning, answer) of a completion that may open with a ``<think>`` block (or close one the prompt opened), or of
-    a harmony completion (gpt-oss: the ``final`` channel is the answer, earlier channels are reasoning)."""
+    a harmony completion (gpt-oss: the ``final`` channel is the answer, earlier channels are reasoning), or of an
+    Inkling completion (a ``<|content_thinking|>`` message, then ``<|message_model|><|content_text|>`` with the answer)."""
+    if "<|content_text|>" in text and "<|content_thinking|>" in text:
+        head, _, tail = text.rpartition("<|content_text|>")
+        return head.replace("<|content_thinking|>", "").split("<|end_message|>", 1)[0], tail.split("<|end_message|>", 1)[0]
     if "<|channel|>final<|message|>" in text:
         head, _, tail = text.rpartition("<|channel|>final<|message|>")
         return head, tail.split("<|end|>", 1)[0]

@@ -1625,6 +1625,583 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
     working clones' git alternates relative to their objects dir (`benchrun.bundle`'s rule), so a copied pool needs no
     path rewrite.
 
+### 7.7 crucible.synth: counterexample-guided environment synthesis (Part 2 M1–M3, built 2026-10-29)
+
+The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-core.md`): an environment is a claim
+("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
+`src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
+factory). M1–M5 are built (M4, the model-driven roles: item 13; M5, the repository substrate, the real-defect set and
+ONL: item 14); composition, dependency depth and the difficulty knobs (part of M6) are item 18.
+
+1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
+   never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
+   by path (`sha256`, `mode`, `text` when small); JSON by pointer prefix (lists of objects keyed by a declared field,
+   else positional); messages by id; Gym observations by index. `diff` is exact and sorted: an update per field, an
+   insert or delete per entity. Normalizers run before the diff: `ignore_fields`, `float_round`, `text_norm`,
+   `order_insensitive`, then `id_canon` re-keys *inserted* rows by content hash. Equality is type-aware (`1 == 1.0`,
+   `True != 1`).
+2. **Worlds** (`iface.py`). `SynthWorld` = `reset(seed)`, `tools()`, `call()`, `snapshot()`/`restore()`, `canon()`
+   (async). `PyWorld`: Apps of dict tables and Python tools that declare `read_only` or the collections they `writes`;
+   calls are atomic, an undeclared write raises `UndeclaredWrite`, randomness and time come from a seeded context, and
+   `perturb` edits the start state (PERT). `CrucibleWorldAdapter` wraps a started `World`: calls go through
+   `World.step(actor, ToolCall)` (the `_call_tool` choke point), snapshot/restore are the World's, `canon()` reads each
+   App through the verifier view (`sql` tables via `pragma_table_info` + `SELECT *`, `fs` manifests, `json_doc`);
+   other adapter kinds are listed `unobserved`. Proven on finance_ap: its oracle runs through the adapter, passes the
+   skeleton inferred from that run and matches the pack grader (reward 1).
+3. **The oracle program** (`program.py`). Straight-line steps `id: tool(args)`; args `lit`, `ref("step.path")`,
+   `fn(name, args)` over a fixed pure library. `run` returns calls (with per-write-call entity effects), the answer,
+   both canonical states and the taint map: each literal's sources (instruction span, earlier observation, intent
+   `given`, tool catalogue, or structural; none = UNSOURCED). A tool error is an observation; an unresolvable ref stops
+   the run and the reached state is graded. List refs record content anchors, so a perturbed start state re-resolves
+   them to the same element.
+4. **Contracts and the grader** (`contract.py`, `infer.py`). `Contract(required, allowed, answer, trace, normalizers,
+   exec)`; `grade` follows §3.3's pseudo-code with codes only (`MISSING_REQUIRED`, `FORBIDDEN_EFFECT`, `ANSWER`, `TRACE`,
+   `GRADER_ERROR:<stage>`) and fails closed on any exception, timeout, missing or unobserved state. **Decision:** one
+   change satisfies at most one required pattern, counts are exact unless `count_max` widens them, and a duplicate must
+   be allowed; the check is two maximum bipartite matchings (required slots; non-allowed changes), which by
+   Mendelsohn–Dulmage is exactly "one assignment covers both". `skeleton(run)` = Δ* as `eq`, A = M = ∅, Q from the answer.
+5. **Falsifiers** (`falsify/`). `propose → execute → label` with labels confirmed / suspect / clean / equivalent and
+   defects D1–D11; invalid probes (a dead twin) are not trials. MUT (identity, drop, dup, truncate, swap-entity,
+   perturb-value, extra-write, reorder, wrong-answer; equivalence = equal normalised Δ, equal answer, equal truth of
+   the trace constraints the instruction *states*), NULL (noop, read-all, answer-only, minus-last-write, write-all,
+   shortcut, random-k off-target), RED (vacuous patterns, exec checks and the whole contract on s₀), TAINT (unsourced
+   literals and contract constants: D5; `derive` values in ι: D7), TWIN (substitute an instruction literal by a sibling
+   through ι, π* and C, re-derive argument-borne constants; π* must fail C′, π*′ must pass), PERT (shuffles,
+   distractor clones, renames; flips only), REP (reset and restore replays). ALT/ATK take injected agent runners; ONL
+   turns flagged passing rollouts into suspects.
+6. **Certificates, archive, loop** (`certificate.py`, `archive.py`, `cegis.py`). Per class (n, c, one-sided
+   Clopper–Pearson 95% upper bound from `verify.calibrate`), applicability recorded, admission per §6 (configurable).
+   The archive is append-only, hash-chained JSONL per domain (`<root>/<domain>/archive.jsonl`, `factory/labels.py`'s
+   format); `regress` replays every archived counterexample of a task against a version. `refine`/`synthesize` run
+   §7's loop with injected `Proposer`, `OracleBuilder`, `Generaliser`, `Repairer`, `Adjudicator`; a repair that re-opens
+   a counterexample the current version rejects is refused; three rounds at most.
+7. **Tests** (`tests/unit/test_synth_*.py`, domain in `tests/unit/synth_fixtures.py`: an AP World (with `extra` pending
+   invoices on request) and a helpdesk + mail World, six correct tasks, one planted task per D1–D11, a position-keyed
+   and an always-pass contract; `in_domain`/`anchors` split them into `ap-test` and `desk-test`). Each planted defect is
+   caught by its class with a confirmed counterexample; the correct tasks get clean certificates.
+8. **M3 changes to M2** (`falsify/mut.py`, `falsify/base.py`, `certificate.py`, `cegis.py`). MUT's neighbourhood scales
+   with the World: SwapEntity and ExtraWrite over every sibling (64 at most), PerturbValue at several magnitudes, every
+   seen enum value (12). **Decision:** mutants are deduplicated by *normalised effect* after execution
+   (`effect_signature` = Δ under the contract's normalizers, answer, reason codes): one effect is one trial, the most
+   informative of a group is kept (confirmed, suspect, equivalent, clean), the rest stay as `valid = False` with
+   `duplicate_of`. A 3-step task over 38 invoices reaches 59+ distinct mutants; in the 8-invoice World it has 13, and
+   t5 (now over 16 invoices) has 75. `run_classes` is the one scheduler: REP first, and a REP finding marks MUT, TWIN
+   and PERT not applicable ("gated"). Certificates have `status` certified / provisional / rejected: a missed U bound
+   with c = 0 is `provisional` (`provisional_for` lists it), never certified; CEGIS reports `provisional` separately
+   from `admitted` (= certified).
+9. **The planter** (`meta/plant.py`, §8). Eleven operators, one per defect class, each a versioned, parameterised
+   `PlantOp(name, version, variant, params)`; a `Planter` is a population member (`base_planter` for dev,
+   `held_out_planter` with disjoint variants for a locked set). World plants are data: `planted_world` wraps the
+   source World with patches (a one-call `quick_*` tool replaying π*'s writes, an `admin_set_*` field setter, a nondet
+   stamp whose token alternates per episode; the counter survives `reset`). **Decision (witness kinds):** lenient
+   (D1–D4, D8, D9: a run that passes τ′ and fails τ, from τ's MUT/NULL neighbourhood in a per-class family order),
+   strict (D6: a stated-constraint-equivalent run that passes C and fails C′; §8 leaves the mirror case implicit),
+   hidden (D5: a literal unsourced under ι′ that ι sourced), leak (D7: the recorded inserted span quotes the derive
+   value, exactly or humanised, independent of TAINT's matcher), unsolvable (D10: π* misses the planted pattern, the
+   value is nowhere visible, no candidate passes C′), nondet (D11: two consecutive replays differ). Every plant is
+   re-validated by execution (`validate`) before it is kept; one without a witness is discarded with its reason.
+   `vacuous_required` replaces a requirement by a `state` pattern s₀ satisfies and allows the effect, so it has a
+   lenient witness (a pure addition of a true pattern has none). `features` + `mmd` (RBF, median-heuristic bandwidth
+   from the reference sample) measure natural-likeness.
+10. **Recall** (`meta/recall.py`, §6, E1/E8). `measure` gives FR_k,d (any confirmed counterexample on a plant of class d,
+   Wilson 95%; `matched` and `suspects` alongside), the population row and FA_k on anchors. `residual` (Mills: n_d(1 −
+   FR)/FR; delta method or seeded parametric bootstrap; FR = 0 is unbounded, `None`) and `capture_recapture`
+   (Lincoln–Petersen, Chapman with variance). JSON and markdown reports. `PlantSet`/`SetStore`/`load_set`: write-once
+   sets; a locked root is registered, and any read of a locked set without `purpose="report"` raises `LockedSetError`,
+   by store, by path or by a copy (the set says `kind: locked`); `measure` refuses locked plants likewise.
+   **Measured on the fixtures** (34 plants, one per variant and domain): FA = 0 in every class; the gaps are
+   real: an unstated `never(read)` (no MUT mutant adds a read), a humanised leak ("price variance"), and `eq → any`
+   relaxations (MUT survivors are suspects; RED's concrete-pattern rule fires, labelled D4). RED no longer treats an update pattern with no value or an `any` value as the status quo (it still needs a change, so s₀ cannot satisfy it); such a relaxation is D3 and stays MUT's to find (`test_red_any_update_is_not_status_quo`).
+11. **The regularised update rule** (`meta/update.py`, §9.4). `ThetaStore` (write-once versions, atomic heads),
+   hash-chained `Ledger`, `UpdateEngine.decide`: static rules first (R5 cosine edit budget 3 → 1, R6 critic and
+   family separation, R8 judge-only round cap, R10 JSON round-trip), then a fresh view (R1: new hash, not locked,
+   every past planter version present), the incumbent, the candidate and an equal-budget control on that view, and
+   R2 (LCB₉₅ of the paired gain > δ), R3 (archive, FA, per-class FR and P3/P4 noise bands), R4 (cell KL ≤ κ, entropy ≥
+   H_min), R5 (marginal recall per extra probe-dollar ≥ β), R7 (held-out-domain gain > δ), R9 (beats the control). All
+   failing rules are recorded (non-compensatory). **Decision:** δ = max(2·sd, range/2) of ≥ 3 calibration runs, set
+   once, raised only; `set_floor` raises. `audit` rolls back to the previous good Θ on a paired regression; `prune`
+   removes items without marginal gain for W rounds when J holds within δ. The default leakage critic searches task ids,
+   planted ids, entity keys, literals and anchor tokens in the diff.
+12. **The operator library and lemmas** (`meta/library.py`, `meta/lemmas.py`, §9.5). A typed JSON DSL (selectors
+   `written_key`, `read_key`, `sibling_of`, `any_write_tool`, `read_tool`, `tool`, `observation_of`, `field_values`,
+   `const`; transforms `shift`, `scale`, `suffix`, `other_seen`; bodies `mutate_arg`, `insert_call`, `drop_calls`,
+   `agent`; a label rule) compiled into `CompiledOperator` falsifiers (`OP:<name>@<v>`, MUT's equivalence rule and
+   effect dedup). `birth_gate` (reproduces its sources; hits on other tasks and domains of a fresh dev view; zero false
+   alarms on anchors; probes per task under the cost bar), `fictitious_play` (recall on the union of past planters'
+   sets and on each one), `retire` (no unique hit for W rounds, only if fictitious play holds), `accept_planter`
+   (witnessed, MMD ≤ μ, critic). Proven on the fixtures: an `insert_call(read_tool(unused))` operator closes the
+   `never(read)` gap and passes the gate; a "key swap must pass" operator alarms on all five anchors and fails it. The
+   lemma bank is versioned data; `lemma_acceptance` needs equal spend, a falling first-round counterexample rate (exact
+   McNemar when paired, Newcombe's interval otherwise) and J rising under the update rule.
+13. **M4: the model-driven roles on the swarm (built 2026-10-29).** Claude builds the framework; every task, oracle,
+   contract and World of a run is written by the swarm on Tinker.
+   - **Roles as data** (`roles.py`): proposer, oracle programmer, contract writer, repairer, ALT solver, attacker,
+     adjudication panel, abstractor, and the F1/F2 roles (tool designer, schema deriver, App coder, blind tester,
+     debugger, test approver, seeder). Each is a prompt, a pydantic output schema, `sees` (the only inputs `render`
+     accepts) and `never` (inputs it refuses: `RoleLeak`), plus `differs_from`, `independent` (never the student's
+     family) and `min_families`; `family_problems` checks an assignment. `RoleClient` is the injected model protocol;
+     `ask` validates a reply against the schema and a check (which may execute it) and feeds a `ValueError` back.
+     Programs and contracts cross as JSON (`parse_program` with `$ref`/`$fn`; `contract_doc` keeps every predicate
+     `op`). The contract writer only emits typed edits (`apply_edits`: relax, allow with a why, demote, count, answer,
+     trace quoting ι, normalize, key); normalizer edits apply first and the skeleton is re-inferred under them, other
+     edits are mapped by address (`pipeline.remap_patterns`), and an edit that makes the oracle fail is removed.
+   - **Agents and adjudication** (`falsify/agents.py`): `llm_agent` drives any family through one JSON tool protocol
+     with a call budget (a finish before any call is nudged once; flat and OpenAI-style call shapes parse); ALT/ATK
+     traces keep calls and observations. `Panel` (≥ 2 families, none a builder's) sees task, intent card, trace, answer
+     and reason codes, never the gate, the contract or the falsifier; it decides only on agreement at confidence ≥ λ,
+     else the probe goes to `human_queue.jsonl` and stays a suspect. A decided suspect is confirmed when panel and
+     grader disagree (valid but failed: D6; invalid but passed: the class's defect). `Adjudicated(inner, panel)` decides
+     suspects inside `execute` (MUT survivors are re-executed for their trace), so no class re-run leaves one open.
+     `calibrate` sets λ from executed-truth anchors (oracle trace valid; no-op and minus-last-write invalid), never
+     below the configured floor.
+   - **TAINT precision** (`falsify/taint.py`): an unsourced literal is **free**, not D5, when π* with it replaced by an
+     unrelated value still runs and passes C (an author's search wording or note text is not information the agent
+     must get).
+   - **F1 World synthesis** (`worldgen.py`, `sandbox.py`, `_sandbox_child.py`): tool-first (ScaleEnv's order) →
+     schema → App code → conformance (registered tools equal the design) → blind tests by another family that never
+     sees the code, frozen by sha256 and re-hashed before every run → debugger edits code only; a disputed test needs a
+     third family's approval and is dropped, never edited (cap 25%) → accepted only at 100% of kept tests → seeded
+     start state, loaded and smoke-tested. Model code never runs in-process: `SandboxWorld` serves the `PyWorld` from a
+     child (`python -I -B`, scrubbed environment, work dir under the run, CPU and file-size limits, sockets off, an
+     import and builtins allowlist after an AST check) inside `sandbox-exec` on macOS (no network, writes only in the
+     work dir, no read of any `.env`) or `unshare -rn` on Linux; every request has a timeout and a dead child restarts
+     on the next reset.
+   - **Pipeline** (`pipeline.py`): propose (batches over start states and four generic cells) → oracle (executed;
+     dead programs get their errors and observations back, ≤ 3 retries) → contract → panel calibration → `cegis.refine`
+     with MUT/ALT/ATK adjudicated inline and `admission_policy()` (§6, plus ALT among the zero-confirmed classes) →
+     abstractor (candidate lemmas, not admitted). Outcomes: certified, provisional (only the MUT bound fails: n < 59),
+     rejected, dropped. Artifacts: `<data>/synth/<domain>/<run>/` (proposals, per-task oracle/contract/repairs/cegis,
+     calibration, panel log, human queue, lemmas, report.json/.md, usage.jsonl, spend.jsonl); the archive is
+     `<data>/synth/<domain>/archive.jsonl`.
+   - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer, oracle programmer and
+     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b; ATK
+     Nemotron-3-Super + gpt-oss-120b; panel Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi-K2.6 designs
+     and codes, DeepSeek tests blind, Nemotron-Ultra approves disputes. Measured in the M4 runs: Kimi as proposer
+     deliberated in plain text past 16k tokens without reaching its JSON; gpt-oss as a solver quits after one call), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
+     student is Qwen3.6-35B-A3B and is never called). One `SpendMeter` per run holds each call's worst case before it
+     is sent; `usage.jsonl` attributes cost by stage tag. `extract_json` takes the last complete object (Kimi reasons in
+     plain text first). CLI `scripts/synth.py` (`worldgen`, `propose`, `certify`, `report`, `budget`, `smoke`; M3 owns
+     `plant`/`recall`/`evolve`) clips every run's cap to the milestone's $60 over all receipts under the data root.
+   - **First runs (2026-10-29, $7.91 of $60 for the milestone, smokes and probes included).** F1 on "IT helpdesk ticket
+     triage": 10 tools, 6 tables, 25 frozen blind tests, 60% → 100% after one code-only debug round, none dropped,
+     $0.48. Tasks, 20 proposed per domain: finance_ap 20 oracles executed → 2 certified, 2 provisional, 16 rejected
+     ($1.07); it_helpdesk 19 executed → 2 certified, 1 provisional, 16 rejected, 1 dropped, 21 repairs accepted on 10
+     tasks ($1.94). The binding rule on both is §6's "ALT has a pass from a non-builder family": the solvers misapply the
+     AP policy (duplicates, a blocked vendor's shared bank account), and the panel confirms those attempts are invalid.
+14. **M5: the repository substrate, the real-defect set and ONL (built 2026-10-29; CPU and local Docker, no model call).**
+   - **`PatchTask`** (`patch.py`). A `PatchWorld` is an overlay of writes over the read-only start tree A′
+     (`repo.read_file`, `list_files`, `write_file`, `delete_file`, `apply_patch`: a unified diff applied in pure Python
+     with context checks). `canon()` is `canon_fs` of A′ with the overlay, plus a `role` per path from an injected
+     classifier (`source`, `doc`, `test`, `golden`, `config`, `vendored`, `plumbing`, `vcs`). Every written text goes to a
+     content store by sha256. The oracle is one `write_file`/`delete_file` step per file B changes. The contract is the
+     lane's grader as data: one `exec` check per lane check (`c_<m>` kind `require`, `c_regress` kind `guard`), A = any
+     change to a `source`/`doc` path (with a why), every other change `FORBIDDEN_EFFECT`. The exec predicate reads only the
+     end `CanonState`, maps changed paths back to text through the content store (an unknown hash is a
+     `CustodyError`: fail closed) and asks an injected runner. `ThreadedRunner` runs the async grade on its own loop
+     thread, at most `parallel` at once, one cached result per distinct file set; an unmeasured grade is never a verdict
+     (`GRADER_ERROR:exec`, the probe invalid). `phi`/`lane_reward` recompute Φ and the shaped reward with the lane's
+     rounding. **Decision (`ExecCheck.kind`):** a `guard` (a pass-to-pass suite) must hold but holds at s₀ by design, so RED
+     does not probe it; without it RED calls every regression suite vacuous (D4).
+   - **The wire** (`factory/synth_patch_wire.py`; synth never imports factory). `Pool` opens a debug root's training store
+     only (`WindowStore(split="train")`; any `data/sealed` path refused) and builds the lane's own `DebugTask` with its
+     authored report, no clone. `lane_roles` is the task's language profile plus the lane's `is_protected` and the hidden
+     test files (every lane-protected path is forbidden; vendored and `.git` too). `lane_runner` grades through
+     `WindowTask.grade` (`apply_files`: protected paths dropped as the lane drops them) in the task's World image, reading
+     per-test statuses from the lane's sandbox run; mode `visible` is S3's existing-suite run (`run_tests`, no hidden test).
+     Containers `crucible-lh-d-synth-*`, at most 4, `--rm`, leftovers removed by name. CLI `scripts/synth_debug.py`
+     (`migrate`, `certify`, `realdefects`).
+   - **Migration (`patch.migrate`; `tests/unit/test_synth_patch_pool.py`, marked docker+slow).** For each of the 12
+     built training-pool tasks: B, A′, the lane's floors (as its own patches, through `apply_patch`) and every
+     commit-revert mutant graded through the adapter and compared with the stored gate record (S8 rewards and verdicts, S3
+     `oracle_milestones` and `start_any_milestone_test`) and the window's mutant vectors. **246 rows, 12 of 12 equal**
+     (90 Docker runs, about 7 minutes), rewards to the bit (0.333334, 0.416666, 0.375, ...). The first pass differed on 2
+     rows of `db-python-black-ae5830b7-c1-516b23`: a simplified window keeps its parent's mutant vectors, which name m01
+     and m02, milestones it does not have; compared on its own milestones it is equal (the rule is in `migrate`, with a
+     note on the row).
+   - **Falsifiers on repositories** (`falsify/patch.py`, the E7 column; classes keep §5's names). MUT: Identity,
+     DropFile and DropHunk (source files only, comment-only regions never proposed, at most 16 hunks sampled; a survivor
+     is a *suspect* D1: whether untested code matters is a judgement), RevertFix (the lane's mutant: a survivor or a
+     mutant whose own milestone still passes is confirmed D1; one failing a milestone that does not require it, suspect
+     D6), ExtraSource (an inert comment must pass: FORBIDDEN is confirmed D6), ExtraForbidden per forbidden role and
+     EditTest (must fail: a pass is confirmed D2), SharedCheck (two milestones graded by one test or a parent and its
+     subtest: confirmed D6 at milestone scope, the fake link). NULL: noop, STATUS.json claims, minus-last-write,
+     delete/stub the milestone test files, the lane's test_edit floor, a plumbing shim (conftest.py, go.work, .npmrc,
+     .cargo/config.toml), a PATH shim (`bin/<runner>`). RED: §5's, guards skipped. TAINT: ledger (a milestone no report
+     requirement asks for: D5), world_leak (a changelog line of A′ with a fix's issue reference, or every content word
+     of its subject, all but one from 6 words: the lane's strip rule; D7), visible_contradicts (a
+     visible test that passes at A′ fails at B on two runs: a stale assertion, D6), report_literal (an output string the
+     fix adds and a hidden test compares, in neither the report nor A′: **report-only**). REP: fresh grades of B and A′
+     against the first, plus the lane's stored S10 (60 oracle grades) and S3 (60 reruns) as prior trials. TWIN and PERT do
+     not apply (a symptom report names no entity; a mined commit has no distractors); ALT/ATK are paid, not run;
+     `PATCH_POLICY` drops the ALT-pass rule (recorded). `certify_patch` prefetches every program probe's end state so the
+     Docker runs go four at a time.
+   - **Certificates of the 12 pool tasks** (`runs/m5/certificates_summary.json`; 402 Docker runs, about 30 minutes).
+     Per task n is 15–37 distinct MUT effects, 7–8 NULL, 3–7 RED, 7–15 TAINT and 123 REP (3 fresh plus the lane's
+     stored 60 + 60). **No confirmed counterexample in MUT, NULL, RED or REP on any task.** One confirmed TAINT D6:
+     `db-python-black-ae5830b7-c1-516b23` (the swarm pilot's build) keeps two stale visible tests
+     (`test_lines_with_leading_tabs_expanded`, `test_simple_format[docstring]`): its revert-mode start tree has the old
+     versions, which fail on B, so an agent that fixes the bugs sees its own visible tests go red. 11 MUT suspects on 8
+     tasks, each a DropHunk survivor: code B changes that no hidden test needs (echo wraps a bind error with the field
+     name; go-toml, huma, react-hook-form, black, pulldown-cmark one or two regions each); they wait for adjudication.
+     One report-only literal (go-toml). Status: 5 provisional (c = 0, U_MUT 0.078–0.15 for want of n ≥ 59), 7 rejected
+     (open suspects; black c1 also its D6). MUT's n stays below 59 on every repo task: each distinct effect is a Docker
+     run, and a 1–8 file fix has few code regions.
+   - **E7 applicability (repositories).** MUT, NULL, RED, TAINT, REP apply; TWIN, PERT do not; ALT, ATK paid (not run);
+     ONL applies online. TAINT's §5 literal sourcing does not transfer (π*'s literals are whole file texts); on repos it is
+     ledger + World leak + stale visible tests, and literal sourcing is report-only. Recall gaps found on real defects: a
+     fake link through one *case file* (black ae5830b7: m03's case file holds m02's cases; test ids do not overlap, so
+     SharedCheck misses it), a changelog line naming a fix whose subject is too short to match (mvdan-sh dc951aeb's
+     "implement $-"), and answers leaked through visible test data in strip mode (4 records: no class targets it).
+   - **The real-defect set** (`realdefects.py`, E8). Debug-lane records (`docs/research/env-synthesis/runs/m5/
+     debug_lane_defects.json`, 86, each training record with doc, line and an exact quote checked on load; held-out
+     tasks as counts only, ids and quotes dropped), every confirmed counterexample of the M4 archives (214, hash chain
+     verified), and the finance_ap oracle finding. `MECHANISM_CLASS` maps mechanisms to D1–D11 (stale visible test D6,
+     changelog hint D7, fake link by a coarse test D6, by a load-dependent test D11, environment D10, unstated rule and
+     undescribed fault D5); too easy/hard and budget-bound are P2, duplicates P4, factory false refusals `pipeline`.
+     **Decision (independence):** only defects found without the synth falsifiers calibrate recall; the archive and the
+     finance_ap finding are falsifier-found and are reported apart. `measure` runs the detector on every executable
+     version: the debug lane's through `synth_patch_wire.detect_debug` on its defective version in `data/debug`, the
+     archive's by re-running its class on the stored task version (a scratch work dir), finance_ap on the pack World.
+     **Built 2026-10-29** (`runs/m5/realdefects*.json`, `realdefects_table.md`): 390 records, 351 P1. Independent
+     (debug lane, 74 training + 12 held-out as counts): D5 7, D6 21, D7 11, D10 5, D11 3, plus 39 P2/P4/pipeline/
+     unclassified. Falsifier-found (the archives had grown to 303 records by the build; finance_ap 1): D1 10, D2 34, D3 35,
+     D4 38, D5 22, D6 2, D7 9, D8 13, D9 141. Executable: 96 (debug lane 14, archive 81, finance_ap 1); 229 lost (the
+     archive's repaired versions, debug versions rebuilt elsewhere), 46 without a detector, 7 screened windows never
+     built. **Detection on the independent executable ones: D6 10/11, D7 2/3** (the misses are the gaps above). On the
+     falsifier-found ones (1 by construction for most): D9 44/46, D8 8/8, D5 11/11, D7 4/4, D4 6/8, D1 1/1, D3 0/4 (MUT
+     survivors the panel confirmed: without a model they stay suspects).
+   - **ONL** (`falsify/online.py`). `RolloutObs` from an eval `episodes.jsonl` row (`path:*` gate failures become
+     flags), a training `rewards.jsonl` row, or a `RolloutRecord` with its trace and patch. Monitors: `l1_rules`
+     (`credit.hack_detector.rule_flags` over the trace), `gate_flags`, `component_flags`. Confirmers: `judged` (the L2
+     judge's `hack/confirmed`) and `ReplayConfirmer` (executed: the rollout's end state through the certified contract;
+     the contract rejecting it, or the pass needing the flagged actions, confirms; a pass that holds without them clears).
+     `OnlineCertifier.consume` counts every passing rollout as a trial (`results(task)` is the ONL `ClassResult`),
+     archives confirmed counterexamples and appends one `QuarantineRecord` per counterexample to `quarantine.jsonl`;
+     `with_online` rejects a certificate on a confirmed one. M2's `OnlineMonitor` API is kept.
+   - **Tests**: `test_synth_patch.py` (a fixture repo with two bugs and an in-process runner: oracle/start, frame and
+     custody, `apply_patch`, a clean certificate, D1/D2/D5/D6/D7/D8/D11 planted and caught, guard skip, migration and its
+     drift detection, the threaded runner's bound and cache), `test_synth_online.py`, `test_synth_realdefects.py`,
+     `test_synth_patch_pool.py` (the 12-task migration).
+15. **RSI-1: the regularised loop wired end to end (built 2026-10-29; part2-paper-core §9, §14.1).**
+   - **Open items closed.** `cegis.refine` re-runs every class on a version the last round's repair produced and hands
+     that pass's suspects to the injected adjudicator (`FinalPass`: decided, abstained, confirmed and archived ids);
+     before, they stayed open and rejected the task. `Adjudicated` keeps the wrapped class's `finalize` and asks the panel
+     once per normalised effect. **Bug found:** without `finalize`, a panel-wrapped MUT counted every duplicate mutant as a
+     trial, so the M4 certificates' U_MUT was too tight (finance_ap t02: n = 66 reported, 20 distinct effects); the M4
+     "certified" tasks are provisional under the fixed count. `meta/ppi.py`: the PPI mean estimator (rectifier from the
+     calibration anchors' executed truth; `ppi_py` when installed, else the same normal interval), naive and classical
+     beside it; the pipeline report carries it per class (`RunReport.adjudication`). Caveat recorded with every use: the
+     labels are oracle / no-op / minus-last-write traces, not suspects. **Denser Worlds:** `worldgen(rows=(lo, hi))`
+     reaches the seeder; `worldgen.reseed` asks the swarm seeder for NEW rows table by table (existing rows shown and never
+     changed; a reused key is refused with feedback; each table's additions must load and pass the smoke test, else that
+     table is reverted), copying design, schema, code and frozen tests unchanged; `finance_ap_world(invoices=N)` is the
+     pack's own density knob (a different draw, so new tasks). `RunConfig.lemmas` (the proposer's S lemmas), `paid` and
+     `repair` (off: a first-round-only measurement).
+   - **Planter.** `held_out_planter` gains a variant for every class the locked set lacked: `drop_required:last`,
+     `widen_frame:field` (any entity, only the written fields), `vacuous_required:exists`, `instruction_drift:prefix` (the
+     key becomes a prefix glob that also matches siblings), `break_solvability:offset`; `leak_decision` takes a
+     `template` (planter-loop phrasings). `accept_planter(population=)` measures the MMD of the population *with* the
+     candidate's plants: a one-operator candidate alone is one class and never matches a natural mix. The birth gate
+     caches class runs in the context and can stop early (anchors and sources first).
+   - **The loop** (`meta/abstract.py`, `meta/rsi.py`). Sources are the admitted tasks of every domain plus the fixtures,
+     re-checked clean by the deterministic classes (a task with a confirmed counterexample today is no anchor), split per
+     domain into dev and locked sources (no task feeds both); dev set = `base_planter`, locked set = `held_out_planter`
+     (disjoint variants, refused otherwise) under `data/sealed/synth-locked/`, read with `purpose="report"` only. The
+     abstractor sees *clusters*, never tasks: natural (archive) clusters and miss clusters (plants no class confirmed,
+     with the witness described in words: no tool, field, id or value), each with an opaque id the reply cites;
+     `OPERATOR_ABSTRACTOR`, `PLANTER_PROPOSER` (dev variants only) and `GUIDANCE_EDITOR` are `roles.Role`s that refuse
+     anchors, the locked set and task ids. Per round and arm: candidates → birth gate (sources from the cited clusters,
+     one evidence domain, so transfer is shown elsewhere) → `UpdateEngine.decide` on a fresh view (R1–R10 unchanged).
+     **J proxy of an F update:** K and B are fixed, so units are a view's plants, 1 when some class confirms a
+     counterexample (recall, 1 − the miss rate ρ̂ rests on); FA is R3's hard rule; cost = probes × $1e-6 nominal. Views:
+     a seeded draw of 60% of every planter version's dev plants per (domain, defect), plus every dev anchor (no new
+     proposals per view: that would cost a synthesis run per decision). R9's control: the incumbent with MUT's
+     neighbourhood enlarged to the candidate's probe spend. The planter loop (loop arm only): swarm parameterisations of
+     dev variants, witnessed, MMD ≤ μ = 1.1 × MMD(base dev plants, natural features), critic; accepted planters version P
+     and join every later view (fictitious play through R1). The meta loop (A): the abstractor's guidance edited by the
+     swarm; A and A′ each propose half the round's candidates and A′ is kept when its birth-gate pass rate is higher.
+     `prune` (R5) and `audit` (R10) run every round. The **control arm** has the same rounds with operator proposals
+     drawn at random from the DSL grammar (`random_operator`), same count. After every round each arm's population is
+     measured on the locked set (report only). `natural_features` maps an archived counterexample onto the plant
+     features (an approximation: the contract-diff size of a natural defect is unknown).
+   - **CLI** (`scripts/synth.py`): `reseed`, `certify --invoices`, `plant`, `recall [--adjudicate N]`, `evolve
+     [--evidence D] [--no-control]`, `lemma-test`; `--budget rsi` clips every run to `RSI_CAP_USD` = 40 over the work's
+     receipts (`work_spent`: every `spend.jsonl` whose run path carries "rsi"). Tests: `test_synth_rsi.py` (scripted
+     proposers), additions in the cegis, agents, worldgen, plant and library tests.
+   - **Decisions forced by the first runs (RSI-2).** Views stratify by domain only: (domain, defect) strata gave every
+     view the same J under deterministic falsifiers, so δ = 0 and R2 degenerated (RSI-1's one acceptance is void).
+     A class's R3 noise band ignores views without the class. A planter joins only with novel plants (`plant_key`:
+     content without why texts and pattern ids) and a positive reward on them; its proposer sees its history (RSI-1
+     accepted 12 copies of existing plants with reward 0). The natural-likeness reference is the M5 real-defect set's
+     independently found P1 defects (`real_defect_features`, 47 records; `evolve --real-defects`), never the
+     falsifier-found archive. `relax_value:eq_to_in` joins the held-out planter (no swarm contract carried a tolerance,
+     so the locked set had no D3 plant). `UpdateEngine.decide` books marginal gains of the incumbent's items only (a
+     refused candidate's own gain made a later prune remove items the component never held). Candidates keep their
+     spec. The contract writer sees lemmas (`RunConfig.writer_lemmas`).
+   - **Results** (`docs/research/env-synthesis/runs/rsi-1.md`, $2.44 of the $40 cap): dense Worlds lift MUT's distinct
+     n to ≥ 59 on 22 of 24 new tasks (finance_ap 2 certified); E1 locked FR 56/72, FA 0/7, the two gaps are
+     `over_constrain:never` (0/12) and humanised leaks (14/18); E2: no F update survives the rule in 5 rounds (the
+     generic D3 operator passes the gate, closes every dev D3 plant with zero alarms, and is refused by R2/R9 at LCB
+     0.038 < δ 0.041), the random-DSL control never passes the gate, the planter loop finds the humanised-leak gap on
+     dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
+     the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
+     refused.
+19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
+   classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
+   debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
+   (`learnability`, `novelty`, `perfect`, `frontier`, `frontier-round`, `outcome`). Results: `docs/research/env-synthesis/runs/perfect-1.md`.
+   - **P2** (`learn.py`). `StudentProbe` protocol: `rollouts(task, n, start)` → graded `Rollout`s (the trusted grader;
+     an infrastructure failure is masked, outside n; a broken agent protocol is the student's failure, `stop =
+     "protocol"`); `AgentStudentProbe` over any `AgentRunner`, one `FalsifyContext` per concurrent rollout
+     (`ContextPool`: a context caches one World per `WorldRef`). The predictor is `factory.difficulty`'s form ported
+     (synth may not import factory or forge): ridge logistic on static features (steps, writes, reads, ref depth,
+     required, derive, observation-sourced literals, World size, instruction length) and non-student proxies (the
+     certificate's ALT pass share, free; proxy-model rollouts; a `DIFFICULTY_PROXY` estimate), `loo` against the
+     constant baseline with band accuracy, `calibrated` sets `trusted` only when ≥ 12 tasks and the Wilson lower bound
+     of band accuracy ≥ 0.7 beat the baseline. **Decision (the band test):** Bayesian, two looks (k = 4, 8), prior
+     Jeffreys or (trusted predictor only) Beta(p̂·s, (1 − p̂)·s), s = 2; stop when a class has posterior mass ≥ 1 − α
+     (α = 0.1); after the last look the argmax with `confident = False`. The stated error is the posterior error of
+     each decision plus the exact operating characteristic (`operating_characteristic`, indifference ±0.05 around each
+     edge): with Jeffreys the worst-case errors are 0.34 (too hard), 0.37 (in band), 0.29 (too easy); k ≤ 8 cannot
+     do better, so a too-hard call after 0/8 carries posterior error 0.19. Predictor-first: a trusted predictor whose
+     prior alone puts ≥ 0.9 on an out-of-band class skips the rollouts (`source = "predictor"`); otherwise its call is
+     recorded beside the measurement (online calibration). `DifficultyRecord` keyed by (task id, version, digest,
+     student, checkpoint, simulator, time mode), appended to `DifficultyStore` (JSONL; latest row per key; a stored
+     key is resumed, never re-bought). **Bug found by the first real rollouts:** `WireClient` sampled with seed =
+     the retry attempt (0), so Tinker returned one trajectory for every rollout of a task and p̂ was always 0 or 1;
+     `WireClient(seed_by_tag=True)` derives the seed from the call's tag (one per rollout), the student wire uses it,
+     the simulator string is `json-agent/v2:calls=20:T=1.0:seed=tag`, and the seed-0 store was moved aside as invalid.
+   - **P3** (`intent.py`). `EVID` (evidence removal): the derived values π* writes or answers (and intent `derive`
+     values) that ι and `given` do not state are traced along π*'s own refs (a direct ref's parent object, a literal's
+     taint source, a fn's ref steps) to the start-state row that agrees with the observation on most fields; that cell
+     (or a span of a long document field) is blanked by a `set` perturbation. π* with the value's literals blanked must
+     then fail C (a pass is confirmed off intent); injected ALT agents on the removed World must fail (a pass is a
+     suspect); a decoy blank (the same field of an untouched sibling, else another unused field) must leave π* passing,
+     else the probe is invalid. **Decisions:** aggregates (a receipts total) and key lookups have no evidence site (the
+     first version matched values by search and called t2's total off intent through the invoice amount); only values
+     the contract constrains (its constants and required keys) are derived values (on the real pool, π* copying a
+     ticket's own priority back, which no pattern checks, was called off intent on 16 it_helpdesk tasks); a `derive`
+     value π* also writes is traced through that write only; records π* reads but never refers to (`decision_reads`:
+     the evidence of a decision resolved offline) get agent probes only. So EVID's oracle probe is mostly an executed
+     on-intent trial, and its agent probes are the leak test.
+     `SWAP` (instruction swap): an instruction-stated literal the catalogue enumerates is swapped for another enum value
+     through ι and π* (dead twins are no trials) and C must reject π*′: a pass is confirmed D9. Every pool peer on the
+     same World and seed must have its oracle rejected by C: the same normalised effect, or each solution passing the
+     other's contract, is a duplicate (reported to P4, no trial); a pass is a **suspect** D9 (on the real pool "escalate
+     T-1006 for an SLA breach" legitimately satisfies "raise T-1006 if the policy requires": only a judge can tell).
+     `p3` = TAINT (derive probes, D7), TWIN (D9), EVID, SWAP; on intent when ≥ 1 valid EVID/SWAP/TWIN trial and nothing
+     confirmed; `pool_report` gives the share per pool. EVID needs a perturbable World (the SQL adapter is not: n/a).
+   - **P4** (`novelty.py`). `Signature`: tool pattern (R/W per call, repeats collapsed), collections read (observed
+     objects matched to rows by their own key field) and written, contract shape tokens, **choices** (π*'s literal write
+     arguments that the catalogue enumerates or names: the decision vocabulary; refs excluded, a twin's data flow
+     differs), ref edges and depth, cell. `key()` hashes the exact pattern; novel = new key and no pool task scoring ≥ θ.
+     Score = w·signature similarity + (1 − w)·instruction similarity (token Jaccard + trigram cosine after masking
+     ids and numbers), times the **decision gate** (0.5) when both tasks write enumerated choices and the sets differ.
+     `calibrate` picks (w, gate, θ) by Youden on labelled pairs from `known_pairs`: positives TWIN twins, twins with a
+     proxy-model paraphrase (the hard positive) and paraphrases; negatives enum swaps that change the choices (the hard
+     negative), cross-cell pairs (the proposer's cells: an imperfect label, so FPR is an upper bound), cross-domain pairs.
+     `CellGrid` protocol (`cells` mapping, optional `cell_of`): `DomainSpec` will satisfy it; a plain dict works now.
+     `coverage` (share of grid cells, histogram, entropy, Gini–Simpson), `diversity` (distinct keys, mean distance,
+     near-duplicate clusters, effective tasks).
+   - **Perfect** (`perfect.py`). `perfect(task, pool, records, status, p3, signature)` → valid (certificate
+     `certified`; provisional only with `accept_provisional`), learnable (the latest record for this version and student
+     decided `in_band`), on intent, novel, `admit` = all four, reasons per property (unmeasured is False). `admit_pool`
+     adds each admitted signature before the next check (the first of two duplicates is the novel one). `load_pool`
+     reads a domain's synthesis runs (certificate status, proposer cell, ALT history) and refuses sealed roots.
+   - **K** (`frontier.py`). `attribute` replays the student's trace with a snapshot after every call and runs π* from
+     each snapshot (`reset=False`); the first wrong step is the call after which π* can no longer finish: `forbidden`
+     (it changed an entity π* never touches; an inserted row counts as touched when π* inserts in that collection) or
+     `irreversible`; all prefixes recoverable gives `wrong_write` (a required field written with another value; an
+     insert counts when it agrees with some but not all of the pattern's eq predicates), `omission`, `answer`,
+     `no_action`; `protocol`/`budget`/`unreplayable` are routed. Modes: decision, frame_discipline, derivation,
+     completion, reporting, acting, evidence_gathering (π* read a collection the student never read before the wrong
+     step). The debug lane's Φ-checkpoint findings map onto the same record (`synth_student_wire.attribution_from_finding`;
+     `lane = "debug"`). `requests_from` clusters (student, cell, mode) with ≥ 2 traces into `TargetRequest`s whose knobs
+     (`MODE_KNOBS` over §10's six) go the way the source tasks' band decisions say (too hard: ease; in band: same; too
+     easy: harden). `admit` only adds (originals never retired), refuses a targeted entry past 20% of the pool, and
+     applies R4 with `meta.update`'s `kl` and `entropy` (κ = 0.1, H_min = 0.9 × the pool's entropy unless set).
+     `frontier_round` runs a targeted and an untargeted batch at the same budget from one injected proposer, `compare`
+     (budget within 35%, perfect tasks per dollar with a bootstrap interval, in-band rate, targeted-mode hit rate),
+     then admits. `knob_kept` is principle 15. The real round (`synth.py frontier-round`) turns each request into the
+     proposer's cell in words (`request_text`: the cell, the missing skill, each knob change) through item 18's
+     `DomainEnv.cells` (the control arm keeps `CELLS`), runs the swarm pipeline per arm under one cap each, then P2, P3,
+     P4 and `perfect` on every new task.
+   - **Outcome classifier** (`outcome.py`; the probe side of the task-creation RSI loop, no training). Per rollout:
+     `intended_pass` (constrained values observed before written, π*'s effects), `intended_fail` (a skill-mode first
+     wrong step on a task with π* passing and TAINT clean), `unintended_pass` (vacuous; a constrained value never
+     observed; an affordance, frame hole, lax requirement or lax value with the defect confirmed on the task),
+     `unintended_fail` (grader error; π* fails C; REP nondeterminism; only unstated trace constraints fail; the answer
+     equals π*'s up to format; a TAINT D5 value that a failing pattern or answer check needs), else `uncertain`.
+     **Decision (the key rule):** an unintended label needs task-level executed evidence; a failure that is not a clean
+     skill gap and has none is `uncertain`, so the loop never eases a task toward the student's pass rate.
+     `TaskEvidence` (REP, TAINT with item 20's leak matcher, NULL, RED, TWIN, EVID, MUT optional; ALT history) once per
+     task. The swarm panel decides only the residue, calibrated with item 20's strict rule (`min_decided`, both truths,
+     refuse when uncalibrated) on oracle, no-op and minus-last-write anchors. **Decisions forced by the real rollouts:** a
+     pass with a leaked derive value and unread evidence is the residue, not decisive (the D7 matcher fired on
+     "duplicates" as a verb and π* reads receipts a duplicate rejection never needs); a panel *valid* verdict cannot
+     clear a task-level leak (on the fixture leak both members said valid at ≥ 0.99: the attempt follows the leaky
+     instruction), so it stays `uncertain`; answer-check constants relate a D5 value to an ANSWER failure. The frontier
+     targets only `intended_fail` rollouts (`requests_from(skill_gaps=...)`).
+   - **Results (PERFECT-1, `runs/perfect-1.md`, $5.55 of $15).** 89 training-side tasks, 664 student rollouts ($0.0037
+     each, $0.027 per band decision): 47 too hard, 19 in band, 23 too easy. Predictor LOO MAE 0.229 vs 0.313 constant,
+     band accuracy 0.44 (0.34–0.54): untrusted, it skipped nothing; ALT history is the best single feature, the one-call
+     proxy estimate carries none. On-intent share 0.87 (finance_ap) and 0.34 (it_helpdesk, TWIN D9 on 21 rejected
+     tasks); admitted-only 11/11. Near-duplicate θ = 0.865 (w = 1, gate 0.5): TPR 1.00, FPR 0.008 on 174/3401 labelled
+     pairs. Perfect: 3 finance_ap tasks admitted, one valid in-band task refused as a duplicate. Outcome classifier:
+     known-label cases 25/26 decided, all right, 0 skill gaps called defects; real rollouts 424 intended_fail, 132
+     intended_pass, 52 unintended_fail (hidden information on 7 tasks), 1 unintended_pass, 67 uncertain. One real
+     frontier round (4 + 4 tasks): targeted 0 perfect (the eased task was too easy), control 1: no difference at n = 4.
+   - **Exports for the RSI loop** (no reward, no pass count, no p̂ crosses): `learn.band_verdicts` → `BandVerdict
+     {task_id, task_version, task_digest, domain, student, checkpoint, simulator, time_mode, decision: too_hard|in_band|
+     too_easy|null, confident, error, source: measured|predictor|none, rollouts, cost_usd}`; `learn.band_examples` →
+     `BandExample {task_id, task_version, domain, student, decision: too_easy|too_hard, features: {name: float},
+     explaining: [feature names pushing p̂ that way]}`; `frontier.export_attributions` → `{id, task_id, version, domain,
+     student, checkpoint, lane, kind, mode, routed, first_wrong_step, call_tool, cell, collections, patterns,
+     evidence_skipped, knobs: {ease: {knob: int}, harden: {knob: int}}}`; `outcome.export_outcomes` → `OutcomeRecord
+     {id, task_id, version, domain, student, checkpoint, rollout, passed, reasons: [grader codes], label, cause,
+     decided_by: execution|panel|none, evidence: {task_defects, alt, oracle_passes, replay_agrees, world_crashes,
+     evidence_skipped, unsourced_writes, outside_entities, oracle_entities_missed, non_oracle_write_tools, attribution?,
+     panel?}}`. The full JSON Schemas (pydantic) are `perfect.export_schemas()`, written by `synth.py perfect` as
+     `schemas.json` in its run dir.
+   - **Spend.** `P2_CAP_USD` = 15 for the student and every proxy and panel call of this work; each run's receipts sit
+     under `data/synth/perfect/<run>` and `work_spent(root, "perfect")` clips every run's cap.
+   - **Tests**: `test_synth_perfect.py` (band test, OC, scripted-student measurement with store and resume, predictor
+     LOO, trust and skip, EVID on/off intent, SWAP enum and pool, signatures and calibration, coverage, perfect,
+     attribution kinds, requests, cap and R4, equal-budget comparison, the round), `test_synth_outcome.py` (26 known-label
+     cases, the confusion rule, the panel residue, routing), `test_synth_perfect_cli.py`, `test_synth_student_wire.py`.
+20. **Part 2 blind spots and backlog (built 2026-10-29; results `docs/research/env-synthesis/runs/falsifiers-2.md`).**
+   - **Unstated trace constraints (D6).** MUT gains `TRACE_OPS` (`falsify/mut.py`): `InsertRead` (every read tool, one
+     argument set per entity class it can name, filled from π*'s arguments by name or with a key of a collection the
+     parameter names; at the start and at the end of π*), `ExtraList` (list/search tools with only borrowed required
+     arguments), `SwapReads` (adjacent independent reads). They are equivalent to π* under the stated constraints, so a
+     failure is a confirmed D6; a non-equivalent one is clean, never a suspect. On a correct contract they share π*'s
+     effect, so effect deduplication leaves n unchanged (tested on every anchor). `MUT(trace=False)` is the M3
+     neighbourhood; the M3 hand-written `extra_read` DSL operator becomes redundant and retirement removes it.
+   - **Paraphrase-aware leaks (D7, `falsify/leak.py`).** TAINT's `derive` probe runs `LeakMatcher` over structural layers
+     in order: `exact` (M2), `sep` (separators and case), `number` (number words), `lemma` (stems, any order, window
+     n + 3), `label` (short labels paired with the value in the tool catalogue or π*'s observations: `P1 (Critical)`),
+     `synonym` (a learned `SynonymMap`). Identifiers get exact and sep only. **Decision (options guard):** a paraphrase
+     hit in a sentence that also names a sibling value (same enum or field) is an enumeration, not a give-away. Synonym
+     maps are versioned data: `learn_synonyms` aligns confirmed leaks' values with their quotes; `leaks_from_archive`
+     reads the L2 class's panel-confirmed finds (the probe keeps them); an entry learned from a panel is `judge`
+     evidence, so TAINT labels a hit through it a *suspect*, and `synonym_update` is an `Update` with judge evidence (R8's
+     cap applies). `TAINT(layers=("exact",))` is M2; `cheap_m3()` is the RSI-1/2 population, kept for before/after.
+   - **L2 leak probe** (`LeakProbe`, class `LEAK`; roles `leak_probe`, `leak_panel`): Inkling-Small reads the instruction
+     and the decisions and quotes give-aways (a quote not in ι is fed back); every quote is a suspect; `LeakPanel`
+     (Nemotron-3-Ultra + gpt-oss, λ from `calibrate_leak_panel` on dev-only anchors: dev templates are leaks, certified
+     dev sentences, enumerations and restated rules are not) confirms or clears it, else the human queue. `max_calls`
+     caps a run; `skip_structural` spends nothing on what TAINT finds.
+   - **Visible test data (repository D7, `falsify/patch.py`).** `visible_data` (static, `visible_data()`): a literal the
+     fix adds that a hidden test compares, or an identifier the fix defines, already readable in a test, golden or doc
+     file (confirmed); two rare hidden-test data lines held by another readable file (suspect). `visible_check`
+     (executed): a visible test failing at A′ (two runs) and passing at B. `realdefects.DETECTOR["leak_other"]` runs
+     both; `detect_debug` takes several ops. `pre_table_strip` re-creates the strip version that kept table entries, for
+     static checks only: **found:** the lane runner drops writes to test paths before running, so an overlay never
+     reaches the container.
+   - **Adjudication.** `Panel(role=PANEL_PATCH)` judges a code diff (the tool-world prompt rejected 10 of 12 pool
+     oracles for "no STATUS.json"). **Decision (`agents.calibrate`):** a λ needs `min_decided` decided anchors and, with
+     `require_both`, both truths decided; `refuse_uncalibrated` sets λ above 1. Found: λ = 0.95 had been "calibrated" on
+     one decided no-op anchor and then decided a repository suspect. `synth/triage.py`: the human queue grouped by
+     reason (class/op, grader verdict, which family voted which way), ranked by EI = H(p) × (1 + pivotal) × √similar
+     with one representative per cluster first, exported as `review.csv`/`review.md`; `read_decisions` reads a filled
+     sheet. It decides nothing.
+   - **Sixth family.** `thinkingmachines/Inkling` and `Inkling-Small` (Tinker, own 200k vocabulary and `<|message_*|>`
+     format, not Qwen): registry rows (stop token `<|content_model_end_sampling|>`; the thinking message is split off),
+     `INKLING`/`INKLING_SMALL`, family `inkling`. `roles.checker_overlap` reports a panel sharing a family with the ALT
+     solvers or attackers it judges; `SYNTH_ROLES_DISJOINT` (panel Inkling + Kimi, which builds Worlds only) has none.
+     The default panel is unchanged (it is the calibrated one).
+   - **CLI** `scripts/synth_falsifiers2.py` (`matrix`, `leak-l2`, `natural`, `repo-panel`, `visible`, `triage`); one
+     $15 cap over `data/synth/falsifiers-2/` receipts. Tests: `test_synth_blindspots.py`, `test_synth_visible_data.py`,
+     `test_synth_triage.py`, plus the plant, library, roles and realdefects tests.
+   - **Results** (`runs/falsifiers-2.md`). Locked rsi-2, before → after: FR 56/72 → 72/72, D6 0/12 → 12/12, D7 14/18 →
+     18/18, FA 0/7 → 0/7; dev unchanged (118/125, FA 0/10; the miss is still `eq_to_any`, suspects only); locked rsi-1: 49/65 → 65/65, FA 0/7.
+     L2 alone: locked D7 18/18 on both sets, 1 confirmed alarm in 52 and 46 other items; two certified dev anchors are
+     leaks by L2 and the panel (for a person). Visible data: independent leak_other 1/2 (the echo benchmark leak is
+     missed), 0/11 executed alarms, one new leak on pool task mvdan-sh-dc951aeb-e1. Repository suspects (10, not 11):
+     the panel is uncalibrated on code diffs (accuracy 0.55–0.79 on executed-truth anchors) and decides none; no task
+     changes status. Human queue: 51 distinct items, 10 groups, 2 pivotal tasks. Inkling is the sixth family.
+18. **Part 2 composition and knobs (part2-paper-core §10; built 2026-10-29, `synth/compose.py`).** Long-horizon tasks are
+   compositions in which later work needs earlier results.
+   - **seq(τ₁..τ_k)** (`compose`). Part j runs from the state parts 1..j-1 leave; π* = π₁*;…;π_k* with steps renamed
+     `t<j>_<id>` and refs re-pointed; each part must still run and pass its own contract on that state (else
+     `CompositionError`: interference). R = ⊕ under the merged normalizers, A = ∪, Q merged (several reporting parts:
+     answer `list(a₁, a₃, …)`, the new library function `list`, check paths gain the part's position), M merged with
+     stated quotes kept (`at_most` adds the other parts' matching calls; a `never` another part breaks refuses).
+     **Decision (supersession, forced by the runs):** a pattern the composite oracle fails is examined per change it
+     covered under its own part's normalizers, mapped into the merged key space (a merged `id_canon` re-keys inserts):
+     *superseded* only if a later part wrote that very address and a later pattern covers the result (an insert is
+     never superseded; a later glob that merely matches does not own the change); else *rebased* to the exact skeleton
+     pattern of the composite change; *restored* (no net change) is recorded. par: written address sets disjoint and
+     each part alone from s₀ does the same (both under the merged normalizers: audit rows with generated ids are no
+     interference).
+   - **The instruction.** `roles.INSTRUCTION_WRITER` (DeepSeek on the swarm; differs from the solvers, attackers and
+     the panel) writes one instruction from the parts; it sees the parts' texts, stated quotes to keep, values it must
+     not state (those that flow across a boundary and no earlier part's instruction states) and the answer format, never
+     the program or the contract. Checked by execution: quotes kept, no listed value stated, TAINT confirms nothing the
+     plain concatenation (`joined`) does not, dep does not fall; feedback on each failure; fallback `joined`.
+     Cross-boundary values join the intent card's `derive`, so a later repair that states one is a TAINT D7.
+   - **Dependency depth.** An edge i → j is a use in part j (a literal, a ref, the answer) of a value not given (not in
+     ι, `given` or the tool catalogue) that an earlier observation shows inside the record of an entity part i wrote
+     (its key beside a field part i set). **Decision (the counterfactual):** confirmed when, with part i's writes
+     dropped, part j's calls or answer change or the observation no longer shows that record holding the value (a
+     literal of π₂* never changes when π₁* is dropped, but the agent could no longer have read it). dep = the longest
+     chain of confirmed edges. **Carry** edges (a literal only an earlier part's *reads* show: the agent must remember
+     it) are a context dependency, reported as `carry`, never counted in dep.
+   - **Knobs** (`KnobSpec`, `apply_knob`): typed, predicted "harder", each names the behaviour-signature features it must
+     raise (`behaviour_signature`: horizon, writes, tools, written fields, dep and edges, distractors, observed entity
+     records, pages, asks, derived literals) and is kept only if all rise. depth/horizon = more parts (`ladder`);
+     `distractors(k)` = look-alike clones of touched entities at reset, differing on every field holding a value π*
+     selects or acts on except catalogue values (PERT's clone and key machinery; stricter than PERT's
+     instruction-literal rule, which let a clone match a later part's vendor filter), list refs rebased by content
+     (Perturbable Worlds only: the finance_ap pack adapter is not); `paginate(size)` = read tools return pages
+     (`page`, `next_page`), π* reads every page, refs re-pointed, whole-list refs become `concat` of the pages;
+     `actor` = an instruction-only literal moves to a person behind `actors.ask` (the writer drops it from ι);
+     `derive` = a literal ι states and an earlier observation shows at every use is dropped from ι and added to
+     `derive`. Each rewrite must keep Δ* and the answer. The student check is a hook only (`LearnabilityProbe`,
+     `student_check`, `direction_holds`); nothing here calls the student.
+   - **Variant Worlds** (`VariantSpec`, factory `crucible.synth.compose:variant_world`): prefix program at reset (a
+     follow-up link's start state), perturbations, paginated tools, actors; a variant task is an ordinary `Task`.
+   - **Chains and ladders.** `build_chain` grows links with `pipeline.Runner` (propose → oracle → contract, no
+     falsifiers) on the prefix World of the links so far (`DomainEnv.cells`, new and additive: follow-up cells; the
+     earlier instructions and their changes in the domain text); kept, in order: a state edge into the link, a link that
+     writes, depth, carry, length; refused past `max_horizon` (48). `ladder` emits rungs of more parts, then knobs; each
+     kept rung is a new task id. `select` picks compositions toward a (horizon bin × depth) target, dep ≥ 1 preferred.
+     `certify_composed` runs `Runner.refine_one` (the full population, adjudication, repair) with MUT's cap at
+     12 × horizon and ALT/ATK budgets scaled to the horizon.
+   - **Fixes to shared code the long programs forced:** TWIN (a sibling must be no entity π* writes or names; a cell
+     value moves through C only when a write carried it; a literal σ cannot carry into C, or a twin that diverges onto
+     entities neither π* nor σ touches, is a suspect, not a confirmed D9); `select_eq(list, field, value)` in the library
+     and the parse error's hint (refs inside `select`'s literal filter were the commonest dead oracle).
+   - **CLI** `scripts/synth.py compose` (`--links --chains --cands --max-horizon --certify --reuse --only`) and
+     `ladder` (`--from <compose run> --chain --knobs distractors=3,paginate=5,actor,derive --certify`); `--budget
+     compose` caps the work at `COMPOSE_CAP_USD` = 10 over receipts under run paths carrying "compose". Tests:
+     `tests/unit/test_synth_compose.py` (scripted roles).
+   - **One statement test.** `_stated` = exact tokens or a counted hit of item 20's layered `LeakMatcher`, used by the
+     writer's must-not-state, the derive merge (a part's derive value another part's instruction states is dropped: it
+     is no leak of that part's decision) and the cross-boundary values added to `derive`.
+   - **Results** (`docs/research/env-synthesis/runs/compose-1.md`, $6.56 of the $10 cap; swarm only, no Qwen, the
+     student never called). **Long-horizon demonstrations:**
+     - it_helpdesk dense World: 49 calls, 20 writes, dep 2.
+     - finance_ap `--invoices 30`: 46 calls, 5 writes, dep 2.
+     - The ladder grows 13 → 27 → 49 → 51 calls with +3 distractors, pagination, an actor and a derive rewrite. Every
+       rung moves its signature.
+
+     **The certificate machinery holds on long programs:**
+     - REP, RED and NULL are clean;
+     - TAINT sources literals across part boundaries;
+     - MUT's distinct n is 122–212 with the cap at 12 × horizon, U 0.038–0.049 (at a cap of 240, 42–52 distinct);
+     - about 1 minute per 37–49-call composite for the deterministic population after main's read mutants.
+
+     **Every composite is rejected.** The causes are defects inherited from uncertified parts (exact free-text bodies,
+     loose answer checks, an order-dependent pick) and the ALT rule: no solver passes a 37–51-call task.
+
+     **Open:**
+     - the repairer re-emits the whole long program and breaks it (3/3), so repair should be per part;
+     - restoration (a later part undoes an earlier write, and a merged allowed pattern still permits the undone
+       value) is caught by MUT but not closed by the merge;
+     - TWIN suspects have no inline judge;
+     - the locked-set FR/FA has not been re-measured after the TWIN changes.
+
 ## 8. Layer 4: verification and isolation
 
 Every gate declares its kind (M7 R6): `gate`, a rule the instruction states (its failure zeroes the reward and the
@@ -4178,6 +4755,7 @@ resume shares the killed run's journal, whose start sweep it counted as a second
 - **Framing:** each figure frames itself from the settled first step. Meshes, flow paths and measured label boxes are projected onto the camera plane, and the orthographic view fits them at any aspect ratio. Objects that appear later opt in with `userData.fit`.
 - **Steppers:** jumping to a step (dots, back) replays the earlier steps instantly, so the figure always shows the state the story reached. Step timers (`v.later`) are cancelled on every step change.
 - **Copy rules:** no other framework, environment suite or model is named; models are "frontier A/B" and "open model". Every number comes from a gate report or a recorded run.
+- **Task synthesis page (`synthesis.html`, `assets/synthesis.js`, 2026-10-29):** the Part 2 pipeline (part2-paper-core.md) as one SVG diagram in seven bands and 40 steps, from the request to the regularised self-improvement loop, with one accounts payable example throughout. All copy and geometry live in `synthesis.js`, so the site copy test reads it; `synthesis.html` is also in that test. Card heights come from measured text (canvas `measureText` after the fonts load), columns stretch to their row, and edges are orthogonal routes over named anchors (`s9.b@0.5`) and gap tracks, so content edits never need coordinates. Selecting a step opens a detail drawer (what happens, input, output, the example, why it matters); arrow keys and `?step=n` step through it. Steps not yet built (composition, frontier targeting) carry a "Next stage" tag. The example certificate bars are worked numbers (the exact bound for n probes at zero counterexamples), and the falsifier-by-defect grid shows design targets, not measured recall.
 
 ---
 
