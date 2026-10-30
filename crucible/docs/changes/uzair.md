@@ -2165,3 +2165,38 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   the fixture certificate included): 320 passed, 14 skipped (Docker and the pool). Ruff check and lint-imports clean.
 - **Merge notes.** `crucible.synth` is under active work on `main`: the helpers sit after `inert()`, the probes after the
   `ExtraSource` loop, the label after `ExtraForbidden`/`EditTest`.
+
+## 90. Part 1 V9: a `TASK_DEFECT:` exit, scored 0, counted per step and clustered per task
+
+- **Item.** V9 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("`report_task_defect` action: ends
+  the episode with reward 0 (not negative) and a structured note. The flag rate per task becomes a framework_health
+  detector. Watch that the student's flag rate on valid tasks stays near the frontier's"; ImpossibleBench 2510.20270: the
+  flag exit cut GPT-5's cheating from 54% to 9%). The agent had `GIVE_UP:` (graded as it stands) and no way to say the
+  task itself is broken. Not taken: a new tool (a final-message line, as `GIVE_UP:` is, needs no tool plumbing on any
+  harness that ends with a message); re-composing the stored prompts of existing tasks (it changes what the student is
+  offered: its own run, and the evals' prompts must stay as they were); the student-vs-frontier comparison (the
+  targeting report reads `task_defect` per arm once runs carry it).
+- **Files.** `src/crucible/runtime/harness/workspace.py` (`TASK_DEFECT`, `task_defect_of`, `WorkspaceHarness._task_defect`,
+  `run`), `src/crucible/factory/lanes/windows.py` (`EPILOGUE`: one sentence at the end; module doc),
+  `src/crucible/factory/framework_health.py` (`task_defect_report` in `per_attempt`, `DETECTORS`, module doc table),
+  `src/crucible/train/bridges/tinker/trainer.py` (`behaviour_metrics`: `task_defect/share`),
+  `tests/unit/test_part1_task_defect.py` (new, 6 tests).
+- **Public names.** `runtime.harness.workspace.TASK_DEFECT`, `task_defect_of`.
+- **Behaviour.** A `TASK_DEFECT: <what is wrong>` line in the agent's final message (the trace's last `done` action: its
+  answer, else its reason; at a line start, an empty report counts) is read after the episode. The patch is collected and
+  graded as before; then the reward becomes 0.0 (after the limit penalty; never negative, never masked) and
+  `progress["task_defect"] = {"report", "graded_reward"}` goes to `record.json` meta and `RolloutRecord.progress`. Each
+  step's row has `task_defect/share`. framework_health adds a `task_defect_report` hit per episode, one cluster per task
+  (its episodes are the task's reports): HIGH (`cls` suspect) when the grade failed the run too, LOW (`cls` agent) when
+  the grade passed it (the claim contradicts the grader); neither ever pauses. The lane's `EPILOGUE` now ends with one
+  sentence offering the exit, so tasks authored from now on announce it; stored prompts are unchanged, and the
+  40-character marker other code finds is the same.
+- **Formats.** `progress.task_defect` on records and rollouts; a framework_health kind, `task_defect_report`; a step
+  metric, `task_defect/share`; the epilogue text of newly authored window prompts.
+- **Tests.** `test_part1_task_defect.py` (new, 6: a FibTask episode with a correct fix and the line scores 0 with the report
+  and the graded 1.0 on the rollout, and without it scores 1; only the last `done` counts and an empty report is one; the
+  health cluster is HIGH or LOW by the graded reward and never pauses; the trainer's share). The file fails to import on
+  the code before. The 74 test files that use the windows lane's prompt, sealing, targeting, the debug and swarm
+  generators, framework_health, `WorkspaceHarness` or the Tinker trainer (the Claude-builder file excluded, finance on its
+  `PYTHONPATH`): 1068 passed, 7 skipped. Ruff check and lint-imports clean.
+- **Merge notes.** In `WorkspaceHarness.run`: `defect` after the A1 lines, `_task_defect` after `_limit_penalty`.

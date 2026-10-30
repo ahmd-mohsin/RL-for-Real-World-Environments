@@ -355,6 +355,7 @@ def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str
     - ``format_errors/per_episode``, ``format_errors/episode_share``: malformed tool calls (``Turn.format_errors``).
     - ``hack/flagged_share``: episodes with a level-1 rule flag or a grade flag (``RolloutRecord.flags``).
     - ``give_up/share``: episodes ended by ``GIVE_UP`` (the checkpoint sidecar's ``progress["give_up"]``).
+    - ``task_defect/share``: episodes that reported the task itself broken (``TASK_DEFECT:``, Part 1 V9; scored 0).
     - ``reward/group_std_mean``: the mean within-group reward std; its drop led collapse (RAGEN 2504.20073). Groups with no
       spread at all never reach a step: ``drops/zero_spread`` counts them."""
     from crucible.runtime.harness.native import LIMIT_STOPS
@@ -378,6 +379,7 @@ def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str
     out["format_errors/episode_share"] = sum(e > 0 for e in errs) / len(eps)
     out["hack/flagged_share"] = sum(bool(r.flags) for r in eps) / len(eps)
     out["give_up/share"] = sum(bool((r.progress or {}).get("give_up")) for r in eps) / len(eps)
+    out["task_defect/share"] = sum((r.progress or {}).get("task_defect") is not None for r in eps) / len(eps)
     stds = [statistics.pstdev(rs) for g in batch if len(rs := g.rewards()) > 1]
     if stds:
         out["reward/group_std_mean"] = statistics.fmean(stds)

@@ -36,7 +36,7 @@ full pass and 0 for every floor; ``meta`` carries the per-milestone pass vector,
 **Prompt and ledger** (``author_window``): a maintainer's release request written from the units' messages, the
 changelog and a diff summary (public names only; never test bodies, never file paths), one requirement id per
 milestone, then a fixed epilogue that states truthfully how the episode works (sandbox, offline, hidden tests, existing
-tests, ``GIVE_UP:``, ``STATUS.json``). The ledger maps each requirement to its milestone's tests both ways; ``lint_prompt``
+tests, ``GIVE_UP:``, ``TASK_DEFECT:``, ``STATUS.json``). The ledger maps each requirement to its milestone's tests both ways; ``lint_prompt``
 refuses process instructions no check enforces, file paths, test names and commit ids.
 
 **P0 (swarm-pipeline/00 §15):** ``WindowTask`` is a ``factory.longtask.LongTask`` (``world``, ``path_rules``,
@@ -1048,7 +1048,9 @@ EPILOGUE = ("How this works: you are working in a sandboxed copy of the reposito
             "Before you finish, write STATUS.json at the repository root mapping each requirement id above to your probability (0 to 1) "
             "that it is met; it is scored against the hidden tests with the Brier score, so say what you believe. If you decide you "
             "cannot finish, end your final message with a line 'GIVE_UP: <reason>'; your work is graded as it stands, and an honest "
-            "'not done' costs nothing extra.")
+            "'not done' costs nothing extra. If you find the task itself is broken (the request contradicts itself or the repository, or it "
+            "cannot be done in this sandbox), end your final message with a line 'TASK_DEFECT: <what is wrong, with your evidence>' instead; "
+            "such a run scores 0 and the report is reviewed.")
 AUTHOR_BRIEF = ("You write the release request a maintainer of this Python library would send to a developer: what the next release "
                 "must deliver, in the maintainer's voice. You get the commit messages, the changelog and a summary of each change (the "
                 "public names it touched). Write one requirement per change id given, each one or two plain sentences that state the "

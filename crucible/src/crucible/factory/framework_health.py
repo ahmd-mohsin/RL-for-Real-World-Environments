@@ -27,6 +27,7 @@ reproduces it. Read-only over stored episodes; it never grades, rewards or gates
 | ``codec_suspect`` | sampler | one model's bad-tool-name and invalid-argument rate far above the others' | HIGH |
 | ``fairness_false_fail`` | grader | an S9b result (``*/fairness/<task>.json``) with false-fail candidates, or low second-verifier agreement | CRITICAL / HIGH |
 | ``trainer_numeric`` | trainer | ``steps.jsonl``: NaN or inf loss, a sampler-learner KL spike, dropped groups, staleness | CRITICAL / HIGH |
+| ``task_defect_report`` | task spec | the agent's ``TASK_DEFECT:`` report (``progress.task_defect``, Part 1 V9), one cluster per task: its size is the task's report rate | HIGH; LOW when the grade passed the run anyway |
 
 **Agent or framework.** Every cluster carries ``cls``: ``framework``; ``agent`` for a tool error the agent's own arguments
 caused (a wrong ``old_string``, a bad regex, a path that does not exist) and for a missing command no World is expected to
@@ -85,7 +86,7 @@ DETECTORS: dict[str, tuple[str, str]] = {  # kind -> (default component, default
     "unreachable_milestone": ("task_spec", "HIGH"), "spec_defect": ("task_spec", "HIGH"), "codec_suspect": ("sampler", "HIGH"),
     "fairness_false_fail": ("grader", "CRITICAL"), "trainer_numeric": ("trainer", "HIGH"), "version_mix": ("grader", "HIGH"),
     "path_verdict_drift": ("grader", "LOW"), "credit_grade_mismatch": ("grader", "CRITICAL"), "job_log_error": ("harness", "HIGH"),
-    "unreadable_attempt": ("harness", "HIGH"), "host_unreachable": ("sandbox", "HIGH"),
+    "unreadable_attempt": ("harness", "HIGH"), "host_unreachable": ("sandbox", "HIGH"), "task_defect_report": ("task_spec", "HIGH"),
 }
 CONTENT_KINDS = {"stale_visible_test", "protected_edit_consensus", "unreachable_milestone", "spec_defect", "fairness_false_fail"}
 HOST = ((re.compile(r"out of memory|OOM|Killed\b|exit (status|code) 137|MemoryError|Cannot allocate memory", re.IGNORECASE), "memory"),
@@ -265,6 +266,11 @@ def per_attempt(v: View) -> list[Hit]:
         for host in outages.get("hosts") or ["?"]:
             out.append(Hit("host_unreachable", "sandbox", f"{HOST_UNREACHABLE}: {host} (paused, resumed)", "LOW", ep.id, ep.task,
                            {"paused_s": outages.get("paused_s"), "outages": outages.get("outages"), "rows": (outages.get("rows") or [])[:3]}))
+    td = ((v.rec.get("meta") or {}).get("progress") or {}).get("task_defect")
+    if isinstance(td, dict):  # Part 1 V9: a claim about the task, never a pause; a run the grade passed contradicts its own claim
+        passed = td.get("graded_reward") == 1.0
+        out.append(Hit("task_defect_report", "task_spec", f"the agent reported the task broken: {ep.task}", "LOW" if passed else "HIGH", ep.id, ep.task,
+                       {"report": str(td.get("report") or "")[:500], "graded_reward": td.get("graded_reward")}, cls="agent" if passed else "suspect"))
     if (ep.masked or f) and gone is None:
         kind, stage, reason = str(f.get("kind") or "masked"), str(f.get("stage") or ""), str(f.get("reason") or (v.rep.get("infra") or {}).get("reason") or "")
         comp = _failure_component(kind, stage, reason)
