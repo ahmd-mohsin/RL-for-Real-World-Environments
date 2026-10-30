@@ -361,3 +361,79 @@ def test_the_tuning_monitor_alarms_on_unexplained_pass_rate_moves():
     a = t.alarm()
     assert a["alarm"] and a["mean_unexplained"] > 0.1
     assert not TuningMonitor().alarm()["alarm"]  # too few tasks: no alarm, and it says why
+
+
+async def test_the_shard_pool_matches_the_serial_evaluation_and_keeps_units_on_one_shard():
+    from crucible.synth.falsify import cheap
+    from crucible.synth.meta.par import ShardPool, shard_of
+    from crucible.synth.meta.rsi import FEvaluator
+
+    ctx, _clean, _, dev_src, _locked_src, dev, _locked, _, _, _ = await _ready()
+    vs, _ = await verdicts(dev.plants, cheap(), ctx)
+    pool = Pool(dev_src)
+    pool.add("P@1", dev.plants)
+    sp = ShardPool(2)
+    try:
+        ev = FEvaluator(pool, FalsifyContext(), shards=sp)
+        m = await ev.measure({}, [p.id for p in dev.plants], [a.id for a in dev_src], seed=0)
+        assert m.j_units == [1.0 if vs[p.id].hit else 0.0 for p in dev.plants] and m.fa == 0.0 and m.n_anchors == len(dev_src)
+        assert {shard_of(p.id, 2) for p in dev.plants} <= {0, 1}
+        with pytest.raises(KeyError):
+            await sp.evaluate({}, ["not-a-unit"], seed=0, max_mutants=240)
+    finally:
+        sp.close()
+
+
+def test_betting_power_grows_with_units_and_gain():
+    from crucible.synth.meta.stats import betting_mde, betting_power
+
+    lo = betting_power(40, 0.1, m0=0.02, alpha=0.0025, sims=300)
+    hi = betting_power(160, 0.1, m0=0.02, alpha=0.0025, sims=300)
+    assert lo < hi
+    assert betting_mde(160, m0=0.02, alpha=0.0025, sims=200) < betting_mde(40, m0=0.02, alpha=0.0025, sims=200)
+
+
+class _SeedAlarm:
+    """A falsifier class that confirms on the tasks it is told to, at the seeds it is told to (a seed-dependent flake)."""
+
+    name = "FLAKE"
+
+    def __init__(self, targets, seeds):
+        self.targets, self.seeds = set(targets), set(seeds)
+
+    async def propose(self, task, ctx):
+        from crucible.synth.falsify.base import Probe
+
+        return [Probe(cls="FLAKE", op="x", site="s", expect="property")] if task.id in self.targets and ctx.seed in self.seeds else []
+
+    async def execute(self, probe, task, ctx):
+        from crucible.synth.falsify.base import Outcome
+
+        return Outcome()
+
+    def label(self, probe, outcome):
+        return "confirmed", "D9"
+
+
+async def test_hits_are_source_relative_and_an_anchor_that_alarms_at_any_seed_is_dropped(tmp_path):
+    from crucible.synth.meta.rsi import FEvaluator
+
+    ctx, _clean, _, dev_src, _locked_src, dev, _locked, _, _, _ = await _ready()
+    p = dev.plants[0]
+    flake = _SeedAlarm({p.id, p.source_id}, {3})
+    pool = Pool(dev_src)
+    pool.add("P@1", dev.plants)
+    ev = FEvaluator(pool, FalsifyContext(), base=lambda: [flake])
+    m0 = await ev.measure({}, [p.id], [], seed=0)
+    m3 = await ev.measure({}, [p.id], [a.id for a in dev_src], seed=3)
+    assert m0.j_units == [0.0] and m3.j_units == [0.0]  # at seed 3 the plant's "hit" is its clean source's own alarm: not credited
+    assert m3.fa > 0
+    only_plant = _SeedAlarm({p.id}, {3})
+    ev2 = FEvaluator(pool, FalsifyContext(), base=lambda: [only_plant])
+    assert (await ev2.measure({}, [p.id], [], seed=3)).j_units == [1.0]
+    cfg = _paired_cfg(headroom=False)
+    loop = _loop(tmp_path, cfg, own_worlds=False)
+    arm = loop.arm("loop", lambda **_: None)
+    arm.evaluator = ev
+    bad = await loop.clean_anchors(arm)
+    assert bad == {p.source_id: [3]} and p.source_id not in {a.id for a in arm.pool.anchors} and p.source_id in arm.pool.dropped

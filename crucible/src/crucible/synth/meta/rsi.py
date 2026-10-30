@@ -303,6 +303,8 @@ class Pool:
         self.plants: dict[str, Plant] = {}
         self.by_planter: dict[str, list[str]] = {}
         self.anchors = list(anchors)
+        self.sources = list(anchors)  # every dev source task (anchors may drop one that alarms at some seed; its plants stay source-relative)
+        self.dropped: dict[str, list[str]] = {}  # anchor id -> why it stopped being an anchor
         self.decide_sources: set[str] = set()
 
     def add(self, key: str, plants: Iterable[Plant]) -> None:
@@ -317,6 +319,7 @@ class Pool:
         q.plants = dict(self.plants)
         q.by_planter = {k: list(v) for k, v in self.by_planter.items()}
         q.decide_sources = set(self.decide_sources)
+        q.sources, q.dropped = list(self.sources), dict(self.dropped)
         return q
 
     def domains(self) -> list[str]:
@@ -466,22 +469,35 @@ class FEvaluator:
         return self._big[k]
 
     async def _units(self, theta_f: Any, plants: Sequence[Plant], anchors: Sequence[Task], max_mutants: int, seed: int) -> tuple[dict[str, PlantVerdict], dict[str, bool], int]:
+        """Verdicts on plants (source-relative) and alarms on anchors. **Source-relative hits** (RSI-2 pilot): a class
+        that confirms a counterexample on a plant's clean source task at the same seed is not credited on that plant (the
+        A/A replicates found TWIN alarming on one it_helpdesk source at two of eleven seeds; without this rule its plants
+        were "caught" by the source's own false alarm). Sources are evaluated with the plants (cached)."""
+        by_id = {a.id: a for a in [*self.pool.sources, *self.pool.anchors]}
+        srcs = [by_id[s] for s in dict.fromkeys(p.source_id for p in plants) if s in by_id]
+        tasks = list({t.id: t for t in [*anchors, *srcs]}.values())
         if self.shards is not None:
-            await self.shards.add(plants=[p for p in plants if p.id not in self.shards.known], tasks=[a for a in anchors if a.id not in self.shards.known])
-            res = await self.shards.evaluate(theta_f, [*(p.id for p in plants), *(a.id for a in anchors)], seed=seed, max_mutants=max_mutants)
-            vs = {p.id: PlantVerdict(plant_id=p.id, hit=res[p.id]["hit"], suspect_only=res[p.id]["suspect"]) for p in plants}
-            alarms = {a.id: bool(res[a.id]["hit"]) for a in anchors}
-            return vs, alarms, sum(r["probes"] for r in res.values())
-        async with self._lock:
-            ctx = self.ctx_for(max_mutants, seed)
-            fs = population(theta_f, self.base)
-            vs, probes = await verdicts(plants, fs, ctx)
-            alarms = {}
-            for a in anchors:
-                res = await run_classes(a, fs, ctx, cache=True)
-                probes += sum(len(r.findings) for r in res)
-                alarms[a.id] = any(r.applicable and r.c for r in res)
-            return vs, alarms, probes
+            await self.shards.add(plants=[p for p in plants if p.id not in self.shards.known], tasks=[a for a in tasks if a.id not in self.shards.known])
+            res = await self.shards.evaluate(theta_f, [*(p.id for p in plants), *(a.id for a in tasks)], seed=seed, max_mutants=max_mutants)
+            hits = {k: list(v["hit"]) for k, v in res.items()}
+            susp = {k: list(v["suspect"]) for k, v in res.items()}
+            probes = sum(r["probes"] for r in res.values())
+        else:
+            async with self._lock:
+                ctx = self.ctx_for(max_mutants, seed)
+                fs = population(theta_f, self.base)
+                hits, susp, probes = {}, {}, 0
+                for u_id, t in [*((p.id, p.task) for p in plants), *((a.id, a) for a in tasks)]:
+                    rs = await run_classes(t, fs, ctx, cache=True)
+                    probes += sum(len(r.findings) for r in rs)
+                    hits[u_id] = [r.cls for r in rs if r.applicable and r.c]
+                    susp[u_id] = [r.cls for r in rs if r.applicable and not r.c and r.suspects]
+        vs = {}
+        for p in plants:
+            own = set(hits.get(p.source_id, [])) if p.source_id in by_id else set()
+            vs[p.id] = PlantVerdict(plant_id=p.id, hit=[c for c in hits[p.id] if c not in own], suspect_only=susp[p.id])
+        alarms = {a.id: bool(hits[a.id]) for a in anchors}
+        return vs, alarms, probes
 
     async def measure(self, theta_f: Any, plant_ids: Sequence[str], anchor_ids: Sequence[str], *, max_mutants: int | None = None, seed: int | None = None) -> Measurement:
         plants = [self.pool.plants[i] for i in plant_ids]
@@ -837,7 +853,7 @@ class Loop:
         assert arm.dir is not None
         arm.dir.mkdir(parents=True, exist_ok=True)
         doc = {"round": arm.rows[-1].round if arm.rows else -1, "engine": arm.engine.state(), "sampler": arm.sampler.state(),
-               "planter_history": arm.planter_history, "by_planter": arm.pool.by_planter, "decide_sources": sorted(arm.pool.decide_sources),
+               "planter_history": arm.planter_history, "by_planter": arm.pool.by_planter, "decide_sources": sorted(arm.pool.decide_sources), "dropped": arm.pool.dropped,
                "rows": [r.model_dump(mode="json") for r in arm.rows], "stopped": arm.stopped}
         tmp = arm.dir / "state.json.tmp"
         tmp.write_text(json.dumps(doc, default=str))
@@ -858,6 +874,8 @@ class Loop:
                     arm.pool.plants.setdefault(pl.id, pl)
         arm.pool.by_planter = {k: list(v) for k, v in doc["by_planter"].items()}
         arm.pool.decide_sources = set(doc.get("decide_sources", []))
+        arm.pool.dropped = dict(doc.get("dropped", {}))
+        arm.pool.anchors = [t for t in arm.pool.anchors if t.id not in arm.pool.dropped]
         arm.engine.load_state(doc["engine"])
         arm.sampler.load(doc["sampler"])
         arm.sampler.consumed |= arm.engine.used_units
@@ -875,6 +893,9 @@ class Loop:
         return [p for p in src if doms is None or p.domain in doms]
 
     async def head_verdicts(self, arm: Arm, plants: Sequence[Plant]) -> dict[str, PlantVerdict]:
+        if arm.evaluator.shards is not None:  # the worker processes (their caches hold every unit already measured)
+            vs, _a, _p = await arm.evaluator._units(arm.store.get("F"), plants, [], arm.evaluator.ctx.max_mutants, arm.evaluator.ctx.seed)
+            return vs
         vs, _ = await verdicts(plants, population(arm.store.get("F")), arm.ctx or self.ctx)
         return vs
 
@@ -1189,7 +1210,7 @@ class Loop:
         row.library = sorted(Library.model_validate(arm.store.get("F")).ops)
         row.planters = len(arm.store.get("P")["planters"])
         allp = list(arm.pool.plants.values())
-        dev_vs, _ = await verdicts(allp, population(arm.store.get("F")), arm.ctx or self.ctx)
+        dev_vs = await self.head_verdicts(arm, allp)
         row.dev = {"recall": round(sum(1 for v in dev_vs.values() if v.hit) / max(1, len(dev_vs)), 4), "n": len(dev_vs)}
         prop = self.evidence_plants(arm) if self.cfg.update.stats.paired else allp
         hits = sum(1 for p in prop if dev_vs[p.id].hit)
@@ -1246,12 +1267,30 @@ class Loop:
                 return "futility"
         return None
 
+    async def clean_anchors(self, a: Arm) -> dict[str, list[int]]:
+        """Paired mode: an anchor must be clean at EVERY evaluator seed (the RSI-2 pilot's A/A found TWIN alarming on one
+        it_helpdesk source at seeds 3 and 6: with it as an anchor, R3's FA ≤ 0 would refuse every candidate drawn at
+        those seeds). An anchor that alarms at some seed is dropped and reported; its plants stay source-relative."""
+        seeds = sorted({a.evaluator.ctx.seed, *self.cfg.update.stats.seeds})
+        res = await asyncio.gather(*(a.evaluator._units({}, [], a.pool.anchors, a.evaluator.ctx.max_mutants, s) for s in seeds))
+        bad: dict[str, list[int]] = {}
+        for s, (_vs, alarms, _p) in zip(seeds, res, strict=True):
+            for aid, on in alarms.items():
+                if on:
+                    bad.setdefault(aid, []).append(s)
+        if bad:
+            a.pool.anchors = [t for t in a.pool.anchors if t.id not in bad]
+            a.pool.dropped.update({k: [f"alarms at seeds {v}"] for k, v in bad.items()})
+        return bad
+
     async def _start(self, a: Arm) -> None:
+        dropped = await self.clean_anchors(a) if self.cfg.update.stats.paired else {}
         await a.engine.calibrate(0)
         r0 = RoundRow(arm=a.name, round=0, library=[], planters=1)
         await self._report(a, r0)
         r0.info = {"noise_floor": a.engine.floor.model_dump(mode="json") if a.engine.floor else None, "mu": self.mu,
-                   "decide_sources": sorted(a.pool.decide_sources), "decide_units": len(a.pool.decide_ids())}
+                   "decide_sources": sorted(a.pool.decide_sources), "decide_units": len(a.pool.decide_ids()), "anchors_dropped": dropped,
+                   "anchors": len(a.pool.anchors)}
         a.rows.append(r0)
         self.save_state(a)
 

@@ -355,6 +355,35 @@ def power_table(counts: dict[str, int], *, gains: Sequence[float] = (0.1, 0.2, 0
     return rows
 
 
+def betting_power(n: int, gain: float, *, m0: float, alpha: float, flip: float = 0.0, c: float = 0.75, sims: int = 2000, seed: int = 0) -> float:
+    """Simulated power of R2's betting test on n paired units: each unit gains (D = 1) with probability ``gain``,
+    and seed noise makes a unit disagree with probability ``flip`` per side (D = ±1 at random), else D = 0."""
+    rng = random.Random(f"bpow/{seed}/{n}/{gain}/{m0}/{alpha}/{flip}")
+    hits = 0
+    for _ in range(sims):
+        d = []
+        for _ in range(n):
+            u = rng.random()
+            if u < gain:
+                d.append(1.0)
+            elif u < gain + flip:
+                d.append(1.0 if rng.random() < 0.5 else -1.0)
+            else:
+                d.append(0.0)
+        hits += betting_test(d, m0, alpha, c=c).reject
+    return hits / sims
+
+
+def betting_mde(n: int, *, m0: float, alpha: float, flip: float = 0.0, power: float = 0.8, step: float = 0.01, sims: int = 600) -> float | None:
+    """The smallest paired gain R2 detects with the given power on n units (grid search over ``betting_power``)."""
+    g = max(step, m0 + step)
+    while g <= 1.0:
+        if betting_power(n, g, m0=m0, alpha=alpha, flip=flip, sims=sims) >= power:
+            return round(g, 4)
+        g += step
+    return None
+
+
 # ---------------------------------------------------------------------------------------------------------- reusable holdout
 
 
