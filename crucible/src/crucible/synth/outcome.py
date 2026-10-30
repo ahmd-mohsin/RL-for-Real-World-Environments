@@ -261,6 +261,11 @@ async def classify(task: Task, rollout: Rollout, ctx: FalsifyContext, tev: TaskE
         if verdict.decision == "abstain":
             return rec("uncertain", f"{cause}; panel abstained", "panel")
         valid = verdict.decision == "valid"
+        if rollout.passed and valid and tev.leaked:
+            # the panel judges the attempt against the instruction it was given; an instruction that gives the decision away
+            # makes the shortcut a valid attempt (fixture D7: both members said valid at confidence ≥ 0.99), so a valid
+            # verdict cannot clear a task-level leak
+            return rec("uncertain", f"{cause}; panel: valid attempt, but the panel cannot judge a leak in the instruction", "panel")
         if rollout.passed:
             return rec("intended_pass" if valid else "unintended_pass", f"{cause}; panel: {'valid' if valid else 'invalid'} attempt", "panel")
         return rec("unintended_fail" if valid else "intended_fail", f"{cause}; panel: {'valid attempt the grader rejected' if valid else 'invalid attempt'}",
@@ -269,8 +274,6 @@ async def classify(task: Task, rollout: Rollout, ctx: FalsifyContext, tev: TaskE
     if rollout.passed:
         if not writes and tev.oracle_write_tools:
             return rec("unintended_pass", "vacuous: passed without a successful write while π* writes")
-        if tev.leaked and skipped:
-            return rec("unintended_pass", f"leak: the instruction states derived value(s) {tev.leaked[:3]} and the evidence {skipped} was never read")
         if unsourced:
             return rec("unintended_pass", f"leak: wrote constrained value(s) {[u['value'] for u in unsourced][:3]} it never observed")
         if other_tools and not (set(tev.oracle_write_tools) & {c.tool for c in writes}):
@@ -290,7 +293,10 @@ async def classify(task: Task, rollout: Rollout, ctx: FalsifyContext, tev: TaskE
                 return rec("unintended_pass", f"lax value: answer {rollout.answer!r} is not π*'s {oracle.answer!r} (D3 confirmed on the task)")
             return await residue(f"answer {rollout.answer!r} differs from π*'s {oracle.answer!r} yet passed")
         if skipped:
-            return await residue(f"passed without reading {skipped}, which π* reads as evidence")
+            # not decisive alone (pilot finding: π* reads the PO and receipts on a duplicate rejection, where they decide
+            # nothing; TAINT's D7 also fires on "duplicates" as a verb): the residue, with the leak noted when TAINT saw one
+            leak = f"; TAINT D7: the instruction states {tev.leaked[:3]}" if tev.leaked else ""
+            return await residue(f"passed without reading {skipped}, which π* reads as evidence{leak}")
         return rec("intended_pass", "the derived values were observed before they were written, and the effects are π*'s")
     # ---- failures
     att = await attribute(task, rollout, ctx, cell=cell, student=student, checkpoint=checkpoint, budget_calls=budget_calls)
@@ -306,7 +312,9 @@ async def classify(task: Task, rollout: Rollout, ctx: FalsifyContext, tev: TaskE
     if codes and codes <= {"ANSWER"} and _loose_answer(rollout.answer, oracle.answer):
         return rec("unintended_fail", f"over-strict: answer {rollout.answer!r} equals π*'s {oracle.answer!r} up to format")
     pats = att.patterns or [x.split(":", 1)[1] for x in rollout.reasons if x.startswith("MISSING_REQUIRED:")]
-    related = [u for u in tev.unsourced if _relates(u, task, oracle, pats)]
+    failed_q = {x.split(":", 1)[1] for x in rollout.reasons if x.startswith("ANSWER:")}
+    q_consts = [q.value for q in task.contract.answer if q.id in failed_q and q.value is not None]
+    related = [u for u in tev.unsourced if _relates(u, task, oracle, pats) or any(_loose_eq(u, c) or u == c for c in q_consts)]
     if related:
         return rec("unintended_fail", f"hidden information: {related[:3]} (TAINT D5) is needed by failing pattern(s) {pats[:3]}")
     if tev.unsourced:

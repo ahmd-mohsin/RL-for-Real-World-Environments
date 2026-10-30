@@ -33,6 +33,11 @@ async def _label(mk: Any, plan: Any, **kw: Any) -> Any:
 @pytest.mark.parametrize(("name", "mk", "plan", "want"), CASES, ids=[c[0] for c in CASES])
 def test_known_label_cases(name: str, mk: Any, plan: Any, want: str) -> None:
     r = run(_label(mk, plan))
+    if name.startswith("D7"):  # a leaked derive value with the evidence unread is not decisive alone: the panel's residue
+        assert r.label == "uncertain" and "TAINT D7" in r.cause, (name, r.cause)
+        judged = run(_label(mk, plan, panel=_panel(False)))
+        assert judged.label == want and judged.decided_by == "panel"
+        return
     assert r.label == want, (name, r.cause, r.evidence)
 
 

@@ -411,7 +411,12 @@ def cmd_frontier(a: argparse.Namespace, data_root: Callable[[argparse.Namespace]
         return atts
 
     atts = asyncio.run(go())
-    reqs = requests_from(atts, recs, min_traces=a.min_traces)
+    gaps = None
+    if a.outcomes:  # only the rollouts the outcome classifier called a genuine skill gap become targets
+        oc = json.loads(Path(a.outcomes).read_text())
+        gaps = {(r["task_id"], int(r["version"]), r["student"], int(r["rollout"])) for r in oc["records"] if r["label"] == "intended_fail"}
+        out["skill_gap_rollouts"] = len(gaps)
+    reqs = requests_from(atts, recs, min_traces=a.min_traces, skill_gaps=gaps)
     pool = [PoolEntry(task_id=i.task.id, cell=assign_cell(i.task, grid, recorded=i.cell) or "") for i in items.values() if i.status != "rejected"]
     cands = [PoolEntry(task_id=f"{r.id}#{j}", cell=r.cell, targeted=True, request=r.id) for r in reqs for j in range(a.per_request)]
     admitted, refused, r4 = admit(pool, cands, FrontierPolicy(kappa=a.kappa))
@@ -539,6 +544,31 @@ def cmd_frontier_round(a: argparse.Namespace, data_root: Callable[[argparse.Name
 # ---------------------------------------------------------------------------------------------------------- outcome
 
 
+async def _panel_for(a: argparse.Namespace, root: Path, d: Path, tasks: list[Any], out: dict[str, Any]) -> tuple[Any, Any]:
+    """The swarm panel (Nemotron-Ultra + gpt-oss: families that built nothing and are not the student's) with λ from
+    executed-truth anchors on ``tasks``: π*'s own trace is valid, doing nothing is not."""
+    from crucible.factory.synth_wire import SynthWire
+    from crucible.synth.falsify import FalsifyContext
+    from crucible.synth.falsify.agents import Anchor, Attempt, Panel, PanelMember, calibrate, trace_view
+    from crucible.synth.falsify.base import empty_run
+
+    wire = SynthWire(d, cap_usd=_cap(a, root))
+    panel = Panel(members=[PanelMember(f"panel-{c.family}", c) for c in wire.clients("panel")], lam=0.7, queue=d / "human_queue.jsonl")
+    ctx = FalsifyContext()
+    anchors = []
+    try:
+        for t in tasks[: a.anchors]:
+            o = await ctx.oracle(t)
+            anchors.append(Anchor(task=t, attempt=Attempt(trace=trace_view(o.calls), answer=o.answer), valid=True, kind="oracle"))
+            v = ctx.grade(empty_run(o.start, t.instruction), t.contract)
+            anchors.append(Anchor(task=t, attempt=Attempt(trace=[], answer=None, reasons=v.reasons), valid=False, kind="noop"))
+    finally:
+        await ctx.close()
+    cal = await calibrate(panel, anchors, floor=0.7)
+    out["panel_calibration"] = cal.model_dump(mode="json")
+    return wire, panel
+
+
 def cmd_outcome(a: argparse.Namespace, data_root: Callable[[argparse.Namespace], Path]) -> None:
     """The student-probe outcome classifier: ``--calibrate`` on the known-label fixture cases; else every stored rollout
     of the pool's tasks, with the calibrated swarm panel deciding the residue when ``--panel``."""
@@ -554,9 +584,16 @@ def cmd_outcome(a: argparse.Namespace, data_root: Callable[[argparse.Namespace],
         here = Path(__file__).resolve().parents[1]
         if str(here) not in sys.path:
             sys.path.insert(0, str(here))
+        from tests.unit import synth_fixtures as fx
         from tests.unit.synth_outcome_cases import CASES, rollout_for
 
+        wire_c = None
+
         async def cal() -> list[dict[str, Any]]:
+            nonlocal wire_c
+            panel_c = None
+            if a.panel:
+                wire_c, panel_c = await _panel_for(a, root, d, [f() for f in fx.CORRECT.values()], out)
             rows = []
             for name, mk, plan, want in CASES:
                 t = mk()
@@ -564,45 +601,33 @@ def cmd_outcome(a: argparse.Namespace, data_root: Callable[[argparse.Namespace],
                 ctx = FalsifyContext()
                 try:
                     tev = await task_evidence(t, ctx, mut=True)
-                    r = await classify(t, ro, ctx, tev, student="scripted")
+                    r = await classify(t, ro, ctx, tev, student="scripted", panel=panel_c)
                 finally:
                     await ctx.close()
-                rows.append({"case": name, "expected": want, "got": r.label, "cause": r.cause, "passed": ro.passed})
+                rows.append({"case": name, "expected": want, "got": r.label, "cause": r.cause, "passed": ro.passed, "decided_by": r.decided_by,
+                             "panel": r.evidence.get("panel")})
             return rows
 
         rows = asyncio.run(cal())
         out["cases"] = rows
         out["confusion"] = confusion([(r["expected"], r["got"]) for r in rows])
+        out["cost"] = wire_c.cost() if wire_c is not None else None
         _jw(d / "outcome_calibration.json", out)
-        print(json.dumps(out["confusion"], indent=1))
+        print(json.dumps({"confusion": out["confusion"], "cost": out["cost"]}, indent=1))
         return
     items = {i.task.id: i for i in _pool(a, root)}
     recs = [r for r in _store(a, root).all() if r.key.task_id in items and r.source == "measured" and (not a.student or r.key.student == a.student)]
     panel = None
     wire = None
-    if a.panel:
-        from crucible.factory.synth_wire import SynthWire
-        from crucible.synth.falsify.agents import Anchor, Attempt, Panel, PanelMember, calibrate, trace_view
-
-        cap = _cap(a, root)
-        wire = SynthWire(d, cap_usd=cap)
-        panel = Panel(members=[PanelMember(f"panel-{c.family}", c) for c in wire.clients("panel")], lam=0.7, queue=d / "human_queue.jsonl")
     records = []
 
     async def go() -> None:
+        nonlocal panel, wire
         ctx = FalsifyContext()
         try:
-            if panel is not None:  # λ from executed-truth anchors: π*'s own trace is valid, doing nothing is not
-                from crucible.synth.falsify.base import empty_run
-
-                anchors = []
-                for it in list(items.values())[: a.anchors]:
-                    o = await ctx.oracle(it.task)
-                    anchors.append(Anchor(task=it.task, attempt=Attempt(trace=trace_view(o.calls), answer=o.answer), valid=True, kind="oracle"))
-                    v = ctx.grade(empty_run(o.start, it.task.instruction), it.task.contract)
-                    anchors.append(Anchor(task=it.task, attempt=Attempt(trace=[], answer=None, reasons=v.reasons), valid=False, kind="noop"))
-                cal = await calibrate(panel, anchors, floor=0.7)
-                out["panel_calibration"] = cal.model_dump(mode="json")
+            if a.panel:
+                certified = [i.task for i in items.values() if i.status in ("certified", "provisional")] or [i.task for i in items.values()]
+                wire, panel = await _panel_for(a, root, d, certified, out)
             tevs: dict[str, Any] = {}
             for r in recs:
                 it = items[r.key.task_id]
@@ -680,6 +705,7 @@ def register(sub: Any, data_root: Callable[[argparse.Namespace], Path]) -> None:
     fr.add_argument("--min-traces", type=int, default=2)
     fr.add_argument("--per-request", type=int, default=2)
     fr.add_argument("--kappa", type=float, default=0.1)
+    fr.add_argument("--outcomes", default=None, help="an outcome.json: target only the rollouts labelled intended_fail")
     fr.set_defaults(fn=lambda a: cmd_frontier(a, data_root))
 
     rd = sub.add_parser("frontier-round", help="K: one real targeted vs equal-budget untargeted batch (swarm + student on Tinker)")

@@ -79,14 +79,21 @@ def admit_pool(entries: Sequence[tuple[Task, str | None, P3Result | None, Signat
     """``perfect`` over candidates in order; each admitted task's signature joins the pool before the next is checked
     (the first of two duplicates is the novel one)."""
     pool: list[Signature] = []
+    seen: list[Signature] = []  # every earlier candidate, admitted or not: novelty of the batch itself
     out = []
+    novel_vs_seen = 0
     for task, status, p3r, sig in entries:
         v = perfect(task, pool, records, status=status, p3=p3r, signature=sig, student=student, **kw)
         out.append(v)
+        if sig is not None:
+            nk = {k: kw[k] for k in ("w", "theta", "gate") if k in kw}
+            novel_vs_seen += int(novel(sig, seen, **nk).novel)
+            seen.append(sig)
         if v.admit and sig is not None:
             pool.append(sig)
     n = len(out)
-    return out, {"candidates": n, **{k: sum(1 for v in out if getattr(v, k)) for k in ("valid", "learnable", "on_intent", "novel", "admit")}}
+    return out, {"candidates": n, **{k: sum(1 for v in out if getattr(v, k)) for k in ("valid", "learnable", "on_intent", "novel", "admit")},
+                 "novel_vs_earlier_candidates": novel_vs_seen}
 
 
 class PoolItem(CrucibleModel):

@@ -255,12 +255,17 @@ def _direction(decisions: Sequence[str | None]) -> Literal["ease", "same", "hard
     return "ease" if top == "too_hard" else "harden" if top == "too_easy" else "same"
 
 
-def requests_from(attributions: Sequence[Attribution], records: Sequence[DifficultyRecord] = (), *, min_traces: int = 2) -> list[TargetRequest]:
-    """(cell, mode) clusters of non-routed attributions → target requests (module docstring)."""
+def requests_from(attributions: Sequence[Attribution], records: Sequence[DifficultyRecord] = (), *, min_traces: int = 2,
+                  skill_gaps: set[tuple[str, int, str, int]] | None = None) -> list[TargetRequest]:
+    """(cell, mode) clusters of non-routed attributions → target requests (module docstring). ``skill_gaps``: the
+    (task, version, student, rollout) keys the outcome classifier labelled ``intended_fail``; when given, only those
+    failures are targeted (a failure the task caused is the task's repair, never a curriculum target)."""
     dec = {(r.key.task_id, r.key.student): r.decision for r in records}
     groups: dict[tuple[str, str, str], list[Attribution]] = defaultdict(list)
     for a in attributions:
         if a.kind == "passed" or a.routed or not a.mode:
+            continue
+        if skill_gaps is not None and (a.task_id, a.version, a.student, a.rollout) not in skill_gaps:
             continue
         groups[(a.student, a.cell, a.mode)].append(a)
     out = []
