@@ -181,6 +181,10 @@ class WorkspaceHarness(NativeHarness):
         write_reports(attempt.dir / "verifier", reps)
         res.grade = {**res.grade, **grade_summary(reps, f)}
         _take_findings(reps, res)  # M7 R5: the grade's flags and a policy verdict (as the native harness takes them)
+        from crucible.credit.hack_detector import patch_flags
+
+        # Part 1 §3.2 #3, V4 (2026-10-30): AlwaysEqual, an early exit, a test-runner check in the graded source; record only
+        res.flags = [*res.flags, *patch_flags(c.patch)]
         if f is not None:
             raise StageFailure(f)
         res.reward, res.gates, res.gate_kinds = reps[-1].reward, reps[-1].gate_bits(), reps[-1].gate_kinds()

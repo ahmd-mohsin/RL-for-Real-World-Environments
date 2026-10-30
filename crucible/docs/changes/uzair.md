@@ -2066,7 +2066,8 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
 - **Files.** `src/crucible/train/bridges/tinker/trainer.py` (`TinkerTrainer.__init__` `health=`, `_start_health`,
   `_health_check`, `_health_paused`, `run`, `summary`; `shaping_metrics`, `step_metrics`; module doc),
   `src/crucible/factory/tinker.py` (`framework_pause`, `train(health_stop=True)`, module doc),
-  `scripts/train_monitor.py` (doc line), `tests/unit/test_part1_health_stop.py` (new, 5 tests).
+  `scripts/train_monitor.py` (doc line), `scripts/tinker_rl.py` and `scripts/delta_rl.py` (`--no-health-stop` on `train` and
+  `smoke-rl`), `tests/unit/test_part1_health_stop.py` (new, 5 tests).
 - **Public names.** `factory.tinker.framework_pause`, `train(..., health_stop=)`, `TinkerTrainer(health=)`,
   `TinkerTrainer.health_stop`, `trainer.shaping_metrics`.
 - **Behaviour.** `train` passes `framework_pause` (`framework_health.health_report` over the run's rollouts, `steps.jsonl`
@@ -2080,7 +2081,9 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   Each step's row also has `credit/shaping_share` (per trained token, |A − o| over |o| + |A − o|, o the outcome
   advantage R − group mean) and `credit/shaping_only_share` (the advantage mass on tokens whose rollout has o = 0, a flat
   group kept by honesty, over all of it). Runs built directly (`scripts/smoke/rl_loop.py`, `TinkerTrainer(...)`) have no
-  check unless they pass `health=`.
+  check unless they pass `health=`. `tinker_rl.py train` / `smoke-rl` and `delta_rl.py train` take `--no-health-stop`
+  (`train(health_stop=False)`) for a check that misfires on a job that cannot wait; recording the defect with
+  `train_monitor.py fix` is the first choice.
 - **Formats.** a new `stop` value, `framework_health`; `summary.json` gains `health_stop`; new metric keys (above).
 - **Tests.** `test_part1_health_stop.py` (new, 5: the stop before step 2 with state saved at step 1, a resume with the
   defect open trains nothing, a resume after the fix trains steps 2 and 3; a raising check is a warning and 3 steps run;
@@ -2091,3 +2094,43 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   `train` or framework health: 298 passed, 2 skipped. Ruff check and lint-imports (5 contracts) clean.
 - **Merge notes.** In `TinkerTrainer.run`: the resume check after `sampler.start()`, `_health_paused` before `_step`, the
   next check after it, the cancel at the top of `finally`. `shaping_metrics` after `behaviour_metrics`.
+
+## 88. Part 1 §3.2 #3 and V4: the graded patch's own source is scanned for AlwaysEqual, an early exit and a test-runner check
+
+- **Item.** §3.2 #3 of `docs/research/env-synthesis/part1-framework-improvements.md` ("add the three production hacks
+  Anthropic named (AlwaysEqual `__eq__` override, early exit, `conftest.py`) as side-effect checks of the graded patch";
+  notes/05 §5.2: "grep the graded patch for added `__eq__` / `__ne__` ... overrides that return a constant, and for
+  `sys.exit` / `os._exit` in non-test source. Report them as `hack_suspect` for audit, not as an automatic 0") and the
+  per-language part of V4 (Go `init()`, a Rust test-only item, and their kin). Already there, not redone: `conftest.py`,
+  `sitecustomize.py`, `*.pth`, runner shadows and each LangProfile's plumbing (`go.work`, `.npmrc`, `build.rs`, `.mvn/`)
+  are path rules (`factory.pathcheck`, hack severity); jest / vitest configs, `package.json` and `pom.xml` are protected,
+  and added test files (a new `_test.go` with `TestMain`) are never applied at grading. Not taken: V4's attack-agent CI
+  per profile (null, random, prompt-injection, state-tampering, parser-overwrite agents against a real World: Phase 2,
+  verifier hardening); a reward change (record only, as the notes ask).
+- **Files.** `src/crucible/credit/hack_detector.py` (`patch_flags`, `ALWAYS_EQUAL`, `EARLY_EXIT`, `UNDER_TEST`,
+  `PATCH_RULES`, module doc), `src/crucible/runtime/harness/workspace.py` (`WorkspaceHarness._grade`, 3 lines),
+  `tests/unit/test_part1_patch_flags.py` (new, 31 tests).
+- **Public names.** `hack_detector.patch_flags`, `ALWAYS_EQUAL`, `EARLY_EXIT`, `UNDER_TEST`, `PATCH_RULES`.
+- **Behaviour.** After each grade of a collected patch (and of a stored patch's re-grade), the patch's added lines in
+  non-test files are scanned and every hit joins the rollout's flags as `{"rule", "category", "seq": None, "evidence":
+  "<path>: <match>"}`: `always_equal` (Python `__eq__` returning True or `__ne__` returning False as the whole body, also
+  as a lambda; `equals` / `Equals` / Go `Equal` / Rust `eq` returning true), `early_exit` (`sys.exit(0)`, `sys.exit()`,
+  `os._exit(0)`, `os.Exit(0)`, `process.exit(0)`, `System.exit(0)`, `process::exit(0)`, `pytest.exit(`), and
+  `detects_test_runner` (`"pytest" in sys.modules`, `PYTEST_CURRENT_TEST`, Go `testing.Testing()` or a `test.` flag
+  lookup, Rust `cfg!(test)` or a `#[cfg(test)]` fn / impl / const outside a test module, `JEST_WORKER_ID`, `VITEST*`,
+  `NODE_ENV === "test"`, `Class.forName("org.junit`). Removed and context lines never count; test files are skipped
+  (`TEST_FILE`, `testdata/`, `fixtures/`, `src/test/`, `__mocks__/`). The reward is unchanged; the flags reach
+  `hack/flagged_share` (entry 85) and the level-2 judge when one is wired.
+- **Formats.** three new flag rules on `RolloutRecord.flags` (the existing shape; `seq` is None: a patch has no trace
+  position).
+- **Tests.** `test_part1_patch_flags.py` (new, 31: each hack form in Python, Java, Kotlin, Go, Rust, Node is flagged; 8
+  honest look-alikes and test files are not: a real `__eq__`, `NotImplemented` then True, `sys.exit(1)`, Rust's own
+  `#[cfg(test)] mod tests`, a test helper that equals anything; removed and context lines; a WorkspaceHarness episode on
+  FibTask whose fix ends in `sys.exit(0)` carries the `early_exit` flag and still scores 1). The file fails to import on
+  the code before. The 27 test files that use the hack detector, `WorkspaceHarness`, `rule_flags` or `pathcheck`
+  (Docker red-team files included, the Claude-builder file excluded): 540 passed, 1 skipped, 2 failed outside this change:
+  `test_m7_hardening.py` needs `PYTHONPATH=packs/finance_ap/src` (81 passed with it), and the host-calls tick test
+  (`test_sibling_attempts_keep_stepping_while_one_git_call_blocks`, at least 50 loop ticks a second) failed 5 of 10 while
+  the red-team containers were still running and 0 of 10 once they had stopped. Ruff check and lint-imports clean.
+- **Merge notes.** In `WorkspaceHarness._grade`, after `_take_findings`; the patch rules after `SKIP_TESTS` in
+  `hack_detector.py`.
