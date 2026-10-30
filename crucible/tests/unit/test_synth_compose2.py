@@ -273,7 +273,10 @@ async def test_per_part_repair_repairs_only_the_owner_part_and_recomposes(tmp_pa
     comp = await compose([p1, p2], certs=certs, task_id="desk-compose/c")
     await book.learn(comp.task)
     rep = await certify_composed([comp], hd_env(), rl, run_dir=tmp_path / "cert", archive_root=tmp_path / "arch", run_id="c",
-                                 cfg=RunConfig(max_rounds=2), parts={comp.task.id: [p1, p2]}, book=certs, part_runner=runner, twin=False)
+                                 # the fixture panel has too few anchors for R-panel's strict rule (it would abstain and leave the
+                                 # MUT suspects open); this test is about per-part repair, so it calibrates by the M4 rule
+                                 cfg=RunConfig(max_rounds=2, panel_rule="m4"), parts={comp.task.id: [p1, p2]}, book=certs, part_runner=runner,
+                                 twin=False)
     rec = rep.tasks[0]
     assert rec.repairs_accepted >= 1, (rec.status, rec.reasons)
     rows = [json.loads(x) for x in (tmp_path / "cert" / "tasks" / "t01" / "part_repairs.jsonl").read_text().splitlines()]

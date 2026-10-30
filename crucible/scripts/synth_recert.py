@@ -34,9 +34,9 @@ if str(HERE / "src") not in sys.path:
 if str(HERE) not in sys.path:
     sys.path.append(str(HERE))
 
-RECERT_CAP_USD = 8.0
+RECERT_CAP_USD = __import__("crucible.synth.policy", fromlist=["stage_cap"]).stage_cap("recert")  # R-budget (policy ledger)
 WORK = "recert"
-HOLDOUT = 0.2  # Part 1 V5's own share (synth.falsify.mut.HOLDOUT)
+HOLDOUT = __import__("crucible.synth.policy", fromlist=["holdout"]).holdout()  # R-holdout: h = 0.2, fixed (policy ledger)
 TRUTHS = {"finance_ap": "crucible.factory.synth_wire:finance_ap_truth"}  # executed policy truth (item 21's ORACLE)
 POOL_CHECK = "perfect/20261029-232613-perfect-check3/perfect.json"  # the learnability agent's 89-task pool (its P1-P4 verdicts)
 M4_RUNS = {"finance_ap": ["20261029-143755-smoke", "20261029-144119-smoke2", "20261029-152544-full", "20261029-160300-full2"],

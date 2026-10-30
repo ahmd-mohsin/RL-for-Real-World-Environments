@@ -107,7 +107,8 @@ class PoolItem(CrucibleModel):
 
 def load_pool(domain_dir: str | Path, *, statuses: Sequence[str] = ("certified", "provisional"), runs: Sequence[str] | None = None) -> list[PoolItem]:
     """Every task of a domain's synthesis runs with its certificate status, proposer cell and ALT history (the
-    training side only: a path under ``data/sealed`` is refused)."""
+    training side only: a path under ``data/sealed`` is refused). A certificate decided under an admission policy looser
+    than the policy ledger's R-admission-fixed (``Certificate.deviations``, DESIGN §7.7 item 24) is no pool task."""
     root = Path(domain_dir)
     if "sealed" in root.resolve().parts:
         raise ValueError(f"{root} is under a sealed root: never a training pool")
@@ -128,6 +129,8 @@ def load_pool(domain_dir: str | Path, *, statuses: Sequence[str] = ("certified",
             if not p.exists():
                 continue
             raw = json.loads(p.read_text())
+            if (raw.get("certificate") or {}).get("deviations"):
+                continue
             c = CegisReport.model_validate(raw)
             if c.task is None:
                 continue

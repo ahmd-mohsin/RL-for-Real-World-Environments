@@ -58,6 +58,7 @@ from typing import Any, ClassVar, Literal
 from crucible.synth.canon import is_number
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Finding, Label, Outcome, Probe, dedupe_programs, delta_of, entity_index, key_text, typed_like, written_entities
 from crucible.synth.iface import ToolInfo
+from crucible.synth.policy import holdout as _policy_holdout
 from crucible.synth.program import Fn, Lit, Program, Ref, Run, Step, _loose_eq
 from crucible.synth.task import Task
 
@@ -67,7 +68,8 @@ TRACE_OPS = ("InsertRead", "ExtraList", "SwapReads")
 LIST_WORDS = ("list", "search", "find", "query", "browse", "lookup")
 MAX_READ_ARGS = 4  # argument sets per read tool (one per entity class it can name)
 RANK = {"confirmed": 0, "suspect": 1, "equivalent": 2, "clean": 3}
-HOLDOUT = 0.2  # the share of each neighbourhood held out when a split is asked for (``population``)
+HOLDOUT = _policy_holdout()  # the share of each neighbourhood held out when a split is asked for (``population``): R-holdout's h = 0.2,
+# fixed by the lead (2026-10-30) and read from the policy ledger (DESIGN §7.7 item 24); never lowered
 
 
 def bucket(task_id: str, op: str, site: str) -> float:

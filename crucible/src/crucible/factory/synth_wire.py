@@ -52,6 +52,7 @@ from crucible.factory.models import (
 from crucible.synth.batch import budget_cause
 from crucible.synth.iface import CrucibleWorldAdapter
 from crucible.synth.pipeline import DomainEnv, RunRoles
+from crucible.synth.policy import stage_cap as policy_stage_cap
 from crucible.synth.roles import family_problems
 from crucible.synth.task import WorldRef
 from crucible.synth.worldroles import ALL_ROLES
@@ -127,7 +128,7 @@ WORLD_ROLE_TABLE: dict[str, tuple[str, ...]] = {
     "actor_writer": (DEEPSEEK,),
     "realism_rater": (NEMOTRON_ULTRA, GPT_OSS),
 }
-WORLDS_CAP_USD = 30.0  # World families and instances (lead, 2026-10-29): every receipt under a path carrying "worlds"
+WORLDS_CAP_USD = policy_stage_cap("worlds")  # World families and instances (lead, 2026-10-29; R-budget in the policy ledger): every receipt under a path carrying "worlds"
 
 
 def _book_roles(table: Mapping[str, Sequence[str]]) -> dict[str, str]:
@@ -385,8 +386,8 @@ class SynthWire:
                 "by_family": self.usage.by("family"), "by_model": self.usage.by("model"), "calls": len(self.usage.rows), "refused": self.meter.refused}
 
 
-RSI_CAP_USD = 40.0  # the first real RSI rounds (lead, 2026-10-29): every run of that work carries "rsi" in its run path
-YIELD_CAP_USD = 35.0  # the throughput and yield work (lead, 2026-10-29): every run under "<data root>/yield/"
+RSI_CAP_USD = policy_stage_cap("rsi")  # the first real RSI rounds (lead, 2026-10-29; R-budget): every run of that work carries "rsi" in its run path
+YIELD_CAP_USD = policy_stage_cap("yield")  # the throughput and yield work (lead, 2026-10-29; R-budget): every run under "<data root>/yield/"
 
 
 def work_spent(data_root: str | Path, tag: str = "rsi") -> float:

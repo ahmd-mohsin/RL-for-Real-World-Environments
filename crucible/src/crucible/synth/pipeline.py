@@ -43,9 +43,12 @@ from crucible.synth.canon import Normalizers, diff
 from crucible.synth.cegis import CegisReport, refine
 from crucible.synth.certificate import AdmissionPolicy
 from crucible.synth.contract import Contract, grade
-from crucible.synth.falsify import ALT, ATK, DEFECTS, DETERMINISTIC, Counterexample, FalsifyContext, MUTHeldOut, population
+from crucible.synth.falsify import ALT, ATK, DEFECTS, Counterexample, FalsifyContext, MUTHeldOut, population
 from crucible.synth.falsify.agents import Adjudicated, AgentBudget, Anchor, Attempt, Panel, PanelMember, calibrate, llm_alt, llm_atk, trace_view
 from crucible.synth.iface import SynthWorld, ToolInfo
+from crucible.synth.policy import holdout as policy_holdout
+from crucible.synth.policy import panel_calibration as policy_panel_calibration
+from crucible.synth.policy import tag as policy_tag
 from crucible.synth.program import Program, Run
 from crucible.synth.roles import (
     ABSTRACTOR,
@@ -123,7 +126,9 @@ class RunConfig:
     calib_tasks: int = 4
     show_reasons: bool = True
     max_mutants: int = 240
-    heldout_mutants: float = 0.0  # Part 1 V5: the share of each MUT neighbourhood the repairer never sees (MUT-HO at certification); 0 = off
+    # Part 1 V5: the share of each MUT neighbourhood the repairer never sees (MUT-HO at certification). R-holdout (lead,
+    # 2026-10-30; DESIGN §7.7 item 24): h = 0.2 from the policy ledger; 0 turns it off for a measurement (recorded in the config)
+    heldout_mutants: float = field(default_factory=policy_holdout)
     lemmas: tuple[str, ...] = ()  # the S component's design rules the proposer is shown (§9.5 synthesizer loop)
     writer_lemmas: tuple[str, ...] = ()  # ... and those the contract writer is shown (lemmas whose role is the writer)
     paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
@@ -136,14 +141,17 @@ class RunConfig:
     # solver harness v3 (compose-2): a progress check before finishing and a windowed history (None: the whole history)
     alt_progress: bool = False
     alt_window: int | None = None
+    # R-panel (DESIGN §7.7 item 24): "policy" calibrates with the ledger's strict rule (>= min_decided decided anchors of both
+    # truths, else lambda > 1: the panel abstains and suspects go to the human queue); "m4" is the M4 rule (measurement only)
+    panel_rule: str = "policy"
 
 
 def admission_policy() -> AdmissionPolicy:
     """§6, with ALT among the classes that must have no confirmed counterexample (a confirmed D6: a valid alternative
-    solution the contract rejects)."""
-    # compose-2: a confirmed ORACLE (a wrong reference decision) or LEAK (an L2 give-away the panel confirmed) finding
-    # rejects too; outside this list a confirmed finding of those classes did not count (a class that did not run is skipped)
-    return AdmissionPolicy(deterministic=[*DETERMINISTIC, "ALT", "ORACLE", "LEAK"])
+    solution the contract rejects). Since DESIGN §7.7 item 24 this is the policy's R-admission-fixed (``AdmissionPolicy``'s
+    defaults read it): compose-2's ORACLE (a wrong reference decision) and LEAK (an L2 give-away the panel confirmed) are
+    among the zero-confirmed classes; a class that did not run is skipped."""
+    return AdmissionPolicy()
 
 
 # ---------------------------------------------------------------------------------------------------------- records
@@ -187,6 +195,7 @@ class RunReport(CrucibleModel):
     adjudication: dict[str, Any] = Field(default_factory=dict)  # per class: PPI estimate of the share judged valid (meta.ppi)
     lemmas: list[dict[str, Any]] = Field(default_factory=list)
     stopped: str | None = None
+    policy_version: str | None = None  # the policy ledger's version the run used (DESIGN §7.7 item 24)
 
 
 def _jwrite(p: Path, obj: Any) -> None:
@@ -308,7 +317,7 @@ class Runner:
         self.env, self.roles, self.cfg, self.dir = env, roles, cfg, Path(run_dir)
         self.archive = Archive(archive_root)
         self.cost = cost or (dict)
-        self.report = RunReport(domain=env.name, run_id=run_id, started=time.time(), families=dict(families or {}),
+        self.report = RunReport(domain=env.name, run_id=run_id, started=time.time(), families=dict(families or {}), policy_version=policy_tag(),
                                 config={k: (v.__dict__ if hasattr(v, "__dict__") else v) for k, v in cfg.__dict__.items()})
         self.stop: str | None = None
         self.tools: dict[int, list[ToolInfo]] = {}
@@ -504,7 +513,8 @@ class Runner:
                 cut = [c for i, c in enumerate(r.calls) if i != writes[-1]]
                 anchors.append(Anchor(task=task, attempt=Attempt(trace=trace_view(cut), answer=r.answer, reasons=[]), valid=False, kind="minus_last_write"))
         try:
-            cal = await calibrate(self.panel, anchors, floor=self.cfg.lam)
+            kw = policy_panel_calibration() if self.cfg.panel_rule == "policy" else {}
+            cal = await calibrate(self.panel, anchors, **{**kw, "floor": max(self.cfg.lam, float(kw.get("floor", 0.0)))})
         except BudgetExceeded as e:
             self.stop = f"budget: {e}"
             return

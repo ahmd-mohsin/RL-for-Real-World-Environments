@@ -32,7 +32,7 @@ if str(HERE / "src") not in sys.path:
 if str(HERE) not in sys.path:
     sys.path.append(str(HERE))
 
-COMPOSE2_CAP_USD = 8.0
+COMPOSE2_CAP_USD = __import__("crucible.synth.policy", fromlist=["stage_cap"]).stage_cap("compose2")  # R-budget in the policy ledger (DESIGN §7.7 item 24)
 WORK = "compose2"
 MODELS = {"ultra": "NEMOTRON_ULTRA", "super": "NEMOTRON", "gptoss": "GPT_OSS", "inkling": "INKLING", "inkling-small": "INKLING_SMALL"}
 

@@ -34,8 +34,9 @@ from crucible.synth.falsify.agents import AgentBudget, llm_agent
 from crucible.synth.falsify.base import FalsifyContext
 from crucible.synth.frontier import Attribution
 from crucible.synth.learn import STUDENT, AgentStudentProbe, BandSpec, ContextPool
+from crucible.synth.policy import param as _policy_param
 
-P2_CAP_USD = 15.0  # the lead's cap for the P2/P3/P4/K pilot (2026-10-29): student rollouts and proxies together
+P2_CAP_USD = float(_policy_param("R-student-probe", "p2_cap_usd"))  # R-student-probe in the policy ledger; the lead's cap for the P2/P3/P4/K pilot (2026-10-29): student rollouts and proxies together
 WORK_TAG = "perfect"
 NEMOTRON_LIGHTNING = "tinker:nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16"
 DEFAULT_PROXY = NEMOTRON_LIGHTNING

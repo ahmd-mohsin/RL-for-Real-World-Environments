@@ -7,7 +7,7 @@ Suspects (awaiting adjudication) and equivalents are recorded beside it.
 
 A certificate is honest about its reach: it records which classes were **applicable** and why the others were not (a
 black-box World gets no frame guarantee, a World without ``perturb`` no PERT trials). Admission (``AdmissionPolicy``,
-thresholds configurable, defaults from §6):
+thresholds configurable, defaults from the policy ledger's R-admission-fixed, §6; DESIGN §7.7 item 24):
 - every deterministic class that ran has ``c_k <= max_confirmed`` (0), and so do the held-out mutants (``MUT-HO``, Part 1
   V5: mutants no repair saw; a survivor means the contract was fitted to the shown ones);
 - ``U_k <= u_max[k]`` where a bound is set (``U_MUT <= 0.05``, which needs n >= 59 mutants);
@@ -31,7 +31,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
-from crucible.synth.falsify.base import DETERMINISTIC, ClassResult
+from crucible.synth import policy as _policy
+from crucible.synth.falsify.base import ClassResult
 from crucible.synth.task import Task
 from crucible.verify.calibrate import clopper_pearson_upper
 
@@ -60,15 +61,24 @@ class ClassStat(CrucibleModel):
     defects: dict[str, int] = Field(default_factory=dict)  # defect code -> confirmed count
 
 
+def _adm(name: str) -> Any:
+    return _policy.admission_params()[name]
+
+
 class AdmissionPolicy(CrucibleModel):
-    deterministic: list[str] = Field(default_factory=lambda: list(DETERMINISTIC))
-    max_confirmed: int = 0
-    u_max: dict[str, float] = Field(default_factory=lambda: {"MUT": 0.05})
-    require_applicable: list[str] = Field(default_factory=lambda: ["MUT", "NULL", "RED", "TAINT", "REP"])
-    require_alt_pass: bool = True
-    atk_max_confirmed: int = 0
-    allow_open_suspects: bool = False
+    """Defaults are the policy's R-admission-fixed (DESIGN §7.7 item 24): the classes with the zero-confirmed rule
+    (ORACLE and LEAK included), U_MUT <= 0.05, the required classes, the ALT-pass rule. A looser setting is allowed for
+    measurement and tests, and every certificate made under it records the deviation (``Certificate.deviations``)."""
+
+    deterministic: list[str] = Field(default_factory=lambda: list(_adm("zero_confirmed_classes")))
+    max_confirmed: int = Field(default_factory=lambda: int(_adm("max_confirmed")))
+    u_max: dict[str, float] = Field(default_factory=lambda: {"MUT": float(_adm("u_max_mut"))})
+    require_applicable: list[str] = Field(default_factory=lambda: list(_adm("require_applicable")))
+    require_alt_pass: bool = Field(default_factory=lambda: bool(_adm("require_alt_pass")))
+    atk_max_confirmed: int = Field(default_factory=lambda: int(_adm("atk_max_confirmed")))
+    allow_open_suspects: bool = Field(default_factory=lambda: bool(_adm("allow_open_suspects")))
     provisional_ok: bool = True
+    scope: str = "tool_world"  # "repository": R-patch-scope's recorded exemption applies
 
 
 class Certificate(CrucibleModel):
@@ -83,6 +93,8 @@ class Certificate(CrucibleModel):
     provisional_for: list[str] = Field(default_factory=list)
     policy: AdmissionPolicy = Field(default_factory=AdmissionPolicy)
     regressions_reopened: list[str] = Field(default_factory=list)
+    policy_version: str | None = None  # the policy ledger's version this certificate was decided under (None: before item 24)
+    deviations: list[str] = Field(default_factory=list)  # where ``policy`` is looser than the policy's admission rule for its scope
 
     @property
     def certified(self) -> bool:
@@ -110,6 +122,11 @@ def class_stat(r: ClassResult) -> ClassStat:
 def certify(task: Task, results: Iterable[ClassResult], policy: AdmissionPolicy | None = None, *, reopened: Iterable[str] = ()) -> Certificate:
     pol = policy or AdmissionPolicy()
     stats = {r.cls: class_stat(r) for r in results}
+    return decide(task.id, task.version, task.digest(), stats, pol, reopened=reopened)
+
+
+def decide(task_id: str, version: int, digest: str, stats: dict[str, ClassStat], pol: AdmissionPolicy, *, reopened: Iterable[str] = ()) -> Certificate:
+    """Admission over per-class stats (``certify``'s rule; ``with_ladder`` re-decides after the ALT solver ladder)."""
     why: list[str] = []
     for k in pol.require_applicable:
         s = stats.get(k)
@@ -136,8 +153,32 @@ def certify(task: Task, results: Iterable[ClassResult], policy: AdmissionPolicy 
     if rx:
         why.append(f"archive:reopened={len(rx)}")
     status = "rejected" if why else ("provisional" if soft else "certified")
-    return Certificate(task_id=task.id, task_version=task.version, task_digest=task.digest(), classes=stats, admitted=not why, status=status,
-                       reasons=why, provisional_for=soft, policy=pol, regressions_reopened=rx)
+    return Certificate(task_id=task_id, task_version=version, task_digest=digest, classes=stats, admitted=not why, status=status,
+                       reasons=why, provisional_for=soft, policy=pol, regressions_reopened=rx, policy_version=_policy.tag(),
+                       deviations=_policy.admission_deviations(pol, pol.scope))
+
+
+def with_ladder(cert: Certificate, rows: Iterable[Any], verdicts: dict[int, bool | None] | None = None) -> Certificate:
+    """R-ALT-whole: re-decide a certificate after the ALT solver ladder (``solvers.escalate_alt``) ran on the WHOLE task.
+
+    ``rows`` are the ladder's attempts (``solvers.AttemptRow``: ``passed``, ``error``), ``verdicts`` the adjudication
+    of each failed attempt by index (True: a valid attempt the contract rejects, a confirmed D6; False: invalid; None or
+    missing: undecided, a suspect). Passes add to ALT's passes; nothing else in the certificate changes, and the
+    admission rule is the certificate's own."""
+    verdicts = verdicts or {}
+    rows = list(rows)
+    s = cert.classes.get("ALT") or ClassStat(cls="ALT")
+    valid = [(i, r) for i, r in enumerate(rows) if getattr(r, "error", None) is None]
+    passes = sum(1 for _, r in valid if r.passed)
+    d6 = sum(1 for i, r in valid if not r.passed and verdicts.get(i) is True)
+    sus = sum(1 for i, r in valid if not r.passed and verdicts.get(i) is None)
+    n, c = s.n + len(valid), s.c + d6
+    defects = dict(s.defects)
+    if d6:
+        defects["D6"] = defects.get("D6", 0) + d6
+    alt = s.model_copy(update={"applicable": True, "reason": None, "n": n, "c": c, "upper": clopper_pearson_upper(c, n, ALPHA) if n else 1.0,
+                               "passes": s.passes + passes, "suspects": s.suspects + sus, "defects": defects})
+    return decide(cert.task_id, cert.task_version, cert.task_digest, {**cert.classes, "ALT": alt}, cert.policy, reopened=cert.regressions_reopened)
 
 
 def certificate_json(c: Certificate) -> str:

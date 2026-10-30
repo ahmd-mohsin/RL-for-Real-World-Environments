@@ -86,7 +86,8 @@ def run_cap(a: argparse.Namespace, root: Path) -> float:
     return cap
 
 
-COMPOSE_CAP_USD = 10.0  # the composition work's Tinker cap (lead, 2026-10-29): every run path carries "compose"
+COMPOSE_CAP_USD = __import__("crucible.synth.policy", fromlist=["stage_cap"]).stage_cap("compose")  # the composition work's Tinker cap (lead,
+# 2026-10-29; R-budget in the policy ledger): every run path carries "compose"
 
 
 def new_run(root: Path, domain: str, tag: str) -> tuple[str, Path]:

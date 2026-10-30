@@ -25,6 +25,7 @@ no model. A pass is the trusted grader's verdict on the attempt under the task's
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import math
 import time
@@ -86,12 +87,16 @@ class AttemptRow(CrucibleModel):
 
 
 async def attempt(task: Task, cfg: SolverConfig, ctx: FalsifyContext, *, k: int, horizon: int, set_name: str,
-                  cost_of: Callable[[str], float] | None = None, log_dir: Path | None = None) -> AttemptRow:
+                  cost_of: Callable[[str], float] | None = None, log_dir: Path | None = None,
+                  sink: Callable[[Any], None] | None = None) -> AttemptRow:
+    """One attempt on the whole task. ``sink`` receives the agent's run (its trace), for adjudicating a failed attempt."""
     tag = f"ALT:{task.id}#{cfg.name}~{k}"
     turns: list[dict[str, Any]] = []
     t0 = time.time()
     before = cost_of(tag) if cost_of else 0.0
     r = await run_agent(cfg.agent(tag, horizon, log=turns.append), task, ctx)
+    if sink is not None:
+        sink(r)
     v = ctx.grade(r, task.contract)
     row = AttemptRow(task=task.id, set=set_name, config=cfg.name, family=cfg.family, harness=cfg.harness, k=k, horizon=horizon,
                      passed=bool(v.passed) and r.error is None, reasons=list(v.reasons)[:8], calls=len(r.calls),
@@ -189,4 +194,112 @@ def report_md(summary: Sequence[dict[str, Any]], title: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-__all__ = ["AttemptRow", "SolverConfig", "attempt", "evaluate", "report_md", "summarize", "wilson"]
+# ---------------------------------------------------------------------------------------------------------- the solver ladder (R-ALT-whole)
+
+@dataclass
+class LadderRung:
+    name: str
+    configs: list[str]  # names the caller's configuration map resolves (the wire knows the models)
+    per_call: float  # the call budget per oracle call (``compose.agent_budget_for``)
+
+
+def ladder_rungs() -> list[LadderRung]:
+    """R-ALT-whole's ladder, from the policy ledger (DESIGN §7.7 item 24): the stronger configurations compose-2 measured."""
+    from crucible.synth import policy
+
+    return [LadderRung(name=r["name"], configs=list(r["configs"]), per_call=float(r["per_call"])) for r in policy.param("R-ALT-whole", "ladder_rungs")]
+
+
+class LadderOutcome(CrucibleModel):
+    task: str
+    passed: bool = False
+    rung: int | None = None  # the rung that passed
+    rungs_tried: int = 0
+    rows: list[AttemptRow] = Field(default_factory=list)
+    verdicts: dict[int, bool | None] = Field(default_factory=dict)  # failed attempt index -> judged valid (D6) / invalid / undecided
+    skipped: list[str] = Field(default_factory=list)  # configurations a rung could not use, with the reason
+    reason: str = ""
+    policy_version: str = ""
+
+
+async def escalate_alt(task: Task, horizon: int, configs: dict[str, SolverConfig], *, start: int = 0, builders: Sequence[str] = (),
+                       judge: Callable[[Task, Any], Any] | None = None, budget_usd: float | None = None, max_attempts: int | None = None,
+                       cost_of: Callable[[str], float] | None = None, stop: Callable[[], bool] | None = None, out: Path | None = None,
+                       rungs: Sequence[LadderRung] | None = None) -> LadderOutcome:
+    """R-ALT-whole (lead, 2026-10-30): a task with no ALT pass climbs the solver ladder before it is rejected.
+
+    - The WHOLE task, from its instruction (``attempt`` takes the task; nothing here segments it).
+    - Rung by rung (from ``start``), every configuration of a rung at the same per-task USD budget (equal spend), each
+      attempt on its own tag (``ALT:<task>#<config>@L<rung>~<k>``), so a wire seeding by tag draws independent samples.
+    - No builder family and no student family solves (P-family); such a configuration is skipped with the reason.
+    - A failed attempt goes to ``judge`` (an adjudicator: True = a valid attempt the contract rejects, a D6) when given;
+      without one it stays undecided, so ``certificate.with_ladder`` keeps it as a suspect and nothing is admitted on it.
+    - It stops at the first rung with a pass. With none, the reason is ``ALT:no_pass after the solver ladder``: the
+      rule never changes."""
+    from crucible.synth import policy
+
+    pol_params = policy.current().rule("R-ALT-whole").params
+    budget = float(budget_usd if budget_usd is not None else pol_params["usd_per_config_task"])
+    tries = int(max_attempts if max_attempts is not None else pol_params["max_attempts"])
+    banned = set(builders) | set(policy.param("R-family", "student_families"))
+    res = LadderOutcome(task=task.id, policy_version=policy.tag())
+    ladder = list(rungs if rungs is not None else ladder_rungs())
+    runs: dict[int, Any] = {}
+    for i in range(start, len(ladder)):
+        rung = ladder[i]
+        if stop is not None and stop():
+            res.reason = "stopped before the ladder finished"
+            return res
+        use: list[SolverConfig] = []
+        for name in rung.configs:
+            cfg = configs.get(name)
+            if cfg is None:
+                res.skipped.append(f"L{i} {name}: not wired")
+            elif cfg.family in banned:
+                res.skipped.append(f"L{i} {name}: family {cfg.family} built the task or is the student's (P-family)")
+            else:
+                use.append(dataclasses.replace(cfg, name=f"{cfg.name}@L{i}", per_call=rung.per_call))
+        res.rungs_tried = i + 1
+        if not use:
+            continue
+
+        async def one(cfg: SolverConfig, i: int = i) -> list[tuple[AttemptRow, Any]]:
+            got: list[tuple[AttemptRow, Any]] = []
+            spent, k = 0.0, 0
+            ctx = FalsifyContext()
+            try:
+                while k < tries and (k == 0 or spent < budget):
+                    k += 1
+                    box: list[Any] = []
+                    row = await attempt(task, cfg, ctx, k=k, horizon=horizon, set_name=f"ladder-L{i}", cost_of=cost_of,
+                                        log_dir=out / "ladder" if out is not None else None, sink=box.append)
+                    got.append((row, box[0] if box else None))
+                    spent += row.usd
+                    if row.passed:
+                        break
+            finally:
+                await ctx.close()
+            return got
+
+        for got in await asyncio.gather(*(one(c) for c in use)):
+            for row, run in got:
+                runs[len(res.rows)] = run
+                res.rows.append(row)
+        if any(r.passed for r in res.rows):
+            res.passed, res.rung = True, i
+            break
+    if judge is not None:
+        for j, row in enumerate(res.rows):
+            if not row.passed and row.error is None and runs.get(j) is not None:
+                v = judge(task, runs[j])
+                res.verdicts[j] = (await v) if asyncio.iscoroutine(v) else v
+    if not res.passed and not res.reason:
+        res.reason = "ALT:no_pass after the solver ladder"
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"ladder-{task.id.replace('/', '_')}.json").write_text(res.model_dump_json(indent=1))
+    return res
+
+
+__all__ = ["AttemptRow", "LadderOutcome", "LadderRung", "SolverConfig", "attempt", "escalate_alt", "evaluate", "ladder_rungs", "report_md",
+           "summarize", "wilson"]

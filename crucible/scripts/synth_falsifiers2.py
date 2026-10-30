@@ -31,7 +31,7 @@ if str(HERE / "src") not in sys.path:
 if str(HERE) not in sys.path:  # the fixture domains' World factories live in tests.unit.synth_fixtures
     sys.path.append(str(HERE))
 
-CAP_USD = 15.0
+CAP_USD = __import__("crucible.synth.policy", fromlist=["stage_cap"]).stage_cap("falsifiers2")  # R-budget (policy ledger)
 WORK = "falsifiers-2"
 
 

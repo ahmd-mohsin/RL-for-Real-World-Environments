@@ -31,7 +31,7 @@ if str(HERE / "src") not in sys.path:
 if str(HERE) not in sys.path:
     sys.path.append(str(HERE))
 
-PILOT_CAP_USD = 30.0
+PILOT_CAP_USD = __import__("crucible.synth.policy", fromlist=["stage_cap"]).stage_cap("rsi2_pilot")  # R-budget (policy ledger)
 RSI1_DELTA = 0.04073400617738517  # RSI-1's between-view δ (rsi-2 evolve-e2 ledger)
 
 

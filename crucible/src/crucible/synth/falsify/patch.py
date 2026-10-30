@@ -579,7 +579,7 @@ class PatchTAINT(_PatchClass):
 # ---------------------------------------------------------------------------------------------------------- certificates
 
 PATCH_POLICY = AdmissionPolicy(deterministic=["MUT", "NULL", "RED", "TAINT", "REP"], require_applicable=["MUT", "NULL", "RED", "TAINT", "REP"],
-                               require_alt_pass=False)
+                               require_alt_pass=False, scope="repository")  # R-patch-scope: the recorded exemption (DESIGN §7.7 item 24)
 NOT_APPLICABLE = {
     "TWIN": "a symptom report names no entity to substitute: the instruction's literals are behaviour, not keys",
     "PERT": "the start tree is one mined commit; distractor entities have no meaning for test-graded code",

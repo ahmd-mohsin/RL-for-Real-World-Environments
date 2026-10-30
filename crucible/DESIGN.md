@@ -2718,6 +2718,61 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      archived trace and the instruction rule; `archive_recheck(heldout=)`; collect, archive copy, the work directory;
      both phases on scripted agents with the task never edited; on hold, outcomes and causes, never-overwritten
      certificates; the manifest's digest check; `status_h0`).
+24. **Part 2 policy as data and the lawful-remedy procedure (built 2026-10-30; `synth/policy/`; results and the paper's
+   §9.7 text `docs/research/env-synthesis/runs/policy-1.md`).** The lead's requirement: the decisions routed to the lead
+   one at a time are held by the framework as its mechanism. Each is versioned data with its rationale; code enforces it;
+   one procedure resolves new blocking conditions from stated principles; a person is asked only on four grounds.
+   - **Principles** (`policy/genesis.py`, ordered): P-valid (never relax validity or admission to raise yield),
+     P-evidence (executed first; a panel is necessary, never sufficient; uncalibrated abstains), P-more-evidence-first,
+     P-intent (skill and cell frozen except an evidence-derived RESKILL), P-no-delete, P-student (probes within caps;
+     student reward never in J), P-equal-budget, P-family, P-person (a person decides only budget beyond the Part 2 total,
+     sealed or held-out access, irreversible or external actions, principle changes), P-ledger. Each has a test over a
+     candidate remedy (`resolve.PRINCIPLE_CHECKS`).
+   - **Rules** (22 at genesis): each is (id, the condition kinds it applies to, parameters, a ladder of steps, the
+     principles it derives from, its source: the lead and date or the code it was inferred from, version, the call sites
+     that obey it). R-admission-fixed, R-holdout (h = 0.2 fixed; densify, never count held-out, never lower h),
+     R-ALT-whole (whole task; the solver ladder at equal spend with independent seeds; then reject), R-too-hard (ORACLE →
+     REPAIR → RESKILL → DESCEND (skill-preserving knobs) / ASCEND → RESERVE), R-band, R-uncertain, R-student-probe, R-panel,
+     R-oracle, R-density, R-budget (the Part 2 total 150 and nine stage caps), R-scale (10 × 10, ≥ 4 families), R-family,
+     R-equal-budget, R-rsi-power, R-reserve, R-seed, R-patch-scope (PATCH_POLICY's ALT exemption, named and scoped to
+     `repository`), R-sealed, R-irreversible, R-principles, R-default (a condition no rule names).
+   - **Closed vocabularies in code** (`policy/model.py`): 34 actions, each with a rung (evidence → repair → relabel →
+     variant → defer → escalate), declared effects and its call site; 37 validity parameters with their strict direction
+     (P-valid's data); the four escalation grounds. A rule whose ladder runs out of rung order, or names an unknown action,
+     is not a rule. **A `Remedy` that relaxes a validity parameter cannot be constructed** (`PolicyViolation`, not a
+     `ValueError`, so pydantic never hides it).
+   - **`resolve(condition) → Remedy`** (`policy/resolve.py`): the steps of the rules naming the condition's kind (else
+     R-default) plus any proposed remedies, stably sorted by rung; the first whose predicate holds on the measured facts
+     (a missing fact fails closed) and that every principle admits is returned, with every candidate passed over and why;
+     else HOLD (always lawful). Escalation only through an `escalate` step whose ground the facts bear out. Predicates are
+     data (`eq ne lt le gt ge in truthy falsy present absent`, `all`/`any`/`not`, operands a value, another fact, a rule
+     parameter or its length). `CONDITIONS` lists the 25 kinds and the facts each reads.
+   - **Ledger** (`policy/ledger.py`, `policy/ledger.jsonl` in git): append-only, sha256-chained; a version is a ledger
+     position, tag `policy-v<n>@<sha12>` (genesis `policy-v23@e2834a86285f`). Guards: a relaxation or a principle change
+     only inside a person's answer to a principle-change escalation (the lead included); the Part 2 total only by a budget
+     answer; an inferred entry may add a rule, tighten a validity parameter, or raise a stage cap within the recorded
+     remainder, never retire a rule. An escalation is a typed record (`Escalation`; `EscalationQueue` asks once) whose
+     options are ledger amendments; `PolicyLedger.answer` records the answer, "no" included, as a new version.
+   - **Wired** (no behaviour change unless stated): `AdmissionPolicy` defaults read R-admission-fixed, so a bare
+     `certify` now rejects confirmed ALT/ORACLE/LEAK too (before, only `pipeline.admission_policy()` did); `scope`;
+     `Certificate.policy_version` and `deviations` (a looser policy is recorded; `perfect.load_pool` skips deviating
+     certificates); `certificate.decide` and `with_ladder`; `RunReport.policy_version`; **`RunConfig.panel_rule =
+     "policy"`** (the pipeline's panel was calibrated by the M4 rule and decided at 0.95 when uncalibrated: now R-panel's
+     strict rule, `"m4"` for measurement); **`RunConfig.heldout_mutants` defaults to the ledger's h = 0.2** (was 0);
+     `falsify.mut.HOLDOUT`; `PATCH_POLICY.scope = "repository"`; the stage caps in `factory/synth_wire.py`,
+     `factory/synth_student_wire.py` and five scripts. **Solver ladder** (`solvers.escalate_alt`, `ladder_rungs`,
+     `LadderOutcome`): L0 gpt-oss + Super + Inkling-Small v3 at 1.5×, L1 Ultra v2 + Inkling v3, L2 3× calls; equal USD per
+     configuration and task, tag `ALT:<task>#<config>@L<k>~<j>`, builder and student families skipped, stops at the first
+     passing rung, failed attempts to the adjudicator (`with_ladder`: unjudged → suspect, valid → D6).
+   - **Wiring left for files other agents own** (exact sites in `runs/policy-1.md` §4): `meta/rsi.py` (TaskRules defaults
+     from the ledger; TaskLoop.step raises conditions and dispatches on `resolve`; `archive_recheck` default h),
+     `recert.py` (strict panel calibration at line 291; name the phase-1 deviation; `ManifestRow.policy_version`),
+     `families.py`/`worldgates.py` (N_MIN, k_min, gate conditions, the realism panel's calibration). Until then
+     conformance tests pin their constants to the ledger.
+   - **Tests**: `tests/unit/test_synth_policy.py` (a test per rule; hypothesis properties: no returned remedy relaxes
+     validity or fails a principle, escalation only on the four grounds, evidence first; the ledger's chain and guards;
+     the ladder on scripted solvers; a skipped wiring TODO naming TaskLoop's call site). One compose-2 test calibrates its
+     fixture panel with `panel_rule="m4"` (too few anchors for the strict rule; it tests per-part repair).
 
 ## 8. Layer 4: verification and isolation
 
