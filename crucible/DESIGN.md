@@ -2090,8 +2090,13 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      builder families, so ALT/ATK never run on them) and the DomainSpec's sampled cells minus those whose skill only
      uses thin tools; `usable_instances(worlds)` lists the instances whose gates all passed. `synth.py batch --world
      name=<instance dir>` and `certify --world <instance dir>` use it. The worlds wire samples with `seed_by_tag`.
-   - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`): see the run report for the numbers and every issue the
-     real calls and the gates found, with its fix.
+   - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`, $24.15 of the $30 cap): catalogue of 45 domains; 5
+     families started, 4 frozen; 20 instances, **12 usable under all seven gates** (AR collections 6, leave and absence
+     6: 2 families, so the lead's diversity target is not met); insurance fails obscurity (no list tool for claims),
+     returns fails density and obscurity, purchase requisition's data generator was never accepted. One clean family
+     pass costs about $0.8–1.6 and 40–60 min (Kimi-bound); an instance costs $0 and 0.05 s to generate, 20–70 s to gate,
+     about $0.017 to rate. The realism panel rated all 20 instances realistic, including the 8 the executed gates
+     reject: necessary, not sufficient. The run report lists every issue the real calls and the gates found, with its fix.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
