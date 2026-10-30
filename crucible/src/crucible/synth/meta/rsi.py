@@ -61,6 +61,7 @@ from crucible.synth.meta.update import (
     UpdateConfig,
     UpdateEngine,
     View,
+    entropy,
     kl,
     leakage_critic,
 )
@@ -1864,3 +1865,430 @@ class ProbeLoop:
         return {"probed": len(self.history), "counted": dict(tot), "repairs": dict(Counter(h.repair for h in self.history)),
                 "counterexamples": sum(len(h.counterexamples) for h in self.history), "suspects": sum(len(h.suspects) for h in self.history),
                 "world_fixes": len(self.world_fixes), "lemma_candidates": len(self.lemma_candidates), "drift": self.monitor.alarm()}
+
+
+# ---------------------------------------------------------------------------------------------------------- the typed per-task loop
+#
+# The lead's spec (2026-10-30): "works for all tasks" means every task gets a correct, typed decision, not that every
+# task is admitted. Per task and round:
+#
+#   precondition  ORACLE: the reference decision is checked against the World's executed rules (falsify.oracle.ORACLE)
+#                 and against independent runs (decision_disagreement). Wrong → REPAIR the oracle; disputed → HOLD for
+#                 the panel. No difficulty move is made on a task whose reference decision is wrong or disputed.
+#   REPAIR        an unintended fail or pass with executed or calibrated evidence (T1–T7 of ProbeLoop)
+#   DESCEND       intended fails, band too hard: one declared knob step easier → a NEW variant; the original is kept
+#   ASCEND        intended passes, band too easy: one declared knob step harder → a new variant
+#   KEEP          in band, valid
+#   RETIRE        no lawful move (no declared knob in the direction, a move against the lineage's direction), or
+#                 repeated refusals / the round cap without new executed information
+#   HOLD          the evidence does not decide (a disputed oracle, or most failures uncertain): nothing is edited
+#
+# Regularisers (all checked; ``TaskRules``):
+#   G1 evidence-gated edits: a REPAIR cites a counted unintended outcome; a move cites a declared knob and its direction
+#   G2 frozen intent: the variant keeps the skill and the cell, passes the P3 probes (``p3_check``); else refused
+#   G3 full re-certification under the monotone archive (``recheck``) after every edit
+#   G4 sample splitting: the rollouts that diagnosed a task never accept its edit; acceptance draws FRESH rollouts (new
+#      rollout indices, so new seeds), sequentially up to ``k_max`` (the band error at k ≤ 8 is 0.29–0.37)
+#   G5 bounded movement: one knob step per round, in its declared direction; ≤ ``max_rounds`` rounds per lineage, more
+#      only with new executed information; a lineage is never moved both up and down
+#   G6 not tuned to the student: the difficulty of a variant is also confirmed by a non-student reference (``alt_check``:
+#      an independent ALT family solves it); the drift monitor watches repaired tasks
+#   G7 pool regularisation: KL(cell histogram with the variant ‖ the pool's start histogram) ≤ κ and entropy ≥ H_min;
+#      originals are never retired by a variant
+#   G8 system-level lifts go to the update rule (R1–R10, generalisation gates); nothing here changes Θ
+#   G9 every decision is ledgered; a variant or repair is a new version, the previous one restorable
+
+TaskMove = Literal["REPAIR", "DESCEND", "ASCEND", "KEEP", "RETIRE", "HOLD"]
+RANK = {"too_easy": 0, "in_band": 1, "too_hard": 2}
+
+
+class KnobMove(CrucibleModel):
+    knob: str
+    direction: Literal["easier", "harder"]
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class Knobs(Protocol):
+    async def moves(self, task: Task, direction: Literal["easier", "harder"]) -> list[KnobMove]: ...
+
+    async def apply(self, task: Task, move: KnobMove) -> Task | None: ...
+
+
+class TaskRules(ProbeRules):
+    k_diag: int = 8
+    looks: tuple[int, ...] = (4, 8, 12, 16)  # acceptance (fresh) rollouts, sequential; the last is k_max
+    band_lo: float = 0.1
+    band_hi: float = 0.6
+    band_alpha: float = 0.1
+    max_rounds: int = 3
+    max_refusals: int = 2
+    uncertain_hold: float = 0.5  # HOLD when more than this share of the graded rollouts is uncertain
+    min_agree: int = 2  # decision_disagreement
+    kappa: float = 0.1
+    h_min: float = 0.0
+    require_alt: bool = True
+
+
+class TaskDecision(CrucibleModel):
+    task_id: str
+    version: int
+    round: int
+    move: TaskMove
+    why: list[str] = Field(default_factory=list)
+    counted: dict[str, int] = Field(default_factory=dict)
+    band: dict[str, Any] | None = None
+    oracle: dict[str, Any] = Field(default_factory=dict)
+    knob: KnobMove | None = None
+    variant_id: str | None = None
+    new_version: int | None = None
+    accepted: bool = False
+    refused_by: list[str] = Field(default_factory=list)
+    acceptance_band: dict[str, Any] | None = None
+    rollouts: dict[str, list[int]] = Field(default_factory=dict)  # diagnosis | acceptance -> rollout indices
+
+
+class Lineage(CrucibleModel):
+    root: str
+    direction: Literal["up", "down"] | None = None
+    members: list[str] = Field(default_factory=list)
+    rounds: int = 0
+    refusals: int = 0
+    status: Literal["active", "kept", "retired", "held"] = "active"
+
+
+class TaskLoop(ProbeLoop):
+    """The typed per-task loop (section comment above). ``probe`` is ``learn.StudentProbe`` (rollout index → seed);
+    ``classify`` an ``OutcomeClassifier`` (``LearnClassifier``); ``repair`` the CEGIS repairer; ``knobs`` the declared
+    difficulty knobs (``ComposeKnobs``); ``oracle`` an ``ORACLE`` with the Worlds' policy truths; ``p3_check(task)`` →
+    (on_intent, reasons) (``intent.p3``); ``alt_check(task)`` → solvable by an independent ALT family (None: unknown);
+    ``cell_of(task)`` → the task's cell."""
+
+    def __init__(self, root: Path, *, probe: Any, classify: OutcomeClassifier, repair: ProbeRepairer, replay: Replayer, recheck: Recheck, knobs: Knobs,
+                 ctx: FalsifyContext, oracle: Any = None, p3_check: Callable[[Task], Awaitable[tuple[bool | None, list[str]]]] | None = None,
+                 alt_check: Callable[[Task], Awaitable[bool | None]] | None = None, cell_of: Callable[[Task], str] | None = None, archive: Any = None,
+                 lift_lemmas: LemmaLift | None = None, rules: TaskRules | None = None, monitor: TuningMonitor | None = None):
+        self.lineages: dict[str, Lineage] = {}
+        self.of: dict[str, str] = {}  # task id -> lineage root
+        self.decisions: list[TaskDecision] = []
+        self.next_index: dict[str, int] = {}  # lineage root -> the next unused rollout index (fresh seeds)
+        self.cells0: dict[str, float] = {}
+        super().__init__(root, probe=probe, classify=classify, repair=repair, replay=replay, recheck=recheck, archive=archive, lift_lemmas=lift_lemmas,
+                         rules=rules or TaskRules(), monitor=monitor)
+        self.rules: TaskRules = self.rules if isinstance(self.rules, TaskRules) else TaskRules(**self.rules.model_dump())
+        self.knobs, self.ctx, self.oracle = knobs, ctx, oracle
+        self.p3_check, self.alt_check = p3_check, alt_check
+        self.cell_of = cell_of or (lambda t: str(t.intent.skill))
+        self.knob_calibration: list[dict[str, Any]] = []
+
+    # -- state ------------------------------------------------------------------------------------------------------
+    def _load(self) -> None:
+        super()._load()
+        p = self.root / "task_state.json"
+        if p.exists():
+            d = json.loads(p.read_text())
+            self.lineages = {k: Lineage.model_validate(v) for k, v in d.get("lineages", {}).items()}
+            self.of = dict(d.get("of", {}))
+            self.decisions = [TaskDecision.model_validate(x) for x in d.get("decisions", [])]
+            self.next_index = {k: int(v) for k, v in d.get("next_index", {}).items()}
+            self.cells0 = dict(d.get("cells0", {}))
+
+    def save(self) -> None:
+        super().save()
+        doc = {"lineages": {k: v.model_dump(mode="json") for k, v in self.lineages.items()}, "of": self.of,
+               "decisions": [x.model_dump(mode="json") for x in self.decisions], "next_index": self.next_index, "cells0": self.cells0}
+        tmp = self.root / "task_state.json.tmp"
+        tmp.write_text(json.dumps(doc, default=str))
+        tmp.replace(self.root / "task_state.json")
+
+    def add_tasks(self, tasks: Iterable[Task]) -> None:
+        for t in tasks:
+            if t.id not in self.tasks:
+                self.tasks[t.id] = t
+                self.lineages.setdefault(t.id, Lineage(root=t.id, members=[t.id]))
+                self.of.setdefault(t.id, t.id)
+                c = self.cell_of(t)
+                self.cells0[c] = self.cells0.get(c, 0.0) + 1.0
+
+    def pool_cells(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for tid, t in self.tasks.items():
+            lin = self.lineages.get(self.of.get(tid, tid))
+            if lin is not None and lin.status == "retired":
+                continue
+            c = self.cell_of(t)
+            out[c] = out.get(c, 0.0) + 1.0
+        return out
+
+    # -- rollouts and the band ----------------------------------------------------------------------------------------
+    async def _fresh(self, task: Task, n: int) -> tuple[list[Any], list[int]]:
+        """n rollouts at rollout indices this lineage never used (new seeds: the sample-splitting rule)."""
+        root = self.of.get(task.id, task.id)
+        i = self.next_index.get(root, 0)
+        rs = await self.probe.rollouts(task, n, start=i)
+        self.next_index[root] = i + n
+        return list(rs), list(range(i, i + n))
+
+    def _band(self, passes: int, n: int, *, final: bool) -> Any:
+        from crucible.synth.learn import BandSpec, decide
+
+        spec = BandSpec(lo=self.rules.band_lo, hi=self.rules.band_hi, alpha=self.rules.band_alpha, looks=tuple(self.rules.looks))
+        return decide(passes, n, spec, final=final)
+
+    async def _sequential_band(self, task: Task, start: Sequence[Any] = ()) -> tuple[Any, list[Any], list[int]]:
+        """The band on rollouts drawn in looks up to k_max (``start`` counts toward the first look)."""
+        rolls, idx = list(start), []
+        for look in self.rules.looks:
+            if len(rolls) < look:
+                more, ix = await self._fresh(task, look - len(rolls))
+                rolls += more
+                idx += ix
+            graded = [r for r in rolls if getattr(r, "passed", None) is not None]
+            res = self._band(sum(1 for r in graded if r.passed), len(graded), final=look == self.rules.looks[-1])
+            if res is not None:
+                return res, rolls, idx
+        return None, rolls, idx
+
+    # -- the precondition ------------------------------------------------------------------------------------------
+    async def _oracle(self, task: Task, fails: Sequence[ProbeOutcome]) -> dict[str, Any]:
+        from crucible.synth.falsify.base import falsify
+        from crucible.synth.falsify.oracle import decision_disagreement
+
+        out: dict[str, Any] = {"status": "unknown"}
+        if self.oracle is not None:
+            r = await falsify(task, self.oracle, self.ctx)
+            if not r.applicable:
+                out["policy"] = f"n/a: {r.reason}"
+            elif r.c:
+                out.update({"status": "wrong", "policy": "the World's rules require another decision",
+                            "counterexamples": [Counterexample.of(task, f) for f in r.confirmed]})
+                return out
+            else:
+                out.update({"status": "right", "policy": "matches the World's rules"})
+        progs = [o.program for o in fails if o.program is not None]
+        d = await decision_disagreement(task, progs, self.ctx, min_agree=self.rules.min_agree)
+        if d.disputed:
+            out.update({"status": "disputed", "dispute": d.fields})
+        return out
+
+    # -- one task ----------------------------------------------------------------------------------------------------
+    def _record(self, dec: TaskDecision) -> TaskDecision:
+        self.decisions.append(dec)
+        self.ledger.append(Decision(kind="update", round=dec.round, update_id=f"{dec.task_id}@{dec.version}:{dec.move}", component="T", evaluated=True,
+                                    accepted=dec.accepted, to_version=dec.new_version, failed=[RuleFailure(rule=x.split(":", 1)[0], detail=x) for x in dec.refused_by],
+                                    metrics={"move": dec.move, "why": dec.why[:6], "variant": dec.variant_id, "counted": dec.counted}))
+        return dec
+
+    async def _variant_checks(self, task: Task, var: Task) -> list[str]:
+        why = []
+        if var.intent.skill != task.intent.skill or self.cell_of(var) != self.cell_of(task):
+            why.append("G2: the variant changes the skill or the cell (what is taught)")
+        if self.p3_check is not None:
+            on, rs = await self.p3_check(var)
+            if on is not True:
+                why.append(f"G2: P3 probes: {'; '.join(rs)[:200] or 'not on intent'}")
+        why += [f"G3: {x}" for x in await self.recheck(var)]
+        if self.rules.require_alt:
+            ok = await self.alt_check(var) if self.alt_check is not None else None
+            if ok is not True:
+                why.append("G6: no independent (non-student, non-builder) solver solves the variant" if ok is False else "G6: the variant's solvability by an independent solver is unmeasured")
+        cells = self.pool_cells()
+        c = self.cell_of(var)
+        cells[c] = cells.get(c, 0.0) + 1.0
+        k = kl(cells, self.cells0)
+        if k > self.rules.kappa:
+            why.append(f"G7: pool cell KL {k:.3f} > kappa {self.rules.kappa}")
+        if entropy(cells) < self.rules.h_min:
+            why.append(f"G7: pool entropy {entropy(cells):.3f} < H_min {self.rules.h_min}")
+        return why
+
+    async def step(self, task: Task, round: int) -> TaskDecision:
+        rules = self.rules
+        root = self.of.get(task.id, task.id)
+        lin = self.lineages.setdefault(root, Lineage(root=root, members=[task.id]))
+        dec = TaskDecision(task_id=task.id, version=task.version, round=round, move="HOLD")
+        if lin.status in ("retired", "kept"):
+            dec.move, dec.why = ("RETIRE" if lin.status == "retired" else "KEEP"), [f"lineage already {lin.status}"]
+            return self._record(dec)
+        if lin.rounds >= rules.max_rounds:
+            lin.status = "retired"
+            dec.move, dec.why = "RETIRE", [f"G5: {lin.rounds} rounds (the cap) without a lawful decision"]
+            return self._record(dec)
+        lin.rounds += 1
+        rolls, idx = await self._fresh(task, rules.k_diag)
+        dec.rollouts["diagnosis"] = idx
+        outs = await self.classify.classify(task, rolls)
+        counted = [(o, *count_outcome(o, rules)) for o in outs]
+        dec.counted = dict(Counter(k for _, k, _ in counted))
+        dec.why += [w for _, _, w in counted if w]
+        graded = [o for o, k, _ in counted if k != "masked"]
+        unc = sum(1 for o, k, _ in counted if k in ("suspect", "unattributed_fail") and o.evidence == "none")
+        fails = [o for o, k, _ in counted if k in ("intended_fail", "unattributed_fail")]
+        orc = await self._oracle(task, fails)
+        dec.oracle = {k: v for k, v in orc.items() if k != "counterexamples"}
+        unintended = [(o, k) for o, k, _ in counted if k in ("unintended_pass", "unintended_fail")]
+        if orc["status"] == "wrong":
+            cxs = list(orc["counterexamples"])
+            if self.archive is not None:
+                self.archive.add_all(cxs)
+            return await self._repair(task, dec, counted, cxs, lin, why="ORACLE: the reference decision contradicts the World's rules")
+        if orc["status"] == "disputed":
+            dec.move, dec.why = "HOLD", [*dec.why, f"ORACLE: disputed by {orc['dispute'][0]['runs']} independent runs ({orc['dispute'][0]['address']}): panel review"]
+            lin.status = "held"
+            self.world_fixes.append({"task_id": task.id, "kind": "oracle_review", "dispute": orc["dispute"], "round": round})
+            return self._record(dec)
+        if unintended:
+            cxs = [c for o, _ in unintended if (c := probe_counterexample(task, o)) is not None]
+            if self.archive is not None and cxs:
+                self.archive.add_all(cxs)
+            return await self._repair(task, dec, counted, cxs, lin, why=f"{len(unintended)} unintended outcome(s) with evidence")
+        if graded and unc / len(graded) > rules.uncertain_hold:
+            dec.move, dec.why = "HOLD", [*dec.why, f"{unc} of {len(graded)} graded rollouts uncertain: the evidence does not decide"]
+            return self._record(dec)
+        band, _more, ix2 = await self._sequential_band(task, rolls)
+        dec.rollouts["diagnosis"] += ix2
+        dec.band = band.model_dump(mode="json") if band is not None else None
+        if band is None or band.decision == "in_band":
+            if band is not None and band.decision == "in_band":
+                lin.status = "kept"
+                dec.move, dec.accepted = "KEEP", True
+                return self._record(dec)
+            dec.move, dec.why = "HOLD", [*dec.why, "the band test did not decide at k_max"]
+            return self._record(dec)
+        direction: Literal["easier", "harder"] = "easier" if band.decision == "too_hard" else "harder"
+        move: TaskMove = "DESCEND" if direction == "easier" else "ASCEND"
+        want = "down" if direction == "easier" else "up"
+        if lin.direction is not None and lin.direction != want:
+            lin.status = "retired"
+            dec.move, dec.why = "RETIRE", [*dec.why, f"G5: the lineage moved {lin.direction}; moving {want} would oscillate"]
+            return self._record(dec)
+        if direction == "easier" and self.alt_check is not None and (await self.alt_check(task)) is False:
+            dec.why.append("too hard, and no independent solver solves the original either")
+        knobs = await self.knobs.moves(task, direction)
+        if not knobs:
+            lin.status = "retired"
+            dec.move, dec.why = "RETIRE", [*dec.why, f"no declared knob makes this task {direction}"]
+            return self._record(dec)
+        dec.move, dec.knob = move, knobs[0]
+        var = await self.knobs.apply(task, knobs[0])
+        if var is None:
+            return self._refuse(dec, lin, ["G1: the knob does not apply to this task"])
+        why = await self._variant_checks(task, var)
+        if why:
+            return self._refuse(dec, lin, why)
+        self.of.setdefault(var.id, root)  # its acceptance rollouts come from the lineage's unused indices
+        vband, _r, ix3 = await self._sequential_band(var)
+        dec.rollouts["acceptance"] = ix3
+        dec.acceptance_band = vband.model_dump(mode="json") if vband is not None else None
+        moved = vband is not None and ((RANK[vband.decision] < RANK[band.decision]) if direction == "easier" else (RANK[vband.decision] > RANK[band.decision]))
+        self.knob_calibration.append({"task": task.id, "knob": knobs[0].knob, "predicted": direction, "before": band.decision,
+                                      "after": vband.decision if vband else None, "moved": moved})
+        if not moved:
+            return self._refuse(dec, lin, [f"G4: on fresh rollouts the variant is {vband.decision if vband else 'undecided'}, not {direction} than {band.decision}"])
+        dec.accepted, dec.variant_id = True, var.id
+        lin.direction = want
+        lin.members.append(var.id)
+        self.tasks[var.id] = var  # the original stays: a harder (or easier) rung of the same lineage
+        self.of[var.id] = root
+        return self._record(dec)
+
+    def _refuse(self, dec: TaskDecision, lin: Lineage, why: list[str]) -> TaskDecision:
+        dec.refused_by = why
+        lin.refusals += 1
+        if lin.refusals >= self.rules.max_refusals:
+            lin.status = "retired"
+            dec.why.append(f"{lin.refusals} refused edits: retired")
+        return self._record(dec)
+
+    async def _repair(self, task: Task, dec: TaskDecision, counted: Sequence[tuple[ProbeOutcome, str, str | None]], cxs: list[Counterexample], lin: Lineage,
+                      *, why: str) -> TaskDecision:
+        dec.move = "REPAIR"
+        dec.why.append(why)
+        n = self.repairs.get(task.id, 0)
+        executed = any(o.evidence == "executed" for o, k, _ in counted if k.startswith("unintended")) or why.startswith("ORACLE")
+        if n >= self.rules.max_repairs or (not executed and self.judge_streak.get(task.id, 0) >= self.rules.judge_cap):
+            lin.status = "retired"
+            return self._refuse(dec, lin, [f"T6: {n} repairs, judge streak {self.judge_streak.get(task.id, 0)}"])
+        new = await self.repair(task, list(cxs))
+        if new is None:
+            return self._refuse(dec, lin, ["the repairer declined"])
+        pairs = [(o, k) for o, k, _ in counted]
+        why2 = await self.decide(task, new, pairs, cxs)
+        if self.cell_of(new) != self.cell_of(task) or new.intent.skill != task.intent.skill:
+            why2.append("G2: the repair changes the skill or the cell")
+        if self.p3_check is not None:
+            on, rs = await self.p3_check(new)
+            if on is not True:
+                why2.append(f"G2: P3 probes: {'; '.join(rs)[:200] or 'not on intent'}")
+        if why2:
+            return self._refuse(dec, lin, why2)
+        # G4: acceptance on FRESH rollouts: no unintended outcome of the same mechanism recurs
+        fresh, ix = await self._fresh(new, self.rules.looks[0])
+        dec.rollouts["acceptance"] = ix
+        fouts = await self.classify.classify(new, fresh)
+        mechs = {o.mechanism for o, k, _ in counted if k.startswith("unintended")}
+        again = [o for o in fouts if count_outcome(o, self.rules)[0].startswith("unintended") and o.mechanism in mechs]
+        if again:
+            return self._refuse(dec, lin, [f"G4: on fresh rollouts {len(again)} unintended outcome(s) of the same mechanism recur"])
+        dec.accepted, dec.new_version = True, new.version
+        self.tasks[task.id] = new
+        self.repairs[task.id] = n + 1
+        self.judge_streak[task.id] = 0 if executed else self.judge_streak.get(task.id, 0) + 1
+        nb = sum(1 for o, k, _ in counted if k != "masked")
+        graded = [r for r in fresh if getattr(r, "passed", None) is not None]
+        if nb and graded:
+            self.monitor.add(n_before=nb, passes_before=sum(1 for o, k, _ in counted if k != "masked" and o.passed),
+                             unintended_passes=sum(1 for _, k, _ in counted if k == "unintended_pass"),
+                             unintended_fails=sum(1 for _, k, _ in counted if k == "unintended_fail"), n_after=len(graded),
+                             passes_after=sum(1 for r in graded if r.passed))
+        if self.lift_lemmas is not None:
+            self.lemma_candidates += await self.lift_lemmas(task, new, list(cxs))
+        return self._record(dec)
+
+    async def run_typed_round(self, round: int, *, ids: Sequence[str] | None = None) -> list[TaskDecision]:
+        out = []
+        for i in ids or sorted(self.tasks):
+            lin = self.lineages.get(self.of.get(i, i))
+            if lin is not None and lin.status in ("retired", "kept") and ids is None:
+                continue
+            out.append(await self.step(self.tasks[i], round))
+            self.save()
+        return out
+
+    def typed_summary(self) -> dict[str, Any]:
+        return {"decisions": dict(Counter(d.move for d in self.decisions)), "accepted": dict(Counter(d.move for d in self.decisions if d.accepted)),
+                "refused_by": dict(Counter(r.split(":", 1)[0] for d in self.decisions for r in d.refused_by)),
+                "lineages": dict(Counter(lin.status for lin in self.lineages.values())), "drift": self.monitor.alarm(),
+                "knob_calibration": {"n": len(self.knob_calibration), "moved": sum(1 for k in self.knob_calibration if k["moved"])}}
+
+
+class ComposeKnobs:
+    """``Knobs`` over ``synth.compose``: ASCEND applies the first declared harder knob that moves the behaviour
+    signature (distractors, paginate; actor and derive need a writer); DESCEND steps a lineage back down: a variant made
+    by a recorded harder knob has its parent rung as the easier move (the parent must be known to ``rungs``). A plain
+    task has no declared easier knob: every compose knob is "harder" (``compose.KNOB_PREDICTED``)."""
+
+    def __init__(self, ctx: FalsifyContext, *, writer: Any = None, rungs: Mapping[str, Task] | None = None, kinds: Sequence[str] = ("distractors", "paginate")):
+        self.ctx, self.writer, self.rungs, self.kinds = ctx, writer, dict(rungs or {}), list(kinds)
+        self.parent: dict[str, str] = {}
+
+    async def moves(self, task: Task, direction: Literal["easier", "harder"]) -> list[KnobMove]:
+        if direction == "easier":
+            p = self.parent.get(task.id)
+            return [KnobMove(knob="undo", direction="easier", params={"to": p})] if p in self.rungs else []
+        return [KnobMove(knob=k, direction="harder") for k in self.kinds]
+
+    async def apply(self, task: Task, move: KnobMove) -> Task | None:
+        from crucible.synth.compose import KnobNotApplicable, KnobSpec, apply_knob, single
+
+        if move.knob == "undo":
+            return self.rungs.get(str(move.params.get("to")))
+        try:
+            v = await apply_knob(KnobSpec(kind=move.knob, params=move.params), await single(task, self.ctx), ctx=self.ctx, writer=self.writer)
+        except KnobNotApplicable:
+            return None
+        if not v.record.kept:
+            return None
+        t = v.composed.task
+        self.parent[t.id] = task.id
+        self.rungs[task.id] = task
+        return t
