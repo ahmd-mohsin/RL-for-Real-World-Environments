@@ -2068,6 +2068,18 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        every write tool refused with PERMISSION_DENIED and no reference oracle (and no task) could act. The acting user
        is now drawn among users holding one of the spec's two most-empowered roles (ranked by what they may do),
        cycled across instances; the link-following discoverability probe follows up to 200 ids per get tool.
+     - *The actor config by execution.* Ranking roles by declared permissions still picked roles that could not
+       operate a target collection (an AR collections role cannot place credit holds; cycling to the second role made a
+       leave instance an Employee). `worldgates.choose_actor`: for each spec role, a user of that role acts on a copy of
+       the instance and the reference oracles are built; the user covering the most target collections, then tools,
+       is written into the instance config (`worlds instances --pick-actor`), so regeneration reproduces it. The
+       default without it is the most-empowered role.
+     - *Density bar per collection* (the task spec's rule): every target collection ≥ K entities and written by some
+       reference oracle reaching n ≥ 59; tools below are `thin_tools` (the first bar, half of all write tools, failed
+       realistic Apps with a few rarely-applicable tools). A unique pool that runs out numbers its overflow; a
+       self-reference with no parent yet is empty; the data check samples all four profiles at their own seeds before
+       freeze; refused generators are logged (`datagen_attempts.jsonl`) and a resumed stage starts from the last problem
+       (the wire samples at a fixed seed, so an identical prompt returned the identical refused generator).
      - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
        be disputed (a procurement App spent three rounds on one).
      - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).

@@ -480,7 +480,10 @@ class _Sampler:
         used = self.used.setdefault((t, f), set())
         free = [v for v in values if v not in used]
         if not free:
-            raise DataSpecError(f"{t}.{f}: a unique pool of {len(values)} values ran out (more rows than values)")
+            n = len(used)  # pilot 1: a conditional unique reference pool ran out at the dense profile: number the overflow
+            v = f"{self.rng.choice(list(values))}-{n + 1}"
+            used.add(v)
+            return v
         v = self.rng.choice(free)
         used.add(v)
         return v

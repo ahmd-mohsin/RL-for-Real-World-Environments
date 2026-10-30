@@ -158,7 +158,17 @@ def cmd_instances(a: argparse.Namespace) -> None:
         for i in range(a.start, a.start + a.n):
             t0 = time.monotonic()
             try:
-                r = make_instance(fdir, instance_config(fdir.name, i, base_seed=a.base_seed), k_min=a.k_min)
+                cfg = instance_config(fdir.name, i, base_seed=a.base_seed)
+                r = make_instance(fdir, cfg, k_min=a.k_min)
+                if a.pick_actor:  # the acting user chosen by execution (worldgates.choose_actor), kept in the config
+                    from crucible.synth.domain import DomainSpec
+                    from crucible.synth.worldgates import choose_actor
+
+                    ch = asyncio.run(choose_actor(Path(r.dir)))
+                    acting = DomainSpec.model_validate_json((Path(r.dir) / "domain.json").read_text()).permissions.acting_param
+                    if ch.get("user") is not None and ch["user"] != r.params.get(acting):
+                        r = make_instance(fdir, cfg.model_copy(update={"params": {**cfg.params, acting: ch["user"]}}), k_min=a.k_min)
+                    (Path(r.dir) / "actor.json").write_text(json.dumps(ch, indent=1, default=str) + "\n")
                 out.append({"family": fdir.name, "instance": r.id, "rows": r.rows, "noise": r.noise, "params": r.params, "s": round(time.monotonic() - t0, 3)})
             except Exception as e:  # noqa: BLE001 - recorded per instance
                 out.append({"family": fdir.name, "index": i, "error": f"{type(e).__name__}: {str(e)[:300]}"})
@@ -335,6 +345,7 @@ def add_parser(sub: Any) -> None:
     w.add_argument("--start", type=int, default=0)
     w.add_argument("--base-seed", type=int, default=0)
     w.add_argument("--no-panel", action="store_true")
+    w.add_argument("--pick-actor", action="store_true", help="instances: choose the acting user by execution (worldgates.choose_actor)")
     w.add_argument("--only", default="")
     w.set_defaults(fn=lambda a: {"catalogue": cmd_catalogue, "build": cmd_build, "instances": cmd_instances, "calibrate": cmd_calibrate,
                                  "gate": cmd_gate, "report": cmd_report}[a.action](a))

@@ -10,7 +10,7 @@ instance in ``gates.json``. An instance failing any gate is **not used**; the re
 | ``integrity`` (realism) | ``datagen.integrity`` (types, references, declared values, dates ordered and not in the future, rules, master copies, aggregates); documents against the policy parameters; tool enums against the data | no problem |
 | ``surface`` (realism) | pagination (page 1 and 2 of a list tool), filter parameters, every write tool called with an unknown id and with an unknown enum value, the permission test | a list tool pages, a read tool filters, ≥ 80% of write tools refuse an unknown id with a coded tool error, a passing blind test expects PERMISSION_DENIED |
 | ``obscurity`` (realism) | every document read through the kit tools; every colleague asked with the fact's keywords; every read tool without required arguments paged through | every policy parameter's value is stated in a document the agent can read, every colleague fact comes back, ≥ 80% of each target collection's entities are listed by some read tool |
-| ``density`` | for each family write tool, a **reference oracle** (the tool called on instance entities with arguments taken from its blind tests, executed until it changes state), its skeleton contract, and the MUT falsifier with its effect deduplication | every target collection holds ≥ K entities, the best reference reaches n ≥ 59 distinct mutants, and at least half of the references do |
+| ``density`` | for each family write tool, a **reference oracle** (the tool called on instance entities with arguments taken from its blind tests, fixture-like rows first, executed until it changes state), its skeleton contract, and the MUT falsifier with its effect deduplication | every target collection holds ≥ K entities and is written by some reference oracle reaching n ≥ 59 distinct mutants; tools below 59 are recorded as ``thin_tools`` |
 | ``panel`` (realism) | two rater families (never a builder's) score a summary of the instance against ``RUBRIC``; λ calibrated on anchors whose truth is known (a hand-built pack is realistic; framework degradations of it are not) | both agree it is realistic and not obscure at confidence ≥ λ; disagreement or low confidence → ``human_queue.jsonl`` (not used until decided) |
 """
 
@@ -621,6 +621,61 @@ async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 2
     return out
 
 
+async def choose_actor(inst: Path) -> dict[str, Any]:
+    """The actor config by execution: for every role of the spec, a user holding it is made the acting user of a copy of
+    the instance, and the reference oracles are built (no MUT); the user whose references cover the most target
+    collections, then the most write tools, wins. Returns ``{"user", "role", "scores"}`` (the caller re-generates the
+    instance with that user in its config, so the choice is reproducible). Pilot 1: ranking roles by their declared
+    permissions picked a collections role that could not place credit holds, so a target collection had no operable tool."""
+    import shutil
+
+    spec = DomainSpec.model_validate_json((inst / "domain.json").read_text())
+    acting = spec.permissions.acting_param
+    p = next((x for x in spec.policy_params if x.name == acting), None)
+    seed = _jread(inst / "seed.json")
+    sm = schema_map(_jread(inst / "schema.json"))
+    design = _jread(inst / "design.json")
+    if p is None or p.table not in seed["tables"]:
+        return {"user": None, "scores": {}}
+    kf = sm[p.table]["key"]
+    noise = {str(n["key"]) for n in _jread(inst / "noise.json") if n["table"] == p.table and n["kind"] in ("near_duplicate", "stale")}
+    users = [r for r in seed["tables"][p.table] if str(r[kf]) not in noise]
+
+    def norm(x: Any) -> str:
+        return str(x).strip().lower().replace("_", " ")
+
+    tg = set(targets(design, _jread(inst / "schema.json")))
+    writes = {t["name"]: set(t.get("writes") or []) for t in design["tools"] if not t.get("read_only")}
+    scores: dict[str, Any] = {}
+    best: tuple[tuple[int, int], Any, str] | None = None
+    for role in spec.permissions.roles:
+        u = next((r for r in users if any(norm(v) == norm(role.role) for v in r.values() if isinstance(v, str))), None)
+        if u is None:
+            continue
+        d = inst / "work" / f"actor-{uuid.uuid4().hex[:6]}"
+        d.mkdir(parents=True, exist_ok=True)
+        for f in ("app.py", "design.json", "schema.json", "kit.json", "tests.json", "test_report.json", "noise.json", "domain.json"):
+            if (inst / f).exists():
+                shutil.copyfile(inst / f, d / f)
+        s2 = copy.deepcopy(seed)
+        for row in s2["tables"].get("policy_params", []):
+            if row.get("name") == acting:
+                row["value"] = u[kf]
+        _jwrite(d / "seed.json", s2)
+        w = SandboxWorld(d, d / "work")
+        try:
+            refs = await reference_programs(d, w, attempts=12)
+        finally:
+            await w.close()
+        ok = [r["tool"] for r in refs if r.get("program") is not None]
+        covered = {c for t in ok for c in writes.get(t, set())} & tg
+        score = (len(covered), len(ok))
+        scores[role.role] = {"user": u[kf], "covered": sorted(covered), "tools": ok}
+        if best is None or score > best[0]:
+            best = (score, u[kf], role.role)
+    return {"user": best[1] if best else None, "role": best[2] if best else None, "scores": scores}
+
+
 async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_mutants: int = 240, share: float = 0.5) -> tuple[GateResult, dict[str, bool]]:
     """The density gate (module docstring) and the replay determinism of each reference program."""
     from crucible.synth.falsify import MUT, FalsifyContext
@@ -673,10 +728,22 @@ async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_m
         reasons.append("no reference oracle could be built from the blind tests on this instance")
     elif not reached:
         reasons.append(f"no reference oracle reaches n >= {n_min} distinct mutants (best {max(ns)})")
-    elif len(reached) / max(1, len(per_tool)) < share:  # a write tool with no reference oracle counts as not reaching n (pilot 1)
-        reasons.append(f"only {len(reached)} of {len(per_tool)} write tools have a reference oracle reaching n >= {n_min} ({len(ns)} have one)")
+    # per target collection (the task spec's rule, made per collection): some reference oracle that writes it reaches n.
+    # A tool with no dense reference is "thin": recorded, so a proposer can keep tasks off it (pilot 1 first required half
+    # of all write tools, which a realistic App with a few rarely-applicable tools cannot meet)
+    writes = {t["name"]: set(t.get("writes") or []) for t in design["tools"] if not t.get("read_only")}
+    best_by_coll: dict[str, int] = {}
+    for p in per_tool:
+        for c in writes.get(p["tool"], set()):
+            if c in counts:
+                best_by_coll[c] = max(best_by_coll.get(c, 0), int(p.get("n_distinct") or 0))
+    short = {c: best_by_coll.get(c, 0) for c in counts if best_by_coll.get(c, 0) < n_min}
+    if ns and short:
+        reasons.append(f"target collections no reference oracle covers densely (best distinct n per collection): {short}")
+    thin = sorted(p["tool"] for p in per_tool if int(p.get("n_distinct") or 0) < n_min)
     det = {"targets": counts, "k_min": k_min, "n_min": n_min, "write_tools": len(per_tool), "references": len(ns), "reached": len(reached), "best": max(ns, default=0),
-           "median": statistics.median(ns) if ns else 0, "per_tool": per_tool}
+           "median": statistics.median(ns) if ns else 0, "best_by_collection": best_by_coll, "thin_tools": thin,
+           "dense_share": round(len(reached) / max(1, len(per_tool)), 3), "per_tool": per_tool}
     return GateResult(gate="density", passed=not reasons, reasons=reasons, details=det, elapsed_s=round(time.monotonic() - t0, 2)), replays
 
 
