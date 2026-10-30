@@ -1774,7 +1774,8 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      calibration, panel log, human queue, lemmas, report.json/.md, usage.jsonl, spend.jsonl); the archive is
      `<data>/synth/<domain>/archive.jsonl`.
    - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer, oracle programmer and
-     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b; ATK
+     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b (in
+     fact Ultra twice: a shared runner name, item 17; now Ultra ×2 + gpt-oss); ATK
      Nemotron-3-Super + gpt-oss-120b; panel Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi-K2.6 designs
      and codes, DeepSeek tests blind, Nemotron-Ultra approves disputes. Measured in the M4 runs: Kimi as proposer
      deliberated in plain text past 16k tokens without reaching its JSON; gpt-oss as a solver quits after one call), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
@@ -1946,6 +1947,156 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
      the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
      refused.
+16. **Part 2 World families: realistic, dense Worlds at scale (built 2026-10-29; part2-paper-core §6, §11, §12).** An
+   *environment* is a **World instance** = (World family × instance config). Claude builds the framework; every domain,
+   design, App, test, data generator, document and colleague is written by the swarm (no Qwen in any role).
+   - **`DomainSpec`** (`domain.py`): Apps (collections, tools, writes), skills, knobs (the domain's own plus the generic
+     `evidence`, `distractor`, `authority`, `scope`, which the kit and the instance generator can always realise), the
+     intent-card schema, policy parameters (typed, with ranges or choices; `acting_user_id` is a `ref` to the user
+     table), business rules, the permission model, colleagues. The cell grid is skill × knob settings; `sample_cells` is
+     a balanced seeded draw (skills round-robin, every knob value about equally often), `cell_text` is what the proposer
+     reads; `DomainEnv.cells` (pipeline, additive) carries them, and `certify --world <instance>` uses them. Loaders:
+     `finance_ap_spec()` (by hand, tools bound from the World), `spec_from_world` (a family's `domain.json`, else one
+     skill per write tool of a `worldgen` design); `generate_spec` asks the `domain_spec_writer` role (GLM) with
+     `check_spec` feedback (≥ 5 skills, ≥ 2 domain knobs, 3–12 parameters with defaults in range, permissions with a
+     user table and ≥ 2 roles, `acting_user_id` present, common practice).
+   - **Catalogue** (`catalogue.py`): the framework's seed list of 16 function areas; the `domain_cataloguer` role
+     (DeepSeek) writes the domains, a few per area, shown the catalogue so far; dedupe = keyword-token Jaccard ≥ 0.6
+     (stop words removed, light stemming, acronyms expanded: AP, AR, PO, GL, HR, CRM, KYC, ...) or same function and
+     main-record Jaccard ≥ 0.6; entries not common practice are refused; an entry's function is the area asked
+     (framework-owned); resumable per area; `pick` is round-robin over functions.
+   - **The kit** (`worldkit.py`, trusted framework code registered into every family by the sandbox child from
+     `kit.json`): `documents` + `list_documents` (paged, filtered) / `read_document` / `search_documents`;
+     `policy_params` (what the App code reads, never hard-coded; no tool: rules reach the agent through documents only);
+     `colleagues` + `list_colleagues` / `ask_colleague` (deterministic: the facts whose keywords the question contains).
+     Kit tables are in `canon()`; kit tool names are refused in designs and excluded from conformance.
+   - **Families** (`families.py`, resumable per stage in `<worlds>/<family>/state.json` with wall-clock and $ per
+     stage; `restart_from` copies the App directory aside and rebuilds from a stage): spec → design (`family_designer`,
+     Kimi, held to `REALISM_SURFACE`: a paged list tool, ≥ 2 optional filters, ≥ 3 write tools with coded errors
+     NOT_FOUND / INVALID_ARGUMENT / INVALID_STATE / PERMISSION_DENIED / CONFLICT, the acting user from the session, never
+     a tool argument) → schema (+ kit tables) → code → blind tests → `worldgen.test_and_debug` (now shared with F1:
+     code-only fixes, disputed tests dropped on a third family's approval) → data generator (`data_spec_writer`:
+     a `datagen.DataSpec`, sampled, integrity-checked, loaded and smoke-tested, problems fed back) → documents
+     (`doc_writer`, GLM: templates with `{{param}}` placeholders, every parameter stated, a `data_standards` document on
+     near-duplicates, stale records and the master source) → colleagues (`actor_writer`, DeepSeek: fact templates over
+     rows) → base instance smoke → freeze (`app/world.json`: digests of every family file). The roles that see "design"
+     (schema deriver, coder, tester, debugger, approver) are F1's, shown the design plus the policy parameters, the
+     permissions and the platform notes.
+   - **Data generator** (`datagen.py`): the family's start state as data in a closed language (seq, choice, int,
+     number uniform/normal/lognormal, bool, date relative to the World clock's today, date_offset, ref with filters,
+     ref_list, lookup = a master copy, pool, template, calc over a safe expression AST, const, list, sum/count over
+     children; `when`/`else`, `null_p`), sampled deterministically per (seed, profile). Noise planted by the framework
+     and recorded in `noise.json` (never shown to the agent): near-duplicates (one field varied: typo, suffix swap,
+     digit shift), stale clones (older dates, the spec's `stale.set` marker), conflicting master copies. `integrity`:
+     types, references, declared values, dates parse / not after today / ordered, rules on non-noise rows, master
+     copies except planted conflicts, aggregates against their children.
+   - **Instances** (`make_instance`, no model call): the family files copied and re-hashed against the frozen manifest,
+     plus `seed.json` from (seed, profile ∈ standard / dense / noisy / clean, cycled; every target collection ≥ K
+     entities, K = 40 by default), a policy variant (instance 0 the defaults, else seeded nice values in range, choices,
+     flipped booleans; the acting user a seeded eligible row), documents rendered with those values, colleagues bound to
+     seeded records; `instance.json`, `noise.json`, `world.json`, and a `worldgen_report.json` so every existing path
+     (`open_world`, `certify --world`) serves it. Targets = written collections a write tool names by key (an audit log
+     the tools only append to is not one).
+   - **Gates** (`worldgates.py`, recorded per instance in `gates.json`; an instance failing any is not used, with the
+     reasons): build (kept blind tests re-run, digests, static check + refused canaries, sandbox kind not `none`);
+     determinism (regenerated seed identical, reset twice and in a fresh child identical, reference programs replay
+     identically); integrity (the data checks, policy rows = the variant, every placeholder's value in its rendered
+     document, tool enums against same-named fields); surface (page 1 ≠ page 2 at size 2, a filtering read tool, every
+     write tool given an unknown id and an unknown enum value must refuse with a ToolError, a blind test's refusal
+     replayed on its fixture must say PERMISSION_DENIED); obscurity (every parameter value in a document read through the
+     kit, every colleague fact returned to its keywords, ≥ 80% of each target collection listed by no-argument read
+     tools, paged through); density (every target ≥ K entities; per write tool a reference oracle = its passing blind-test
+     call with fixture keys replaced by instance keys of the same table, executed until it changes state, its skeleton
+     contract, MUT with effect dedup: the best reaches n ≥ 59 distinct and at least half do); panel (`realism_rater`,
+     Nemotron-3-Ultra + gpt-oss, never a builder's family, scores R1–R5 of `RUBRIC`; both agree at confidence ≥ λ or the
+     instance goes to `human_queue.jsonl`; λ from `calibrate_panel` on anchors with known truth: the reviewed finance_ap
+     pack is realistic, its framework degradations placeholder / toy / incoherent are not).
+   - **Wire and CLI**: `WORLD_ROLE_TABLE` (merged over `SYNTH_ROLES` by the CLI; the schema deriver moves to GLM there),
+     `check_assignment` checks every role against `worldroles.ALL_ROLES`; `WORLDS_CAP_USD` = 30 over receipts whose path
+     carries "worlds", and the shared backstop is `MILESTONE_CAP_USD` from the environment when set (the Part 2 total,
+     $150, lead 2026-10-29; the module constant 60 is the M4-era default). `scripts/synth.py worlds catalogue|build|instances|calibrate|gate|report` (`scripts/synth_worlds.py`);
+     `build --parallel` runs families concurrently, the run's cap split between them.
+   - **Fixes forced by the pilot's real calls and gates** (each with a regression test):
+     - *Impersonation, twice.* Kimi's first design passed `acting_user_id` to all nine write tools of a returns App; after
+       the design check refused it, the blind tests passed it as an argument and the coder added it as a hidden
+       optional parameter (conformance compared names, flags and writes only). Now: the design check refuses any
+       acting-user argument; `worldgen.conformance` compares parameters (an extra one is refused) for every World, F1's
+       too; `check_tests` refuses an argument the design lacks; the surface gate calls every write tool with the acting
+       user as an extra argument and requires the binding error.
+     - *The sandbox broke `strptime`/`strftime`.* Their C code imports `_strptime` / `time` through the frame's
+       `__import__`, which is the child's guard, so they raised ImportError inside model code; an App's `except` made it
+       "invalid date format" and three debug rounds could not fix it. `_sandbox_child.INTERNAL_IMPORTS` admits those
+       internal modules at run time; the App's source still cannot import them (the AST check is unchanged). The M4
+       it_helpdesk World never called either.
+     - *Budgets.* F1's 20k-token coder budget does not fit a 9–14 tool App once Kimi's reasoning counts (every first
+       attempt ended at the limit): `FAMILY_APP_CODER` / `FAMILY_DEBUGGER` (64k), larger designer, data and document
+       budgets; the schema deriver moves to GLM for families (Kimi spent its 8192 tokens reasoning).
+     - *The data generator.* Rows are rejection-sampled against the table's rules (independent `used` / `entitled`
+       draws broke `used <= entitled` on a third of the rows); a lognormal spread above 3 is read as an absolute standard
+       deviation (one spec gave sd 4000 for a mean of 2500 and overflowed); any stage exception fails the stage with its
+       reason instead of crashing the family; the data writer is asked for `lookup` master copies (no family had one, so
+       no conflicting source could be planted).
+     - *Policy variants* scale the default (0.5–2×, nice values, clipped) instead of spanning the range (a 50%
+       restocking fee), and redraw until the spec's `param_constraints` hold (new field; `check_spec` checks them on the
+       defaults; the integrity gate on every variant).
+     - *Gate bugs:* list tools whose `page`/`page_size` are required were skipped by the pagination and listing probes;
+       the enum check compared one tool's `status` with every table's `status` (now only the tables the tool writes, and
+       it flags another spelling or a disjoint vocabulary); target records reachable only through links now count (two
+       hops through get tools keyed by a table's id); the permission check replays the blind test's refusal on its own
+       fixture and requires PERMISSION_DENIED in the message (any refusal counted before).
+     - *Permissions untested and unimplemented.* An AR App declared PERMISSION_DENIED on all eight write tools; no blind
+       test exercised it and the code had no check at all (none of the five families' tests covered it).
+       `check_permission_tests`: for at least half of those tools a test whose fixture sets the acting user
+       (`policy_params`) to someone without the authority must expect the refusal, so the debugger has to implement it.
+     - *Data language:* a `when`/`else` branch may be a generator (approval limits by role); a table is capped at its
+       unique pools' size (a dense profile asked 55+ customers of 55 names; `Generated.capped` records it); a `ref` filter
+       on a value the target never takes is refused with the values it can match; a refused generator gets a fresh
+       conversation with the last problem (up to `data_attempts`). The enum check fails only on another spelling of an
+       accepted value; a disjoint vocabulary is recorded (`enum_disjoint`: usually two concepts under one field name).
+       `build --redo` resets exactly the named stages.
+     - *Permission tests passed for the wrong reason.* A blind test could only say "expect error", so a NOT_FOUND
+       satisfied a permission test and the code still had no check. `ToolTestCall.error` (additive) names the code the
+       refusal must contain; the sandbox runner checks it; `check_permission_tests` counts only calls with
+       `"error": "PERMISSION_DENIED"`.
+     - *Cross-record data rules.* Every generated loss notice fell after its policy's expiry, so `open_claim` refused
+       them all. Rules, `when` and `calc` read a referenced row's field as `<ref field>.<field>` (rejection-sampled,
+       checked by `integrity`); every declared choice value occurs at least once in a table of ≥ 2× as many rows (no user
+       held the role a filter needed, so an instance could not be generated). The reference oracle tries the instance
+       rows most like the blind test's fixture row first, and the density share now counts a write tool with no
+       reference oracle as not reaching n.
+     - *The actor config acted as the wrong person.* A seeded draw made a returns instance act as a Finance Clerk, so
+       every write tool refused with PERMISSION_DENIED and no reference oracle (and no task) could act. The acting user
+       is now drawn among users holding one of the spec's two most-empowered roles (ranked by what they may do),
+       cycled across instances; the link-following discoverability probe follows up to 200 ids per get tool.
+     - *The actor config by execution.* Ranking roles by declared permissions still picked roles that could not
+       operate a target collection (an AR collections role cannot place credit holds; cycling to the second role made a
+       leave instance an Employee). `worldgates.choose_actor`: for each spec role, a user of that role acts on a copy of
+       the instance and the reference oracles are built; the user covering the most target collections, then tools,
+       is written into the instance config (`worlds instances --pick-actor`), so regeneration reproduces it. The
+       default without it is the most-empowered role.
+     - *Density bar per collection* (the task spec's rule): every target collection ≥ K entities and written by some
+       reference oracle reaching n ≥ 59; tools below are `thin_tools` (the first bar, half of all write tools, failed
+       realistic Apps with a few rarely-applicable tools). A unique pool that runs out numbers its overflow; a
+       self-reference with no parent yet is empty; the data check samples all four profiles at their own seeds before
+       freeze; refused generators are logged (`datagen_attempts.jsonl`) and a resumed stage starts from the last problem
+       (the wire samples at a fixed seed, so an identical prompt returned the identical refused generator).
+     - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
+       be disputed (a procurement App spent three rounds on one).
+     - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).
+     - *Accounting:* a stopped run loses the receipts of calls in flight; conservative estimates are booked by hand
+       (`kind: unbooked_estimate`) so the cap stays honest.
+   - **Batch runner** (item 17): `families.InstanceDomain(inst, work)` is an object with `env` and `cells` that
+     `batch.batch_domains` takes: the instance's `DomainEnv` (the DomainSpec's description, `built_by` = the family's
+     builder families, so ALT/ATK never run on them) and the DomainSpec's sampled cells minus those whose skill only
+     uses thin tools; `usable_instances(worlds)` lists the instances whose gates all passed. `synth.py batch --world
+     name=<instance dir>` and `certify --world <instance dir>` use it. The worlds wire samples with `seed_by_tag`.
+   - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`, $24.15 of the $30 cap): catalogue of 45 domains; 5
+     families started, 4 frozen; 20 instances, **12 usable under all seven gates** (AR collections 6, leave and absence
+     6: 2 families, so the lead's diversity target is not met); insurance fails obscurity (no list tool for claims),
+     returns fails density and obscurity, purchase requisition's data generator was never accepted. One clean family
+     pass costs about $0.8–1.6 and 40–60 min (Kimi-bound); an instance costs $0 and 0.05 s to generate, 20–70 s to gate,
+     about $0.017 to rate. The realism panel rated all 20 instances realistic, including the 8 the executed gates
+     reject: necessary, not sufficient. The run report lists every issue the real calls and the gates found, with its fix.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
@@ -2201,6 +2352,205 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        value) is caught by MUT but not closed by the merge;
      - TWIN suspects have no inline judge;
      - the locked-set FR/FA has not been re-measured after the TWIN changes.
+17. **Part 2 batch runner and yield (built 2026-10-29; part2-paper-core §7, §9.5 S, §13 E6).**
+   - **The batch runner** (`synth/batch.py`; CLI `synth.py batch | batch-report`). A batch runs arms side by side over a
+     cell grid (domain × World instance (start-state seed) × cell kind; `BatchDomain`; `batch_domains` adapts a
+     `DomainEnv` or any object with `env` and `cells`, the interface a DomainSpec with a cell grid has to meet). Each arm
+     (`Arm`: prompt variant and yield settings) has its own run directory, wire and hard cap, so arms compare at equal
+     spend on fresh proposals. Per arm three worker pools are pipelined through queues: propose (one proposer call = one
+     batch for one cell) → dedup → pre-filters → build (`Runner.build`: oracle executed, the `screen` hook, contract
+     writer) → panel calibration once per domain → refine (`Runner.refine_one`). The stage code is the pipeline's own;
+     the hooks added to `pipeline.Runner` are `cheap_factory`, `wrap_paid`, `screen` (a reason drops the task as
+     `filtered`, a `Task` replaces it), `agent_log` and `calibrate_panel(ready=)`; `RunConfig` gains `variant`,
+     `oracle_sees_derive`, `alt_finish_nudge`; `DomainEnv.built_by` (World-author families, excluded from ALT/ATK).
+     Every model call goes through `Resilient`: one semaphore over all arms and roles, transient errors retried with
+     exponential backoff and jitter (never a budget, JSON or leak error), latency booked per stage. `serial=True` runs the
+     same code one candidate and one call at a time, in-process, with no concurrent agents: the speed baseline.
+   - **Process parallelism** (`synth/offload.py`). `FalsifyPool` runs the deterministic classes of one task version in a
+     `spawn` worker (its own World from the `WorldRef`, its own context) and `Offloaded` hands `falsify` the worker's
+     findings as they are: the counted findings equal an in-process run's (tested; an uncounted duplicate mutant keeps
+     the worker's label), archive replay stays in-process, MUT stays `Adjudicated` in the parent. `ConcurrentAgents`
+     runs every ALT/ATK attempt at once, each on its own context (one World per context is reset before every run).
+     Measured: one deterministic round of a dense finance_ap task is about 12 s of CPU, and in yield-1 the six workers
+     were busy 11 200 s of a 2 344 s batch: the CPU falsifiers, not the model calls, bound the refine stage.
+   - **Resumable.** Candidate state `<arm>/cands/<id>.json` after every transition, proposer replies
+     `<arm>/props/<cell>-b<k>.json` before their candidates. A restart keeps finished candidates, refines built ones,
+     builds unbuilt ones, admits proposer replies whose candidates were never written, and restarts a cut-off refine
+     under a fresh attempt id `<id>~2` (the cut-off attempt's archived counterexamples stay on record and never act as
+     regressions of the new attempt). Tested: a resumed run reaches the uninterrupted run's outcomes with no new
+     proposer call.
+   - **Spend.** `SynthWire(stage_caps=)`: a `StageMeter` (a `SpendMeter`) per stage (`ROLE_STAGE`) holds every call's
+     worst case in the stage meter and the run meter and books in both; receipt rows carry `stage`, so a resumed meter
+     restarts from them. `stop_proposing_usd` is the soft limit; the proposer also pauses while more than
+     `max_backlog` candidates (default build + refine workers) wait, so in-flight work finishes inside the hard cap.
+     `YIELD_CAP_USD` = 35 over every receipt under `<data>/synth/yield/`, clipped to the milestone's 60.
+   - **Scheduling and dedup.** A cell is open below its admitted quota and its proposal maximum; the proposer takes the
+     open cell with the largest deficit after in-flight candidates at the running yield. Proposer calls in flight
+     reserve their proposals, and a call that returned nothing counts against the cell's maximum. Dedup per World
+     instance (`yieldkit.Deduper`): exact (case, spacing and punctuation folded) and near (the same entity ids and derive
+     values, or word 3-shingle Jaccard ≥ 0.8 on the same entities); the same template on another entity is not a
+     duplicate.
+   - **Metrics** (`arm_metrics`, `report_md`): the funnel proposed → unique → pre-filter pass → oracle executed →
+     contract → falsified → repaired → admitted; cost per stage and per candidate (tags; a proposer call is split over
+     its batch, untagged calls over the built candidates); admitted per USD and USD per admitted with bootstrap intervals
+     over candidates; yield with a Wilson interval; the first-round confirmed rate; oracle truth (finance_ap); the size
+     and cell of the admitted tasks (the R4 Goodhart check); per domain; and speed: wall clock, admitted per hour, wall
+     per admitted, busy time per stage, model latency per stage and the serial-equivalent time over the wall clock.
+   - **Failure analysis** (`synth/failures.py`; CLI `synth.py failures`). One row per task of a run directory: stage,
+     status, a primary reason (`PRIMARY_ORDER`), the failure mode of every adjudicated failed ALT attempt from the panel's
+     written reasons (`alt_mode`: no_action, no_write, not_found, skipped_rule, wrong_decision, incomplete, split, valid)
+     and, with `synth_wire.finance_ap_truth` (the pack's own policy decision for every invoice a contract pins), whether
+     the oracle is right.
+   - **Yield tools** (`synth/yieldkit.py`, `roles.py` v2). Pre-filters before the oracle (an id the World lacks; a derive
+     value in the instruction, TAINT's rule). The blind oracle (`oracle_sees_derive=False`) and `agreement`/`reconcile`:
+     when its decision values differ from the proposer's derive, the intent card is re-derived from the executed oracle
+     (agreeing values plus the oracle's decision values the instruction does not state; the proposer's values were
+     leak-checked before the oracle ran, so TAINT's derive check loses nothing). Prompt variants as data
+     (`roles.variant`, `VARIANTS`): `PROPOSER_V2`, `ORACLE_PROGRAMMER_V2` (rule by rule, in an `analysis` key, before the
+     program), `CONTRACT_WRITER_V2` (exact keys, narrow allowed patterns), `ALT_SOLVER_V2` (read the documents the task
+     names; a decision is a write) with `llm_agent(finish_nudge=True)` (one generic nudge when an attempt finishes with
+     no successful write). `CLARITY_CHECKER` (GLM, differs from proposer and oracle programmer): solves the task on paper
+     from what the agent sees and drops unclear or disagreeing tasks. The lemma batch (`repair_pairs`, `lemma_clusters`,
+     `lemma_leaks`; CLI `synth.py lemmas`): (counterexample, repair) pairs to the abstractor as clusters, the
+     deterministic leakage critic on its lemmas, acceptance by `meta.lemmas.lemma_acceptance` against the arm without
+     them.
+   - **Framework bugs the real runs found and fixed:**
+     1. **The ALT naming bug.** Nemotron Ultra and Super were both `alt_solver-nemotron`; ALT finds its runner by name,
+        so Ultra ran twice and Super never ran (M4, RSI-1). Names are unique, `_AgentFalsifier` refuses duplicates, and
+        `SYNTH_ROLES` says what ran: Ultra ×2 + gpt-oss (Super passed 0 of 12 correct-oracle finance_ap tasks).
+     2. **A reached cap was not a stop.** The chat engine wraps `TinkerCapReached` in `EngineCallError`; the wire took it
+        for a failed call (panel members abstained, ALT attempts failed) and the arm went on refusing calls.
+        `WireClient` and `Resilient` re-raise the budget refusal behind such an error (`batch.budget_cause`). M4 and
+        RSI-1 never reached their caps, so no earlier result is affected; yield-2's tail was (see the run report).
+     3. **A read that errors killed the oracle.** The v2 oracle reads the purchase order an invoice bills; for a
+        po_mismatch case it does not exist, and `run_problems` dropped the correct oracle as dead. Errors of read-only
+        calls are evidence now; a refused write or a reference into an errored read still is a problem.
+     4. **Calibration lost a built task**: the batch swapped `Runner.ready` while other builds appended to it.
+     5. **Unthrottled proposing** queued 30+ candidates per arm ahead of refine, so the soft limit could not act:
+        backpressure (`max_backlog`).
+     6. **A calibration deadlock in serial mode**: the paused proposer left fewer built tasks than calibration's anchors;
+        calibration now runs when nothing is being built.
+     7. **One seed for every call** (item 19's finding): the two Ultra ALT attempts were one trajectory in 120 of 216
+        pairs in yield-1/2 (both arms alike). ALT/ATK calls carry the agent's name in their tag
+        (`ALT:<task>#<agent>`) and the batch wire seeds by tag (`SynthWire(seed_by_tag=)`; `--same-seed` restores the
+        old behaviour); with seeds 27 of 79 pairs still coincide (short trajectories at temperature 0.3).
+   - **Findings** (`docs/research/env-synthesis/runs/yield-1.md`). With DeepSeek proposing, 16 of 31 stored finance_ap
+     oracles pin a decision the pack's policy does not reach (the oracle programmer copied the proposer's derive), and 14
+     of the 31 `ALT:no_pass` rejections had a wrong oracle; the blind v2 oracle is right on 29 of 31. On correct tasks
+     the solvers' weakness is real (Ultra 4 of 12). At equal caps on fresh proposals, pooled over yield-1, yield-2 (before
+     its cap) and yield-3 (seeded, item 20's falsifiers), the improved arm `a1` admits 4.36 per USD (95% 3.23–5.55)
+     against `a0`'s 2.20 (1.38–3.13), difference 2.15 (0.71–3.63); 0 of its 44 admitted tasks has a wrong finance_ap
+     oracle, against 5 of `a0`'s 23. Speed: the serial-equivalent time over the wall clock is 6.1–6.9 per arm and 11–17
+     with the arms side by side; `a1` admits 37–51 tasks per hour (70–98 s of wall clock each). The lemma batch is refused
+     by the gate (the first-round rate did not fall, J fell, spend 48% higher). The clarity self-check dropped 1 wrong
+     and 3 right oracles of 19 at about USD 0.02 a call and stays off by default (arm `a1c`).
+   - **Open (structural, reported).** A task whose oracle and ALT solvers make the same mistake is certified: six
+     admitted finance_ap tasks over yield-1–3 (5 of `a0`, 1 of `a1_lemmas`) contradict the pack's policy (compound cases where this World's own rule order decides the
+     reason code, and a tolerance edge); no falsifier class checks the reference decision against the World's rules,
+     and the panel judges only failing ALT attempts. The same wrong oracles poison calibration (oracle traces are the
+     "valid" anchors: yield-2 `a0` fell to λ = 0.95, uncalibrated).
+   - **Tests**: `tests/unit/test_synth_batch.py` (scripted roles on the fixture helpdesk World: two arms pipelined with
+     dedup and pre-filters, resume after a crash, offloaded classes equal in-process, concurrent agents, duplicate agent
+     names, the finish nudge, `Resilient` retries and bound, a wrapped cap refusal, dedup, pre-filters/agreement/
+     reconcile, the scheduler, per-candidate cost and the bootstrap, failure modes, mining a run directory, lemma
+     clusters and the critic, the blind oracle, the stage meter, unique ALT names, calibration with concurrent builds,
+     read errors in the oracle, serial mode under backpressure, two seeds for two attempts of one model).
+
+21. **Part 2 RSI statistics (built 2026-10-29; `runs/rsi-stats.md`, `runs/rsi-2-prereg.md`; part2-paper-core §9 text
+   proposed there, not yet folded in).**
+   - **Paired mode of the update rule** (`meta/update.py`, `UpdateConfig.stats = StatsConfig(paired=True)`; M3's rule is
+     unchanged when off). δ is **δ_AA**: ≥ 5 A/A replicates, the unchanged Θ against itself on one fresh view at two
+     independent evaluator seeds (`View.eval_seed`: MUT's sibling sample, NULL's random calls, TWIN, PERT),
+     δ_AA = max(2·sd, max |d̄_r|), raise-only; the between-view δ is kept as `delta_spread`. **R2** is a one-sided test
+     by betting (`meta/stats.betting_test`, Waudby-Smith & Ramdas; aGRAPA bets, c = 0.75) of E[J′ − J] ≤ δ_AA at α_t,
+     Θ and Θ′ at independent seeds; the view is evaluated in chunks of fresh units and stops on crossing 1/α_t
+     (anytime-valid) or at futility (mean gain ≤ δ_AA after `n_futility` units); unevaluated units are released.
+     R3–R7 compare Θ′ and Θ at the same seed, as M3 did; R9 is a second betting test at the same α_t. Every evaluated
+     decision reports t, α_t, the e-value, the stop, and the paired effect with bootstrap and cluster-bootstrap (by
+     source task) intervals (`stats.effect`). `UpdateConfig.disabled` switches rules off for E10 only (recorded).
+   - **Run-level error control** (`stats.AlphaSpender`): one spender per arm, online Bonferroni (α/t_max, preregistered
+     t_max; or α·6/(π²t²)); P(any non-improving update accepted in a run) ≤ Σ α_t ≤ α by the union bound, given
+     conditionally valid tests. α spends: R2/R9 (one α_t), prunes (non-inferiority, E[J′ − J] ≤ −δ_AA), the meta loop
+     (one-sided Fisher exact, only with ≥ 4 candidates a side; RSI-1's 2/2 vs 0/2 acceptances had p = 1/6). Not spent:
+     audits (protective) and planter acceptance (executed checks). A write-ahead `test` record (t, α_t, the reserved
+     units) enters the ledger before evaluation, so a crash never returns α or units.
+   - **R1-strict** (`rsi.Pool.split`, `rsi.Sampler(strict=True)`): `decide_frac` of each domain's dev source tasks
+     form the decision split; decision and prune views draw fresh units from it without replacement and each unit is
+     used by one decision; proposers, birth gates, miss clusters, planter rewards and headroom see only the proposal
+     split; calibration, A/A and audit views come from the proposal split; planter plants on decision sources join the
+     decision split. The engine refuses a view that reuses a consumed unit or leaves fewer than `n_min`.
+   - **Generalisation gate G** (`Loop(locked_gate=True)`): the locked recall gain of Θ′ over Θ through
+     `stats.Thresholdout` (threshold, Laplace noise, budget; fail closed when spent), every access logged in the arm's
+     `holdout_access.jsonl` without the held-out value; off by default. A held-out World family (`Loop(family=...)`) is
+     measured every round, report only.
+   - **Power** (`stats.mcnemar_power`, `plants_needed`, `mde`, `power_table`, `betting_power`, `betting_mde`): exact
+     one-sided conditional McNemar power by enumeration; a recall gain of 0.2 needs 33 paired plants at power 0.8
+     (MDE 0.215 at n = 30).
+   - **Headroom** (`meta/headroom.py`): the share of dev plants the population misses that some expressible operator
+     (6,206 bodies of the DSL on the random control's constants × 6 label rules) catches with no alarm on the dev
+     anchors; distinct programs per task run once and every label rule is applied to the stored outcomes (cached across
+     rounds). `EvolveConfig.planter_reward = "headroom"`: a planter joins only when its novel proposal-split plants hold
+     a miss some expressible operator catches. The P/F game's trajectory is `RoundRow.game`.
+   - **E10** (`meta/ablate.py`, `rsi.ABLATIONS`, `EvolveConfig.ablated`): R1 (one reused view), R3, R4, R5, R7, R8, NL
+     (the planter's MMD bar) removed one at a time at equal budget, ≥ 3 seeds; J, locked FR, transfer (held-out family,
+     else locked domains outside the evidence), pool class KL, plant size, MMD, library size; mean, sd, t interval and the
+     paired Δ to the full loop.
+   - **Continuous, resumable loop** (`rsi.Loop.run(resume=True)`, `StopRules`): `state.json` per arm after every round
+     (engine state, sampler bank, planter history, `plants.jsonl`), the ledger replayed for write-ahead records; stops:
+     max rounds, spend, α spent, decision split dry, futility, rollbacks, pool-KL Goodhart alarm. Arms run concurrently
+     (`make_ctx`: own Worlds), so a model-free arm's CPU work overlaps the swarm calls; the planter proposal runs
+     concurrently with the round's operator decisions. `meta/par.ShardPool`: persistent `spawn` workers, units sharded
+     by a stable hash so each shard's per-seed class cache keeps every unit it measured (`FEvaluator(shards=...)`).
+   - **The per-task probe loop** (`rsi.ProbeLoop`; lead, 2026-10-29: RSI at task-creation time, not after training).
+     The student's probe rollouts (`StudentProbe`, the learnability agent's runner) are classified (`OutcomeClassifier`,
+     `synth.outcome` through `LearnClassifier`: its `uncertain` is never a task defect, `decided_by` sets the evidence) as intended pass / intended fail / unintended pass
+     / unintended fail; executed unintended outcomes become PROBE counterexamples (the student's program with the verdict
+     the task should have given; `ProbeReplay` re-runs them in archive regressions) and drive a CEGIS repair of the task,
+     World instance or contract; lessons are lifted (archive → natural clusters → F; repair → lemma candidates; World or
+     tool bug → `world_fixes`). T1 evidence only (judged or evidence-free labels demoted; a label contradicting the grader
+     is void), T2 a repair that makes an intended or unattributed fail pass is refused (never ease a skill gap), T3 one
+     that makes an intended pass fail is refused, T4 it must close what justified it, T5 monotone archive and clean
+     deterministic classes (`archive_recheck`), T6 caps, T7 an "unsolvable as stated" fail is demoted when an ALT solver
+     of a non-student, non-builder family solved the task. No pass rate reaches a decision; `TuningMonitor` alarms on
+     re-probed pass-rate changes the fixed defects do not explain. The RL-time online monitor is not an input.
+   - **The typed per-task loop** (`rsi.TaskLoop`, a `ProbeLoop`; lead, 2026-10-30: every task gets a correct decision,
+     not every task is admitted). Per round: the **ORACLE precondition** (`falsify/oracle.py`: the `ORACLE` class
+     confirms D6 op `policy` when a World's registered policy truth calls the reference decision wrong, e.g.
+     `synth_wire.finance_ap_truth`; not applicable without a truth; `decision_disagreement`: ≥ 2 independent runs that
+     *changed* a pinned decision field to one other value dispute it), then REPAIR (wrong oracle, or a counted unintended
+     outcome), HOLD (disputed oracle → panel review; mostly uncertain rollouts; band undecided at k_max), DESCEND /
+     ASCEND (band too hard / too easy: one declared knob step → a new variant, the original kept), KEEP (in band),
+     RETIRE (no lawful knob, a move against the lineage's direction, 2 refusals, the round cap). G1 evidence-gated
+     edits, G2 frozen skill and cell plus P3 probes, G3 re-certification under the archive, G4 sample splitting (the
+     diagnosis's rollout indices never accept; acceptance draws fresh indices in looks 4/8/12/16 through `learn.decide`;
+     a repair is accepted only if the same mechanism does not recur), G5 one step, ≤ 3 rounds, a direction lock per
+     lineage, G6 an independent ALT family solves every variant, G7 the pool's cell KL and entropy, G8 lifts to the
+     update rule, G9 the ledger. `step(diagnosis=...)` reuses pre-measured rollouts. `ComposeKnobs`: ASCEND by
+     `compose.apply_knob` (distractors, paginate); DESCEND only by undoing a recorded harder knob (plain tasks have no
+     lawful easier knob: reported to the lead as a disagreement).
+   - **Tests**: `test_synth_rsi_stats.py` (betting level at the null boundary and power, bootstrap and cluster intervals,
+     A/A, spending, the run-level guarantee by simulation against an uncorrected rule, exact tests and power, Thresholdout,
+     paired engine decisions, R1-strict, state replay, gate G, the whole engine's FWER under null updates),
+     `test_synth_rsi_loop2.py` (headroom on the fixtures, the paired loop's decision split and resume, stop rules,
+     ablations, E10 over 3 seeds, the shard pool, betting power, and the probe loop with a scripted student: an
+     unintended pass archived, repaired and lifted; easing, tightening and no-op repairs refused; skill gaps and
+     unevidenced labels never repaired; World-builder fixes and caps; the drift monitor; the real `synth.outcome` classifier
+     through `LearnClassifier`), `test_synth_taskloop.py` (DESCEND on fresh rollouts keeping the original, ASCEND and the
+     direction lock, KEEP, RETIRE without a lawful knob, G2/G6/G7 refusals, REPAIR accepted only on fresh rollouts, a
+     wrong oracle repaired first and a disputed one held, uncertain evidence held, ORACLE and solver disagreement on the
+     fixture, a pre-measured diagnosis).
+   - **Measured** (`runs/rsi-stats.md` §0): δ_AA = 0.0196 on the rsi-2 dev pool (0.0327 on RSI-1's 75-unit view) against
+     RSI-1's between-view δ 0.0407; per-unit seed discordance 0.64%. RSI-1's best update (7 gains, 0 losses in 75) is
+     refused by the paired test too (e-value 4.2; the normal LCB 0.038 was an approximation). Dev headroom 7/125 (all
+     panel-only D3 `eq_to_any` gaps, every one expressible). After item 20 the locked sets are at 100% recall; five new
+     held-out D3 variants (`plant.held_out_planter_v2`) restore misses on the fixtures but not on the 7 real locked
+     sources: the locked set measures non-regression only until the 10 x 10 pool. The A/A replicates found TWIN alarming
+     on one clean it_helpdesk source at seeds 3 and 6 (fixed: per-seed anchor re-check, source-relative hits). Pilot runs
+     and costs: `runs/rsi-stats.md` §5 ($0.027 of the $30 pilot cap; 14 problems found and fixed, among them zero-gain
+     candidates spending the decision split: the paired-mode gate now requires a new proposal-split catch and refuses
+     duplicates of a candidate already tested). No update was accepted, as it must not be: the operators that close the
+     only dev gap can show 3 gains in 64 decision units, under the MDE (0.27 at n = 60, α_t = 0.005). The E10 pilot
+     (3 ablations × 3 seeds) is therefore uninformative: every Δ is 0.
 
 ## 8. Layer 4: verification and isolation
 

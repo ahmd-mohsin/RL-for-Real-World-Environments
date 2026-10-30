@@ -47,8 +47,17 @@ SAFE_BUILTINS = ("abs", "all", "any", "bool", "dict", "divmod", "enumerate", "fi
                  "True", "False", "None", "NotImplemented", "print", "__build_class__")
 
 
+# Modules the allowed stdlib imports lazily from C at run time, through the calling frame's ``__import__`` (ours):
+# ``datetime.strptime`` imports ``_strptime``, ``strftime`` imports ``time``. Without them both raise ImportError inside
+# model code, which an App's own ``except Exception`` turns into a wrong answer no debugger can fix (World-families
+# pilot 1: an insurance App's date-range figures). The App's *source* still cannot import them: the AST check uses
+# ``ALLOWED_IMPORTS`` only.
+INTERNAL_IMPORTS = frozenset({"_strptime", "time", "locale", "_locale", "calendar", "encodings", "_datetime", "_decimal", "_pydecimal", "numbers"})
+
+
 def _namespace(allowed: frozenset[str], tool_error: type) -> dict[str, Any]:
     real_import = builtins.__import__
+    allowed = allowed | INTERNAL_IMPORTS
 
     def guarded_import(name: str, globals: Any = None, locals: Any = None, fromlist: Any = (), level: int = 0) -> Any:
         if level or name.split(".")[0] not in allowed:
@@ -74,6 +83,8 @@ class Served:
         self.schema = json.load(open(os.path.join(app_dir, "schema.json")))  # noqa: SIM115
         seed_path = os.path.join(app_dir, "seed.json")
         self.seed = json.load(open(seed_path)) if os.path.exists(seed_path) else {"tables": {}}  # noqa: SIM115
+        kit_path = os.path.join(app_dir, "kit.json")  # the framework kit (worldkit): documents, policy parameters, colleagues
+        self.kit = list(json.load(open(kit_path)).get("kinds") or []) if os.path.exists(kit_path) else []  # noqa: SIM115
         self.allowed = ALLOWED_IMPORTS
         self.app_name = self.design["app"]
         self.keys = {t["name"]: (t["key"], str(t.get("fields", {}).get(t["key"], "string")).rstrip("?")) for t in self.schema["tables"]}
@@ -105,6 +116,13 @@ class Served:
         if not callable(build):
             raise ValueError("the module defines no build(app)")  # noqa: TRY004
         build(app)
+        if self.kit:
+            from crucible.synth.worldkit import KIT_NAMES, register
+
+            clash = sorted(set(app.tools) & KIT_NAMES)
+            if clash:
+                raise ValueError(f"the module defines tools the platform provides: {clash}")
+            register(app, self.kit)
         design = {t["name"]: t for t in self.design.get("tools", [])}
         for name, td in app.tools.items():
             td.fn = self._wrap(td.fn)
@@ -182,6 +200,8 @@ async def _run_test(s: Served, t: dict[str, Any]) -> dict[str, Any]:
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected success, got error {o.error}" + (f"\n{s.last_tb}" if s.last_tb else "")}
         if want == "error" and o.error is None:
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected a refusal, got {json.dumps(o.value, default=str)[:300]}"}
+        if want == "error" and c.get("error") and str(c["error"]) not in str(o.error):  # the refusal must be the one the test names
+            return {"id": tid, "passed": False, "detail": f"call {i} {tool}: expected a refusal with {c['error']}, got {o.error}"}
         if want == "error" and s.last_tb:  # a crash is not a refusal: refuse with ToolError
             return {"id": tid, "passed": False, "detail": f"call {i} {tool}: crashed instead of refusing\n{s.last_tb}"}
         if want == "ok" and c.get("result") is not None:
@@ -259,7 +279,8 @@ async def serve(args: argparse.Namespace, out: Any) -> None:
                 val = [await _run_test(s, t) for t in req.get("tests") or []]
             elif op == "info":
                 pw = s.build({})
-                val = {"tools": [{"name": t.name.split(".", 1)[1], "read_only": t.read_only, "writes": [x.split(".", 1)[1] for x in (t.writes or [])]}
+                val = {"tools": [{"name": t.name.split(".", 1)[1], "read_only": t.read_only, "writes": [x.split(".", 1)[1] for x in (t.writes or [])],
+                                  "params": sorted((t.input_schema.get("properties") or {}).keys())}
                                  for t in await pw.tools()]}
             else:
                 raise ValueError(f"unknown op {op!r}")

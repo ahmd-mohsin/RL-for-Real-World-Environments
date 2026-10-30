@@ -137,6 +137,9 @@ class _AgentFalsifier(BaseFalsifier):
     def __init__(self, agents: list[AgentSpec] | None = None, *, exclude_families: set[str] | None = None):
         self.agents = list(agents or [])
         self.exclude = set(exclude_families or ())
+        dup = sorted({a.name for a in self.agents if sum(b.name == a.name for b in self.agents) > 1})
+        if dup:  # ``execute`` finds a runner by name: a shared name ran the first runner for every probe of that name
+            raise ValueError(f"agent names must be unique, repeated: {dup}")
 
     async def applies(self, task: Task, ctx: FalsifyContext) -> str | None:
         return None if [a for a in self.agents if a.family not in self.exclude] else "no agent runners injected"
@@ -198,19 +201,27 @@ class AgentBudget:
     obs_chars: int = 2500
 
 
+FINISH_NUDGE = ("You have not changed anything in the system: none of your calls was a successful write. If the task asks for a decision "
+                "or a change, make it now with the write tool that applies it; if it only asks for information, finish again with your answer.")
+
+
 def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudget | None = None, strategies: Sequence[str] = ATTACK_STRATEGIES,
-              tag: str = "") -> AgentRunner:
+              tag: str = "", finish_nudge: bool = False, log: Callable[[dict[str, Any]], None] | None = None) -> AgentRunner:
     """An ``AgentRunner`` that drives ``client`` through the JSON tool protocol of ``role`` (``ALT_SOLVER`` or
-    ``ATTACKER``). The budget ends the attempt; the answer is whatever the model finalised (None when it ran out)."""
+    ``ATTACKER``). The budget ends the attempt; the answer is whatever the model finalised (None when it ran out).
+    ``finish_nudge``: an attempt that finishes after calls none of which was a successful write is told so once
+    (``FINISH_NUDGE``, generic: it names no tool and says a report-only task may simply finish again; yield work: 53 of
+    129 failed ALT attempts in the M4/RSI-1 records never applied their decision). ``log`` receives every turn."""
     b = budget or AgentBudget()
     attacker = role.name == ATTACKER.name
 
     async def runner(view: AgentView, world: SynthWorld) -> Any:
         tools = tool_catalogue(view.tools)
         names = {t.name for t in view.tools}
+        ro = {t.name: t.read_only for t in view.tools}
         history: list[dict[str, Any]] = []
-        calls, nudged = 0, False
-        for _ in range(b.max_turns):
+        calls, nudged, wrote, write_nudged = 0, False, False, False
+        for turn_no in range(b.max_turns):
             inputs: dict[str, Any] = {"instruction": view.instruction, "tools": tools,
                                       "history": history or "(no calls yet: start with the tools you need)"}
             if attacker:
@@ -218,10 +229,16 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
             doc = await client.complete_json(role.render(**inputs), schema=AgentTurn, max_tokens=role.max_tokens, temperature=role.temperature,
                                              tag=tag or role.name)
             turn = AgentTurn.model_validate(doc)
+            if log is not None:
+                log({"turn": turn_no, "reply": doc})
             if turn.is_final():
                 if calls == 0 and not nudged:  # finishing before any call reads nothing and changes nothing: say so once
                     nudged = True
                     history.append({"note": "You have not called any tool yet: nothing has been read or changed. Work through the tools first."})
+                    continue
+                if finish_nudge and not wrote and not write_nudged and calls < b.max_calls:
+                    write_nudged = True
+                    history.append({"note": FINISH_NUDGE})
                     continue
                 return turn.final
             if calls >= b.max_calls:
@@ -236,14 +253,15 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
                 continue
             obs = await world.call(tool, args)
             calls += 1
+            wrote = wrote or (not ro.get(tool, False) and not obs.error)
             history.append({"call": {"tool": tool, "args": args}, **({"error": obs.error[:600]} if obs.error else {"result": compact(obs.value, b.obs_chars)})})
         return None
 
     return runner
 
 
-def llm_alt(name: str, client: RoleClient, **kw: Any) -> AgentSpec:
-    return AgentSpec(name=name, family=client.family, runner=llm_agent(client, ALT_SOLVER, **kw))
+def llm_alt(name: str, client: RoleClient, *, role: Role = ALT_SOLVER, **kw: Any) -> AgentSpec:
+    return AgentSpec(name=name, family=client.family, runner=llm_agent(client, role, **kw))
 
 
 def llm_atk(name: str, client: RoleClient, **kw: Any) -> AgentSpec:

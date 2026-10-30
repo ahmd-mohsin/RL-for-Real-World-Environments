@@ -122,6 +122,10 @@ def _env(a: argparse.Namespace, d: Path):
     if rep.get("status") != "accepted":
         raise SystemExit(f"the World at {w} was not accepted: {rep.get('status')}")
     design = json.loads((w / "design.json").read_text())
+    if (w / "domain.json").exists() and (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells
+        from crucible.synth.families import InstanceDomain
+
+        return InstanceDomain(w, d / "work", n_cells=max(12, a.n), name=a.domain).env
     return generated_env(w, d / "work", name=a.domain, description=f"{rep['keyword']}: {design.get('description', '')}")
 
 
@@ -672,6 +676,155 @@ def perfect_commands():
     return mod
 
 
+# ---------------------------------------------------------------------------------------------------------- yield (batch runner)
+
+ARM_PRESETS = {
+    "a0": {},  # the M4 prompts and pipeline (baseline)
+    "a1": {"variant": "v2", "oracle_sees_derive": False, "alt_finish_nudge": True, "pre": True, "agree": "reconcile"},
+    "a1c": {"variant": "v2", "oracle_sees_derive": False, "alt_finish_nudge": True, "pre": True, "agree": "reconcile", "clarity": True},
+}
+
+
+def yield_cap(a: argparse.Namespace, root: Path, arms: int) -> float:
+    """Each arm's hard cap: ``--cap``, clipped so that every arm fits in what the milestone budget and ``YIELD_CAP_USD``
+    (every receipt under ``<root>/yield/``) have left."""
+    from crucible.factory.synth_wire import MILESTONE_CAP_USD, YIELD_CAP_USD, milestone_spent
+
+    # the shared Part 2 total: MILESTONE_CAP_USD from the environment when the lead set it there (the Part 2 budget is 150;
+    # the module's 60 was M4's), else the module's value
+    shared_cap = float(os.environ.get("MILESTONE_CAP_USD") or MILESTONE_CAP_USD)
+    ms = milestone_spent(root)
+    ys = milestone_spent(root / "yield") if (root / "yield").exists() else 0.0
+    left = min(shared_cap - ms, YIELD_CAP_USD - ys)
+    cap = min(float(a.cap), round(left / max(1, arms), 4))
+    print(f"shared spend {ms:.4f} of {shared_cap}; yield work {ys:.4f} of {YIELD_CAP_USD}; per-arm cap {cap:.4f} x {arms}", flush=True)
+    if cap < 0.05:
+        raise SystemExit("the yield budget is spent: refusing to start")
+    if not os.environ.get("TINKER_API_KEY"):
+        raise SystemExit("TINKER_API_KEY is not in the environment (set -a; . <repo>/.env; set +a)")
+    return cap
+
+
+def _batch_domains(a: argparse.Namespace, work: Path):
+    from crucible.factory.synth_wire import finance_ap_env, finance_ap_truth, generated_env
+    from crucible.synth.batch import BatchDomain
+
+    out = []
+    worlds = dict(x.split("=", 1) for x in a.world) if a.world else {}
+    for dom in [x for x in a.domains.split(",") if x]:
+        if dom == "finance_ap":
+            env = finance_ap_env(work / "work", seeds=tuple(int(x) for x in a.seeds.split(",")), invoices=a.invoices)
+            out.append(BatchDomain(env, quota=a.quota, max_proposals=a.max_per_cell, truth=finance_ap_truth))
+            continue
+        w = Path(worlds[dom])
+        if (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells, its builders
+            from crucible.synth.families import InstanceDomain
+
+            inst = InstanceDomain(w, work / "work", name=dom)
+            out.append(BatchDomain(inst.env, cells=inst.cells, quota=a.quota, max_proposals=a.max_per_cell))
+            continue
+        rep = json.loads((w / "worldgen_report.json").read_text())
+        design = json.loads((w / "design.json").read_text())
+        env = generated_env(w, work / "work", name=dom, description=f"{rep['keyword']}: {design.get('description', '')}")
+        env.built_by = frozenset({"kimi"})  # the worldgen App's designer, coder, debugger and seeder (SYNTH_ROLES)
+        out.append(BatchDomain(env, quota=a.quota, max_proposals=a.max_per_cell))
+    return out
+
+
+def cmd_batch(a: argparse.Namespace) -> None:
+    """The batch runner (``synth.batch``): arms side by side at equal caps over the cell grid; resumable with the same
+    ``--run``."""
+    from crucible.factory.synth_wire import SynthWire
+    from crucible.synth.batch import Arm, ArmSetup, BatchConfig, report_md, run_batch
+    from crucible.synth.falsify.agents import AgentBudget
+    from crucible.synth.pipeline import RunConfig
+
+    root = data_root(a)
+    names = [x for x in a.arms.split(",") if x]
+    cap = yield_cap(a, root, len(names))
+    d = root / "yield" / a.run
+    d.mkdir(parents=True, exist_ok=True)
+    stage_caps = {k: float(v) for k, v in (x.split("=") for x in a.stage_cap)} if a.stage_cap else None
+    lemmas = json.loads(Path(a.lemmas).read_text()) if a.lemmas else []
+    setups = []
+    for n in names:
+        base, _, lem = n.partition("+")
+        kw = dict(ARM_PRESETS[base])
+        if lem == "lemmas":
+            kw["lemmas"] = tuple(x["rule"] for x in lemmas if x.get("applies_to", "proposer") != "contract_writer")
+            kw["writer_lemmas"] = tuple(x["rule"] for x in lemmas if x.get("applies_to") == "contract_writer")
+        arm = Arm(name=n.replace("+", "_"), **kw)
+        wire = SynthWire(d / arm.name, cap_usd=cap, stage_caps=stage_caps, seed_by_tag=not a.same_seed)
+        setups.append(ArmSetup(arm=arm, roles=wire.run_roles(), cost=wire.cost, usage_path=wire.usage.path,
+                               clarity=wire.client("clarity_checker") if arm.clarity else None, families=wire.families()))
+    rc = RunConfig(max_rounds=a.rounds, calibrate=not a.no_calibrate, alt_budget=AgentBudget(max_calls=a.alt_calls, max_turns=a.alt_calls + 4),
+                   atk_budget=AgentBudget(max_calls=a.atk_calls, max_turns=a.atk_calls + 2))
+    cfg = BatchConfig(run=a.run, run_cfg=rc, batch=a.batch, propose_workers=a.propose_workers, build_workers=a.build_workers, refine_workers=a.refine_workers,
+                      model_calls=a.model_calls, falsify_procs=a.procs, stop_proposing_usd=a.soft, max_candidates=a.max_candidates, serial=a.serial)
+    out = asyncio.run(run_batch(setups, _batch_domains(a, d), cfg, d))
+    (d / "report.md").write_text(report_md(out, f"batch {a.run}"))
+    print((d / "report.md").read_text())
+
+
+def cmd_batch_report(a: argparse.Namespace) -> None:
+    from crucible.synth.batch import report_md
+
+    d = data_root(a) / "yield" / a.run
+    out = json.loads((d / "batch.json").read_text())
+    print(report_md(out, f"batch {a.run}"))
+
+
+def cmd_failures(a: argparse.Namespace) -> None:
+    """Failure analysis (``synth.failures``) of run directories (relative to the data root), finance_ap oracles checked
+    against the pack's own policy decisions."""
+    from crucible.factory.synth_wire import finance_ap_truth
+    from crucible.synth.failures import markdown, mine_run, stage_cost, summarise
+
+    root = data_root(a)
+    groups: dict[str, list[str]] = {}
+    for g in a.runs:
+        name, _, runs = g.partition("=")
+        groups[name] = runs.split(",")
+    out = {}
+    for name, runs in groups.items():
+        rows = [r for x in runs for r in mine_run(root / x, truth=finance_ap_truth)]
+        s = summarise(rows, cost=stage_cost(root / x for x in runs))
+        out[name] = {"summary": s, "rows": rows}
+        print(markdown(s, name))
+    if a.out:
+        Path(a.out).write_text(json.dumps(out, indent=1, default=str))
+
+
+def cmd_lemmas(a: argparse.Namespace) -> None:
+    """A lemma batch from (counterexample, repair) pairs of earlier runs (§9.5 S): clusters to the abstractor, the
+    deterministic leakage critic on its lemmas. Acceptance is the equal-budget arm comparison (``batch`` with an arm
+    ``a1+lemmas`` against ``a1``)."""
+    from crucible.factory.synth_wire import SynthWire
+    from crucible.synth.roles import ABSTRACTOR, DEFECTS_DOC, ask
+    from crucible.synth.yieldkit import lemma_clusters, lemma_leaks, repair_pairs
+
+    root = data_root(a)
+    cap = yield_cap(a, root, 1)
+    d = root / "yield" / a.run
+    d.mkdir(parents=True, exist_ok=True)
+    pairs = repair_pairs(root / x for x in a.runs)
+    clusters = lemma_clusters(pairs)
+    wire = SynthWire(d, cap_usd=min(cap, 0.5))
+
+    async def go():
+        return await ask(wire.client("abstractor"), ABSTRACTOR, tag="abstract:lemmas", retries=1, clusters=clusters, defects=DEFECTS_DOC)
+
+    out = asyncio.run(go())
+    texts = [x.rule for x in out.lemmas]
+    leaks = lemma_leaks(texts, pairs)
+    kept = [x.model_dump(mode="json") for x in out.lemmas if not leaks.get(x.rule)]
+    doc = {"pairs": len(pairs), "clusters": clusters, "lemmas": [x.model_dump(mode="json") for x in out.lemmas], "leaks": leaks, "kept": kept,
+           "cost": wire.cost()}
+    (d / "lemmas.json").write_text(json.dumps(doc, indent=1, default=str))
+    (d / "lemma_batch.json").write_text(json.dumps(kept, indent=1))
+    print(json.dumps({k: doc[k] for k in ("pairs", "kept", "leaks", "cost")}, indent=1, default=str))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None)
@@ -807,6 +960,54 @@ def main() -> None:
             p.add_argument("--knobs", default="distractors=3,paginate=5,actor,derive")
         p.set_defaults(fn=fn)
     perfect_commands().register(sub, data_root)  # learnability, novelty, perfect, frontier (scripts/synth_perfect.py)
+
+    bt = sub.add_parser("batch", help="the batch runner: arms at equal caps over the cell grid (yield work; resumable by --run)")
+    bt.add_argument("--run", required=True)
+    bt.add_argument("--domains", default="finance_ap")
+    bt.add_argument("--world", action="append", default=[], help="name=<worldgen dir> for a generated domain")
+    bt.add_argument("--seeds", default="0,1,2,3", help="finance_ap World instances (start-state seeds)")
+    bt.add_argument("--invoices", type=int, default=30)
+    bt.add_argument("--arms", default="a0,a1", help=f"comma list of {sorted(ARM_PRESETS)}, optionally +lemmas")
+    bt.add_argument("--lemmas", default=None, help="a lemma batch (lemmas command) for +lemmas arms")
+    bt.add_argument("--quota", type=int, default=1, help="admitted tasks wanted per cell")
+    bt.add_argument("--max-per-cell", type=int, default=8)
+    bt.add_argument("--max-candidates", type=int, default=None)
+    bt.add_argument("--batch", type=int, default=4)
+    bt.add_argument("--rounds", type=int, default=3)
+    bt.add_argument("--alt-calls", type=int, default=24)
+    bt.add_argument("--atk-calls", type=int, default=14)
+    bt.add_argument("--no-calibrate", action="store_true")
+    bt.add_argument("--propose-workers", type=int, default=2)
+    bt.add_argument("--build-workers", type=int, default=6)
+    bt.add_argument("--refine-workers", type=int, default=6)
+    bt.add_argument("--model-calls", type=int, default=24)
+    bt.add_argument("--procs", type=int, default=4, help="worker processes for the deterministic falsifiers (0: in-process)")
+    bt.add_argument("--serial", action="store_true", help="the serial baseline: one candidate, one call at a time")
+    bt.add_argument("--same-seed", action="store_true", help="every call on seed 0 (how yield-1 and yield-2 ran); default: seeded by tag")
+    bt.add_argument("--cap", type=float, default=5.0, help="hard cap per arm")
+    bt.add_argument("--soft", type=float, default=None, help="no new proposals once an arm has spent this")
+    bt.add_argument("--stage-cap", action="append", default=[], help="STAGE=USD (per arm), e.g. ALT=2")
+    bt.set_defaults(fn=cmd_batch)
+
+    br = sub.add_parser("batch-report")
+    br.add_argument("--run", required=True)
+    br.set_defaults(fn=cmd_batch_report)
+
+    fl = sub.add_parser("failures", help="why proposals fail, by stage and reason (run dirs relative to the data root)")
+    fl.add_argument("--runs", action="append", required=True, help="name=dir1,dir2")
+    fl.add_argument("--out", default=None)
+    fl.set_defaults(fn=cmd_failures)
+
+    lm = sub.add_parser("lemmas", help="a lemma batch from (counterexample, repair) pairs of earlier runs")
+    lm.add_argument("--run", required=True)
+    lm.add_argument("--runs", nargs="+", required=True, help="run dirs relative to the data root")
+    lm.add_argument("--cap", type=float, default=0.3)
+    lm.set_defaults(fn=cmd_lemmas)
+    if str(Path(__file__).resolve().parent) not in sys.path:  # the module may be loaded by path (tests), not from scripts/
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from synth_worlds import add_parser as add_worlds  # World families and instances (scripts/synth_worlds.py)
+
+    add_worlds(sub)
     a = ap.parse_args()
     a.fn(a)
 

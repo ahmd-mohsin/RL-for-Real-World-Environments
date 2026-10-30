@@ -253,6 +253,7 @@ class ToolTestCall(_Out):
     args: dict[str, Any] = Field(default_factory=dict)
     expect: Literal["ok", "error"] = "ok"
     result: Any = None  # a subset the result must contain (None: unchecked)
+    error: str | None = None  # expect "error": a code the refusal's message must contain (World families: PERMISSION_DENIED)
 
 
 class ToolTest(_Out):
@@ -626,7 +627,8 @@ BLIND_TESTER = Role(
 TEST_FORMAT_DOC = """TEST FORMAT
 {"tests": [{"id": "t1", "tier": "simple|medium|complex|boundary",
             "fixture": {"<table>": [<row with its key field>, ...]},
-            "calls": [{"tool": "<tool name>", "args": {...}, "expect": "ok|error", "result": <subset of the result or null>}],
+            "calls": [{"tool": "<tool name>", "args": {...}, "expect": "ok|error", "result": <subset of the result or null>,
+                       "error": <for a refusal, optionally the error code its message must contain, e.g. "PERMISSION_DENIED">}],
             "expect_state": {"<table>": {"<key>": {"<field>": <value>}}},
             "expect_absent": {"<table>": ["<key>"]}}]}
 A result subset matches when every key it names is in the result with an equal value (lists: same length, items matched in
@@ -694,9 +696,95 @@ INSTRUCTION_WRITER = Role(
             "given, end the instruction by saying exactly what to report, in that form.\n"
             'Reply {"instruction": "...", "notes": "..."}.'))
 
+# ---------------------------------------------------------------------------------------------------------- yield work (v2)
+# Prompt revisions from the failure analysis of the M4 and RSI-1 runs (docs/research/env-synthesis/runs/yield-1.md). They
+# are data: ``variant(name, "v2")`` returns the revised role, and an arm of ``synth.batch`` names its variant, so v1 and
+# v2 are compared at equal spend on fresh proposals. The admission rules do not change.
+#  - finance_ap, DeepSeek proposing: 16 of 31 oracles disagree with the pack's own policy decision; the oracle programmer
+#    is shown the proposer's ``derive`` and copies it, and the ALT solvers who apply the policy correctly then fail. v2
+#    asks both roles to work every rule in order before deciding, and (``oracle_sees_derive=False``) the oracle
+#    programmer decides blind to the proposer's values, so two independent derivations can be compared.
+#  - ALT solvers: 53 of 129 adjudicated failed attempts never applied a decision (no call, or reads only), and the solvers
+#    rarely read the policy the task names. v2 says to read the documents a task refers to and to apply the change
+#    through a write tool (with ``llm_agent(finish_nudge=True)``: one nudge when an attempt finishes without a write).
+#  - it_helpdesk: the first-round counterexamples are TWIN D9, MUT ExtraWrite D2 / SwapEntity D3, RED D4 and TAINT; the
+#    v2 contract writer keeps keys exact and allowed patterns narrow.
+
+PROPOSER_V2 = PROPOSER.model_copy(update={"system": PROPOSER.system + (
+    "\nBefore you write a task that asks for a decision, work it out the way a careful agent would: read the rules (a policy "
+    "document in the start state, the tool descriptions) and apply EVERY rule in the order it states, to the cent and to the "
+    "exact date, checking each record the rule names (other records of the same vendor, customer or person included). Put that "
+    "rule-by-rule check in the rationale, and give in derive the decision it reaches. If the rules do not decide the case "
+    "unambiguously from the records, pick another entity. Write the instruction so that an agent who sees only it and the "
+    "tools knows what is wanted: which entity, which kind of decision or change, under which rules or document, and whether "
+    "to apply the change in the system.")})
+
+ORACLE_PROGRAMMER_V2 = ORACLE_PROGRAMMER.model_copy(update={"system": (
+    "You write the reference solution of a task as a tool program that is executed against the real system. Read the task, "
+    "the tools and the start state. Decide everything the task needs YOURSELF from the records and the rules (a policy "
+    "document in the start state, the tool descriptions): apply every rule in the order it states, to the cent and to the "
+    "exact date, checking each record a rule names. Write that rule-by-rule check first, under the key \"analysis\", then "
+    "write the program.\n\n" + PROGRAM_DOC + "\n\nReply with one JSON object: {\"analysis\": \"<rule by rule>\", \"steps\": [...], "
+    "\"answer\": ..., \"notes\": \"...\"}.")})
+
+CONTRACT_WRITER_V2 = CONTRACT_WRITER.model_copy(update={"system": CONTRACT_WRITER.system + (
+    "\nRules learned from falsified contracts:\n"
+    "- Keep the key of every required pattern exactly the entity the instruction names; a key glob lets the same actions on "
+    "another entity pass.\n"
+    "- An allowed pattern must be as narrow as the instruction allows: name its collection, its kind, the entity it may touch "
+    "(a key or a where on the entity's id) and a count_max. Never allow a key '*' with no where: then changes to unrelated "
+    "entities pass.\n"
+    "- Do not relax the value of a field the instruction decides (a status, a reason code, a group, a priority, an amount).\n"
+    "- Relax a free-text field to a regex that keeps the facts the instruction asks to record, not to any.")})
+
+ALT_SOLVER_V2 = ALT_SOLVER.model_copy(update={"system": ALT_SOLVER.system + (
+    " If the task refers to a policy, rules, a procedure or documentation, find it with the tools and read it before you "
+    "decide, then check every rule it states against the records. A decision is only made when you call the write tool "
+    "that applies it: stating it in your final answer changes nothing.")})
+
+
+class ClarityIssue(_Out):
+    kind: Literal["ambiguous", "missing_info", "contradiction", "unclear_report", "other"]
+    detail: str = ""
+
+
+class ClarityOut(_Out):
+    analysis: str = ""
+    clear: bool
+    issues: list[ClarityIssue] = Field(default_factory=list)
+    values: list[Any] = Field(default_factory=list)  # the bare values a correct solution writes or reports
+
+
+CLARITY_CHECKER = Role(
+    name="clarity_checker", stage="clarity", output=ClarityOut, temperature=0.0, max_tokens=6144,
+    sees=("instruction", "tools", "world"),
+    never=("contract", "oracle", "effects", "derive", "intent", "gate_code", "verdicts"),
+    differs_from=("proposer", "oracle_programmer"),
+    system=("You check a task instruction before it is used to train an AI agent. The agent will see ONLY the instruction and "
+            "the tools; it can read the records shown below through the tools. Solve the task on paper: read the rules (a "
+            "policy document among the records, the tool descriptions), apply every rule in the order it states, to the cent "
+            "and to the exact date, and work out what a correct solution changes and reports. Then say whether the "
+            "instruction is clear: one correct outcome, every fact the agent needs is in the instruction or readable through "
+            "the tools, no contradiction, and, if a figure or list must be reported, exactly what to report.\n"
+            'Reply {"analysis": "<rule by rule>", "clear": true|false, "issues": [{"kind": "ambiguous|missing_info|'
+            'contradiction|unclear_report|other", "detail"}], "values": [<every bare value a correct solution writes '
+            '(statuses, reason codes, ids it sets, amounts) or reports>]}.'))
+
+V2: dict[str, Role] = {r.name: r for r in (PROPOSER_V2, ORACLE_PROGRAMMER_V2, CONTRACT_WRITER_V2, ALT_SOLVER_V2)}
+VARIANTS: dict[str, dict[str, Role]] = {"v1": {}, "v2": V2}
+
+
+def variant(name: str, which: str = "v1") -> Role:
+    """The role ``name`` in prompt variant ``which`` (v1: the M4 prompts; v2: the yield revisions); the family rules and
+    what the role may see are the same in every variant."""
+    if which not in VARIANTS:
+        raise KeyError(f"unknown prompt variant {which!r} (have {sorted(VARIANTS)})")
+    return VARIANTS[which].get(name) or ROLES[name]
+
+
 ROLES: dict[str, Role] = {r.name: r for r in (PROPOSER, ORACLE_PROGRAMMER, CONTRACT_WRITER, REPAIRER, ALT_SOLVER, ATTACKER, PANEL, ABSTRACTOR,
                                               TOOL_DESIGNER, SCHEMA_DERIVER, APP_CODER, BLIND_TESTER, DEBUGGER, TEST_APPROVER, SEEDER,
-                                              LEAK_PROBE, LEAK_PANEL, INSTRUCTION_WRITER)}
+                                              LEAK_PROBE, LEAK_PANEL, INSTRUCTION_WRITER, CLARITY_CHECKER)}
 
 
 # ---------------------------------------------------------------------------------------------------------- family rules
@@ -994,6 +1082,7 @@ __all__ = [
     "APP_API_DOC",
     "ATTACK_STRATEGIES",
     "BUILDERS",
+    "CLARITY_CHECKER",
     "CONTRACT_DOC",
     "DEFECTS_DOC",
     "JUDGED_BY_PANEL",
@@ -1003,7 +1092,9 @@ __all__ = [
     "PROGRAM_DOC",
     "ROLES",
     "TEST_FORMAT_DOC",
+    "VARIANTS",
     "AgentTurn",
+    "ClarityOut",
     "ContractEdit",
     "ContractOut",
     "EditResult",
@@ -1028,4 +1119,5 @@ __all__ = [
     "parse_program",
     "program_doc",
     "tool_catalogue",
+    "variant",
 ]

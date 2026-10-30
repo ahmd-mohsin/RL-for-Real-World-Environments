@@ -26,7 +26,7 @@ GOOD = {"proposer": ["kimi"], "oracle_programmer": ["deepseek"], "contract_write
         "alt_solver": ["nemotron", "openai"], "attacker": ["nemotron", "openai"], "panel": ["nemotron", "openai"], "abstractor": ["openai"],
         "tool_designer": ["kimi"], "schema_deriver": ["kimi"], "app_coder": ["kimi"], "blind_tester": ["deepseek"], "debugger": ["kimi"],
         "test_approver": ["nemotron"], "seeder": ["kimi"], "leak_probe": ["inkling"], "leak_panel": ["nemotron", "openai"],
-        "instruction_writer": ["deepseek"]}
+        "instruction_writer": ["deepseek"], "clarity_checker": ["glm"]}
 
 
 def test_every_role_is_data_with_a_schema_and_visibility():
