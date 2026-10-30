@@ -132,6 +132,7 @@ class AgentTurn(_Out):
     call: dict[str, Any] | None = None
     final: Any = None
     done: bool = False
+    notes: str | None = None  # the solver's scratchpad (harness v3): shown back to it every turn
 
     @model_validator(mode="before")
     @classmethod
@@ -142,6 +143,12 @@ class AgentTurn(_Out):
         v = dict(v)
         if v.get("call") is None and isinstance(v.get("tool"), str):
             v["call"] = {"tool": v.pop("tool"), "args": v.pop("args", v.pop("arguments", {}))}
+        # compose-2: Inkling writes {"name": "<tool>", "args": {...}} (every turn read as a finish: 0 calls on 12 of 12
+        # attempts), and some models wrap the call as {"function": {"name", "arguments"}}
+        if v.get("call") is None and isinstance(v.get("function"), dict):
+            v["call"] = v.pop("function")
+        if v.get("call") is None and isinstance(v.get("name"), str) and not v.get("done") and "final" not in v:
+            v["call"] = {"tool": v.pop("name"), "args": v.pop("args", v.pop("arguments", {}))}
         c = v.get("call")
         if isinstance(c, dict) and "tool" not in c and isinstance(c.get("name"), str):
             v["call"] = {"tool": c["name"], "args": c.get("arguments", c.get("args", {}))}
@@ -770,8 +777,21 @@ CLARITY_CHECKER = Role(
             'contradiction|unclear_report|other", "detail"}], "values": [<every bare value a correct solution writes '
             '(statuses, reason codes, ids it sets, amounts) or reports>]}.'))
 
+# Solver harness v3 (compose-2): planning, a scratchpad and long-context handling for 20-50-call tasks. It helps with the
+# task as the agent sees it only: the solver still sees the instruction, the tools and its own history, never the
+# contract, the oracle or the intent card (``never`` is ALT_SOLVER's).
+ALT_SOLVER_V3 = ALT_SOLVER_V2.model_copy(update={
+    "sees": (*ALT_SOLVER.sees, "notes"), "max_tokens": 3072,
+    "system": ALT_SOLVER_V2.system + (
+        ' This task may take many steps. Keep a scratchpad: every reply may carry "notes" (plain text, at most about 1500 '
+        "characters) next to the call; it is shown back to you each turn as your notes, and older tool results in the history "
+        "are shortened, so write down what you will need later. On your first turn, write a numbered plan in the notes: every "
+        "change and every report the instruction asks for, in order. As you work, mark each item done with the ids and values "
+        "you found or set. Before you finish, check every item of the plan against the instruction.")})
+
 V2: dict[str, Role] = {r.name: r for r in (PROPOSER_V2, ORACLE_PROGRAMMER_V2, CONTRACT_WRITER_V2, ALT_SOLVER_V2)}
-VARIANTS: dict[str, dict[str, Role]] = {"v1": {}, "v2": V2}
+V3: dict[str, Role] = {**V2, "alt_solver": ALT_SOLVER_V3}
+VARIANTS: dict[str, dict[str, Role]] = {"v1": {}, "v2": V2, "v3": V3}
 
 
 def variant(name: str, which: str = "v1") -> Role:
@@ -1079,6 +1099,7 @@ def compact(v: Any, limit: int = 4000) -> str:
 
 
 __all__ = [
+    "ALT_SOLVER_V3",
     "APP_API_DOC",
     "ATTACK_STRATEGIES",
     "BUILDERS",

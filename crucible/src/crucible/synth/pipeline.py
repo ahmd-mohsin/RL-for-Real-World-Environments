@@ -133,12 +133,17 @@ class RunConfig:
     variant: str = "v1"
     oracle_sees_derive: bool = True
     alt_finish_nudge: bool = False
+    # solver harness v3 (compose-2): a progress check before finishing and a windowed history (None: the whole history)
+    alt_progress: bool = False
+    alt_window: int | None = None
 
 
 def admission_policy() -> AdmissionPolicy:
     """§6, with ALT among the classes that must have no confirmed counterexample (a confirmed D6: a valid alternative
     solution the contract rejects)."""
-    return AdmissionPolicy(deterministic=[*DETERMINISTIC, "ALT"])
+    # compose-2: a confirmed ORACLE (a wrong reference decision) or LEAK (an L2 give-away the panel confirmed) finding
+    # rejects too; outside this list a confirmed finding of those classes did not count (a class that did not run is skipped)
+    return AdmissionPolicy(deterministic=[*DETERMINISTIC, "ALT", "ORACLE", "LEAK"])
 
 
 # ---------------------------------------------------------------------------------------------------------- records
@@ -318,6 +323,14 @@ class Runner:
         self.wrap_paid: Callable[[list[Any]], list[Any]] | None = None
         self.screen: Callable[[TaskRecord, Task, Run], Awaitable[str | Task | None]] | None = None  # a Task: use it (intent re-derived)
         self.agent_log: Callable[[TaskRecord, str, dict[str, Any]], None] | None = None
+        # compose-2 hooks: a repairer factory (composition repairs its parts: ``compose.PartRepairer``), the TWIN panel
+        # (TWIN suspects decided inline like MUT's, strictly calibrated: ``falsify.twinjudge``), extra paid classes (the
+        # LEAK probe), and the final version each refine reached (``final_tasks[rec.id]``)
+        self.repair_factory: Callable[[Runner, TaskRecord, FalsifyContext], Callable[[Task, list[Counterexample]], Awaitable[Task | None]]] | None = None
+        self.twin_panel: Panel | None = None
+        self.extra_paid: Callable[[], list[Any]] | None = None
+        self.final_tasks: dict[str, Task] = {}
+        self.reports: dict[str, CegisReport] = {}
 
     # -- A: propose, oracle, contract ------------------------------------------------------------------------------
     async def survey(self) -> None:
@@ -498,9 +511,56 @@ class Runner:
         self.report.calibration = cal.model_dump(mode="json")
         _jwrite(self.dir / "calibration.json", self.report.calibration)
 
+    async def calibrate_twin(self, tasks: Sequence[Task], *, min_decided: int = 6, max_anchors: int = 18) -> None:
+        """The TWIN panel (compose-2): the calibrated panel's members, λ from item 20's strict ``calibrate`` on anchors with
+        executed truth: twin anchors (``falsify.twinjudge``) plus the panel's own (an oracle trace is valid, the no-op and
+        the oracle minus its last write are not). Uncalibrated: λ above 1, TWIN suspects stay open. (First pilot: twin
+        anchors alone were 0 on four links of two domains, so every TWIN suspect stayed open.)"""
+        from crucible.synth.falsify.twinjudge import calibrate_twin_panel, twin_anchors
+
+        base = self.panel or self.make_panel()
+        if base is None:
+            return
+        tp = Panel(members=base.members, lam=base.lam, queue=self.dir / "human_queue.jsonl", show_reasons=base.show_reasons, tag="calibrate:twin")
+        ctx = FalsifyContext(max_mutants=self.cfg.max_mutants)
+        try:
+            anchors = (await twin_anchors(list(tasks), ctx))[: max_anchors // 2]
+            for task in list(tasks)[: self.cfg.calib_tasks]:
+                if len(anchors) >= max_anchors:
+                    break
+                r = await ctx.oracle(task)
+                anchors.append(Anchor(task=task, attempt=Attempt(trace=trace_view(r.calls), answer=r.answer, reasons=[]), valid=True, kind="oracle"))
+                anchors.append(Anchor(task=task, attempt=Attempt(trace=[], answer=None, reasons=[]), valid=False, kind="noop"))
+                writes = [i for i, c in enumerate(r.calls) if not c.read_only]
+                if writes:
+                    cut = [c for i, c in enumerate(r.calls) if i != writes[-1]]
+                    anchors.append(Anchor(task=task, attempt=Attempt(trace=trace_view(cut), answer=r.answer, reasons=[]), valid=False, kind="minus_last_write"))
+            cal = await calibrate_twin_panel(tp, anchors, min_decided=min_decided)
+        except BudgetExceeded as e:
+            self.stop = f"budget: {e}"
+            return
+        finally:
+            await ctx.close()
+        self.twin_panel = tp
+        doc = cal.model_dump(mode="json") | {"anchors": len(anchors), "kinds": dict(Counter(a.kind for a in anchors))}
+        _jwrite(self.dir / "twin_calibration.json", doc)
+
     # -- C: refine ---------------------------------------------------------------------------------------------------
+    async def task_tools(self, task: Task, ctx: FalsifyContext, seed: int) -> list[ToolInfo]:
+        """The tool catalogue of the task's own World (compose-1: a knob variant adds ``actors.ask`` and the ``page``
+        parameter, which the base World surveyed at the start lacks); the surveyed one when the World cannot be built."""
+        try:
+            return list(await (await ctx.world(task)).tools())
+        except Exception:  # noqa: BLE001 - fall back to the survey
+            return list(self.tools.get(seed) or [])
+
     def repairer(self, rec: TaskRecord, ctx: FalsifyContext) -> Callable[[Task, list[Counterexample]], Awaitable[Task | None]]:
-        names = {t.name for t in self.tools[rec.seed]}
+        if self.repair_factory is not None:  # composition: repair the parts, never the merged program (parts.PartRepairer)
+            return self.repair_factory(self, rec, ctx)
+        return self.default_repairer(rec, ctx)
+
+    def default_repairer(self, rec: TaskRecord, ctx: FalsifyContext) -> Callable[[Task, list[Counterexample]], Awaitable[Task | None]]:
+        """The repairer role on one task: it sees the counterexamples and the task's own World catalogue."""
         log_path = self.dir / "tasks" / f"t{rec.n:02d}" / "repairs.jsonl"
 
         def log(row: dict[str, Any]) -> None:
@@ -511,6 +571,8 @@ class Runner:
         async def repair(task: Task, cxs: list[Counterexample]) -> Task | None:
             if not self.cfg.repair:
                 return None
+            tools = await self.task_tools(task, ctx, rec.seed)
+            names = {t.name for t in tools}
 
             async def valid(o: RepairOut) -> Task | None:
                 row: dict[str, Any] = {"from_version": task.version, "counterexamples": [c.id for c in cxs], "give_up": o.give_up,
@@ -540,7 +602,7 @@ class Runner:
 
             try:
                 out = await ask(self.roles.repairer, REPAIRER, tag=f"repair:{task.id}", check=valid, retries=2, task=task.instruction,
-                                intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(self.tools[rec.seed]), oracle=program_doc(task.oracle),
+                                intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(tools), oracle=program_doc(task.oracle),
                                 contract=contract_doc(task.contract), counterexamples=[cx_view(c) for c in cxs[:12]], defects=DEFECTS_DOC,
                                 program_format=PROGRAM_DOC, contract_format=CONTRACT_DOC)
             except RoleFailed as e:
@@ -563,7 +625,8 @@ class Runner:
             return lambda row: hook(rec, name, row)
 
         alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}#{n}",
-                        finish_nudge=self.cfg.alt_finish_nudge, log=sink(n)) for n, c in self.roles.alt]
+                        finish_nudge=self.cfg.alt_finish_nudge, progress_check=self.cfg.alt_progress, window=self.cfg.alt_window, log=sink(n))
+                for n, c in self.roles.alt]
         atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}#{n}", log=sink(n)) for n, c in self.roles.atk]
         paid = [x for x in (ALT(alts, exclude_families=builders) if alts else None, ATK(atks, exclude_families=builders) if atks else None) if x]
         if not self.cfg.paid:
@@ -578,16 +641,29 @@ class Runner:
             falsifiers = [Adjudicated(f, panel) if f.name == "MUT" else f for f in falsifiers]
             paid = [Adjudicated(f, panel) for f in paid]
             heldout = Adjudicated(heldout, panel) if heldout is not None else None
+        tp: Panel | None = None
+        if self.twin_panel is not None:  # TWIN suspects: the twin task's own judgement, strictly calibrated λ
+            from crucible.synth.falsify.twinjudge import TwinAdjudicated
+
+            tp = Panel(members=self.twin_panel.members, lam=self.twin_panel.lam, queue=self.twin_panel.queue, show_reasons=self.twin_panel.show_reasons,
+                       tag=f"adjudicate:twin:{rec.id}")
+            falsifiers = [TwinAdjudicated(f, tp) if f.name == "TWIN" else f for f in falsifiers]
+        if self.extra_paid is not None and self.cfg.paid:
+            paid = [*paid, *self.extra_paid()]
         try:
             rep: CegisReport = await refine(task, repair=self.repairer(rec, ctx), ctx=ctx, archive=self.archive, falsifiers=falsifiers, paid=paid,
                                             adjudicate=None, policy=admission_policy(), max_rounds=self.cfg.max_rounds, heldout=heldout)
             self.record(rec, rep)
+            if rep.task is not None:
+                self.final_tasks[rec.id] = rep.task
+            self.reports[rec.id] = rep
             _jwrite(tdir / "cegis.json", rep.model_dump(mode="json"))
-            if panel is not None and panel.log:
-                self.panel_rows += panel.log
-                with (self.dir / "panel.jsonl").open("a") as fh:
-                    for row in panel.log:
-                        fh.write(json.dumps(row, default=str) + "\n")
+            for pl in (panel, tp):
+                if pl is not None and pl.log:
+                    self.panel_rows += pl.log
+                    with (self.dir / "panel.jsonl").open("a") as fh:
+                        for row in pl.log:
+                            fh.write(json.dumps(row, default=str) + "\n")
         except BudgetExceeded as e:
             rec.status, rec.reasons = "budget", [str(e)[:300]]
             self.stop = f"budget: {e}"

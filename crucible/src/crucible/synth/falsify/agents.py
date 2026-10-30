@@ -205,32 +205,70 @@ FINISH_NUDGE = ("You have not changed anything in the system: none of your calls
                 "or a change, make it now with the write tool that applies it; if it only asks for information, finish again with your answer.")
 
 
+PROGRESS_CHECK = ("Before you finish, check your work against the instruction: go through each change and each report it asks for, and "
+                  "find the successful call in your history that did it (or the value you will report). If something is missing or "
+                  "wrong, continue with tool calls; if everything is done, finish again.")
+
+
+def _shorten(entry: dict[str, Any], chars: int) -> dict[str, Any]:
+    r = entry.get("result")
+    if isinstance(r, str) and len(r) > chars:
+        return {**entry, "result": r[:chars] + f"...<shortened: {len(r) - chars} more characters; call the tool again if you need them>"}
+    return entry
+
+
 def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudget | None = None, strategies: Sequence[str] = ATTACK_STRATEGIES,
-              tag: str = "", finish_nudge: bool = False, log: Callable[[dict[str, Any]], None] | None = None) -> AgentRunner:
+              tag: str = "", finish_nudge: bool = False, log: Callable[[dict[str, Any]], None] | None = None, progress_check: bool = False,
+              window: int | None = None, block: int = 8, short_chars: int = 300) -> AgentRunner:
     """An ``AgentRunner`` that drives ``client`` through the JSON tool protocol of ``role`` (``ALT_SOLVER`` or
     ``ATTACKER``). The budget ends the attempt; the answer is whatever the model finalised (None when it ran out).
     ``finish_nudge``: an attempt that finishes after calls none of which was a successful write is told so once
     (``FINISH_NUDGE``, generic: it names no tool and says a report-only task may simply finish again; yield work: 53 of
-    129 failed ALT attempts in the M4/RSI-1 records never applied their decision). ``log`` receives every turn."""
+    129 failed ALT attempts in the M4/RSI-1 records never applied their decision). ``log`` receives every turn.
+
+    Harness v3 (compose-2, long tasks). The solver still sees only the instruction, the tools and its own history.
+    - A role that sees ``notes`` (``roles.ALT_SOLVER_V3``) gets its scratchpad back every turn: the plan it wrote on
+      its first turn, what it found, what is done.
+    - ``progress_check``: the first finish after a call gets ``PROGRESS_CHECK`` once, a generic check of the work
+      against the instruction.
+    - ``window``: tool results older than the last ``window`` calls are cut to ``short_chars``. The cut moves in steps
+      of ``block`` calls, so the prompt prefix stays the same between steps and the provider's prompt cache keeps
+      working."""
     b = budget or AgentBudget()
     attacker = role.name == ATTACKER.name
+    keep_notes = "notes" in role.sees
 
     async def runner(view: AgentView, world: SynthWorld) -> Any:
         tools = tool_catalogue(view.tools)
         names = {t.name for t in view.tools}
         ro = {t.name: t.read_only for t in view.tools}
         history: list[dict[str, Any]] = []
-        calls, nudged, wrote, write_nudged = 0, False, False, False
+        notes, cut = "", 0
+        calls, nudged, wrote, write_nudged, checked = 0, False, False, False, False
         for turn_no in range(b.max_turns):
+            if window is not None and len(history) - cut >= window + block:
+                new_cut = len(history) - window
+                history[cut:new_cut] = [_shorten(h, short_chars) for h in history[cut:new_cut]]
+                cut = new_cut
             inputs: dict[str, Any] = {"instruction": view.instruction, "tools": tools,
                                       "history": history or "(no calls yet: start with the tools you need)"}
             if attacker:
                 inputs["strategies"] = list(strategies)
+            if keep_notes:
+                inputs["notes"] = notes or "(empty: write your plan here on this turn)"
             doc = await client.complete_json(role.render(**inputs), schema=AgentTurn, max_tokens=role.max_tokens, temperature=role.temperature,
                                              tag=tag or role.name)
             turn = AgentTurn.model_validate(doc)
+            if keep_notes and turn.notes:
+                notes = str(turn.notes)[:2000]
             if log is not None:
                 log({"turn": turn_no, "reply": doc})
+            if turn.is_final() and not (turn.done or "final" in doc):
+                # neither a call nor a finish (compose-2: bare arguments with no tool, {"invoice_id": ...}): a malformed
+                # turn, said so, never taken as the end of the attempt
+                history.append({"note": 'That reply was neither a tool call {"call": {"tool": ..., "args": {...}}} nor a finish {"done": true, '
+                                        '"final": ...}. Reply with one of the two.'})
+                continue
             if turn.is_final():
                 if calls == 0 and not nudged:  # finishing before any call reads nothing and changes nothing: say so once
                     nudged = True
@@ -239,6 +277,10 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
                 if finish_nudge and not wrote and not write_nudged and calls < b.max_calls:
                     write_nudged = True
                     history.append({"note": FINISH_NUDGE})
+                    continue
+                if progress_check and not checked and calls < b.max_calls:
+                    checked = True
+                    history.append({"note": PROGRESS_CHECK})
                     continue
                 return turn.final
             if calls >= b.max_calls:

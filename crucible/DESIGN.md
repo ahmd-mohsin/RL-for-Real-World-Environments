@@ -2346,12 +2346,88 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      **Every composite is rejected.** The causes are defects inherited from uncertified parts (exact free-text bodies,
      loose answer checks, an order-dependent pick) and the ALT rule: no solver passes a 37–51-call task.
 
-     **Open:**
-     - the repairer re-emits the whole long program and breaks it (3/3), so repair should be per part;
-     - restoration (a later part undoes an earlier write, and a merged allowed pattern still permits the undone
-       value) is caught by MUT but not closed by the merge;
-     - TWIN suspects have no inline judge;
-     - the locked-set FR/FA has not been re-measured after the TWIN changes.
+     **Open after compose-1** (the first three are closed by compose-2, below): the repairer re-emits the whole long
+     program; restoration is caught by MUT but not closed by the merge; TWIN suspects have no inline judge; the
+     locked-set FR/FA has not been re-measured after the TWIN changes (still open).
+   - **compose-2: certified parts, per-part repair, stronger solvers under the unchanged ALT rule** (built 2026-10-30;
+     results `docs/research/env-synthesis/runs/compose-2.md`). **Decision (the lead's): the ALT rule stays.** A
+     non-builder family must pass the whole composite from its instruction; segmented solving is not allowed.
+     - **Parts are certified first** (`synth/parts.py`). `PartCert` is a part's certificate against its digest;
+       `CertBook` keeps them (`certs.json`). `compose(..., certs=book)` refuses any part without an admitted
+       (certified or provisional) certificate for that exact version (`require_certified`); segments record the status.
+       `certify_links` certifies a stored chain in order on each link's own World state (the prefix variant): a link
+       after a repaired one is rebased (`rebase`) and must still hold (`still_holds`), and the chain is cut at the first
+       link not admitted. `build_chain(certify=True)` runs the ranked candidates through `Runner.refine_one` (at most
+       `certify_tries` per round) and joins the first admitted version; the panel and the TWIN panel are calibrated
+       once per chain. `start=` resumes a chain after certified links, on their base World. Link ids carry the run
+       directory (found: a restarted run's `chain0-link01/t01` re-opened the stopped run's archived counterexamples).
+     - **Per-part repair** (`PartRepairer`, the composite Runner's new `repair_factory` hook; `certify_composed(parts=,
+       book=, writer=)`). Each composite counterexample is attributed (`attribute`): a probe program's differing steps or
+       answer element (`program_owners`), else step or pattern ids in the site, else the pattern ids in the reason codes
+       (a rebased `x.r<k>` by the last part that wrote its address).
+       - It is translated to each owner part's frame (`to_part`: program cut to that part's steps and de-prefixed, the
+         part's answer element, the part's reason codes).
+       - A translation the part's own contract also gets wrong (`reproduces`) is archived under the part.
+       - The owner parts are repaired with the repairer role and their own World catalogue (`Runner.default_repairer`),
+         must re-open none of the part's archived counterexamples, and are certified again. Later parts are rebased and
+         certified again when a program changed. The composite is recomposed, with a new instruction from the writer,
+         as the next version of the same id, so `cegis.refine` holds the monotone archive at the composite level.
+       - A composite counterexample no part reproduces is a composition-level defect and is recorded as such.
+       - The merged program is never handed to the repairer: without `parts`, a composite is not repaired.
+     - **Undone values closed** (`close_undone`, `undone_changes`). Every merged required or allowed pattern that would
+       cover a value the composite never leaves, one a later part overwrote or restored, excludes it.
+       `contract.EffectPattern.unless` holds a list of `Undone` (address, kind, values); it is left out of the dump
+       when empty (`exclude_if`), so every other contract keeps its digest. `Composition.closed` lists the addresses.
+     - **TWIN suspects decided inline** (`falsify/twinjudge.py`, `Runner.twin_panel`, `Runner.calibrate_twin`).
+       `TwinAdjudicated` asks the panel about the twin task τ′ (ι′, the intent card under σ):
+       - π* when it passes C′: invalid means D9;
+       - π*′ in the diverged case: valid means D9.
+       λ comes from item 20's strict `calibrate` (`min_decided` 6, `require_both`, `refuse_uncalibrated`) over the
+       panel's own executed-truth anchors (oracle, no-op, minus last write) plus twin anchors from clean twins whose π*′
+       writes other entities: π* on τ′ is invalid, and π*′ is valid only when the intent card derives nothing.
+       **Found:** on a decision task π*′ carries π*'s decision to a sibling whose right decision differs, and the panel
+       rightly called all 5 such "valid" anchors invalid.
+     - **The repairer sees the task's own World catalogue** (`Runner.task_tools`): a variant's `actors.ask` and `page`.
+     - **ORACLE (item 21) and LEAK in admission.** `pipeline.admission_policy` counts both: a confirmed wrong reference
+       decision or L2 give-away rejects. `Runner.cheap_factory` is passed through `build_chain` and
+       `certify_composed`, which adds ORACLE wherever the World registers policy truth.
+     - **Solver harness v3** (`roles.ALT_SOLVER_V3`, variant `v3`; `llm_agent(progress_check=, window=)`;
+       `RunConfig.alt_progress`, `alt_window`). It adds:
+       - a scratchpad (`notes`, returned every turn) that starts with a plan;
+       - one generic progress check before finishing;
+       - older tool results shortened in blocks, so the prompt prefix stays cacheable.
+       The solver still sees only the instruction, the tools and its history (ALT_SOLVER's `never`). `AgentTurn`
+       accepts `{"name", "args"}` and `{"function": …}` (Inkling's shapes), and a reply that is neither a call nor a
+       finish gets a format note instead of ending the attempt.
+     - **Solver pool at equal spend** (`synth/solvers.py`). `SolverConfig` is a model client plus a harness and a call
+       budget per oracle call. `evaluate` gives each (configuration, task) attempts until a per-task USD budget is
+       spent, each attempt with its own tag (`~k`) so that seeds by tag make independent samples. It stops at the run's
+       cap. `summarize` reports pass@1 and solved-at-equal-spend (Wilson intervals), USD per attempt and per solved task.
+       `certify_composed(alt_per_call=)` scales the certifying ALT budget.
+     - **CLI** `scripts/synth_compose2.py` (`parts | chain | composites | solvers | budget`). `COMPOSE2_CAP_USD` = 8 over
+       receipts with "compose2" in the path; the shared Part 2 total comes from `MILESTONE_CAP_USD` in the environment;
+       wires seed by tag; ALT is chosen by `--alt` (Ultra, Super, gpt-oss, Inkling, Inkling-Small). Tests:
+       `tests/unit/test_synth_compose2.py` (scripted roles).
+     - **Results** (USD 7.17 of 8; swarm only, no Qwen, the student never called):
+       - **dep ≥ 1:** 0 long composites. No chain got a follow-up link certified on its own World state (0 of 7:
+         TAINT D5 for earlier results' literals, ATK shortcuts, open TWIN suspects). First links: 2 of 13.
+       - **dep 0 (certified finance_ap singles in sequence, each certified again on its rebased state):** two
+         composites, 22 and 23 calls, with 0 confirmed in every class and MUT U 0.044 and 0.048. The 23-call one has
+         ALT 3/3 and is held only by one LEAK suspect (a panel split, now in the human queue). The 22-call one has
+         ALT 0/3. ORACLE confirms both reference decisions are right.
+       - **Solver pool:**
+         - 23-call composite: 5 of 6 configurations pass at equal spend;
+         - 22-call four-decision composite: no solver passes in 17 attempts (the best, Inkling with 3 × the call
+           budget, got 3 of 4 decisions right);
+         - harness v3 lifts gpt-oss from 0/6 to 5/6 on certified singles at USD 0.003 per attempt, and gets a finance_ap
+           link certified that Ultra ×2 + gpt-oss v2 rejected;
+         - v3 does not help Ultra (2.6× the cost per attempt; 0 writes in 41 calls on the 23-call composite).
+       - **Restoration:** the deterministic re-check of compose-1's composites removes its DropStep D1 and changes
+         nothing else.
+     - **Open:** follow-up links that read earlier results; a live run of the corrected TWIN calibration (re-scored
+       from stored votes: λ 0.5; most TWIN suspects become confirmed D9s); per-part repair has no real-run evidence
+       (composites from certified parts had nothing to repair); policy truth for prefix-variant Worlds; no solver's
+       per-decision accuracy is high enough for four or more decisions in one composite.
 17. **Part 2 batch runner and yield (built 2026-10-29; part2-paper-core §7, §9.5 S, §13 E6).**
    - **The batch runner** (`synth/batch.py`; CLI `synth.py batch | batch-report`). A batch runs arms side by side over a
      cell grid (domain × World instance (start-state seed) × cell kind; `BatchDomain`; `batch_domains` adapts a

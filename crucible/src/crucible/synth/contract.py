@@ -126,6 +126,29 @@ Pred = Annotated[PEq | PIn | PApprox | PRegex | PAny | PRel | PFromAnswer, Field
 
 # ---------------------------------------------------------------------------------------------------------- patterns
 
+class Undone(CrucibleModel):
+    """A change a pattern does not cover: at one address, a value an earlier part of a composition wrote and a later
+    part overwrote or undid (``compose.merge_contracts``). ``kind`` update: an update whose new value is one of
+    ``values``; insert or delete: that change of the whole entity."""
+
+    app: str
+    coll: str
+    key: str
+    field: str = ""
+    kind: Literal["insert", "update", "delete"] = "update"
+    values: list[Any] = Field(default_factory=list)
+
+    def hit(self, ch: Change) -> bool:
+        a = ch.addr
+        if (a.app, a.coll, a.key) != (self.app, self.coll, self.key) or ch.kind != self.kind:
+            return False
+        return ch.kind != "update" or (a.field == self.field and any(same_value(ch.new, v) for v in self.values))
+
+
+def _unset(v: Any) -> bool:
+    return not v
+
+
 class EffectPattern(CrucibleModel):
     id: str
     app: str = "*"
@@ -138,6 +161,9 @@ class EffectPattern(CrucibleModel):
     count: int = 1
     count_max: int | Literal["any"] | None = None  # None: exactly ``count``
     why: str | None = None
+    # changes the pattern never covers (composition: an undone or superseded value; left out of the dump when empty, so
+    # every contract without one keeps its bytes and digest)
+    unless: list[Undone] = Field(default_factory=list, exclude_if=_unset)
 
     @model_validator(mode="after")
     def _check(self) -> EffectPattern:
@@ -390,6 +416,8 @@ def matches(p: EffectPattern, ch: Change, ctx: _Ctx) -> bool:
         return False
     a = ch.addr
     if not _globs(p, a.app, a.coll, a.key):
+        return False
+    if p.unless and any(u.hit(ch) for u in p.unless):
         return False
     start_row = ctx.s0.entity(a.app, a.coll, a.key)
     if ch.kind == "update":

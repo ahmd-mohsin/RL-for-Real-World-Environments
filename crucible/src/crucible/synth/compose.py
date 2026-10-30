@@ -18,8 +18,11 @@ A long-horizon task is a composition of tasks in which later work needs the resu
     was relative to the part's own start state, or when a later update lands on a row it inserted. A change no
     pattern covers any more gets one too.
   - **Restored.** A later part set the address back to its start value, so there is no net change and only the frame
-    rules govern it (``restored``). Known gap: a merged *allowed* pattern can then permit the earlier value, and MUT
-    finds the lost requirement as DropStep D1. Certification rejects the task, and the repairer may fix it.
+    rules govern it (``restored``).
+  - **Undone values are closed** (``close_undone``). A value an earlier part wrote and a later part overwrote or
+    restored is never the composite's net change there, so every merged pattern (required or allowed) that would cover
+    it excludes it (``EffectPattern.unless``): compose-1's restoration gap, where a merged allowed pattern still
+    permitted a cleared value and MUT found it as DropStep D1.
 
   The composite oracle passes the merged contract by construction.
 - **A = A₁ ∪ … ∪ A_k.**
@@ -113,7 +116,7 @@ from pydantic import Field
 
 from crucible.core.schema.base import CrucibleModel
 from crucible.synth.canon import Normalizers, cjson, content_hash, diff, is_number, norm_text, same_diff
-from crucible.synth.contract import AnswerCheck, Contract, EffectPattern, PFromAnswer, TraceConstraint, grade
+from crucible.synth.contract import AnswerCheck, Contract, EffectPattern, PFromAnswer, TraceConstraint, Undone, grade
 from crucible.synth.falsify.base import FalsifyContext, key_text, run_classes
 from crucible.synth.iface import Obs, Perturbable, Perturbation, SynthWorld, ToolInfo
 from crucible.synth.infer import _lit_glob as _lit
@@ -361,6 +364,7 @@ class Segment(CrucibleModel):
     answers: bool = False
     instruction: str = ""
     skill: str = ""
+    status: str = ""  # the part's own certificate when composed under a CertBook (certified | provisional)
 
 
 class DepEdge(CrucibleModel):
@@ -420,6 +424,7 @@ class Composition(CrucibleModel):
     superseded: list[str] = Field(default_factory=list)
     rebased: list[str] = Field(default_factory=list)
     restored: list[str] = Field(default_factory=list)  # addresses a later part set back to their start value
+    closed: list[str] = Field(default_factory=list)  # addresses whose undone values every pattern excludes (close_undone)
     instruction_source: Literal["writer", "joined", "kept"] = "joined"
     writer: dict[str, Any] = Field(default_factory=dict)
     derive_added: list[Any] = Field(default_factory=list)
@@ -481,9 +486,10 @@ def _in_merged(ch: Any, merged: Sequence[Any], n: Normalizers, own: Normalizers)
     return next((m for m in merged if str(m.addr) == str(a) and m.kind == ch.kind), None)
 
 
-def merge_contracts(tasks: Sequence[Task], segs: Sequence[Run], full: Run, answer_parts: Sequence[int]) -> tuple[Contract, list[str], list[str], list[str]]:
+def merge_contracts(tasks: Sequence[Task], segs: Sequence[Run], full: Run, answer_parts: Sequence[int]) -> tuple[Contract, list[str], list[str], list[str], list[str]]:
     """R₁ ⊕ … ⊕ R_k with supersession and rebasing (module docstring). Returns (contract, superseded ids, rebased ids,
-    restored addresses: an earlier part's write a later part undid, which only the frame rules govern in the composite)."""
+    restored addresses: an earlier part's write a later part undid, closed addresses: where every pattern now excludes
+    the values the composite never leaves, ``close_undone``)."""
     if any(t.contract.observation_only for t in tasks) and not all(t.contract.observation_only for t in tasks):
         raise CompositionError("an observation-only part cannot be composed with a stateful one")
     n = merge_normalizers([t.contract.normalizers for t in tasks])
@@ -611,7 +617,91 @@ def merge_contracts(tasks: Sequence[Task], segs: Sequence[Run], full: Run, answe
         v = grade(full, c)
         if not v.passed:
             raise CompositionError(f"rebasing did not make the composite oracle pass: {v.reasons[:6]}")
-    return c, superseded, rebased, restored
+    c, closed = close_undone(c, segs, full)
+    if closed:
+        v = grade(full, c)
+        if not v.passed:  # by construction the oracle has no change at an undone value: a failure here is a bug
+            raise CompositionError(f"closing undone values made the composite oracle fail: {v.reasons[:6]}")
+    return c, superseded, rebased, restored, closed
+
+
+def undone_changes(segs: Sequence[Run], full: Run, n: Normalizers) -> list[Undone]:
+    """Values the composite never leaves (compose-1's restoration gap): at every address some part wrote, each value a
+    part wrote that the composite's net change does not end on. A later part overwrote it (supersession) or set the
+    start value back (restoration: no net change). An inserted row a later part deleted is an undone insert, a deleted
+    row a later part re-inserted an undone delete. Each is a change no valid run of the composite makes."""
+    from crucible.synth.canon import same_value
+
+    if full.start is None or full.end is None:
+        return []
+    net = {str(ch.addr): ch for ch in diff(full.start, full.end, n)}
+    s0n = n.apply(full.start)
+    out: dict[tuple[str, str, str, str, str], Undone] = {}
+    for s in segs:
+        if s.start is None or s.end is None:
+            continue
+        for ch in diff(s.start, s.end, n):
+            a = ch.addr
+            fin = net.get(str(a))
+            if ch.kind == "update":
+                if fin is not None and fin.kind == "update" and same_value(fin.new, ch.new):
+                    continue
+                if fin is None and same_value(s0n.get(a), ch.new):  # the restoring write: back to the start value
+                    continue
+                k = (a.app, a.coll, a.key, a.field, "update")
+                u = out.setdefault(k, Undone(app=a.app, coll=a.coll, key=a.key, field=a.field, kind="update"))
+                if not any(same_value(ch.new, x) for x in u.values):
+                    u.values = [*u.values, ch.new]
+            elif fin is None or fin.kind != ch.kind:
+                out.setdefault((a.app, a.coll, a.key, "", ch.kind), Undone(app=a.app, coll=a.coll, key=a.key, kind=ch.kind))
+    return list(out.values())
+
+
+def close_undone(c: Contract, segs: Sequence[Run], full: Run) -> tuple[Contract, list[str]]:
+    """Every required and allowed pattern of the merged contract that would cover an undone change (``undone_changes``)
+    excludes it (``EffectPattern.unless``), so dropping the step that restored or overwrote a value fails the composite
+    (compose-1: part 1 clears a field, part 5 restores it, and a merged allowed pattern still permitted the cleared
+    value; MUT found it as DropStep D1). Returns the contract and the closed addresses ("… (restored)" when the
+    composite has no net change there)."""
+    from crucible.synth.canon import Address, Change
+    from crucible.synth.contract import _Ctx, matches
+
+    n = c.normalizers
+    und = undone_changes(segs, full, n)
+    if not und or full.start is None or full.end is None:
+        return c, []
+    s0, sT = n.apply(full.start), n.apply(full.end)
+    ctx = _Ctx(s0, sT, full.answer, math.inf)
+    net = {str(ch.addr) for ch in diff(full.start, full.end, n)}
+    closed: list[str] = []
+
+    def probes(u: Undone) -> list[Change]:
+        addr = Address(app=u.app, coll=u.coll, key=u.key, field=u.field if u.kind == "update" else "")
+        if u.kind == "update":
+            return [Change(addr=addr, kind="update", old=s0.get(addr) if s0.entity(u.app, u.coll, u.key) is not None else None, new=v) for v in u.values]
+        row = (s0.entity(u.app, u.coll, u.key) or sT.entity(u.app, u.coll, u.key) or {})
+        return [Change(addr=addr, kind=u.kind, old=row if u.kind == "delete" else None, new=row if u.kind == "insert" else None)]
+
+    def close(p: EffectPattern) -> EffectPattern:
+        add = []
+        for u in und:
+            try:
+                hit = any(matches(p, ch, ctx) for ch in probes(u))
+            except Exception:  # noqa: BLE001 - a predicate that cannot evaluate the probe change: exclude it to be safe
+                hit = True
+            if hit and u not in p.unless:
+                add.append(u)
+        if not add:
+            return p
+        return p.model_copy(update={"unless": [*p.unless, *add]}, deep=True)
+
+    req = [close(p) if p.kind != "state" else p for p in c.required]
+    allowed = [close(p) for p in c.allowed]
+    for u in und:
+        a = f"{u.app}.{u.coll}[{u.key}]" + (f".{u.field}" if u.kind == "update" and u.field else "")
+        if any(u in p.unless for p in [*req, *allowed]):
+            closed.append(a + ("" if a in net else " (restored)"))
+    return c.model_copy(update={"required": req, "allowed": allowed}, deep=True), sorted(set(closed))
 
 
 # ---------------------------------------------------------------------------------------------------------- dependency
@@ -1021,14 +1111,24 @@ def _union(xs: Sequence[Sequence[Any]]) -> list[Any]:
 
 
 async def compose(tasks: Sequence[Task], *, op: Literal["seq", "par"] = "seq", ctx: FalsifyContext | None = None, writer: RoleClient | None = None,
-                  task_id: str | None = None, tag: str = "compose", writer_retries: int = 2, counterfactual: bool = True) -> Composed:
-    """seq or par composition of ``tasks`` (module docstring)."""
+                  task_id: str | None = None, tag: str = "compose", writer_retries: int = 2, counterfactual: bool = True, certs: Any = None) -> Composed:
+    """seq or par composition of ``tasks`` (module docstring). ``certs`` (a ``parts.CertBook``): every part must hold an
+    admitted (certified or provisional) certificate for its exact version, else ``CompositionError`` (compose-2: the
+    inherited defects of uncertified parts rejected every compose-1 composite)."""
     if len(tasks) < 2:
         raise CompositionError("composition needs two or more tasks")
+    statuses = None
+    if certs is not None:
+        from crucible.synth.parts import require_certified
+
+        statuses = require_certified(tasks, certs)
     own = ctx is None
     ctx = ctx or FalsifyContext()
     try:
-        return await _compose(list(tasks), op=op, ctx=ctx, writer=writer, task_id=task_id, tag=tag, writer_retries=writer_retries, counterfactual=counterfactual)
+        out = await _compose(list(tasks), op=op, ctx=ctx, writer=writer, task_id=task_id, tag=tag, writer_retries=writer_retries, counterfactual=counterfactual)
+        if statuses is not None:
+            out.comp.segments = [s.model_copy(update={"status": st}) for s, st in zip(out.comp.segments, statuses, strict=True)]
+        return out
     finally:
         if own:
             await ctx.close()
@@ -1090,7 +1190,7 @@ async def _compose(tasks: list[Task], *, op: str, ctx: FalsifyContext, writer: R
     program = Program(steps=[s for p in progs for s in p.steps], answer=answer)
     base_ins = joined([t.instruction for t in tasks], answer_parts)
     full = await _run_full(w, program, base_ins, seed, given)
-    contract, superseded, rebased, restored = merge_contracts(tasks, segs, full, answer_parts)
+    contract, superseded, rebased, restored, closed = merge_contracts(tasks, segs, full, answer_parts)
     segments = [Segment(index=k, source=t.id, version=t.version, digest=t.digest(), prefix=f"t{k + 1}_", steps=[s.id for s in progs[k].steps],
                         calls=len(segs[k].calls), writes=sum(1 for c in segs[k].calls if not c.read_only), answers=progs[k].answer is not None,
                         instruction=t.instruction, skill=t.intent.skill) for k, t in enumerate(tasks)]
@@ -1102,7 +1202,7 @@ async def _compose(tasks: list[Task], *, op: str, ctx: FalsifyContext, writer: R
                         derive=derive, notes=f"{op} composition of {len(tasks)} tasks")
     task = Task(id=tid, domain=domain, world=wref, seed=seed, instruction=base_ins, contract=contract, oracle=program, intent=intent)
     comp = Composition(id=tid, op=op, segments=segments, horizon=len(full.calls), writes=sum(1 for c in full.calls if not c.read_only),  # type: ignore[arg-type]
-                       answer_parts=answer_parts, superseded=superseded, rebased=rebased, restored=sorted(set(restored)))
+                       answer_parts=answer_parts, superseded=superseded, rebased=rebased, restored=sorted(set(restored)), closed=closed)
     parts = [Program(steps=p.steps, answer=p.answer) for p in progs]
     edges, dep, dep_u = await dependency(w, parts, seed=seed, instruction=base_ins, given=given, counterfactual=counterfactual)
     flow, _, _ = await dependency(w, parts, seed=seed, instruction=base_ins, given=given, counterfactual=False, ignore_given=True)
@@ -1662,32 +1762,63 @@ class LinkChoice(CrucibleModel):
 async def build_chain(env: Any, roles: Any, *, length: int, run_dir: Path, archive_root: Path, seed: int, candidates: int = 2,
                       cfg: Any = None, cost: Callable[[], dict[str, Any]] | None = None, families: Mapping[str, Any] | None = None,
                       ctx: FalsifyContext | None = None, on_link: Callable[[int, list[Task], LinkChoice], None] | None = None,
-                      retries: int = 1, allow_horizon: bool = True, max_horizon: int = 48) -> tuple[list[Task], list[LinkChoice]]:
-    """Grow a chain of ``length`` links with the swarm (``pipeline.Runner``: propose, oracle, contract; no falsifiers,
-    no repair): link j is proposed on the World after links 1..j-1. The candidate kept is the one with a confirmed
-    state edge into it, then the deepest, then one that carries information from earlier parts, then the longest; a
-    round without a state edge is retried (``retries``) before settling. ``allow_horizon=False`` refuses a link nothing
-    depends on. Stops early when no candidate composes."""
+                      retries: int = 1, allow_horizon: bool = True, max_horizon: int = 48, certify: bool = False, book: Any = None,
+                      certify_tries: int = 2, twin: bool = True, start: Sequence[Task] = (),
+                      cheap_factory: Callable[[], list[Any]] | None = None) -> tuple[list[Task], list[LinkChoice]]:
+    """Grow a chain of ``length`` links with the swarm (``pipeline.Runner``: propose, oracle, contract): link j is proposed
+    on the World after links 1..j-1. Candidates are ranked: a confirmed state edge into the link, then a link that writes,
+    then the deepest, then one that carries information from earlier parts, then the longest; a round without a state edge
+    is retried (``retries``) before settling. ``allow_horizon=False`` refuses a link nothing depends on. Stops early when
+    no candidate composes.
+
+    ``certify`` (compose-2): a link joins only once it is certified or provisional on its own World state. The ranked
+    candidates go through ``Runner.refine_one`` (the full population, adjudication, the link's own repair loop) in order,
+    at most ``certify_tries`` per round, and the first admitted version joins (its certificate goes into ``book``, a
+    ``parts.CertBook``). The panel is calibrated once, on the first link's candidates, and reused for the chain; with
+    ``twin`` the TWIN panel is calibrated strictly there too. ``start``: links already in the chain (a resumed chain; with
+    ``certify`` each must hold an admitted certificate in ``book``); growth continues after them."""
+    import dataclasses
+
     from crucible.synth.pipeline import RunConfig, Runner
 
+    if certify and book is None:
+        from crucible.synth.parts import CertBook
+
+        book = CertBook(Path(run_dir) / "certs.json")
+    if certify and start:
+        from crucible.synth.parts import require_certified
+
+        require_certified(start, book)
+    if start:  # the new links run on the start links' own base World (compose-2: a fresh work dir made "another World")
+        base_ref = split_world(start[0].world).base
+        env = dataclasses.replace(env, world=lambda _s, b=base_ref: b)
     own = ctx is None
     ctx = ctx or FalsifyContext()
-    links: list[Task] = []
+    links: list[Task] = list(start)
     log: list[LinkChoice] = []
-    prefix: Program | None = None
+    prefix: Program | None = concat([rename(t.oracle, f"t{k + 1}_") for k, t in enumerate(links)]) if links else None
     effects: list[str] = []
+    if links:
+        w0 = await ctx.world(_stub(env.world(seed), seed, env.name))
+        effects = effects_summary((await run_parts(w0, [prefix], seed=seed))[0])  # type: ignore[list-item]
+    chain_panel: Any = None
+    chain_twin: Any = None
     try:
-        for j in range(1, length + 1):
+        for j in range(len(links) + 1, length + 1):
             choice = LinkChoice(link=j)
-            best: tuple[tuple[int, int, int], Task, Composed | None] | None = None
+            best: tuple[tuple[int, ...], Task, Composed | None] | None = None
             for attempt in range(retries + 1):
                 base_env = followup_env(env, links, prefix, effects, seeds=(seed,))
                 c = cfg or RunConfig()
-                rcfg = RunConfig(n_tasks=candidates, batch=candidates, calibrate=False, paid=False, repair=False, concurrency=candidates,
-                                 oracle_retries=c.oracle_retries, max_mutants=c.max_mutants)
+                rcfg = dataclasses.replace(c, n_tasks=candidates, batch=candidates, calibrate=certify and c.calibrate, paid=certify and c.paid,
+                                           repair=certify and c.repair, concurrency=candidates)
                 rid = f"link{j:02d}" + (f"-r{attempt}" if attempt else "")
-                # the task ids carry the chain's directory name: two chains of one run never share a link id
-                runner = Runner(base_env, roles, rcfg, Path(run_dir) / rid, archive_root, run_id=f"{Path(run_dir).name}-{rid}", cost=cost, families=families)
+                # the task ids carry the run's and the chain's directory names: two chains, or two runs, never share a link
+                # id (compose-2: a restarted run's "chain0-link01/t01" re-opened the stopped run's archived counterexamples)
+                run_id = f"{Path(run_dir).parent.name}-{Path(run_dir).name}-{rid}"
+                runner = Runner(base_env, roles, rcfg, Path(run_dir) / rid, archive_root, run_id=run_id, cost=cost, families=families)
+                if cheap_factory is not None:  # e.g. the deterministic population plus ORACLE's policy truth
+                    runner.cheap_factory = cheap_factory
                 await runner.survey()
                 recs = await runner.propose()
                 await asyncio.gather(*(runner.build(r) for r in recs))
@@ -1700,39 +1831,63 @@ async def build_chain(env: Any, roles: Any, *, length: int, run_dir: Path, archi
                 for rec in recs:
                     if rec.n not in ready:
                         choice.candidates.append({"id": rec.id, "skill": rec.skill, "status": rec.status, "reasons": rec.reasons[:3], "note": rec.note[:200]})
+                scored: list[tuple[tuple[int, ...], Task, Composed | None, Any, dict[str, Any]]] = []
                 for rec, task, _r in sorted(runner.ready, key=lambda x: x[0].n):
                     row: dict[str, Any] = {"id": task.id, "skill": task.intent.skill, "instruction": task.instruction}
-                    try:
-                        if links:
-                            cc = await compose([*links, task], ctx=ctx, task_id=f"{task.id}/probe")
-                            into = sum(1 for e2 in cc.comp.edges if e2.confirmed and e2.dst == len(links))
-                            carried = sum(1 for e2 in cc.comp.edges if e2.kind == "carry" and e2.dst == len(links))
-                            wr = cc.comp.segments[-1].writes
-                            # a state edge into the new link first; then a link that writes (only a write can be depended on
-                            # later: compose-1's read-only re-check links kept dep at 1); then depth, carried information, length
-                            key = (min(into, 1), min(wr, 1), cc.comp.dep, min(carried, 1), cc.comp.carry, cc.comp.horizon)
-                            row.update(dep=cc.comp.dep, carry=cc.comp.carry, horizon=cc.comp.horizon, edges_into=into, carry_into=carried, writes=wr)
-                        else:
-                            sc = await single(task, ctx)
-                            cc = None
-                            key = (0, min(sc.comp.writes, 1), 0, 0, 0, sc.comp.horizon)
-                            row.update(dep=0, horizon=sc.comp.horizon, writes=sc.comp.writes)
-                    except (CompositionError, KnobNotApplicable, PrefixError) as ex:
-                        row["refused"] = str(ex)[:300]
-                        choice.candidates.append(row)
-                        continue
+                    got = await _score_link(links, task, ctx, row)
                     choice.candidates.append(row)
+                    if got is None:
+                        continue
+                    key, cc = got
                     if key[5] > max_horizon:  # compose-1: one swarm link alone made 135 calls (a vendor sweep)
                         row["refused"] = f"over the horizon cap ({key[5]} > {max_horizon} calls)"
                         continue
                     if links and not (key[0] or key[3] or allow_horizon):
                         continue  # a link nothing depends on adds horizon only
-                    if best is None or key > best[0]:
-                        best = (key, task, cc)
+                    scored.append((key, task, cc, rec, row))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                if certify and scored:
+                    if chain_panel is None:
+                        await runner.calibrate_panel()
+                        if twin:
+                            await runner.calibrate_twin([t for _, t, _ in runner.ready])
+                        chain_panel, chain_twin = runner.panel, runner.twin_panel
+                    else:
+                        runner.panel, runner.twin_panel = chain_panel, chain_twin
+                    from crucible.synth.parts import ADMIT, cert_of
+
+                    tried = 0
+                    for key, task, cc, rec, row in scored:
+                        if tried >= certify_tries or runner.stop:
+                            break
+                        tried += 1
+                        await runner.refine_one(rec, task)
+                        runner.save()
+                        final = runner.final_tasks.get(task.id, task)
+                        cert = cert_of(final, rec)
+                        book.put(cert)
+                        row["cert"] = {"status": cert.status, "reasons": cert.reasons[:6], "version": final.version, "rounds": cert.rounds,
+                                       "repairs": cert.repairs}
+                        if cert.status not in ADMIT:
+                            continue
+                        if final.digest() != task.digest():  # the link's own repair changed it: score the version that joins
+                            got = await _score_link(links, final, ctx, row)
+                            if got is None or got[0][5] > max_horizon:
+                                row["cert"]["joined"] = False
+                                continue
+                            key, cc = got
+                        best = (key, final, cc)
+                        break
+                elif scored:
+                    key, task, cc, _rec, _row = scored[0]
+                    best = (key, task, cc)
+                if runner.stop:
+                    choice.note = runner.stop
+                    break
                 if best is not None and (best[0][0] or not links or attempt == retries):
                     break  # a state dependency into the new link; else try again for one before settling
             if best is None:
-                choice.note = choice.note or "no candidate composes after the earlier links"
+                choice.note = choice.note or ("no candidate was certified" if certify else "no candidate composes after the earlier links")
                 log.append(choice)
                 if on_link:
                     on_link(j, links, choice)
@@ -1748,10 +1903,33 @@ async def build_chain(env: Any, roles: Any, *, length: int, run_dir: Path, archi
             effects = effects_summary(r)
             if on_link:
                 on_link(j, links, choice)
+            if choice.note.startswith("budget"):
+                break
     finally:
         if own:
             await ctx.close()
     return links, log
+
+
+async def _score_link(links: Sequence[Task], task: Task, ctx: FalsifyContext, row: dict[str, Any]) -> tuple[tuple[int, ...], Composed | None] | None:
+    """The ranking key of a candidate link after ``links`` (see ``build_chain``), or None when it does not compose."""
+    try:
+        if links:
+            cc = await compose([*links, task], ctx=ctx, task_id=f"{task.id}/probe")
+            into = sum(1 for e2 in cc.comp.edges if e2.confirmed and e2.dst == len(links))
+            carried = sum(1 for e2 in cc.comp.edges if e2.kind == "carry" and e2.dst == len(links))
+            wr = cc.comp.segments[-1].writes
+            # a state edge into the new link first; then a link that writes (only a write can be depended on later:
+            # compose-1's read-only re-check links kept dep at 1); then depth, carried information, length
+            key = (min(into, 1), min(wr, 1), cc.comp.dep, min(carried, 1), cc.comp.carry, cc.comp.horizon)
+            row.update(dep=cc.comp.dep, carry=cc.comp.carry, horizon=cc.comp.horizon, edges_into=into, carry_into=carried, writes=wr)
+            return key, cc
+        sc = await single(task, ctx)
+        row.update(dep=0, horizon=sc.comp.horizon, writes=sc.comp.writes)
+        return (0, min(sc.comp.writes, 1), 0, 0, 0, sc.comp.horizon), None
+    except (CompositionError, KnobNotApplicable, PrefixError) as ex:
+        row["refused"] = str(ex)[:300]
+        return None
 
 
 # ---------------------------------------------------------------------------------------------------------- certification
@@ -1770,11 +1948,22 @@ def agent_budget_for(horizon: int, base: Any = None, *, per_call: float = 1.5, s
 
 
 async def certify_composed(cands: Sequence[Composed], env: Any, roles: Any, *, run_dir: Path, archive_root: Path, run_id: str, cfg: Any = None,
-                           cost: Callable[[], dict[str, Any]] | None = None, families: Mapping[str, Any] | None = None) -> Any:
+                           cost: Callable[[], dict[str, Any]] | None = None, families: Mapping[str, Any] | None = None,
+                           parts: Mapping[str, Sequence[Task]] | None = None, book: Any = None, writer: RoleClient | None = None,
+                           part_runner: Any = None, twin: bool = True, extra_paid: Callable[[], list[Any]] | None = None,
+                           cheap_factory: Callable[[], list[Any]] | None = None, alt_per_call: float = 1.5) -> Any:
     """Each candidate through the full falsifier population, adjudication, repair and certification of the pipeline
     (``pipeline.Runner.refine_one``: the same code as any proposed task), the panel calibrated on the candidates. ALT
     and ATK budgets scale with the longest horizon. Returns the run report (``report.json`` / ``report.md`` under
-    ``run_dir``)."""
+    ``run_dir``).
+
+    compose-2: with ``parts`` (composite id -> its certified parts, in order) and ``book`` (their ``parts.CertBook``),
+    a composite is repaired only through its parts (``parts.PartRepairer``: attribute, translate, repair the owner parts
+    with the repairer role, recertify them, rebase the later parts, recompose); the merged program is never handed to
+    the repairer. Without ``parts`` the composite is not repaired at all. ``twin``: TWIN suspects are decided inline by
+    the panel under item 20's strict calibration (``falsify.twinjudge``). ``extra_paid``: more paid classes (the LEAK
+    probe). The final version of each composite, with its composition record, is written to
+    ``tasks/<n>/composed-final.json``; the part repairs to ``tasks/<n>/part_repairs.jsonl``."""
     import dataclasses
     import time
 
@@ -1786,7 +1975,7 @@ async def certify_composed(cands: Sequence[Composed], env: Any, roles: Any, *, r
     hz = max(c.comp.horizon for c in cands)
     # MUT's proposal cap scales with the horizon: at 240 a 37-49 call composite kept only 42-52 distinct effects (n < 59),
     # at 600 it kept 173-189 (compose-1)
-    c1 = dataclasses.replace(c0, alt_budget=agent_budget_for(hz, c0.alt_budget), atk_budget=agent_budget_for(hz, c0.atk_budget, per_call=1.0),
+    c1 = dataclasses.replace(c0, alt_budget=agent_budget_for(hz, c0.alt_budget, per_call=alt_per_call), atk_budget=agent_budget_for(hz, c0.atk_budget, per_call=1.0),
                              max_mutants=max(c0.max_mutants, MUT_PER_CALL * hz))
     seeds = tuple(sorted({c.task.seed for c in cands}))
     e1 = dataclasses.replace(env, seeds=seeds)
@@ -1801,6 +1990,34 @@ async def certify_composed(cands: Sequence[Composed], env: Any, roles: Any, *, r
         d.mkdir(parents=True, exist_ok=True)
         (d / "composed.json").write_text(cjson(c.dump()))
     await runner.calibrate_panel()
+    if twin and not runner.stop:
+        pool = [c.task for c in cands] + [t for ps in (parts or {}).values() for t in ps]
+        await runner.calibrate_twin(pool)
+    if extra_paid is not None:
+        runner.extra_paid = extra_paid
+    if cheap_factory is not None:  # the deterministic population plus classes a World registers (ORACLE's policy truth)
+        runner.cheap_factory = cheap_factory
+    repairers: dict[str, Any] = {}
+    if parts is not None:
+        from crucible.synth.parts import PartRepairer, part_repair_factory
+
+        if part_runner is None:
+            part_runner = Runner(e1, roles, c0, Path(run_dir) / "parts", archive_root, run_id=f"{run_id}-parts", cost=cost, families=families)
+            await part_runner.survey()
+        part_runner.panel, part_runner.twin_panel, part_runner.extra_paid = runner.panel, runner.twin_panel, None
+        if cheap_factory is not None:
+            part_runner.cheap_factory = cheap_factory
+        for rec, c in zip(recs, cands, strict=True):
+            ps = parts.get(c.task.id)
+            if ps:
+                repairers[c.task.id] = PartRepairer(c, ps, part_runner, book, writer=writer, n0=100 * rec.n,
+                                                    log_path=Path(run_dir) / "tasks" / f"t{rec.n:02d}" / "part_repairs.jsonl")
+        runner.repair_factory = part_repair_factory(repairers)
+    else:
+        async def no_repair(task: Task, cxs: list[Any]) -> Task | None:
+            return None
+
+        runner.repair_factory = lambda _r, _rec, _ctx: no_repair  # the merged program is never repaired (compose-2)
     sem = asyncio.Semaphore(c1.concurrency)
 
     async def one(rec: Any, task: Task) -> None:
@@ -1810,10 +2027,15 @@ async def certify_composed(cands: Sequence[Composed], env: Any, roles: Any, *, r
                 return
             await runner.refine_one(rec, task)
             runner.save()
+            final = runner.final_tasks.get(task.id)
+            pr = repairers.get(task.id)
+            st = pr.state(final.version) if (pr is not None and final is not None) else None
+            if st is not None:
+                d = Path(run_dir) / "tasks" / f"t{rec.n:02d}"
+                (d / "composed-final.json").write_text(cjson({**st[1].dump(), "parts": [t.model_dump(mode="json") for t in st[0]]}))
 
     await asyncio.gather(*(one(r, c.task) for r, c in zip(recs, cands, strict=True)))
-    runner.report.stopped = runner.stop
+    runner.report.stopped = runner.stop or (part_runner.stop if part_runner is not None else None)
     runner.report.finished = time.time()
     runner.save()
     return runner.report
-
