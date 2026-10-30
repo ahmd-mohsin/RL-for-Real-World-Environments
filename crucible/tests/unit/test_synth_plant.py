@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from crucible.synth.falsify import FalsifyContext, cheap
+from crucible.synth.falsify import FalsifyContext, cheap, cheap_m3
 from crucible.synth.meta.plant import OPS, Plant, Planter, PlantOp, Witness, base_planter, feature_matrix, held_out_planter, median_gamma, mmd, mmd2, plant, plant_all, validate
 from crucible.synth.meta.recall import (
     LockedSetError,
@@ -50,10 +50,12 @@ async def _plants() -> list[Plant]:
     return _CACHE["plants"]  # type: ignore[return-value]
 
 
-async def _matrix():
-    if "matrix" not in _CACHE:
-        _CACHE["matrix"] = await measure(await _plants(), fx.anchors(), cheap(), FalsifyContext(), set_name="fixtures-dev")
-    return _CACHE["matrix"]
+async def _matrix(pop: str = "now"):
+    k = f"matrix-{pop}"
+    if k not in _CACHE:
+        fs = cheap() if pop == "now" else cheap_m3()
+        _CACHE[k] = await measure(await _plants(), fx.anchors(), fs, FalsifyContext(), set_name="fixtures-dev")
+    return _CACHE[k]
 
 
 def _src(p: Plant) -> Task:
@@ -85,14 +87,28 @@ async def test_every_operator_plants_a_witnessed_defect_and_the_population_catch
 
 
 async def test_the_matrix_measures_real_gaps_of_the_m2_population():
-    """Not every plant is caught: the matrix is a measurement, and these misses are what the falsifier loop must close."""
-    m = await _matrix()
+    """Not every plant is caught: the matrix is a measurement, and these misses are what the falsifier loop must close.
+    (The M3 population, ``cheap_m3``: the gaps as RSI-1/2 measured them.)"""
+    m = await _matrix("m3")
     never = [o for o in m.plants if o.op.startswith("over_constrain@1:never")]
     assert never and not any(o.hit for o in never)  # an unstated never(read) is invisible to MUT (no mutant adds a read)
     human = [o for o in m.plants if o.op.startswith("leak_decision@1:humanised") and o.domain == "ap-test"]
     assert human and not any(o.hit for o in human)  # "price variance" leaks price_variance; TAINT's token match misses it
     relax = [o for o in m.plants if o.op.startswith("relax_value@1:eq_to_any")]
     assert relax and all("MUT" in o.suspect_only or "MUT" not in o.hit for o in relax)  # MUT's PerturbValue survivors are suspects (§5)
+
+
+async def test_the_item_20_population_closes_the_never_and_humanised_gaps_without_alarms():
+    """DESIGN §7.7 item 20: MUT's read mutants confirm the unstated never(read) as D6, TAINT's separator layer confirms
+    the humanised leak as D7, and no anchor alarms in any class."""
+    m = await _matrix()
+    never = [o for o in m.plants if o.op.startswith("over_constrain@1:never")]
+    assert never and all("MUT" in o.matched for o in never)
+    human = [o for o in m.plants if o.op.startswith("leak_decision@1:humanised")]
+    assert human and all("TAINT" in o.matched for o in human)
+    assert m.fa_population.hits == 0
+    relax = [o for o in m.plants if o.op.startswith("relax_value@1:eq_to_any")]
+    assert relax and all("MUT" in o.suspect_only or "MUT" not in o.hit for o in relax)  # still suspects: the third gap is the panel's
 
 
 async def test_a_plant_without_a_valid_witness_is_discarded():

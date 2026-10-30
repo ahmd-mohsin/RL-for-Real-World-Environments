@@ -34,7 +34,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crucible.factory.models import DEEPSEEK, GLM, GPT_OSS, KIMI, NEMOTRON, NEMOTRON_ULTRA, ModelBook, SameFamilyError, backend, parse_spec
+from crucible.factory.models import (
+    DEEPSEEK,
+    GLM,
+    GPT_OSS,
+    INKLING,
+    INKLING_SMALL,
+    KIMI,
+    NEMOTRON,
+    NEMOTRON_ULTRA,
+    ModelBook,
+    SameFamilyError,
+    backend,
+    parse_spec,
+)
 from crucible.synth.iface import CrucibleWorldAdapter
 from crucible.synth.pipeline import DomainEnv, RunRoles
 from crucible.synth.roles import ROLES, family_problems
@@ -63,6 +76,22 @@ SYNTH_ROLES: dict[str, tuple[str, ...]] = {
     "debugger": (KIMI,),
     "test_approver": (NEMOTRON_ULTRA,),
     "seeder": (KIMI,),
+    # L2 leak evidence (DESIGN §7.7 item 20): the probe on the sixth family (Inkling-Small: nothing builds, solves or
+    # judges on it), the leak panel on the calibrated panel's two families
+    "leak_probe": (INKLING_SMALL,),
+    "leak_panel": (NEMOTRON_ULTRA, GPT_OSS),
+}
+
+# The six-family assignment (§14.1 "family exhaustion", 2026-10-29): with Inkling, the panel shares no family with the
+# ALT solvers or attackers whose traces it judges (``roles.checker_overlap`` is empty). Kimi builds Worlds only (F1), not
+# tasks, so it may judge tasks. Not the default: the default panel is the calibrated one; switching needs a calibration.
+SYNTH_ROLES_DISJOINT: dict[str, tuple[str, ...]] = {
+    **SYNTH_ROLES,
+    "alt_solver": (NEMOTRON_ULTRA, NEMOTRON, GPT_OSS),
+    "attacker": (NEMOTRON, GPT_OSS),
+    "panel": (INKLING, KIMI),
+    "leak_panel": (INKLING, NEMOTRON_ULTRA),
+    "leak_probe": (GPT_OSS,),
 }
 
 

@@ -60,8 +60,9 @@ def test_annotate_executable(tmp_path):
     ds = rd.load_debug_records(f, tmp_path)
     rd.annotate_debug(ds, store)
     st = {d.id: d.executable.status for d in ds}
-    assert st == {"x": "executable", "gone": "lost", "leak": "no_detector", "e": "no_detector"}
+    assert st == {"x": "executable", "gone": "lost", "leak": "executable", "e": "no_detector"}
     assert next(d for d in ds if d.id == "x").executable.detector == "TAINT:world_leak"
+    assert next(d for d in ds if d.id == "leak").executable.detector == "TAINT:visible_data,TAINT:visible_check"  # item 20: visible test data
 
 
 def test_archive_source_and_versions(tmp_path):

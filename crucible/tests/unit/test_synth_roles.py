@@ -25,7 +25,7 @@ from tests.unit.synth_fakes import FakeClient, seq
 GOOD = {"proposer": ["kimi"], "oracle_programmer": ["deepseek"], "contract_writer": ["glm"], "repairer": ["deepseek"],
         "alt_solver": ["nemotron", "openai"], "attacker": ["nemotron", "openai"], "panel": ["nemotron", "openai"], "abstractor": ["openai"],
         "tool_designer": ["kimi"], "schema_deriver": ["kimi"], "app_coder": ["kimi"], "blind_tester": ["deepseek"], "debugger": ["kimi"],
-        "test_approver": ["nemotron"], "seeder": ["kimi"]}
+        "test_approver": ["nemotron"], "seeder": ["kimi"], "leak_probe": ["inkling"], "leak_panel": ["nemotron", "openai"]}
 
 
 def test_every_role_is_data_with_a_schema_and_visibility():
@@ -58,6 +58,20 @@ def test_family_rules():
     assert any("student" in p for p in family_problems({**GOOD, "attacker": ["qwen", "openai"]}))  # no Qwen attacks the Qwen student
     assert any("alt_solver" in p and "proposer" in p for p in family_problems({**GOOD, "alt_solver": ["kimi", "openai"]}))
     assert any("blind_tester" in p for p in family_problems({**GOOD, "blind_tester": ["kimi"]}))
+    assert any("leak_panel" in p and ">= 2" in p for p in family_problems({**GOOD, "leak_panel": ["openai"]}))
+    assert any("leak_probe" in p and "contract_writer" in p for p in family_problems({**GOOD, "leak_probe": ["glm"]}))  # a builder never probes leaks
+
+
+def test_checker_overlap_is_reported_and_six_families_clear_it():
+    """§14.1 family exhaustion: with five non-Qwen families the panel judges its own families' ALT traces; the sixth
+    (inkling) allows an assignment with no overlap."""
+    from crucible.synth.roles import checker_overlap
+
+    five = checker_overlap(GOOD)
+    assert five and all("panel" in p for p in five)
+    six = {**GOOD, "proposer": ["deepseek"], "panel": ["inkling", "kimi"]}  # the swarm's builders: deepseek and glm (Kimi builds Worlds only)
+    assert checker_overlap(six) == [] and family_problems(six) == []
+    assert ROLES["leak_probe"].never and "contract" in ROLES["leak_panel"].never and ROLES["leak_panel"].min_families == 2
     assert any("test_approver" in p for p in family_problems({**GOOD, "test_approver": ["kimi"]}))
 
 

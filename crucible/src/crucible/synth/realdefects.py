@@ -87,6 +87,8 @@ DETECTOR: dict[str, str] = {
     "stale_visible_test": "TAINT:visible_contradicts",
     "undescribed_fault": "TAINT:ledger",
     "unstated_rule": "TAINT:report_literal",
+    # DESIGN §7.7 item 20: answers readable in visible test data (static evidence, then the executed fail-to-pass check)
+    "leak_other": "TAINT:visible_data,TAINT:visible_check",
 }
 
 

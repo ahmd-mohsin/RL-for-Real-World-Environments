@@ -43,7 +43,7 @@ DEFECTS: dict[str, str] = {
     "D1": "LAX-REQ", "D2": "LAX-FRAME", "D3": "LAX-VALUE", "D4": "VACUOUS", "D5": "HIDDEN", "D6": "OVER", "D7": "LEAK",
     "D8": "AFFORD", "D9": "INSENS", "D10": "UNSOLV", "D11": "NONDET",
 }
-CLASSES = ("MUT", "NULL", "RED", "TAINT", "TWIN", "PERT", "REP", "ALT", "ATK", "ONL")
+CLASSES = ("MUT", "NULL", "RED", "TAINT", "TWIN", "PERT", "REP", "ALT", "ATK", "ONL", "LEAK")
 DETERMINISTIC = ("MUT", "NULL", "RED", "TAINT", "TWIN", "PERT", "REP")
 
 

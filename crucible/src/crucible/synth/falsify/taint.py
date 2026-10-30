@@ -6,7 +6,9 @@ Probes, all property probes on the oracle run's taint map (``program.run``):
   it is **free**: π* with that literal replaced by an unrelated value still runs and still passes C (M4: a search query
   or a note body the oracle's author chose is the agent's own wording, not information it must get; §5.1).
 - ``derive`` (one per intent-card ``derive`` value): the agent must work it out, so it must not occur in ι. Found in ι:
-  confirmed **D7** (the decision is given away).
+  confirmed **D7** (the decision is given away). "Found" is ``falsify.leak.LeakMatcher`` over ``layers`` (exact tokens,
+  separators, number words, stems, readable labels, learned synonyms; an enumeration of sibling outcomes is not a hit);
+  a hit only through synonyms a panel taught is a *suspect*. ``TAINT(layers=("exact",))`` is the M2 matcher.
 - ``r_const`` / ``q_const`` (one per constant of a required pattern or an answer check: a concrete key, an ``eq``/``in``/
   ``approx`` value): it must trace to ι, ``given``, the tool catalogue or a π* value (an argument it sent, a leaf of an
   observation, its answer). Unsourced: confirmed **D5**.
@@ -21,6 +23,7 @@ from typing import Any, ClassVar
 from crucible.synth.canon import cjson
 from crucible.synth.contract import Contract, EffectPattern, PApprox, PEq, PIn, is_glob, unglob
 from crucible.synth.falsify.base import BaseFalsifier, FalsifyContext, Label, Outcome, Probe, key_text
+from crucible.synth.falsify.leak import LAYERS, LeakMatcher, SynonymMap, extract_labels, readable_texts, sibling_values
 from crucible.synth.iface import ToolInfo
 from crucible.synth.program import Lit, Program, _loose_eq, is_structural, program_locs, text_spans
 from crucible.synth.task import Task
@@ -78,7 +81,14 @@ def sourced(v: Any, instruction: str, given: Sequence[Any], tools: Sequence[Tool
 
 
 class TAINT(BaseFalsifier):
+    """``layers`` are the leak matcher's structural layers for ``derive`` probes (``falsify.leak``; M2 was
+    ``("exact",)``); ``synonyms`` is the learned ``SynonymMap`` its ``synonym`` layer reads."""
+
     name: ClassVar[str] = "TAINT"
+
+    def __init__(self, *, layers: Sequence[str] = LAYERS, synonyms: SynonymMap | None = None):
+        self.layers = tuple(layers)
+        self.synonyms = synonyms or SynonymMap()
 
     async def propose(self, task: Task, ctx: FalsifyContext) -> list[Probe]:
         oracle = await ctx.oracle(task)
@@ -105,11 +115,17 @@ class TAINT(BaseFalsifier):
             hit = not probe.data["sources"]
             free = hit and await self.free(task, ctx, probe.data["loc"], v)
             return Outcome(data={**probe.data, "hit": hit and not free, **({"free": True} if free else {})})
-        if probe.op == "derive":
-            spans = text_spans(v, task.instruction)
-            return Outcome(data={"hit": bool(spans), "spans": spans})
         oracle = await ctx.oracle(task)
         tools = await (await ctx.world(task)).tools()
+        if probe.op == "derive":
+            m = LeakMatcher(getattr(self, "layers", LAYERS), getattr(self, "synonyms", None))
+            labels = extract_labels(v, readable_texts(tools, [c.obs.value for c in oracle.calls])) if "label" in m.layers else []
+            sibs = sibling_values(v, tools, oracle.start, await ctx.oracle_delta(task)) if len(m.layers) > 1 else []
+            hits = m.find(v, task.instruction, labels=labels, siblings=sibs)
+            counted = m.counted(hits)
+            return Outcome(data={"hit": bool(counted), "spans": [list(h.span) for h in counted], "layer": hits[0].layer if hits else None,
+                                 "quoted": [h.quoted for h in counted][:5], "options": [h.quoted for h in hits if h.options][:5],
+                                 "judge": bool(counted) and all(h.judge for h in counted), "via": sorted({x for h in counted for x in h.via})})
         src = sourced(v, task.instruction, task.intent.given, tools, oracle.values())
         return Outcome(data={"hit": not src, "sources": src})
 
@@ -124,6 +140,8 @@ class TAINT(BaseFalsifier):
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         if not outcome.data.get("hit"):
             return "clean", None
+        if probe.op == "derive" and outcome.data.get("judge"):  # found only through synonyms a panel taught: L2 evidence
+            return "suspect", "D7"
         return "confirmed", "D7" if probe.op == "derive" else "D5"
 
 

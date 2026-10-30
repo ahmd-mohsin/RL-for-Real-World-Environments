@@ -1946,6 +1946,57 @@ ONL: item 14); composition (M6) is not.
      dev by itself (5 planters, reward 0.5) and the DSL cannot express a probe that closes it; E3: nothing accepted,
      the it_helpdesk-grown operator transfers on dev to every other domain with 0 alarms (post hoc); the lemma test is
      refused.
+20. **Part 2 blind spots and backlog (built 2026-10-29; results `docs/research/env-synthesis/runs/falsifiers-2.md`).**
+   - **Unstated trace constraints (D6).** MUT gains `TRACE_OPS` (`falsify/mut.py`): `InsertRead` (every read tool, one
+     argument set per entity class it can name, filled from π*'s arguments by name or with a key of a collection the
+     parameter names; at the start and at the end of π*), `ExtraList` (list/search tools with only borrowed required
+     arguments), `SwapReads` (adjacent independent reads). They are equivalent to π* under the stated constraints, so a
+     failure is a confirmed D6; a non-equivalent one is clean, never a suspect. On a correct contract they share π*'s
+     effect, so effect deduplication leaves n unchanged (tested on every anchor). `MUT(trace=False)` is the M3
+     neighbourhood; the M3 hand-written `extra_read` DSL operator becomes redundant and retirement removes it.
+   - **Paraphrase-aware leaks (D7, `falsify/leak.py`).** TAINT's `derive` probe runs `LeakMatcher` over structural layers
+     in order: `exact` (M2), `sep` (separators and case), `number` (number words), `lemma` (stems, any order, window
+     n + 3), `label` (short labels paired with the value in the tool catalogue or π*'s observations: `P1 (Critical)`),
+     `synonym` (a learned `SynonymMap`). Identifiers get exact and sep only. **Decision (options guard):** a paraphrase
+     hit in a sentence that also names a sibling value (same enum or field) is an enumeration, not a give-away. Synonym
+     maps are versioned data: `learn_synonyms` aligns confirmed leaks' values with their quotes; `leaks_from_archive`
+     reads the L2 class's panel-confirmed finds (the probe keeps them); an entry learned from a panel is `judge`
+     evidence, so TAINT labels a hit through it a *suspect*, and `synonym_update` is an `Update` with judge evidence (R8's
+     cap applies). `TAINT(layers=("exact",))` is M2; `cheap_m3()` is the RSI-1/2 population, kept for before/after.
+   - **L2 leak probe** (`LeakProbe`, class `LEAK`; roles `leak_probe`, `leak_panel`): Inkling-Small reads the instruction
+     and the decisions and quotes give-aways (a quote not in ι is fed back); every quote is a suspect; `LeakPanel`
+     (Nemotron-3-Ultra + gpt-oss, λ from `calibrate_leak_panel` on dev-only anchors: dev templates are leaks, certified
+     dev sentences, enumerations and restated rules are not) confirms or clears it, else the human queue. `max_calls`
+     caps a run; `skip_structural` spends nothing on what TAINT finds.
+   - **Visible test data (repository D7, `falsify/patch.py`).** `visible_data` (static, `visible_data()`): a literal the
+     fix adds that a hidden test compares, or an identifier the fix defines, already readable in a test, golden or doc
+     file (confirmed); two rare hidden-test data lines held by another readable file (suspect). `visible_check`
+     (executed): a visible test failing at A′ (two runs) and passing at B. `realdefects.DETECTOR["leak_other"]` runs
+     both; `detect_debug` takes several ops. `pre_table_strip` re-creates the strip version that kept table entries, for
+     static checks only: **found:** the lane runner drops writes to test paths before running, so an overlay never
+     reaches the container.
+   - **Adjudication.** `Panel(role=PANEL_PATCH)` judges a code diff (the tool-world prompt rejected 10 of 12 pool
+     oracles for "no STATUS.json"). **Decision (`agents.calibrate`):** a λ needs `min_decided` decided anchors and, with
+     `require_both`, both truths decided; `refuse_uncalibrated` sets λ above 1. Found: λ = 0.95 had been "calibrated" on
+     one decided no-op anchor and then decided a repository suspect. `synth/triage.py`: the human queue grouped by
+     reason (class/op, grader verdict, which family voted which way), ranked by EI = H(p) × (1 + pivotal) × √similar
+     with one representative per cluster first, exported as `review.csv`/`review.md`; `read_decisions` reads a filled
+     sheet. It decides nothing.
+   - **Sixth family.** `thinkingmachines/Inkling` and `Inkling-Small` (Tinker, own 200k vocabulary and `<|message_*|>`
+     format, not Qwen): registry rows (stop token `<|content_model_end_sampling|>`; the thinking message is split off),
+     `INKLING`/`INKLING_SMALL`, family `inkling`. `roles.checker_overlap` reports a panel sharing a family with the ALT
+     solvers or attackers it judges; `SYNTH_ROLES_DISJOINT` (panel Inkling + Kimi, which builds Worlds only) has none.
+     The default panel is unchanged (it is the calibrated one).
+   - **CLI** `scripts/synth_falsifiers2.py` (`matrix`, `leak-l2`, `natural`, `repo-panel`, `visible`, `triage`); one
+     $15 cap over `data/synth/falsifiers-2/` receipts. Tests: `test_synth_blindspots.py`, `test_synth_visible_data.py`,
+     `test_synth_triage.py`, plus the plant, library, roles and realdefects tests.
+   - **Results** (`runs/falsifiers-2.md`). Locked rsi-2, before → after: FR 56/72 → 72/72, D6 0/12 → 12/12, D7 14/18 →
+     18/18, FA 0/7 → 0/7; dev unchanged (118/125, FA 0/10; the miss is still `eq_to_any`, suspects only); locked rsi-1: 49/65 → 65/65, FA 0/7.
+     L2 alone: locked D7 18/18 on both sets, 1 confirmed alarm in 52 and 46 other items; two certified dev anchors are
+     leaks by L2 and the panel (for a person). Visible data: independent leak_other 1/2 (the echo benchmark leak is
+     missed), 0/11 executed alarms, one new leak on pool task mvdan-sh-dc951aeb-e1. Repository suspects (10, not 11):
+     the panel is uncalibrated on code diffs (accuracy 0.55–0.79 on executed-truth anchors) and decides none; no task
+     changes status. Human queue: 51 distinct items, 10 groups, 2 pivotal tasks. Inkling is the sixth family.
 
 ## 8. Layer 4: verification and isolation
 

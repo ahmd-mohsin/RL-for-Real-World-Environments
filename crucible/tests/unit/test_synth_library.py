@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from crucible.synth.falsify import FalsifyContext, cheap, falsify
+from crucible.synth.falsify import FalsifyContext, cheap, cheap_m3, falsify
 from crucible.synth.meta.lemmas import Lemma, LemmaBank, Rate, lemma_acceptance, lemma_id, mcnemar_one_sided, newcombe
 from crucible.synth.meta.library import (
     DropCalls,
@@ -104,7 +104,7 @@ async def test_a_dsl_operator_passes_the_birth_gate_and_one_that_false_alarms_fa
     fresh = [*[p for p in nev if p.domain == "desk-test"], *[p for p in dev if p.domain == "desk-test"]]
     ctx = _ctx()
     # the M2 population misses the never(read) plants entirely ...
-    m2 = {r.cls: r.c for p in nev for r in [await falsify(p.task, f, ctx) for f in cheap()]}
+    m2 = {r.cls: r.c for p in nev for r in [await falsify(p.task, f, ctx) for f in cheap_m3()]}
     assert not any(m2.values())
     g = await birth_gate(EXTRA_READ, sources=ap_src, fresh=fresh, anchors=anchors, ctx=ctx, cost_bar=10)
     assert g.passed, g.checks
@@ -119,18 +119,30 @@ async def test_a_dsl_operator_passes_the_birth_gate_and_one_that_false_alarms_fa
     assert not same_domain.passed and same_domain.checks["finds_on_other_domains"] is False  # transfer must be shown elsewhere
 
 
+async def test_mut_read_mutants_make_the_hand_written_read_operator_redundant():
+    """DESIGN §7.7 item 20: MUT's InsertRead closes the never(read) gap itself, so the DSL operator that closed it in M3
+    adds no unique hit and retirement removes it (fictitious play holds without it)."""
+    _anchors, nev, dev = await _sets()
+    ctx = _ctx()
+    now = {r.cls: r.c for p in nev for r in [await falsify(p.task, f, ctx) for f in cheap()]}
+    assert now["MUT"] > 0 and all(v == 0 for k, v in now.items() if k != "MUT")
+    lib = Library().add(EXTRA_READ, round=0)
+    out, gone = await retire(lib, base=cheap(), union=[*nev, *dev], ctx=ctx, round=3, window=2)
+    assert gone == ["OP:extra_read@1"] and not out.ops
+
+
 async def test_retirement_keeps_unique_operators_under_fictitious_play():
     _anchors, nev, dev = await _sets()
     union = [*nev, *dev]  # the sets of two past planters
     ctx = _ctx()
     lib = Library().add(EXTRA_READ, round=0).add(DROP_WRITES, round=0)
-    out, gone = await retire(lib, base=cheap(), union=union, ctx=ctx, round=1, window=2)
+    out, gone = await retire(lib, base=cheap_m3(), union=union, ctx=ctx, round=1, window=2)
     assert gone == []  # too early
-    out, gone = await retire(out, base=cheap(), union=union, ctx=ctx, round=3, window=2)
+    out, gone = await retire(out, base=cheap_m3(), union=union, ctx=ctx, round=3, window=2)
     assert gone == ["OP:drop_writes@1"] and set(out.ops) == {"OP:extra_read@1"} and out.retired == ["OP:drop_writes@1"]  # MUT's DropStep covers it
-    fp = await fictitious_play(cheap(), [*cheap(), *lib.falsifiers()], union, ctx)
+    fp = await fictitious_play(cheap_m3(), [*cheap_m3(), *lib.falsifiers()], union, ctx)
     assert not fp.ok and fp.recall_new < fp.recall_old and fp.per_planter["never@1"][1] == 0.0  # dropping extra_read forgets the never planter
-    keep = await fictitious_play([*cheap(), *out.falsifiers()], [*cheap(), *lib.falsifiers()], union, ctx)
+    keep = await fictitious_play([*cheap_m3(), *out.falsifiers()], [*cheap_m3(), *lib.falsifiers()], union, ctx)
     assert keep.ok and keep.recall_new == keep.recall_old
     assert Library.model_validate_json(out.model_dump_json()) == out
 

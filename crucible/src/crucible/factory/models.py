@@ -121,6 +121,9 @@ OPENROUTER_ROLES: dict[str, str] = {
 KIMI = f"{TINKER}:moonshotai/Kimi-K2.6:peft:131072"
 NEMOTRON_ULTRA = f"{TINKER}:nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16:peft:262144"
 GPT_OSS = f"{TINKER}:openai/gpt-oss-120b:peft:131072"
+# the sixth non-Qwen family on Tinker (2026-10-29): Thinking Machines' Inkling, its own tokenizer and chat format
+INKLING = f"{TINKER}:thinkingmachines/Inkling:peft:262144"
+INKLING_SMALL = f"{TINKER}:thinkingmachines/Inkling-Small:peft:262144"
 SWARM_FRONTIER = (QWEN_FRONTIER, NEMOTRON_ULTRA)
 SWARM_ROLES: dict[str, str] = {
     "planner": GLM,
@@ -256,6 +259,7 @@ FAMILY_ALIASES: dict[str, str] = {
     "google": "gemini",
     "anthropic": "anthropic", "claude": "anthropic", "claude-code": "anthropic",
     "openai": "openai",
+    "thinkingmachines": "inkling",
     "moonshotai": "kimi", "moonshot": "kimi",
 }
 

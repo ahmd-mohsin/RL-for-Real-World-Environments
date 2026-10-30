@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import re
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
@@ -247,17 +248,71 @@ class _NoRunner:
         return None
 
 
-async def detect_debug(defect: Any, *, root: Path, parallel: int = 4) -> Any:
-    """Run the detector of one debug-lane real defect (``synth.realdefects.DETECTOR``) on its defective task version in
-    the training store under ``root`` (``data/debug``): that class's probes of that op only, executed and labelled."""
+def _drop_functions(text: str, names: list[str], lang: str) -> str:
+    """``text`` without the named top-level test functions (Go ``func Name(`` to the closing ``}`` at column 0; Python
+    ``def name(`` to the next line indented no deeper), with the comment lines right above each."""
+    lines = text.splitlines(keepends=True)
+    drop: set[int] = set()
+    for name in names:
+        rx = re.compile(rf"^func {re.escape(name)}\(" if lang == "go" else rf"^(\s*)def {re.escape(name)}\(")
+        for i, ln in enumerate(lines):
+            m = rx.match(ln)
+            if not m:
+                continue
+            j = i + 1
+            if lang == "go":
+                while j < len(lines) and lines[j].rstrip("\n") != "}":
+                    j += 1
+                j += 1
+            else:
+                ind = len(m.group(1))
+                while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > ind):
+                    j += 1
+            k = i
+            while k > 0 and lines[k - 1].lstrip().startswith(("//", "#")):
+                k -= 1
+            drop.update(range(k, j))
+    return "".join(ln for i, ln in enumerate(lines) if i not in drop)
+
+
+def pre_table_strip(task: Any) -> dict[str, str]:
+    """The agent's copies of the hidden test files as strip mode built them before table entries were stripped (the
+    rebuilt-away defect version of the real-defect records ``mvdan-sh-*-table-entries``): each hidden test file whose
+    table entries the lane now strips, with only its stripped test functions removed. A start overlay
+    (``PatchSpec.start_files``) re-created from the lane's own record, for the *static* detectors on a defect whose
+    artifact was rebuilt clean. Measured 2026-10-29: it cannot feed an executed check, because ``lane_runner`` drops
+    every write to a protected (test) path before the tests run, as the lane does, so the container sees the stored
+    file. Empty when the record strips no table entries."""
+    hidden = ((task.window.get(NAME) or {}).get("hidden") or {})
+    ent = hidden.get("table_entries_stripped") or {}
+    lang = str(task.window.get("lang") or "python")
+    out: dict[str, str] = {}
+    for p in sorted(ent):
+        h = task.grader_tests.get(p)
+        if h is not None:
+            out[p] = _drop_functions(h, list((hidden.get("stripped") or {}).get(p) or []), lang)
+    return out
+
+
+async def detect_debug(defect: Any, *, root: Path, parallel: int = 4, overlay: Any = None) -> Any:
+    """Run the detector of one debug-lane real defect (``synth.realdefects.DETECTOR``: ``<class>:<op>``, several joined
+    by commas) on its defective task version in the training store under ``root`` (``data/debug``): those probes only,
+    executed and labelled. ``overlay(task) -> {path: text}`` re-creates a rebuilt-away defect version as a start overlay
+    (``pre_table_strip``)."""
     from crucible.synth.falsify.patch import PatchMUT, PatchTAINT
     from crucible.synth.realdefects import Detection
 
-    cls, op = str(defect.executable.detector).split(":", 1)
+    dets = [d.split(":", 1) for d in str(defect.executable.detector).split(",") if d]
+    cls = dets[0][0]
+    ops = {op for _c, op in dets}
     pool = Pool(root, parallel=parallel)
     task = pool.task(str(defect.task_version))
     env = patch_env(task)
-    runner = lane_runner(task, parallel=parallel) if op == "visible_contradicts" else None
+    if overlay is not None:
+        extra = overlay(task)
+        if extra:
+            env = PatchEnv(env.spec.model_copy(update={"start_files": {**env.spec.start_files, **extra}}), roles=lane_roles(task))
+    runner = lane_runner(task, parallel=parallel) if ops & {"visible_contradicts", "visible_check"} else None
     try:
         f = PatchMUT(env) if cls == "MUT" else PatchTAINT(env, runner, visible=runner is not None)
         st = env.task()
@@ -265,7 +320,7 @@ async def detect_debug(defect: Any, *, root: Path, parallel: int = 4) -> Any:
         hits: list[str] = []
         details: list[Any] = []
         n = invalid = 0
-        for p in [p for p in await f.propose(st, ctx) if p.op == op]:
+        for p in [p for p in await f.propose(st, ctx) if p.op in ops]:
             o = await f.execute(p, st, ctx)
             if not o.valid:
                 invalid += 1
@@ -274,8 +329,10 @@ async def detect_debug(defect: Any, *, root: Path, parallel: int = 4) -> Any:
             n += 1
             lab, _d = f.label(p, o)
             if lab == "confirmed":
-                hits.append(f"{cls}:{op}:{p.site}")
-                details.append({k: v for k, v in o.data.items() if k in ("shared", "lines", "stale", "n_stale")})
+                hits.append(f"{cls}:{p.op}:{p.site}")
+                details.append({k: v for k, v in o.data.items() if k in ("shared", "lines", "stale", "n_stale", "fail_to_pass", "milestone_tests", "hidden_cases", "fix_answers")})
+            elif lab == "suspect":  # recorded, never counted as a detection
+                details.append({"suspect": f"{cls}:{p.op}:{p.site}", **{k: v for k, v in o.data.items() if k in ("hidden_cases",)}})
         if n == 0:
             return Detection(detected=None, detail={"why": "no valid probe", "invalid": invalid, "errors": details[:3]})
         # a hit shows the artifact still has the defect; a miss alone cannot tell a recall gap from a version rebuilt clean

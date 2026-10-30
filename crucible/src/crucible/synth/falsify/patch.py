@@ -10,7 +10,7 @@ probe invalid: it is not a trial.
 | MUT | ``Identity``; ``DropFile`` (one source file of B reverted); ``DropHunk`` (one changed region of a source file reverted, files with 2+ code regions, at most 16 sampled; comment-only regions and non-source files B also changes, such as spec text, are never proposed); ``RevertFix`` (the lane's commit-revert mutant of one milestone); ``ExtraSource`` (B plus an inert comment in a source file B does not touch); ``ExtraForbidden`` (B plus an inert edit to a test, golden, config, vendored, plumbing or VCS path); ``EditTest`` (B plus an edit of a hidden test file); ``SharedCheck`` (two milestones graded by one test) | Identity must pass (else D10 when a required check fails, D6 otherwise). A DropFile/DropHunk survivor is a **suspect** D1 (the hidden tests do not need that code; whether it matters is a judgement). A RevertFix survivor, or one whose own milestone still passes, is a confirmed D1; one that also fails a milestone that does not require it is a suspect D6. ExtraSource must pass (FORBIDDEN: confirmed D6; another failure: suspect D6). ExtraForbidden and EditTest must fail (a pass: confirmed D2). A shared test is a confirmed D6 at milestone scope: one milestone's fix is rejected until the other's is in |
 | NULL | ``noop``, ``claims_only`` (STATUS.json), ``minus_last_write``, ``delete_tests``, ``stub_tests``, ``test_edit`` (the lane's own floor), ``plumbing_shim`` (conftest.py, go.work, .npmrc, .cargo config), ``path_shim`` (a fake runner on ``bin/``) | must fail; a pass is confirmed D4 (noop, claims), D1 (minus last write) or D8 |
 | RED | §5's RED (start state; each ``require`` exec check on s₀). ``guard`` checks (the pass-to-pass suite) are not probed | confirmed D4 |
-| TAINT | ``ledger`` (every milestone is asked for by a requirement of the report); ``world_leak`` (a fix's issue reference in a changelog line of A′, or a line holding the subject's content words: all of 5, all but one from 6, the lane's own strip rule); ``visible_contradicts`` (a visible test that passes at A′ fails at B: a stale assertion, executed twice); ``report_literal`` (an output string the fix adds and a hidden test compares, found neither in the report nor anywhere in A′) | ledger: confirmed D5; world_leak: confirmed D7; visible_contradicts: confirmed D6; report_literal is **report-only** (labelled clean with ``hit``): the literal may be derivable from the code |
+| TAINT | ``ledger`` (every milestone is asked for by a requirement of the report); ``world_leak`` (a fix's issue reference in a changelog line of A′, or a line holding the subject's content words: all of 5, all but one from 6, the lane's own strip rule); ``visible_contradicts`` (a visible test that passes at A′ fails at B: a stale assertion, executed twice); ``report_literal`` (an output string the fix adds and a hidden test compares, found neither in the report nor anywhere in A′); ``visible_data`` (static, ``visible_data()``: a fix-added literal a hidden test compares, or an identifier the fix defines, already readable in a test, golden or doc file; or two rare hidden-test data lines held by another readable file); ``visible_check`` (executed: a visible test that fails at A′ and passes at B on two runs of A′, the mirror of a stale test) | ledger: confirmed D5; world_leak: confirmed D7; visible_contradicts: confirmed D6; visible_check: confirmed D7; visible_data: confirmed D7 on fix answers, suspect D7 on shared case lines only; report_literal is **report-only** (labelled clean with ``hit``): the literal may be derivable from the code |
 | REP | fresh oracle and start-state grades compared with the first (cached) grade; the lane's stored S10 oracle grades and S3 reruns as prior trials when given | any difference: confirmed D11 |
 
 TWIN and PERT do not apply (a symptom report names no entity to substitute, and the start tree is a mined commit with no
@@ -304,6 +304,110 @@ def _words(s: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]+", s.lower()) if w not in STOP and len(w) > 1}
 
 
+# ---------------------------------------------------------------------------------------------------------- visible test data
+
+_IDENT = re.compile(r"(?<![\w$])[A-Za-z_][A-Za-z0-9_]{7,}(?![\w$])")
+VISIBLE_ROLES = ("test", "golden", "doc")  # what the agent reads to learn expected behaviour (the changelog is world_leak's)
+MIN_DATA_LINE = 16
+
+
+def _structured(ident: str) -> bool:
+    """An identifier with structure (snake_case or camelCase), not an English word that happens to be long."""
+    return "_" in ident.strip("_") or bool(re.search(r"[a-z][A-Z]", ident))
+
+
+def _norm_line(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _literals(text: str, min_len: int) -> list[str]:
+    out = []
+    for g in _LITERAL.finditer(text):
+        lit = next(x for x in g.groups() if x is not None)
+        if len(lit) >= min_len and len(re.findall(r"[A-Za-z]", lit)) >= 3:
+            out.append(lit)
+    return out
+
+
+_COMMENT_LINE = re.compile(r"^\s*(//|#|/\*|\*|--|;;)")
+
+
+def _code_lines(lines: Sequence[str]) -> list[str]:
+    """Lines that are not comments (a comment that quotes code is prose: "e.g. `type Secret string`")."""
+    return [x for x in lines if not _COMMENT_LINE.match(x)]
+
+
+def _added_lines(old: str, new: str) -> list[str]:
+    a, b = old.splitlines(), new.splitlines()
+    out: list[str] = []
+    for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag in ("insert", "replace"):
+            out += b[j1:j2]
+    return out
+
+
+_IMPORT_LINE = re.compile(r"^\s*(import|from|use|package|#include|require|export \* from)\b|^\s*[\w.]*\s*\"[^\"\s]+\"\s*$|^\s*\w+\s+\"[\w./-]+\"\s*$")
+_DEF = re.compile(r"\b(?:func|def|class|fn|struct|enum|type|const|let|var|interface|trait|impl)\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]{5,})")
+
+
+def visible_data(env: PatchEnv, start_text: Any) -> dict[str, Any]:
+    """Static evidence that files the agent can read hold what the hidden checks need (D7, the strip-mode leak of the
+    real-defect set), matched against the hidden tests and the fix diff. Two signals:
+
+    - ``hidden_cases``: at least two *data lines* of one hidden test file (``MIN_DATA_LINE``+ characters with a literal;
+      not an import; absent from the agent's copy of that file) held verbatim by one other readable file, where each
+      line is rare (in no other readable file): a test case with its expected output kept in a fixture or a sibling;
+    - ``fix_answers``: a string literal (8+ characters, with a space) that the fix adds to the source, that A′'s source
+      lacks and a hidden test compares, already readable in a test, golden or doc file; or an identifier the fix
+      *defines* (``func``/``def``/``class``/... X, 6+ characters, absent from A′'s source) that a hidden test calls and
+      a readable file already names: the expected value or the fix's API is in the agent's tree.
+
+    The changelog is TAINT ``world_leak``'s. Returns the evidence (empty lists: nothing found). Measured on the 12 pool
+    tasks before it was trusted (DESIGN §7.7 item 20): imports, shared assertions and standard-library names were the
+    false alarms of a looser first version."""
+    spec = env.spec
+    rows = env.base_rows()
+    readable: dict[str, str] = {}
+    for p, r in rows.items():
+        if r.get("role") in VISIBLE_ROLES and "link" not in r and not _CHANGELOG.search(p) and p not in spec.oracle_files:
+            t = start_text(p)
+            if t:
+                readable[p] = t
+    norm_lines = {p: {_norm_line(x) for x in t.splitlines()} for p, t in readable.items()}
+    src_a = "\n".join((start_text(p) or "") for p, r in rows.items() if r.get("role") == "source" and "link" not in r)
+    a_idents = set(_IDENT.findall(src_a)) | set(re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", src_a))
+    hidden_all = "\n".join(spec.hidden_tests.values())
+    hidden_cases: list[dict[str, Any]] = []
+    for hp, h in sorted(spec.hidden_tests.items()):
+        vis = {_norm_line(x) for x in (start_text(hp) or "").splitlines()}
+        data = [ln for ln in dict.fromkeys(_norm_line(x) for x in h.splitlines())
+                if len(ln) >= MIN_DATA_LINE and ln not in vis and _LITERAL.search(ln) and not _IMPORT_LINE.search(ln)]
+        if not data:
+            continue
+        freq = {ln: sum(1 for p, s in norm_lines.items() if p != hp and ln in s) for ln in data}
+        for p, s in sorted(norm_lines.items()):
+            if p == hp:
+                continue
+            got = [ln for ln in data if ln in s and freq[ln] == 1]
+            if len(got) >= 2:
+                hidden_cases.append({"hidden": hp, "file": p, "lines": len(got), "sample": [g[:120] for g in got[:3]]})
+    lits: set[str] = set()
+    defs: set[str] = set()
+    for p, t in sorted(spec.oracle_files.items()):
+        if t is None or rows.get(p, {}).get("role", env.roles(p)) != "source":
+            continue
+        added = "\n".join(_code_lines(_added_lines(start_text(p) or "", t)))
+        lits |= {lit for lit in _literals(added, 8) if " " in lit.strip() and lit not in src_a and lit in hidden_all}
+        defs |= {d for d in _DEF.findall(added) if d not in a_idents}
+    answers: list[dict[str, Any]] = []
+    for p, t0 in sorted(readable.items()):
+        t = "\n".join(_code_lines(t0.splitlines()))
+        got = sorted([x for x in lits if x in t] + [d for d in defs if re.search(rf"(?<![\w$]){re.escape(d)}(?![\w$])", t)])
+        if got:
+            answers.append({"file": p, "tokens": [g[:80] for g in got[:8]], "n": len(got), "hidden_copy": p in spec.hidden_tests})
+    return {"hidden_cases": hidden_cases, "fix_answers": answers, "fix_literals": len(lits), "fix_definitions": len(defs)}
+
+
 class PatchTAINT(_PatchClass):
     """Communicability on a repository (module docstring): ledger, World leaks, stale visible tests, report literals."""
 
@@ -335,6 +439,10 @@ class PatchTAINT(_PatchClass):
                              data={"hit": bool(hits or near), "lines": hits[:5], "near": near[:5], "refs": refs}))
         if self.visible and self.runner is not None:
             out.append(Probe(cls="TAINT", op="visible_contradicts", site="visible_contradicts", expect="property"))
+            out.append(Probe(cls="TAINT", op="visible_check", site="visible_check", expect="property"))
+        ev = visible_data(env, self.start_text)
+        out.append(Probe(cls="TAINT", op="visible_data", site="visible_data", expect="property",
+                         data={"hit": bool(ev["hidden_cases"] or ev["fix_answers"]), **ev}))
         corpus = "\n".join((self.start_text(p) or "") for p, r in env.base_rows().items() if "link" not in r).lower()
         hidden = "\n".join(spec.hidden_tests.values())
         ins = spec.instruction.lower()
@@ -357,7 +465,7 @@ class PatchTAINT(_PatchClass):
         return out
 
     async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext) -> Outcome:
-        if probe.op != "visible_contradicts":
+        if probe.op not in ("visible_contradicts", "visible_check"):
             return Outcome(data=dict(probe.data))
         assert self.runner is not None
         r = await ctx.run(task, task.oracle)
@@ -369,6 +477,15 @@ class PatchTAINT(_PatchClass):
         if not (start.ok and b1.ok):
             return Outcome(valid=False, error="unmeasured")
         ignored = set(self.env.spec.meta.get("ignored_tests") or [])
+        if probe.op == "visible_check":  # the mirror of a stale test: a visible test the fix turns green shows the agent the answer
+            f2p = {t for t, s in b1.statuses.items() if s == "passed" and start.statuses.get(t) in ("failed", "error") and t not in ignored}
+            if f2p:  # confirmed only when a fresh run of A′ agrees (a flake is REP's)
+                s2 = await asyncio.to_thread(self.runner.result, dict(self.env.spec.start_files), mode="visible", fresh=True)
+                if not s2.ok:
+                    return Outcome(valid=False, error="unmeasured")
+                f2p = {t for t in f2p if s2.statuses.get(t) in ("failed", "error")}
+            ms = {t for m in self.env.spec.milestones for t in m.tests}
+            return Outcome(data={"hit": bool(f2p), "fail_to_pass": sorted(f2p)[:20], "n_f2p": len(f2p), "milestone_tests": sorted(f2p & ms)[:20]})
         bad = {t for t, s in b1.statuses.items() if s in ("failed", "error") and start.statuses.get(t) == "passed" and t not in ignored}
         if bad:  # confirmed only when a fresh run agrees (a flake is REP's)
             b2 = await asyncio.to_thread(self.runner.result, files, mode="visible", fresh=True)
@@ -380,7 +497,9 @@ class PatchTAINT(_PatchClass):
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         if not outcome.data.get("hit") or outcome.data.get("report_only"):
             return "clean", None
-        return "confirmed", {"ledger": "D5", "world_leak": "D7", "visible_contradicts": "D6"}.get(probe.op, "D5")
+        if probe.op == "visible_data" and not outcome.data.get("fix_answers"):  # shared case lines only: whether they matter is a judgement
+            return "suspect", "D7"
+        return "confirmed", {"ledger": "D5", "world_leak": "D7", "visible_contradicts": "D6", "visible_check": "D7", "visible_data": "D7"}.get(probe.op, "D5")
 
 
 # ---------------------------------------------------------------------------------------------------------- certificates

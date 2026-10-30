@@ -303,20 +303,21 @@ class Panel:
     show_reasons: bool = True
     tag: str = "adjudicate"
     log: list[dict[str, Any]] = field(default_factory=list)
+    role: Role = PANEL  # ``roles.PANEL_PATCH`` judges a repository attempt (a code diff) instead of a tool trace
 
     def __post_init__(self) -> None:
-        if len({m.family for m in self.members}) < PANEL.min_families:
-            raise ValueError(f"the panel needs >= {PANEL.min_families} families, has {sorted({m.family for m in self.members})}")
+        if len({m.family for m in self.members}) < self.role.min_families:
+            raise ValueError(f"the panel needs >= {self.role.min_families} families, has {sorted({m.family for m in self.members})}")
 
     async def judge(self, task: Task, attempt: Attempt, *, tag: str | None = None) -> PanelVerdict:
         inputs = {"task": task.instruction, "intent": task.intent.model_dump(mode="json"), "trace": attempt.trace, "answer": attempt.answer}
         if self.show_reasons:
             inputs["reason_codes"] = attempt.reasons
-        msgs = PANEL.render(**inputs)
+        msgs = self.role.render(**inputs)
 
         async def one(m: PanelMember) -> Vote:
             try:
-                doc = await m.client.complete_json(msgs, schema=PanelOut, max_tokens=PANEL.max_tokens, temperature=PANEL.temperature, tag=tag or self.tag)
+                doc = await m.client.complete_json(msgs, schema=PanelOut, max_tokens=self.role.max_tokens, temperature=self.role.temperature, tag=tag or self.tag)
                 o = PanelOut.model_validate(doc)
                 return Vote(member=m.name, family=m.family, valid=o.valid, confidence=o.confidence, why=o.why[:400])
             except BudgetExceeded:
@@ -424,9 +425,14 @@ class CalibrationReport(CrucibleModel):
 
 
 async def calibrate(panel: Panel, anchors: Sequence[Anchor], *, target: float = 0.9, grid: Sequence[float] = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95),
-                    floor: float = 0.0) -> CalibrationReport:
+                    floor: float = 0.0, min_decided: int = 1, require_both: bool = False, refuse_uncalibrated: bool = False) -> CalibrationReport:
     """Choose λ (trust or escalate): the smallest grid value whose decided anchors are at least ``target`` accurate;
-    none reaches it → the largest, flagged uncalibrated; never below ``floor`` (few anchors bound the error loosely). Sets ``panel.lam``."""
+    none reaches it → the largest, flagged uncalibrated; never below ``floor`` (few anchors bound the error loosely). Sets ``panel.lam``.
+
+    DESIGN §7.7 item 20: a λ only qualifies with at least ``min_decided`` decided anchors and, with ``require_both``,
+    at least one decided anchor of each truth (valid and invalid). Found on the repository pool: λ = 0.95 "calibrated"
+    on one decided no-op anchor (accuracy 1/1, error bound 0.95) and then decided a suspect. ``refuse_uncalibrated``
+    sets λ above 1 when nothing qualifies, so the panel decides nothing and every suspect goes to the human queue."""
     saved = panel.lam
     panel.lam = 0.0
     try:
@@ -437,17 +443,19 @@ async def calibrate(panel: Panel, anchors: Sequence[Anchor], *, target: float = 
     chosen = None
     for lam in grid:
         dec = cor = 0
+        truths: set[bool] = set()
         for a, v in zip(anchors, verdicts, strict=True):
             vals = {x.valid for x in v.votes}
             if None in vals or len(vals) != 1 or min(x.confidence for x in v.votes) < lam:
                 continue
             dec += 1
+            truths.add(a.valid)
             cor += int(vals.pop() == a.valid)
         acc = cor / dec if dec else 0.0
         rows.append({"lam": lam, "decided": dec, "correct": cor, "accuracy": round(acc, 4), "coverage": round(dec / max(1, len(anchors)), 4),
                      "error_upper95": round(clopper_pearson_upper(dec - cor, dec, 0.05), 4) if dec else 1.0})
-        if chosen is None and dec and acc >= target:
+        if chosen is None and dec >= max(1, min_decided) and acc >= target and (not require_both or len(truths) == 2):
             chosen = lam
-    panel.lam = max(floor, chosen if chosen is not None else max(grid))
+    panel.lam = max(floor, chosen if chosen is not None else (1.01 if refuse_uncalibrated else max(grid)))
     votes = [{"kind": a.kind, "truth": a.valid, "votes": [x.model_dump(mode="json") for x in v.votes]} for a, v in zip(anchors, verdicts, strict=True)]
     return CalibrationReport(lam=panel.lam, target=target, calibrated=chosen is not None, rows=rows, votes=votes)

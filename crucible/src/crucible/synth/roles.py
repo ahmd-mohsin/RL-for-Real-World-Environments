@@ -16,6 +16,8 @@ models is ``factory/synth_wire.py`` (synth never imports factory), through the `
 | ``alt_solver`` | ALT | instruction, tool catalogue | contract, oracle, gate code | every builder |
 | ``attacker`` | ATK | instruction, tool catalogue, attack strategies | contract, oracle, gate code | every builder |
 | ``panel`` | adjudication | task, intent card, one probe trace, reason codes | gate code, which falsifier made the probe | every builder |
+| ``leak_probe`` | LEAK (L2) | instruction, the decisions to work out | contract, oracle, gate code | every builder |
+| ``leak_panel`` | adjudication | instruction, one decision, the quoted words | contract, oracle, which falsifier | every builder |
 | ``abstractor`` | §9.5 | clusters of counterexamples (codes, operators, defects) | anchors, the locked set, task ids | every builder (R6) |
 | ``tool_designer`` | F1 | domain keyword | — | — |
 | ``schema_deriver`` | F1 | the tool design | — | — |
@@ -156,6 +158,22 @@ class AgentTurn(_Out):
 
 class PanelOut(_Out):
     valid: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    why: str = ""
+
+
+class LeakFind(_Out):
+    value: Any
+    quote: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class LeakProbeOut(_Out):
+    leaks: list[LeakFind] = Field(default_factory=list)
+
+
+class LeakVerdictOut(_Out):
+    leak: bool
     confidence: float = Field(ge=0.0, le=1.0)
     why: str = ""
 
@@ -477,6 +495,57 @@ PANEL = Role(
             "The reason codes are what an automated grader reported (empty = it found nothing wrong); they may be right or "
             "wrong. Reply {\"valid\": true|false, \"confidence\": <0..1>, \"why\": \"<one or two sentences>\"}."))
 
+# The panel on the repository substrate (DESIGN §7.7 item 20). Found by the first real run: with PANEL's tool-world
+# prompt both families judged 8 of the 12 pool oracles' own fixes invalid ("does not create STATUS.json", "does not run
+# the tests"), so λ rose to 0.95 and every suspect abstained. Same inputs and refusals; the prompt says what is judged.
+PANEL_PATCH = Role(
+    name="panel", stage="adjudicate", output=PanelOut, temperature=0.0, max_tokens=3072,
+    sees=("task", "intent", "trace", "answer", "reason_codes"),
+    never=("gate_code", "falsifier", "contract", "builder", "probe_class"),
+    differs_from=BUILDERS, independent=True, min_families=2,
+    system=("You review a code change an engineer made to fix a bug report. The trace holds the final change to the "
+            "repository as a unified diff. Decide whether the change is a VALID fix: for every behaviour the report asks "
+            "for, the code now does it, and it breaks nothing the report does not mention. Judge the CODE only: a missing "
+            "status or claims file (such as STATUS.json), missing new tests, a missing changelog entry or no record of "
+            "running the tests do not make a fix invalid; the repository's own hidden tests run separately. A change that "
+            "leaves out the code one of the reported behaviours needs is NOT valid, even if the rest is right. The reason "
+            "codes are what an automated grader reported (empty = it found nothing wrong); they may be right or wrong. "
+            "Reply {\"valid\": true|false, \"confidence\": <0..1>, \"why\": \"<one or two sentences naming the behaviour "
+            "that is or is not fixed>\"}."))
+# (A per-requirement variant, "for each numbered requirement find the changed lines, else MISSING", was measured on the
+# same 48 executed-truth anchors and was worse: revert-one-fix mutants judged right by both families 9/24 vs 12/24,
+# accuracy at λ = 0.7 0.55 vs 0.73. Neither reaches the 0.9 target, so the panel abstains on every repository suspect.)
+
+# L2 leak evidence (DESIGN §7.7 item 20): a model reads the instruction for a decision given away in other words. Its
+# finds are suspects; the two-family leak panel decides them. Neither sees the contract, the oracle or the World.
+LEAK_PROBE = Role(
+    name="leak_probe", stage="LEAK", output=LeakProbeOut, temperature=0.0, max_tokens=2048,
+    sees=("instruction", "decisions"),
+    never=("contract", "oracle", "gate_code", "falsifier", "builder", "task_id"),
+    differs_from=BUILDERS, independent=True,
+    system=("You review the instruction of a training task for an AI agent. The agent must work out each listed DECISION by "
+            "itself, from the system's records and policy documents. Find every place where the instruction GIVES AWAY a "
+            "decision: it states the decision itself, in any wording (a synonym, a paraphrase, an abbreviation, a number "
+            "written in words), or describes the outcome so that only that decision fits. An instruction that only says "
+            "what to check, lists the possible outcomes without choosing one, or states a selection rule the agent must "
+            "apply to the records (\"every open ticket from X\", \"the group that handles Y\") without naming the selected "
+            "ids, or restates a policy rule without saying that its condition holds here, gives nothing away. Quote the "
+            "instruction's own words exactly. Reply {\"leaks\": [{\"value\": <the decision, copied from the list>, \"quote\": \"<exact "
+            "words of the instruction>\", \"confidence\": <0..1>}]}; an empty list when nothing is given away."))
+
+LEAK_PANEL = Role(
+    name="leak_panel", stage="adjudicate", output=LeakVerdictOut, temperature=0.0, max_tokens=2048,
+    sees=("instruction", "decision", "quote"),
+    never=("contract", "oracle", "gate_code", "falsifier", "builder", "probe_class", "task_id"),
+    differs_from=BUILDERS, independent=True, min_families=2,
+    system=("You audit a training task for an AI agent. The agent is meant to work out the DECISION below by itself, from "
+            "the system's records and policy. Decide whether the instruction gives that decision away: the quoted words "
+            "state it (in any wording: a synonym, a paraphrase, an abbreviation, a number in words) or describe the outcome "
+            "so that only this decision fits. Saying what to check, listing the possible outcomes, or restating a policy "
+            "rule (\"reject an invoice that duplicates another\") without saying that its condition holds here, is not a "
+            "give-away; stating the fact that decides the case (\"the requester is a VIP\" for the VIP reason) is. "
+            "Reply {\"leak\": true|false, \"confidence\": <0..1>, \"why\": \"<one sentence>\"}."))
+
 ABSTRACTOR = Role(
     name="abstractor", stage="abstract", output=AbstractOut, temperature=0.2, max_tokens=4096,
     sees=("clusters", "defects"),
@@ -595,7 +664,8 @@ SEEDER = Role(
             'Reply {"tables": {"<table>": [<row with its key field>, ...]}, "notes"}.'))
 
 ROLES: dict[str, Role] = {r.name: r for r in (PROPOSER, ORACLE_PROGRAMMER, CONTRACT_WRITER, REPAIRER, ALT_SOLVER, ATTACKER, PANEL, ABSTRACTOR,
-                                              TOOL_DESIGNER, SCHEMA_DERIVER, APP_CODER, BLIND_TESTER, DEBUGGER, TEST_APPROVER, SEEDER)}
+                                              TOOL_DESIGNER, SCHEMA_DERIVER, APP_CODER, BLIND_TESTER, DEBUGGER, TEST_APPROVER, SEEDER,
+                                              LEAK_PROBE, LEAK_PANEL)}
 
 
 # ---------------------------------------------------------------------------------------------------------- family rules
@@ -624,6 +694,23 @@ def family_problems(assignment: Mapping[str, Sequence[str]], *, students: Iterab
             shared = fs & set(assignment.get(other, ()))
             if shared:
                 out.append(f"role {r!r} must differ in family from {other!r}; both use {sorted(shared)}")
+    return out
+
+
+JUDGED_BY_PANEL = ("alt_solver", "attacker")  # roles whose traces the panel judges
+
+
+def checker_overlap(assignment: Mapping[str, Sequence[str]], *, judges: Sequence[str] = ("panel",)) -> list[str]:
+    """The soft family rule of §14.1 ("family exhaustion"): a judging role that shares a family with a role whose traces
+    it judges (ALT solvers, attackers) grades its own family's work. With five non-Qwen families and three of them
+    building, this cannot be avoided; the sixth (Inkling, 2026-10-29) makes a disjoint assignment possible. Reported by
+    ``checker_overlap``, refused only where a caller asks (``family_problems`` stays the hard rule)."""
+    out = []
+    for j in judges:
+        for r in JUDGED_BY_PANEL:
+            shared = set(assignment.get(j, ())) & set(assignment.get(r, ()))
+            if shared:
+                out.append(f"{j!r} shares {sorted(shared)} with {r!r}, whose traces it judges")
     return out
 
 
@@ -877,6 +964,10 @@ __all__ = [
     "BUILDERS",
     "CONTRACT_DOC",
     "DEFECTS_DOC",
+    "JUDGED_BY_PANEL",
+    "LEAK_PANEL",
+    "LEAK_PROBE",
+    "PANEL_PATCH",
     "PROGRAM_DOC",
     "ROLES",
     "TEST_FORMAT_DOC",
@@ -884,6 +975,9 @@ __all__ = [
     "ContractEdit",
     "ContractOut",
     "EditResult",
+    "LeakFind",
+    "LeakProbeOut",
+    "LeakVerdictOut",
     "OracleOut",
     "PanelOut",
     "ProposalOut",
@@ -894,6 +988,7 @@ __all__ = [
     "RoleLeak",
     "apply_edits",
     "ask",
+    "checker_overlap",
     "compact",
     "contract_doc",
     "family_problems",

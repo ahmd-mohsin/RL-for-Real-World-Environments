@@ -13,6 +13,15 @@ Operators (every mutant is an executable ``Program``; ``data`` says what the ope
   after it; and every write tool π* never calls, with arguments borrowed by name from π*'s calls.
 - ``Reorder``: two adjacent writes, neither referring to the other, swapped.
 - ``WrongAnswer``: the answer replaced by a plausible wrong one (several magnitudes for a number).
+- **The unstated-trace-constraint family** (``TRACE_OPS``; DESIGN §7.7 item 20). Mutants a correct contract cannot tell
+  from π*, because they only add or move *reads*: ``InsertRead`` (a call of every read tool, once per entity class its
+  arguments can name, at the start and at the end of π*: arguments by name from π*'s calls, else an entity key of a
+  collection the parameter or tool names), ``ExtraList`` (a harmless list or search call with only the arguments it
+  requires, borrowed from π*), ``SwapReads`` (two adjacent independent reads swapped). Each is equivalent to π* under
+  the *stated* constraints, so it must pass: a failure is a confirmed D6 (an unstated ``never``, ``at_most`` or
+  ``before`` demand). A non-equivalent one (the read changed what a later step sent) tests nothing and is labelled
+  clean. ``MUT(trace=False)`` is the M3 neighbourhood without them. On a correct contract these mutants share π*'s
+  effect, so effect deduplication keeps n unchanged.
 
 The neighbourhood scales with the World (M3, §6): a task over a collection of 40 entities gets about 80 swap and
 extra-write mutants per written key, so U_MUT ≤ 0.05 (n ≥ 59) is reachable for 1–4 step tasks; a World with few
@@ -34,6 +43,7 @@ suspect D3.
 from __future__ import annotations
 
 import random
+import re
 from typing import Any, ClassVar
 
 from crucible.synth.canon import is_number
@@ -44,6 +54,9 @@ from crucible.synth.task import Task
 
 MAX_SIBLINGS = 64
 MAX_ALTS = 12
+TRACE_OPS = ("InsertRead", "ExtraList", "SwapReads")
+LIST_WORDS = ("list", "search", "find", "query", "browse", "lookup")
+MAX_READ_ARGS = 4  # argument sets per read tool (one per entity class it can name)
 RANK = {"confirmed": 0, "suspect": 1, "equivalent": 2, "clean": 3}
 
 
@@ -134,6 +147,103 @@ def wrong_answers(a: Any, oracle: Run) -> list[Any]:
     return []
 
 
+def touched_keys(oracle: Run, idx: dict[str, list[tuple[str, str]]]) -> set[tuple[str, str, str]]:
+    """Entity keys π*'s calls name (arguments that are keys at s₀)."""
+    out: set[tuple[str, str, str]] = set()
+    for c in oracle.calls:
+        for v in c.args.values():
+            k = key_text(v)
+            if k is not None and k in idx:
+                for a, coll in idx[k]:
+                    out.add((a, coll, k))
+    return out
+
+
+def _words(name: str) -> set[str]:
+    out = set()
+    for w in re.split(r"[^a-z0-9]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", name).lower()):
+        if w and w not in ("id", "key", "ids", "keys", "get", "read", "by"):
+            out.add(w[:-1] if w.endswith("s") and len(w) > 3 else w)
+    return out
+
+
+def read_arg_sets(tool: ToolInfo, borrowed: dict[str, Any], s0: Any, touched: set[tuple[str, str, str]]) -> list[dict[str, Any]]:
+    """Argument sets for an unused read of ``tool``: the borrowed-only fill, plus one per entity class (collection) a
+    parameter can name. A parameter is filled from π*'s arguments by name, else with a key of a collection whose name
+    shares a word with the parameter (``ticket_id`` -> ``tickets``; a bare ``id`` with the tool's name, ``get_ticket``),
+    π*'s own key in that collection first. A tool whose required parameters cannot be filled gets none."""
+    props = tool.input_schema.get("properties") or {}
+    req = list(tool.input_schema.get("required") or [])
+    colls = sorted({(a, c) for a, c, _, _ in s0.entities()}) if s0 is not None else []
+    tool_words = _words(tool.name.split(".", 1)[-1])
+    out: list[dict[str, Any]] = []
+    base = {r: borrowed[r] for r in req if r in borrowed}
+    if len(base) == len(req):
+        out.append(base)
+    for app, coll in colls:
+        cw = _words(coll)
+        for p in props:
+            pw = _words(p)
+            if not (cw & pw or (not pw and cw & tool_words)):
+                continue
+            keys = sorted(s0.collection(app, coll))
+            if not keys:
+                continue
+            mine = sorted(k for a, c, k in touched if (a, c) == (app, coll))
+            k = (mine or keys)[0]
+            args = {**base, p: typed_like(k, borrowed.get(p, k))}
+            if all(r in args for r in req) and args not in out:
+                out.append(args)
+            break
+        if len(out) >= MAX_READ_ARGS:
+            break
+    return out
+
+
+def trace_mutants(p: Program, tools: dict[str, ToolInfo], oracle: Run, touched: set[tuple[str, str, str]]) -> dict[str, list[Probe]]:
+    """The unstated-trace-constraint family (module docstring): reads added, list calls added, reads swapped."""
+    fam: dict[str, list[Probe]] = {k: [] for k in TRACE_OPS}
+    ro = {s.id: tools[s.tool].read_only if s.tool in tools else False for s in p.steps}
+    borrowed: dict[str, Any] = {}
+    for c in oracle.calls:
+        borrowed.update(c.args)
+    ids = {s.id for s in p.steps}
+
+    def fresh(stem: str) -> str:
+        i = 0
+        while f"{stem}{i}" in ids:
+            i += 1
+        ids.add(f"{stem}{i}")
+        return f"{stem}{i}"
+
+    def placed(step: Step, where: str) -> Program:
+        steps = [step, *p.steps] if where == "start" else [*p.steps, step]
+        return p.model_copy(update={"steps": [s.model_copy(deep=True) for s in steps]}, deep=True)
+
+    for t in sorted(tools.values(), key=lambda t: t.name):
+        if not t.read_only:
+            continue
+        short = t.name.split(".", 1)[-1].lower()
+        req = t.input_schema.get("required") or []
+        if short.startswith(LIST_WORDS) and all(r in borrowed for r in req):
+            args = {r: borrowed[r] for r in req}
+            for where in ("start", "end"):
+                st = Step(id=fresh("xl"), tool=t.name, args={k: Lit(v=v) for k, v in args.items()})
+                fam["ExtraList"].append(Probe(cls="MUT", op="ExtraList", site=f"{t.name}@{where}", program=placed(st, where), data={"tool": t.name}))
+        for j, args in enumerate(read_arg_sets(t, borrowed, oracle.start, touched)):
+            for where in ("start", "end"):
+                st = Step(id=fresh("xr"), tool=t.name, args={k: Lit(v=v) for k, v in args.items()})
+                fam["InsertRead"].append(Probe(cls="MUT", op="InsertRead", site=f"{t.name}#{j}@{where}", program=placed(st, where),
+                                               data={"tool": t.name, "args": args}))
+    for i in range(len(p.steps) - 1):
+        a, b = p.steps[i], p.steps[i + 1]
+        if not (ro[a.id] and ro[b.id]) or a.id in _refs(b) or b.id in _refs(a):
+            continue
+        steps = [*p.steps[:i], b, a, *p.steps[i + 2:]]
+        fam["SwapReads"].append(Probe(cls="MUT", op="SwapReads", site=f"{a.id}<->{b.id}", program=p.model_copy(update={"steps": steps}, deep=True)))
+    return fam
+
+
 def _str_leaves(v: Any) -> list[tuple[str, str]]:
     from crucible.synth.program import leaves
 
@@ -141,7 +251,12 @@ def _str_leaves(v: Any) -> list[tuple[str, str]]:
 
 
 class MUT(BaseFalsifier):
+    """``trace`` adds the unstated-trace-constraint family (``TRACE_OPS``)."""
+
     name: ClassVar[str] = "MUT"
+
+    def __init__(self, *, trace: bool = True):
+        self.trace = trace
 
     async def propose(self, task: Task, ctx: FalsifyContext) -> list[Probe]:
         p = task.oracle
@@ -213,6 +328,8 @@ class MUT(BaseFalsifier):
                 continue
             steps = [*p.steps[:i], b, a, *p.steps[i + 2:]]
             fam["Reorder"].append(Probe(cls="MUT", op="Reorder", site=f"{a.id}<->{b.id}", program=p.model_copy(update={"steps": steps}, deep=True)))
+        if getattr(self, "trace", True):
+            fam.update(trace_mutants(p, tools, oracle, written_keys | touched_keys(oracle, idx)))
         if p.answer is not None and oracle.answer is not None:
             for w in wrong_answers(oracle.answer, oracle):
                 fam["WrongAnswer"].append(Probe(cls="MUT", op="WrongAnswer", site=f"answer={w}", program=p.model_copy(update={"answer": Lit(v=w)}, deep=True),
@@ -266,4 +383,6 @@ class MUT(BaseFalsifier):
             return "confirmed", "D2"
         if op == "WrongAnswer":
             return "confirmed", "D3" if d.get("q") else "D1"
+        if op in TRACE_OPS:  # a read that changed what π* sent is no trace-only mutant: a trial of nothing
+            return "clean", None
         return "suspect", "D3"
