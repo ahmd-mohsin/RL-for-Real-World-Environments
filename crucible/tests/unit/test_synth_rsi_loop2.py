@@ -418,7 +418,7 @@ class _SeedAlarm:
 async def test_hits_are_source_relative_and_an_anchor_that_alarms_at_any_seed_is_dropped(tmp_path):
     from crucible.synth.meta.rsi import FEvaluator
 
-    ctx, _clean, _, dev_src, _locked_src, dev, _locked, _, _, _ = await _ready()
+    _ctx, _clean, _, dev_src, _locked_src, dev, _locked, _, _, _ = await _ready()
     p = dev.plants[0]
     flake = _SeedAlarm({p.id, p.source_id}, {3})
     pool = Pool(dev_src)
@@ -482,3 +482,48 @@ async def test_the_v2_held_out_d3_variants_plant_witnessed_misses_and_stay_disjo
     assert b.kept and all(p.defect == "D3" and p.witness.program is not None for p in b.kept)
     vs, _ = await verdicts(b.kept, cheap(), ctx)
     assert any(not vs[p.id].hit for p in b.kept)  # the population misses some: the locked set can measure a gain again
+
+
+async def test_the_probe_loop_consumes_the_learnability_classifier(tmp_path):
+    """The real outcome classifier (``synth.outcome``) over scripted rollouts on a planted D1 task: its labels drive the
+    loop through ``LearnClassifier``; a shortcut it calls unintended with executed evidence is archived and repaired."""
+    from crucible.synth.archive import Archive
+    from crucible.synth.learn import Rollout
+    from crucible.synth.meta.rsi import LearnClassifier, ProbeLoop, ProbeRules, archive_recheck, replay_program
+    from tests.unit import synth_fixtures as fx
+
+    ctx = FalsifyContext()
+    planted = fx.in_domain(fx.planted("D1"))
+    p = _progs()
+
+    class Student:
+        student, checkpoint, simulator, time_mode = "student-fam", "base", "json-agent/v1", "frozen"
+
+        async def rollouts(self, task, n, *, start=0):
+            out = []
+            for j in range(n):
+                _name, prog = [p["full"], p["shortcut"], p["wrong"]][(start + j) % 3]
+                r = await ctx.run(task, __import__("crucible.synth.program", fromlist=["Program"]).Program.model_validate(prog))
+                v = ctx.grade(r, task.contract)
+                out.append(Rollout(i=start + j, passed=v.passed, reasons=v.reasons, calls=len(r.calls), answer=r.answer, program=prog))
+            return out
+
+    async def repair(task, cxs):
+        return _fixed(task)
+
+    async def replay(task, prog):
+        return await replay_program(task, prog, ctx)
+
+    clf = LearnClassifier(ctx)
+    arch = Archive(tmp_path / "arch")
+    loop = ProbeLoop(tmp_path / "probe", probe=Student(), classify=clf, repair=repair, replay=replay, recheck=archive_recheck(arch, ctx), archive=arch,
+                     rules=ProbeRules(rollouts=3, student_family="student-fam"))
+    loop.add_tasks([planted])
+    (rec,) = await loop.run_round(1)
+    labels = [r.label for r in clf.records]
+    assert len(labels) == 3 and labels[0] == "intended_pass"
+    if labels[1] == "unintended_pass":  # the classifier decides by execution: the shortcut skipped π*'s email
+        assert rec.counterexamples and rec.repair == "accepted", (rec.refused_by, [r.cause for r in clf.records])
+    else:  # anything it cannot decide is never repaired
+        assert rec.repair == "none"
+    assert labels[2] in ("intended_fail", "uncertain") and "unintended_fail" not in rec.counted  # a wrong article is a skill gap, never a task defect

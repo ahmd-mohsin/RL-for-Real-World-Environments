@@ -21,6 +21,7 @@ rule is then applied to the stored outcomes. Results are cached per (task digest
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -122,6 +123,7 @@ class HeadroomCache:
     def __init__(self) -> None:
         self.outcomes: dict[tuple[str, str], Outcome] = {}
         self.programs: dict[str, list[list[tuple[str, bool]]]] = {}  # task digest -> per body: [(program key, agent)]
+        self.lock = asyncio.Lock()  # pilot p2: two arms filled one cache concurrently and read a table whose programs were still running
 
 
 async def _task_table(task: Task, bodies: Sequence[Any], ctx: FalsifyContext, cache: HeadroomCache) -> tuple[list[list[tuple[str, bool]]], int]:
@@ -154,6 +156,14 @@ async def _task_table(task: Task, bodies: Sequence[Any], ctx: FalsifyContext, ca
 
 
 async def catchable(plants: Sequence[Plant], missed: Iterable[str], anchors: Sequence[Task], ctx: FalsifyContext, *, bodies: Sequence[Any] | None = None,
+                    cache: HeadroomCache | None = None) -> HeadroomReport:
+    """The headroom of a dev set (module docstring), one caller at a time per cache."""
+    cache = cache or HeadroomCache()
+    async with cache.lock:
+        return await _catchable(plants, missed, anchors, ctx, bodies=bodies, cache=cache)
+
+
+async def _catchable(plants: Sequence[Plant], missed: Iterable[str], anchors: Sequence[Task], ctx: FalsifyContext, *, bodies: Sequence[Any] | None = None,
                     cache: HeadroomCache | None = None) -> HeadroomReport:
     """The headroom of a dev set (module docstring): ``missed`` are the plant ids the current population does not catch."""
     bodies = list(bodies) if bodies is not None else expressible_bodies()

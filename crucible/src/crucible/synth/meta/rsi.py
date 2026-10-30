@@ -555,8 +555,11 @@ class Proposers:
     family: str = ""
 
 
-def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
-    """The loop's proposers on one ``roles.RoleClient`` (the abstractor's family; R6: never a builder's)."""
+def swarm_proposers(client: Any, *, planter_client: Any = None, salt: str = "") -> Proposers:
+    """The loop's proposers on one ``roles.RoleClient`` (the abstractor's family; R6: never a builder's). ``salt`` enters every call's tag:
+    with a client that seeds by tag (``WireClient(seed_by_tag=True)``), E10's seeds and every round get independent samples."""
+    sfx = f":{salt}" if salt else ""
+    calls = [0]
     from crucible.synth.meta.abstract import DSL_DOC, GUIDANCE_EDITOR, OPERATOR_ABSTRACTOR, PLANTER_PROPOSER, parse_operators
     from crucible.synth.roles import DEFECTS_DOC, ask
 
@@ -570,7 +573,7 @@ def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
                 raise ValueError("no valid operator: " + "; ".join(bad[:4]))
             errs.extend(bad)
 
-        out = await ask(client, OPERATOR_ABSTRACTOR, tag=f"abstract:r{round}:{tag}", check=check, retries=1, clusters=clusters, misses=misses,
+        out = await ask(client, OPERATOR_ABSTRACTOR, tag=f"abstract:r{round}:{tag}{sfx}", check=check, retries=1, clusters=clusters, misses=misses,
                         defects=DEFECTS_DOC, dsl=DSL_DOC, guidance="\n".join(f"{i}. {g}" for i, g in enumerate(guidance)),
                         library=[{"name": d.get("name"), "body": d.get("body", {}).get("kind"), "defect": d.get("label", {}).get("defect")} for d in library] or None,
                         count=k)
@@ -589,7 +592,7 @@ def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
                 if d.get("name") not in dv or d.get("variant", "base") not in dv[d["name"]]:
                     raise ValueError(f"planter {i}: unknown operator or variant {d.get('name')}:{d.get('variant')} (have {dv})")
 
-        out = await ask(planter_client or client, PLANTER_PROPOSER, tag=f"plant:r{round}", check=check, retries=1,
+        out = await ask(planter_client or client, PLANTER_PROPOSER, tag=f"plant:r{round}{sfx}", check=check, retries=1,
                         operators=sorted(miss_rates), miss_rates=miss_rates, natural_mix=natural_mix, count=k, history=history or None)
         allowed = {"why", "factor", "phrase", "template", "suffix", "field"}
         res = [PlantOp(name=d["name"], variant=d.get("variant", "base"), version=100 + round,
@@ -597,7 +600,8 @@ def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
         return res, {"notes": out.notes[:500]}
 
     async def guidance(*, guidance: list[str], gate_outcomes: dict[str, int]) -> tuple[list[str], dict[str, Any]]:
-        out = await ask(client, GUIDANCE_EDITOR, tag="abstract:guidance", retries=1, guidance="\n".join(f"{i}. {g}" for i, g in enumerate(guidance)),
+        calls[0] += 1
+        out = await ask(client, GUIDANCE_EDITOR, tag=f"abstract:guidance:{calls[0]}{sfx}", retries=1, guidance="\n".join(f"{i}. {g}" for i, g in enumerate(guidance)),
                         gate_outcomes=gate_outcomes, dsl=DSL_DOC)
         keep = [g for i, g in enumerate(guidance) if i not in set(out.remove)]
         return [*keep, *[a.strip()[:300] for a in out.add[:2] if a.strip()]], {"notes": out.notes[:300], "removed": out.remove}
@@ -1510,6 +1514,62 @@ class ProbeOutcome(CrucibleModel):
 
 class OutcomeClassifier(Protocol):
     async def classify(self, task: Task, rollouts: Sequence[Any]) -> list[ProbeOutcome]: ...
+
+
+_CAUSE_MECHANISM = (("grader_error", "grader_error"), ("unsolvable", "unsolvable"), ("nondeterministic", "world_bug"), ("vacuous", "vacuous_check"),
+                    ("leak", "leak"), ("affordance", "hack"), ("frame hole", "frame_hole"), ("lax requirement", "shortcut"), ("lax value", "shortcut"),
+                    ("over-strict", "over_strict"), ("hidden information", "hidden_info"), ("the World crashed", "world_bug"),
+                    ("skill_gap", "skill_gap"))
+
+
+def mechanism_of(cause: str) -> str:
+    c = cause.strip()
+    for prefix, mech in _CAUSE_MECHANISM:
+        if c.startswith(prefix):
+            return mech
+    return c.split(":", 1)[0].split(";", 1)[0][:40]
+
+
+def from_outcome_record(rec: Any, rollout: Any, *, alt: Sequence[int] | None = None) -> ProbeOutcome:
+    """The learnability agent's ``synth.outcome.OutcomeRecord`` as this loop's ``ProbeOutcome``: its ``uncertain`` label
+    (never a task defect) maps to ``masked`` for a pass-less or masked rollout and otherwise to an unevidenced label that
+    T1 demotes (an uncertain fail is an unattributed fail, an uncertain pass a suspect); decided by execution → executed
+    evidence, by the calibrated panel → calibrated; the certification's ALT solvers (another family, never a builder)
+    are the independent solver of T7."""
+    label = rec.label
+    ev: Evid = {"execution": "executed", "panel": "calibrated"}.get(rec.decided_by, "none")  # type: ignore[assignment]
+    if label == "uncertain":
+        if rollout.passed is None:
+            kind: OutcomeKind = "masked"
+        else:
+            kind, ev = ("unintended_pass" if rollout.passed else "unintended_fail"), "none"
+    else:
+        kind = label
+    solved = bool(alt and alt[0] > 0)
+    return ProbeOutcome(i=rollout.i, passed=rollout.passed, kind=kind, mechanism=mechanism_of(rec.cause), defect=None, evidence=ev,
+                        alt_solved=solved if alt else None, alt_family="certification-alt" if alt else "", program=getattr(rollout, "program", None),
+                        note=rec.cause[:300])
+
+
+class LearnClassifier:
+    """``OutcomeClassifier`` over ``synth.outcome`` (the learnability agent's classifier): task evidence once per task
+    version (``task_evidence``), then ``classify`` per rollout, each mapped by ``from_outcome_record``."""
+
+    def __init__(self, ctx: FalsifyContext, *, panel: Any = None, alt: Mapping[str, Sequence[int]] | None = None, mut: bool = False):
+        self.ctx, self.panel, self.alt, self.mut = ctx, panel, dict(alt or {}), mut
+        self.records: list[Any] = []
+
+    async def classify(self, task: Task, rollouts: Sequence[Any]) -> list[ProbeOutcome]:
+        from crucible.synth.outcome import classify, task_evidence
+
+        alt = self.alt.get(task.id)
+        tev = await task_evidence(task, self.ctx, alt=alt, mut=self.mut)
+        out = []
+        for r in rollouts:
+            rec = await classify(task, r, self.ctx, tev, panel=self.panel)
+            self.records.append(rec)
+            out.append(from_outcome_record(rec, r, alt=alt))
+        return out
 
 
 class ProbeRepairer(Protocol):

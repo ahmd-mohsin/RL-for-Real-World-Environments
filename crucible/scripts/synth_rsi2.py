@@ -97,6 +97,12 @@ def keys_from(a: argparse.Namespace) -> None:
         os.environ["TINKER_API_KEY"] = v
 
 
+def _seeded(client):
+    """Item 19's fix: without ``seed_by_tag`` every sampled call used seed 0, so repeated calls were copies."""
+    client.seed_by_tag = True
+    return client
+
+
 def pilot_cap(a: argparse.Namespace, root: Path) -> float:
     from crucible.factory.synth_wire import work_spent
 
@@ -446,7 +452,7 @@ def cmd_evolve(a: argparse.Namespace) -> None:
         return pools[0]
 
     loop = _make_loop(a, cfg, d, lambda: wire.meter.spent, shards)
-    props = swarm_proposers(wire.client("abstractor"), planter_client=wire.client("abstractor"))
+    props = swarm_proposers(_seeded(wire.client("abstractor")), planter_client=_seeded(wire.client("abstractor")), salt=a.label)
 
     def save() -> None:
         rows = [r for arm in loop.arms for r in arm.rows]
@@ -488,7 +494,7 @@ def cmd_e10(a: argparse.Namespace) -> None:
     def props(seed: int):
         if wire is None:
             return Proposers(ops=random_proposer(seed))
-        return swarm_proposers(wire.client("abstractor"), planter_client=wire.client("abstractor"))
+        return swarm_proposers(_seeded(wire.client("abstractor")), planter_client=_seeded(wire.client("abstractor")), salt=f"{a.label}-s{seed}")
 
     rows_out: list = []
 
