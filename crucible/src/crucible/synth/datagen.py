@@ -272,7 +272,7 @@ def _deps(g: Mapping[str, Any]) -> set[str]:
     out: set[str] = set()
     k = g.get("kind")
     if k == "date_offset":
-        out.add(str(g.get("from")))
+        out.add(str(g.get("from")).split(".")[0])
     elif k == "lookup":
         out.add(str(g.get("ref")))
     elif k == "calc":
@@ -327,7 +327,7 @@ def _check_gen(t: str, f: str, g: Mapping[str, Any], schema_fields: Mapping[str,
             raise DataSpecError(f"{where}: lookup ref {rf!r} must be a ref field")
         if g.get("field") not in tables[rg["table"]].fields:
             raise DataSpecError(f"{where}: lookup field {g.get('field')!r} is not a field of {rg['table']}")
-    if k == "date_offset" and g.get("from") not in tables[t].fields:
+    if k == "date_offset" and str(g.get("from")).split(".")[0] not in tables[t].fields:
         raise DataSpecError(f"{where}: date_offset from {g.get('from')!r} is not a field of {t}")
     if k == "date" and not (g.get("days_ago") or (g.get("start") and g.get("end"))):
         raise DataSpecError(f"{where}: date needs days_ago [lo, hi] or start and end")
@@ -374,7 +374,7 @@ def compile_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> lis
                 raise DataSpecError(f"table {t.table}: rule {r!r} names unknown fields {sorted(bad)}")
             for rf, f in expr_refs(r):
                 rg = t.fields.get(rf) or {}
-                if rg.get("kind") != "ref":
+                if rg.get("kind") not in ("ref", "backref"):
                     raise DataSpecError(f"table {t.table}: rule {r!r}: {rf} is not a ref field, so {rf}.{f} has no referenced row")
                 if f not in tables[rg["table"]].fields:
                     raise DataSpecError(f"table {t.table}: rule {r!r}: {f} is not a field of {rg['table']}")
@@ -529,7 +529,8 @@ class _Sampler:
                 d = a + timedelta(seconds=rng.randint(0, max(0, int((b - a).total_seconds()))))
             return fmt_date(d, bool(g.get("time")))
         if k == "date_offset":
-            base = row.get(str(g["from"]))
+            src = str(g["from"])  # a field of this row, or <ref>.<field> of the referenced row (pilot 1: an approval after its requisition)
+            base = self.resolver(t, row)(*src.split(".", 1)) if "." in src else row.get(src)
             if base is None:
                 return None
             d = parse_date(base) + timedelta(days=rng.randint(int(g.get("min_days", 0)), int(g.get("max_days", 30))))
@@ -595,7 +596,7 @@ class _Sampler:
     def resolver(self, t: TableGen, row: Mapping[str, Any]) -> Any:
         def resolve(rf: str, f: str) -> Any:
             g = t.fields.get(rf) or {}
-            if g.get("kind") != "ref" or row.get(rf) is None:
+            if g.get("kind") not in ("ref", "backref") or row.get(rf) is None:
                 return None
             return (self.by_key.get(str(g["table"]), {}).get(str(row.get(rf))) or {}).get(f)
 
@@ -692,7 +693,9 @@ class _Sampler:
                     f = rng.choice(t.near_duplicate.vary)
                     new = copy.deepcopy(src)
                     new[kf] = self.fresh_key(t)
-                    new[f] = near_variant(src.get(f), rng)
+                    vg = t.fields.get(f) or {}  # a status-like field takes another declared value, never a typo (pilot 1: "deneid")
+                    others = [v for v in vg.get("values", []) if v != src.get(f)] if vg.get("kind") == "choice" else []
+                    new[f] = rng.choice(others) if others else near_variant(src.get(f), rng)
                     rows.append(new)
                     self.by_key[t.table][str(new[kf])] = new
                     out.append(NoiseItem(kind="near_duplicate", table=t.table, key=new[kf], of=src[kf], field=f, value=new[f], original=src.get(f)))
@@ -849,7 +852,13 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                     elif parse_date(v) > TODAY + timedelta(days=1):
                         add(f"{tn}[{k}].{f} = {v} is after today ({TODAY.date()}): history cannot lie in the future")
                 elif kind == "date_offset" and (tn, k) not in noise_keys:
-                    src = r.get(str(g["from"]))
+                    fr = str(g["from"])
+                    if "." in fr:
+                        rf_, ff_ = fr.split(".", 1)
+                        rg_ = t.fields.get(rf_) or {}
+                        src = (by_key.get(str(rg_.get("table")), {}).get(str(r.get(rf_))) or {}).get(ff_)
+                    else:
+                        src = r.get(fr)
                     if not is_date(v):
                         add(f"{tn}[{k}].{f} = {v!r} is not an ISO date")
                     elif src is not None and is_date(src) and parse_date(v) < parse_date(src) + timedelta(days=int(g.get("min_days", 0))) - timedelta(seconds=1):
@@ -864,7 +873,7 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                 continue
             def resolve(rf: str, f: str, r: Mapping[str, Any] = r, t: TableGen = t) -> Any:
                 g = t.fields.get(rf) or {}
-                if g.get("kind") != "ref" or r.get(rf) is None:
+                if g.get("kind") not in ("ref", "backref") or r.get(rf) is None:
                     return None
                 return (by_key.get(str(g["table"]), {}).get(str(r.get(rf))) or {}).get(f)
 

@@ -153,6 +153,24 @@ def test_cross_record_rules_hold_and_are_checked():
         compile_spec(bad, schema)
 
 
+def test_noise_keeps_declared_values_and_dates_can_follow_a_referenced_row():
+    # pilot 1: a near-duplicate varying a status wrote a typo ("deneid") that failed the declared-values check; an
+    # approval date had to follow its requisition's date
+    schema = {"req": {"key": "rid", "fields": {"rid": "string", "raised": "string", "status": "string"}},
+              "appr": {"key": "aid", "fields": {"aid": "string", "req_id": "string", "decided": "string"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "req", "rows": 40, "near_duplicate": {"vary": ["status"]}, "fields": {
+            "rid": {"kind": "seq", "prefix": "R-"}, "raised": {"kind": "date", "days_ago": [30, 300]},
+            "status": {"kind": "choice", "values": ["open", "approved", "denied"]}}},
+        {"table": "appr", "rows": 30, "fields": {"aid": {"kind": "seq", "prefix": "A-"}, "req_id": {"kind": "ref", "table": "req"},
+                                                "decided": {"kind": "date_offset", "from": "req_id.raised", "min_days": 1, "max_days": 9}}}]})
+    g = generate(spec, schema, seed=2, profile=Profile(near_duplicate=0.3, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    assert all(r["status"] in ("open", "approved", "denied") for r in g.tables["req"])
+    raised = {r["rid"]: r["raised"] for r in g.tables["req"]}
+    assert all(a["decided"] > raised[a["req_id"]] for a in g.tables["appr"])
+
+
 def test_two_way_links_are_backrefs_and_null_is_accepted():
     # pilot 1: a notice links its claim and a claim its notice (refused as a cycle); the swarm writes null in rules
     schema = {"notice": {"key": "nid", "fields": {"nid": "string", "claim_id": "string?"}},
