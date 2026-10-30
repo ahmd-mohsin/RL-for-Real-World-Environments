@@ -2134,3 +2134,34 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   the red-team containers were still running and 0 of 10 once they had stopped. Ruff check and lint-imports clean.
 - **Merge notes.** In `WorkspaceHarness._grade`, after `_take_findings`; the patch rules after `SKIP_TESTS` in
   `hack_detector.py`.
+
+## 89. Part 1 V1: the side-effect negative, the oracle plus an unrequested behaviour change
+
+- **Item.** V1 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("Code: correct fix + a behaviour
+  change in a neighbouring function; correct fix + a weakened visible test elsewhere ... Each must fail. If one passes,
+  add a collateral check"); Part 2's G5 ("the side-effect class present"). The training pool's falsifiers now live in
+  `crucible.synth` (`synth.falsify.patch.PatchMUT`, M5), which already had the inert forms: `ExtraForbidden` and `EditTest`
+  (an edit to a test, golden, config, plumbing or VCS path must fail: the weakened-test half of V1) and `ExtraSource` (an
+  inert comment in untouched source must pass). Missing: a behaviour change. Not taken: State-World side effects
+  (`synth.falsify.mut` already has `ExtraWrite` on every distractor entity); operators beyond the one-token flip.
+- **Files.** `src/crucible/synth/falsify/patch.py` (`FLIP`, `flip_sites`, `flip`, `changed_lines`, `SIDE_EFFECT_MARGIN`,
+  `PatchMUT.side_effects`, `PatchMUT(side_effect=2)`, the `SideEffect` label, module doc MUT row),
+  `tests/unit/test_part1_side_effect.py` (new, 3 tests).
+- **Public names.** `synth.falsify.patch.flip_sites`, `flip`, `changed_lines`, `FLIP`, `SIDE_EFFECT_MARGIN`,
+  `PatchMUT.side_effects`.
+- **Behaviour.** `PatchMUT.propose` adds up to 2 `SideEffect` probes (seeded per task and version): B plus one flipped
+  comparison or boolean literal (`==`/`!=`, `===`/`!==`, `True`/`False`, `true`/`false`) on a line at least 3 lines away
+  from every region B changes, in a source file B changes; only when those have no such site, in an untouched source file
+  of the same directory. Python is tokenized; Go, Node, Rust and Java lines are read with strings masked and comments
+  skipped. A probe must fail: a pass is a **suspect D2** (LAX-FRAME, unrequested effects pass), since a flip in dead code
+  changes nothing. With `allow_open_suspects=False` (`PATCH_POLICY`'s default), the certificate then waits for triage, as
+  a `DropHunk` survivor does. Each probe is one more grade of the task (2 per certificate run; a cached file set is not
+  graded twice). Dry run on 9 of our debug tasks (no grading): the sites are real conditions next to the fix
+  (`huma.go:309` `if pfi.Loc == "header"`, `createFormControl.ts:810` `key !== '_f'`, black's `trans.py:1346`).
+- **Formats.** a new MUT operator name, `SideEffect`, with `data = {file, line, from, to}`.
+- **Tests.** `test_part1_side_effect.py` (new, 3: a flip the hidden tests reach is clean; a flip of an untested neighbour
+  is a suspect D2 and the only open suspect; sites skip comments, strings and the fix's own lines in Python, Go and Node,
+  a mismatched site is skipped). The file fails to import on the code before. The synth suite (`tests/unit/test_synth_*`,
+  the fixture certificate included): 320 passed, 14 skipped (Docker and the pool). Ruff check and lint-imports clean.
+- **Merge notes.** `crucible.synth` is under active work on `main`: the helpers sit after `inert()`, the probes after the
+  `ExtraSource` loop, the label after `ExtraForbidden`/`EditTest`.

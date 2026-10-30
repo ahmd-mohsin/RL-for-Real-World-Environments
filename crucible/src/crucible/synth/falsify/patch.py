@@ -7,7 +7,7 @@ probe invalid: it is not a trial.
 
 | Class | Operators | Label rule |
 |---|---|---|
-| MUT | ``Identity``; ``DropFile`` (one source file of B reverted); ``DropHunk`` (one changed region of a source file reverted, files with 2+ code regions, at most 16 sampled; comment-only regions and non-source files B also changes, such as spec text, are never proposed); ``RevertFix`` (the lane's commit-revert mutant of one milestone); ``ExtraSource`` (B plus an inert comment in a source file B does not touch); ``ExtraForbidden`` (B plus an inert edit to a test, golden, config, vendored, plumbing or VCS path); ``EditTest`` (B plus an edit of a hidden test file); ``SharedCheck`` (two milestones graded by one test) | Identity must pass (else D10 when a required check fails, D6 otherwise). A DropFile/DropHunk survivor is a **suspect** D1 (the hidden tests do not need that code; whether it matters is a judgement). A RevertFix survivor, or one whose own milestone still passes, is a confirmed D1; one that also fails a milestone that does not require it is a suspect D6. ExtraSource must pass (FORBIDDEN: confirmed D6; another failure: suspect D6). ExtraForbidden and EditTest must fail (a pass: confirmed D2). A shared test is a confirmed D6 at milestone scope: one milestone's fix is rejected until the other's is in |
+| MUT | ``Identity``; ``DropFile`` (one source file of B reverted); ``DropHunk`` (one changed region of a source file reverted, files with 2+ code regions, at most 16 sampled; comment-only regions and non-source files B also changes, such as spec text, are never proposed); ``RevertFix`` (the lane's commit-revert mutant of one milestone); ``ExtraSource`` (B plus an inert comment in a source file B does not touch); ``ExtraForbidden`` (B plus an inert edit to a test, golden, config, vendored, plumbing or VCS path); ``EditTest`` (B plus an edit of a hidden test file); ``SideEffect`` (B plus one flipped comparison or boolean literal on a line at least 3 lines from B's changes, in a source file B changes, else in an untouched source file of its directory: an unrequested behaviour change, Part 1 V1); ``SharedCheck`` (two milestones graded by one test) | Identity must pass (else D10 when a required check fails, D6 otherwise). A DropFile/DropHunk survivor is a **suspect** D1 (the hidden tests do not need that code; whether it matters is a judgement). A RevertFix survivor, or one whose own milestone still passes, is a confirmed D1; one that also fails a milestone that does not require it is a suspect D6. ExtraSource must pass (FORBIDDEN: confirmed D6; another failure: suspect D6). ExtraForbidden and EditTest must fail (a pass: confirmed D2). A SideEffect survivor is a suspect D2 (the hidden tests miss an unrequested behaviour change; a flip in dead code changes nothing, so a judgement decides). A shared test is a confirmed D6 at milestone scope: one milestone's fix is rejected until the other's is in |
 | NULL | ``noop``, ``claims_only`` (STATUS.json), ``minus_last_write``, ``delete_tests``, ``stub_tests``, ``test_edit`` (the lane's own floor), ``plumbing_shim`` (conftest.py, go.work, .npmrc, .cargo config), ``path_shim`` (a fake runner on ``bin/``) | must fail; a pass is confirmed D4 (noop, claims), D1 (minus last write) or D8 |
 | RED | §5's RED (start state; each ``require`` exec check on s₀). ``guard`` checks (the pass-to-pass suite) are not probed | confirmed D4 |
 | TAINT | ``ledger`` (every milestone is asked for by a requirement of the report); ``world_leak`` (a fix's issue reference in a changelog line of A′, or a line holding the subject's content words: all of 5, all but one from 6, the lane's own strip rule); ``visible_contradicts`` (a visible test that passes at A′ fails at B: a stale assertion, executed twice); ``report_literal`` (an output string the fix adds and a hidden test compares, found neither in the report nor anywhere in A′); ``visible_data`` (static, ``visible_data()``: a fix-added literal a hidden test compares, or an identifier the fix defines, already readable in a test, golden or doc file; or two rare hidden-test data lines held by another readable file); ``visible_check`` (executed: a visible test that fails at A′ and passes at B on two runs of A′, the mirror of a stale test) | ledger: confirmed D5; world_leak: confirmed D7; visible_contradicts: confirmed D6; visible_check: confirmed D7; visible_data: confirmed D7 on fix answers, suspect D7 on shared case lines only; report_literal is **report-only** (labelled clean with ``hit``): the literal may be derivable from the code |
@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import io
 import json
 import random
 import re
-from collections.abc import Mapping, Sequence
+import tokenize
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, ClassVar
 
 from crucible.synth.certificate import AdmissionPolicy, Certificate, certify
@@ -58,6 +60,53 @@ def inert(text: str, comment: str) -> str:
     return text + ("" if text.endswith("\n") or not text else "\n") + f"{comment} {INERT}\n"
 
 
+# Part 1 V1 (2026-10-30; part1-framework-improvements.md §2(c)): the side-effect negative, B plus an unrequested behaviour
+# change. A one-token flip of a comparison or a boolean literal still compiles in every lane language and changes behaviour
+# wherever the line runs. Every false positive in 2610.09142 came from such an unrequested change.
+FLIP = {"==": "!=", "!=": "==", "===": "!==", "!==": "===", "True": "False", "False": "True", "true": "false", "false": "true"}
+_FLIP_RX = re.compile(r"===|!==|==|!=|\b(?:true|false)\b")
+_STRING_RX = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`[^`\n]*`')
+SIDE_EFFECT_MARGIN = 3  # lines kept clear of B's changed regions: the flip lands in a neighbour, not in the fix
+
+
+def flip_sites(text: str, lang: str, skip: Collection[int] = ()) -> list[tuple[int, int, str]]:
+    """``(line, column, token)`` of every comparison or boolean literal outside comments, strings and the lines in ``skip``
+    (0-based lines split at ``\n``, as the tokenizer splits them). Python is tokenized; the C-like languages are read per
+    line with strings masked and ``//`` comments cut."""
+    out: list[tuple[int, int, str]] = []
+    if lang == "python":
+        try:
+            toks = list(tokenize.generate_tokens(io.StringIO(text).readline))
+        except (tokenize.TokenError, IndentationError, SyntaxError):
+            return []
+        for t in toks:
+            if ((t.type == tokenize.OP and t.string in ("==", "!=")) or (t.type == tokenize.NAME and t.string in ("True", "False"))) \
+                    and t.start[0] - 1 not in skip:
+                out.append((t.start[0] - 1, t.start[1], t.string))
+        return out
+    for i, ln in enumerate(io.StringIO(text).readlines()):
+        if i in skip or _COMMENT_LINE.match(ln):
+            continue
+        code = _STRING_RX.sub(lambda m: " " * len(m.group(0)), ln)
+        code = code[: code.find("//")] if "//" in code else code
+        out += [(i, m.start(), m.group(0)) for m in _FLIP_RX.finditer(code)]
+    return out
+
+
+def flip(text: str, line: int, col: int, token: str) -> str | None:
+    """``text`` with ``token`` at ``(line, col)`` flipped (``FLIP``); None when the site does not hold that token."""
+    lines = io.StringIO(text).readlines()
+    if line >= len(lines) or lines[line][col:col + len(token)] != token:
+        return None
+    lines[line] = lines[line][:col] + FLIP[token] + lines[line][col + len(token):]
+    return "".join(lines)
+
+
+def changed_lines(old: str, new: str, margin: int = SIDE_EFFECT_MARGIN) -> set[int]:
+    """The lines of ``new`` (0-based) within ``margin`` of a region it changed from ``old``."""
+    return {j for _, _, j1, j2 in diff_hunks(old, new) for j in range(max(0, j1 - margin), j2 + margin)}
+
+
 class _PatchClass(BaseFalsifier):
     def __init__(self, env: PatchEnv):
         self.env = env
@@ -84,9 +133,9 @@ class PatchMUT(_PatchClass):
 
     name: ClassVar[str] = "MUT"
 
-    def __init__(self, env: PatchEnv, *, max_hunks: int = MAX_HUNKS, extra_source: int = 2):
+    def __init__(self, env: PatchEnv, *, max_hunks: int = MAX_HUNKS, extra_source: int = 2, side_effect: int = 2):
         super().__init__(env)
-        self.max_hunks, self.extra_source = max_hunks, extra_source
+        self.max_hunks, self.extra_source, self.side_effect = max_hunks, extra_source, side_effect
 
     async def propose(self, task: Task, ctx: FalsifyContext) -> list[Probe]:
         env, spec = self.env, self.env.spec
@@ -129,6 +178,7 @@ class PatchMUT(_PatchClass):
             t = self.start_text(p)
             if t is not None:
                 out.append(Probe(cls="MUT", op="ExtraSource", site=p, program=env.program({**oracle, p: inert(t, comment)}), expect="pass", data={"file": p}))
+        out += self.side_effects(oracle, sources, rng)
         by_role: dict[str, list[str]] = {}
         for p, r in base.items():
             if r.get("role") in FORBIDDEN_ROLES and p not in oracle and "link" not in r and "text" in r:
@@ -152,6 +202,28 @@ class PatchMUT(_PatchClass):
                                  data={"hit": bool(shared), "shared": shared[:10], "declared_edge": edge}))
         self.skipped_cosmetic = skipped
         return dedupe_programs(out)
+
+    def side_effects(self, oracle: Mapping[str, str | None], sources: Sequence[str], rng: random.Random) -> list[Probe]:
+        """Part 1 V1: up to ``side_effect`` probes of B plus one flip (``flip_sites``). Sites come from the source files B
+        changes, away from its changed regions; only when those have none, from the untouched source files of their
+        directories."""
+        spec, exts = self.env.spec, SOURCE_EXT.get(self.env.spec.lang, ())
+        near: list[tuple[str, str, int, int, str]] = []
+        for p, t in sorted(oracle.items()):
+            old = self.start_text(p)
+            if t is not None and old is not None and (not exts or p.endswith(exts)):
+                near += [(p, t, *s) for s in flip_sites(t, spec.lang, changed_lines(old, t))]
+        if not near:
+            dirs = {p.rsplit("/", 1)[0] if "/" in p else "" for p in oracle}
+            for p in sources:
+                if (p.rsplit("/", 1)[0] if "/" in p else "") in dirs and (t := self.start_text(p)) is not None:
+                    near += [(p, t, *s) for s in flip_sites(t, spec.lang)]
+        out = []
+        for p, t, line, col, tok in sorted(rng.sample(near, min(self.side_effect, len(near))), key=lambda x: (x[0], x[2], x[3])):
+            if (changed := flip(t, line, col, tok)) is not None:
+                out.append(Probe(cls="MUT", op="SideEffect", site=f"{p}:{line + 1}", program=self.env.program({**oracle, p: changed}),
+                                 data={"file": p, "line": line + 1, "from": tok, "to": FLIP[tok]}))
+        return out
 
     def finalize(self, findings: list[Finding]) -> list[Finding]:
         return MUT.finalize(self, findings)  # type: ignore[arg-type]  # one trial per normalised effect, the most informative kept
@@ -182,6 +254,8 @@ class PatchMUT(_PatchClass):
             return ("confirmed", "D6") if _forbidden(outcome) else ("suspect", "D6")
         if op in ("ExtraForbidden", "EditTest"):
             return ("confirmed", "D2") if outcome.passed else ("clean", None)
+        if op == "SideEffect":
+            return ("suspect", "D2") if outcome.passed else ("clean", None)
         return ("suspect", "D3") if outcome.passed else ("clean", None)
 
 
