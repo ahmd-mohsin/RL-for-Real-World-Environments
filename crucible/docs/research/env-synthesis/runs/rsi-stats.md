@@ -40,7 +40,27 @@ shapes, more chances for the panel-only D3 gap); (2) planters found by the P loo
 first; (3) with MUT's suspects adjudicated by the panel (the M4 `Adjudicated` wrapper), even the dev gap closes and
 dev headroom is 0. RSI-2's preregistration therefore makes headroom a precondition (prereg §6).
 
-<!-- PILOT -->
+## 5. The pilot on Tinker: what broke, and the fixes
+
+All runs: `scripts/synth_rsi2.py`, the rsi-2 dev pool (125 plants, 10 dev sources; decision split 5 sources, 64 units),
+the abstractor and planter proposer gpt-oss-120b (no Qwen; the student never called), receipts under
+`data/synth/rsi/rsi-2/rsi2-pilot-*`.
+
+| # | Run / step | Problem found | Fix |
+|---|---|---|---|
+| 1 | A/A on the dev pool (CPU) | TWIN confirms a D9 on the clean it_helpdesk source `t02` at seeds 3 and 6 (π*′ fails C′ for twin T-1007): an anchor that alarms at some seeds makes R3's FA ≤ 0 a lottery, and its plants were "caught" by the source's own alarm | per-seed anchor re-check before calibration (`Loop.clean_anchors`: the anchor is dropped and reported); **source-relative hits** (a class that alarms on a plant's clean source at the same seed is not credited on that plant) |
+| 2 | A/A, serial | one base-population pass over 125 plants took 435–550 s | `meta/par.ShardPool` (sharded `spawn` workers with per-seed caches) |
+| 3 | locked rebuild | the shared `--domains` default planted dev sources into a "locked" set (`rsi-2b`) | `--held-out-domains`, refused when it overlaps dev; the invalid set renamed `*.INVALID-overlaps-dev.json` |
+| 4 | smoke1 (1 round, 4 candidates, $0.0027) | the A/A view was the 60%-sized calibration view: 37 units, δ_AA 0.045 (too noisy, not the decision size) | an `aa` view of `n_max` proposal units |
+| 5 | smoke1 | 0/4 candidates passed the birth gate (none reproduced its cited sources), 0/3 planters accepted (2 not novel, 1 reward 0): no decision reached R2, no α spent | none needed: the rule worked; the pool simply has 4 proposal-split misses |
+| 6 | smoke1 | the archive grew by 93 counterexamples from a parallel batch run while the loop ran | none: `refresh_natural` is channel (b) working; the abstractor sees them as natural clusters |
+| 7 | p2 | two arms filled one headroom cache concurrently: a table was read while its programs were still running (KeyError) | a lock per cache |
+| 8 | p2 | a ShardPool per arm measured every shared unit twice | one pool for both arms |
+| 9 | p3 | two arms measured the locked set concurrently through one report context: a file-backed World was reset under the other (SnapshotMismatch) | report measurements serialised; each evolve arm gets its own Worlds |
+| 10 | item 19 (main) | every sampled call used seed 0, so repeated calls were copies | the proposers' clients seed by tag, with a salt per run and per E10 seed. The A/A numbers are unaffected (the falsifier seeds are CPU-side, no model call); smoke1's single proposal call is unaffected |
+| 11 | retro | a killed parent left its 10 shard workers computing | killed by pid; workers exit at their next pipe read |
+
+<!-- PILOTRES -->
 
 ## 1. What was wrong with RSI-1's update test
 
