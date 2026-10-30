@@ -1996,3 +1996,31 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   lint-imports (5 contracts) clean.
 - **Merge notes.** One function before `_Trainer`, eight lines after the `primerl/step` metrics in
   `_Trainer.forward_backward`, `import math`, `ADAPTER_FILE` after `FIRST_STEP`.
+
+## 85. Part 1 §3.2 #2 (first half): the student path's step row logs the leading indicators
+
+- **Item.** §3.2 #2 of `docs/research/env-synthesis/part1-framework-improvements.md` (§0 "the student path logs none of
+  the early-warning signals"; `notes/05-longhorizon-rl.md` §6.2-6.3), the numbers only. The alarms (pass-rate jump,
+  truncation rise, length surge, reward-std drop) are the second half, next. Not taken: tool execution errors (not on
+  the record: they would need the World traces), the length-bias KS distance (it needs a history: with the alarms),
+  honesty Brier (already in the advantage path, not a leading indicator), W&B panel layout. Pattern: the torch loop's
+  `train/monitors.StepMonitor`; prime-rl `orchestrator/metrics.TraceMetrics` (stop-condition shares, turns, truncation)
+  and verl `trainer/ppo/metric_utils.py` (response length, clip ratio, turns, entropy) log the same kinds.
+- **Files.** `src/crucible/train/bridges/tinker/trainer.py` (`behaviour_metrics`, called by `step_metrics`; module doc),
+  `tests/unit/test_part1_early_warning.py` (new).
+- **Public names.** `trainer.behaviour_metrics(batch, datums)`.
+- **Behaviour.** Each optimizer step's dashboard row (`steps.jsonl` `metrics`, the tracking sinks; Tinker and DeltaAI
+  both, since `delta_rl` runs this loop) now also has, over every episode of the kept groups (masked ones included: how
+  an episode ended is the policy's behaviour): `entropy/sampled` (-mean log p of the trained tokens, the behaviour
+  logprobs), `length/call_tokens/*`, `length/turns/*`, `length/context_tokens/*` (`trajectory_tokens`), `stop/<reason>`
+  (agent_done and the four limit stops always, 0 when absent) and `stop/truncated`, `format_errors/per_episode` and
+  `/episode_share` (`Turn.format_errors`, filled on the workspace path since entry 83), `hack/flagged_share`
+  (`RolloutRecord.flags`), `give_up/share` (`progress["give_up"]`) and `reward/group_std_mean`. Nothing else changes:
+  no number here is read by the loop.
+- **Formats.** new keys in the step's metrics (above).
+- **Tests.** `test_part1_early_warning.py` (+2: five episodes in two groups with known stops, lengths, flags, give-up and
+  a masked timeout give the exact shares; the dashboard row carries them). The 18 test files that use the Tinker loop:
+  323 passed, 2 skipped, 8 failed, none from this change (`test_sb_claude_builder.py`: its fake `claude` CLI cannot
+  start on this Mac; the file never imports the trainer). Ruff check and lint-imports (5 contracts) clean.
+- **Merge notes.** One function after `step_metrics`, one line at the end of `step_metrics`, three lines in the module
+  doc's **Dashboards** paragraph.

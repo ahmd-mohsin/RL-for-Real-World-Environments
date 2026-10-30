@@ -78,7 +78,9 @@ training task (held-out tasks never train: V9).
 swarm-pipeline/11 §4.2): after each optimizer step ``step_metrics`` logs reward mean/std/min/max, Φ final, gate pass
 rate, pass rate, advantage stats (sequence and token), loss and every ``forward_backward`` metric, sample-vs-train
 logprob gap (``kl/sample_vs_train``) and importance ratio stats, staleness, drops by reason, tokens and USD booked since
-the previous step, cumulative spend vs the cap, and the sampler version; each drop is a ``record("drop", ...)``; the run
+the previous step, cumulative spend vs the cap, and the sampler version, then the leading indicators
+(``behaviour_metrics``: entropy estimate, lengths and turns, stop-reason shares and truncation, format errors, flagged
+and give-up shares, within-group reward std); each drop is a ``record("drop", ...)``; the run
 summary goes to ``summary``. The trainer never finishes the sinks it is given: the caller does, after its own logging.
 
 Layering: ``crucible.train`` never imports ``crucible.factory``; environments are anything with ``task``,
@@ -319,6 +321,52 @@ def step_metrics(batch: Sequence[Group], datums: Sequence[Any], fb: Any, kl: Seq
                 "datums": float(len(datums)), "time/train_s": train_s})
     if step_s is not None:
         out["time/step_s"] = step_s
+    out.update(behaviour_metrics(batch, datums))
+    return out
+
+
+def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str, float]:
+    """Part 1 §3.2 #2 (2026-10-30; env-synthesis/notes/05-longhorizon-rl.md §6): the leading indicators of a step's batch,
+    read from what its episodes already record. Every episode of the kept groups counts, masked ones too (how an episode
+    ended is the policy's behaviour, a timeout included); the entropy estimate reads the trained tokens.
+
+    - ``entropy/sampled``: -mean log p of the sampled tokens (the behaviour logprobs). Its expectation is the policy's
+      entropy at the sampling temperature: a fast fall predicts the ceiling, a rebound came before collapse (2505.22617,
+      INTELLECT-2).
+    - ``length/call_tokens/*`` (sampled tokens per call), ``length/turns/*`` (the policy's calls per episode),
+      ``length/context_tokens/*`` (``trajectory_tokens``): a length surge led collapse by about 190 steps (2602.01826).
+    - ``stop/<reason>``: the share of episodes per stop reason (``agent_done`` and the limit stops always, 0 when absent,
+      so a chart has no gaps); ``stop/truncated``: the share cut by a limit (``RolloutRecord.truncated``; ScaleRL).
+    - ``format_errors/per_episode``, ``format_errors/episode_share``: malformed tool calls (``Turn.format_errors``).
+    - ``hack/flagged_share``: episodes with a level-1 rule flag or a grade flag (``RolloutRecord.flags``).
+    - ``give_up/share``: episodes ended by ``GIVE_UP`` (the checkpoint sidecar's ``progress["give_up"]``).
+    - ``reward/group_std_mean``: the mean within-group reward std; its drop led collapse (RAGEN 2504.20073). Groups with no
+      spread at all never reach a step: ``drops/zero_spread`` counts them."""
+    from crucible.runtime.harness.native import LIMIT_STOPS
+
+    out: dict[str, float] = {}
+    sampled = [-float(lp) for d in datums for lp, m in zip(d.logprobs, d.mask, strict=False) if m]
+    if sampled:
+        out["entropy/sampled"] = statistics.fmean(sampled)
+    eps = [r for g in batch for r in g.records]
+    if not eps:
+        return out
+    own = [[t for t in r.turns if t.trainable and t.completion_token_ids] for r in eps]
+    out.update(_stats([len(t.completion_token_ids or ()) for ts in own for t in ts], "length/call_tokens"))
+    out.update(_stats([len(ts) for ts in own], "length/turns"))
+    out.update(_stats([r.trajectory_tokens for r in eps if r.trajectory_tokens is not None], "length/context_tokens"))
+    stops = Counter(r.stop or "none" for r in eps)
+    for s in sorted({"agent_done", *LIMIT_STOPS, *stops}):
+        out[f"stop/{s}"] = stops[s] / len(eps)
+    out["stop/truncated"] = sum(r.truncated for r in eps) / len(eps)
+    errs = [sum(t.format_errors for t in r.turns) for r in eps]
+    out["format_errors/per_episode"] = statistics.fmean(errs)
+    out["format_errors/episode_share"] = sum(e > 0 for e in errs) / len(eps)
+    out["hack/flagged_share"] = sum(bool(r.flags) for r in eps) / len(eps)
+    out["give_up/share"] = sum(bool((r.progress or {}).get("give_up")) for r in eps) / len(eps)
+    stds = [statistics.pstdev(rs) for g in batch if len(rs := g.rewards()) > 1]
+    if stds:
+        out["reward/group_std_mean"] = statistics.fmean(stds)
     return out
 
 
