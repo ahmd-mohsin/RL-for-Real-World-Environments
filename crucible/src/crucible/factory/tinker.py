@@ -4,8 +4,9 @@ The factory joins the two sides the layering keeps apart: ``factory.envs.make_en
 ``train.bridges.tinker`` (sampler, trainer, meter), plus ``bench.lh_metrics`` for the report.
 
 - ``train(tasks, config=...)``: ``make_env`` per task, ``objective_of(tasks)`` pinned, the targeting records (one per
-  task, for this model: ``trainer.check_band``), ``TinkerTrainer.run``, and a receipt (``factory.receipts``) with the
-  spend, the versions, the drops and a ``not_verified`` list.
+  task, for this model: ``trainer.check_band``), ``TinkerTrainer.run`` with the framework-health stop
+  (``framework_pause``, Part 1 A7), and a receipt (``factory.receipts``) with the spend, the versions, the drops and a
+  ``not_verified`` list.
 - ``benchmark(tasks, model=..., checkpoint=..., k=...)``: ``k`` attempts per task on the base model (``checkpoint``
   None) or on sampler weights (``tinker://.../sampler_weights/...``), the study 08 §8 metrics of ``bench.lh_metrics``
   (``summarize``: pass@1, pass^k, final Φ, milestones lost, calibration, give-up, hacks, cost per solved task) plus
@@ -97,11 +98,22 @@ def _observe_cfg(observe: Any) -> Any:
     return observe if isinstance(observe, ObserveConfig) else ObserveConfig.from_env()
 
 
+def framework_pause(run_dir: Path) -> list[str]:
+    """Part 1 A7 (2026-10-30): a training run's open CRITICAL framework defects, as ``scripts/train_monitor.py health
+    --run`` reads them (``framework_health.health_report`` over its rollouts, ``steps.jsonl`` and fix journal); empty:
+    train on. ``train`` hands it to the trainer, which stops before the next step while one is open."""
+    from crucible.factory import framework_health as fh
+
+    h = fh.health_report(fh.load_views([run_dir], tool_limit=300), roots=[run_dir], run_dirs=[run_dir], journal=fh.read_journal([run_dir]))
+    return list(h["pause_reason"]) if h["pause"] else []
+
+
 async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: Mapping[str, Mapping[str, Any]] | None = None, backend: Any = None,
                 codec: Any = None, phi_checkpoint: Any = None, tool_limit: int | None = None, timeouts: Timeouts | None = None,
-                mode: str = "workspace", observe: Any = None, model: Any = None) -> dict[str, Any]:
+                mode: str = "workspace", observe: Any = None, model: Any = None, health_stop: bool = True) -> dict[str, Any]:
     """``backend``: the Tinker service (default) or any ``train.bridges.tinker.backend.Backend``, e.g. the DeltaAI
-    ``train.bridges.primerl.PrimeRLBackend``; ``model``: that backend's model row (``primerl.local_model``)."""
+    ``train.bridges.primerl.PrimeRLBackend``; ``model``: that backend's model row (``primerl.local_model``);
+    ``health_stop``: the trainer stops on an open CRITICAL framework defect (``framework_pause``)."""
     from dataclasses import asdict
 
     from crucible.factory.receipts import make_receipt, write_receipt
@@ -120,7 +132,8 @@ async def train(tasks: Sequence[Any], *, config: Any, run_dir: Path, targeting: 
                         extra={"tool_limit": tool_limit, "agent_s": t.agent_s, "rollout_s": t.rollout_s, "mode": mode,
                                "phi_checkpoint": asdict(phi_checkpoint) if phi_checkpoint is not None and hasattr(phi_checkpoint, "__dataclass_fields__") else None})
     tr = TinkerTrainer(envs, config=config, backend=_backend(backend), run_dir=Path(run_dir), codec=_codec(config.model, config.enable_thinking, codec),
-                       objective_id=objective_of(tasks), targeting=targeting, sinks=[obs] if obs is not None else [], model=model)
+                       objective_id=objective_of(tasks), targeting=targeting, sinks=[obs] if obs is not None else [], model=model,
+                       health=framework_pause if health_stop else None)
     try:
         out = await tr.run()
     except BaseException:

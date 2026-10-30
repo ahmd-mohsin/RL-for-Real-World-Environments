@@ -8,7 +8,7 @@
 
 ``health``: the framework side (``factory.framework_health``): ranked framework defects with their component, impact and
 reproduction, the tuning proposals and the versions per step; exit 3 while a CRITICAL defect is open (pause before the
-next step). ``fix``: record a fix in the run's ``framework_fixes.jsonl`` (the health report then marks the defect fixed, or
+next step; a run of ``factory.tinker.train`` makes this check itself after every step and stops: Part 1 A7). ``fix``: record a fix in the run's ``framework_fixes.jsonl`` (the health report then marks the defect fixed, or
 recurring if it shows up after the fix's step).
 
 ``report``: general vs task-specific failures, trends, alerts and proposals over stored episodes (targeting arms, a

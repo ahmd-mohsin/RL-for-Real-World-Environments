@@ -81,9 +81,16 @@ logprob gap (``kl/sample_vs_train``) and importance ratio stats, staleness, drop
 the previous step, cumulative spend vs the cap, and the sampler version, then the leading indicators
 (``behaviour_metrics``: entropy estimate, lengths and turns, stop-reason shares and truncation, format errors, flagged
 and give-up shares, within-group reward std), the flat-group share and the ``monitors.EarlyWarning`` alarms
-(``alarm/<kind>``; a fired one is also a ``record("alarm", ...)`` and a log warning, never a stop); each drop is a
-``record("drop", ...)``; the run summary goes to ``summary``. The trainer never finishes the sinks it is given: the
-caller does, after its own logging.
+(``alarm/<kind>``; a fired one is also a ``record("alarm", ...)`` and a log warning, never a stop) and the shaping
+shares (``shaping_metrics``); each drop is a ``record("drop", ...)``; the run summary goes to ``summary``. The trainer
+never finishes the sinks it is given: the caller does, after its own logging.
+
+**Framework health** (Part 1 A7, 2026-10-30; ``health``, the factory's ``framework_pause``): after each step the check
+runs over the run directory in a thread while the next groups sample; before the next step trains, an open CRITICAL
+framework defect (one that corrupts reward or advantage: ``factory.framework_health``) stops the run with
+``stop="framework_health"`` and a ``record("stop", ...)``. The stop saves state as every stop does; a resumed run checks
+before its first step, so it trains on only once the defect is fixed and recorded (``scripts/train_monitor.py fix``). A
+check that fails is a log warning, never a stop.
 
 Layering: ``crucible.train`` never imports ``crucible.factory``; environments are anything with ``task``,
 ``run_spec(run_id=, policies=, k=, **kw)`` and ``policy_kwargs()`` (``factory.envs.NativeEnv``).
@@ -99,7 +106,7 @@ import math
 import statistics
 import time
 from collections import Counter, deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -109,6 +116,7 @@ from crucible.train.bridges.tinker.datums import FORMAT_MODES, build_datums, sca
 from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
+from crucible.train.credit import outcome_advantages
 from crucible.train.curriculum import DifficultySampler, SamplerConfig, draws_of, requires_of
 from crucible.train.monitors import EarlyWarning
 from crucible.train.quarantine import QuarantineConfig, TaskQuarantine
@@ -328,6 +336,7 @@ def step_metrics(batch: Sequence[Group], datums: Sequence[Any], fb: Any, kl: Seq
     if step_s is not None:
         out["time/step_s"] = step_s
     out.update(behaviour_metrics(batch, datums))
+    out.update(shaping_metrics(batch, datums))
     return out
 
 
@@ -372,6 +381,35 @@ def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str
     stds = [statistics.pstdev(rs) for g in batch if len(rs := g.rewards()) > 1]
     if stds:
         out["reward/group_std_mean"] = statistics.fmean(stds)
+    return out
+
+
+def shaping_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str, float]:
+    """Part 1 A7's monitor (2026-10-30; §2(a): "watch the share of steps whose signal comes only from shaping"): how much
+    of the step's advantage the shaping terms (honesty, Φ turn credit, the format penalty) put there rather than the
+    outcome. Per trained token, its advantage A (before ``scale``) against its rollout's outcome advantage o (R − the
+    group's mean R, ``credit.outcome_advantages``):
+
+    - ``credit/shaping_share``: Σ|A − o| / (Σ|o| + Σ|A − o|), the shaping part of the advantage mass;
+    - ``credit/shaping_only_share``: Σ|A| on tokens whose rollout has o = 0 (a flat group that honesty keeps, an episode
+      at its group's mean) over Σ|A|: gradient the outcome never asked for.
+
+    When most of the gradient is shaping, a dense-vs-sparse comparison measures the shaping, not the outcome."""
+    recs = [r for g in batch for r in g.records]
+    o_of = outcome_advantages(recs, [g.run_id for g in batch for _ in g.records])
+    a_mass = o_mass = s_mass = only = 0.0
+    for d in datums:
+        o, k = o_of.get(d.meta.get("rollout"), 0.0), d.meta.get("scale") or 1.0
+        for a, m in zip(d.advantages, d.mask, strict=False):
+            if m:
+                a /= k
+                a_mass, o_mass, s_mass = a_mass + abs(a), o_mass + abs(o), s_mass + abs(a - o)
+                only += abs(a) if abs(o) <= 1e-9 else 0.0
+    out: dict[str, float] = {}
+    if o_mass + s_mass > 0:
+        out["credit/shaping_share"] = s_mass / (o_mass + s_mass)
+    if a_mass > 0:
+        out["credit/shaping_only_share"] = only / a_mass
     return out
 
 
@@ -434,9 +472,13 @@ def read_group(root: Path, run_id: str, k: int) -> list[RolloutRecord]:
 class TinkerTrainer:
     def __init__(self, envs: Sequence[TrainerEnv], *, config: TrainConfig, backend: Any, run_dir: Path, codec: Any, objective_id: str,
                  targeting: Mapping[str, Mapping[str, Any]] | None = None, name: str | None = None, sinks: Sequence[Sink] = (),
-                 model: TinkerModel | None = None):
+                 model: TinkerModel | None = None, health: Callable[[Path], Sequence[str]] | None = None):
         self.envs, self.cfg, self.backend, self.codec = list(envs), config, backend, codec
         self.tracking = Tracking(sinks)
+        # Part 1 A7: run directory -> the open CRITICAL framework defects (empty: train on); None: no check (module doc)
+        self.health = health
+        self._health_task: asyncio.Task | None = None
+        self.health_stop: dict[str, Any] | None = None
         self._last_tokens: dict[str, int] = {}
         self._last_usd = 0.0
         self._last_step_t: float | None = None
@@ -676,6 +718,36 @@ class TinkerTrainer:
         self.tracking.record("stop", {"stop": "masked_frac", **self.masked_stop}, int(self.state["step"]))
         return True
 
+    # ---- framework health (Part 1 A7) ----
+    def _start_health(self) -> None:
+        if self.health is not None:
+            self._health_task = asyncio.create_task(self._health_check(int(self.state["step"])))
+
+    async def _health_check(self, step: int) -> list[str]:
+        """``health`` in a thread: it reads every stored episode of the run (about 50 s for 358 long ones), so the next
+        groups sample meanwhile. Its own failure is a warning: a false stop wastes a queue slot."""
+        assert self.health is not None
+        try:
+            return list(await asyncio.to_thread(self.health, self.dir))
+        except Exception as e:  # noqa: BLE001 -- the check failing is no defect of the run
+            log.warning("after step %d: framework_health not checked (%s: %s)", step, type(e).__name__, e)
+            return []
+
+    async def _health_paused(self) -> bool:
+        """Before a step trains: the check started after the previous step (or at a resume). An open CRITICAL defect stops
+        the run here, before its reward or advantage reaches another step."""
+        if self._health_task is None:
+            return False
+        t, self._health_task = self._health_task, None
+        defects = await t
+        if not defects:
+            return False
+        step = int(self.state["step"])
+        self.health_stop = {"step": step, "defects": defects[:10]}
+        self.tracking.record("stop", {"stop": "framework_health", **self.health_stop}, step)
+        log.warning("after step %d: open critical framework defects, the run stops: %s", step, "; ".join(defects[:3]))
+        return True
+
     # ---- resume: one row per step (async-RL audit R7) ----
     def _rollback_logs(self, keep_step: int) -> None:
         """The rows of ``steps.jsonl`` and ``rewards.jsonl`` past ``keep_step`` (steps trained after the last ``save_state``,
@@ -801,6 +873,8 @@ class TinkerTrainer:
         self.sampler = TinkerSampler(self.backend, self.model, meter=self.meter, codec=self.codec, path=self.state.get("sampler_path"),
                                      version=self.state["version"])
         await self.sampler.start()
+        if self.state["step"] > 0:
+            self._start_health()  # a resume trains nothing more while a defect that stopped it is still open
         pending = self._pending
         batch: list[Group] = []
         launched = 0
@@ -862,6 +936,9 @@ class TinkerTrainer:
                     self.stop = "cap"
                     break
                 if len(batch) >= cfg.groups_per_step and self.stop is None:
+                    if await self._health_paused():
+                        self.stop = "framework_health"
+                        break
                     try:
                         await self._step(batch[: cfg.groups_per_step])
                     except TinkerCapReached:
@@ -869,10 +946,14 @@ class TinkerTrainer:
                         break
                     batch = batch[cfg.groups_per_step:]
                     launched = len(pending)
+                    if self.state["step"] < cfg.steps:
+                        self._start_health()
         except BaseException as e:
             failed = e
             raise
         finally:
+            if self._health_task is not None:
+                self._health_task.cancel()  # a check no step waits for any more (its thread finishes on its own)
             # async-RL audit R4: in flight at a stop (an error included): cancelled, never trained, never awaited to the end
             await self._stop_pending(self.stop or (f"error:{type(failed).__name__}" if failed is not None else "done"))
             await self._settle_cancelled(self.cancel_grace_s)
@@ -895,7 +976,7 @@ class TinkerTrainer:
                "versions": self.versions, "drops": dict(self.drops), "groups_seen": self.groups_seen, "spend": self.meter.summary(),
                "calls": len(log), "sampled_tokens": samp, "sample_tokens_per_s_per_call": (samp / sum(lat)) if lat and sum(lat) else None,
                "turn_latency_s": {"mean": statistics.fmean(lat), "p50": statistics.median(lat), "max": max(lat)} if lat else None,
-               "masked_stop": self.masked_stop,
+               "masked_stop": self.masked_stop, "health_stop": self.health_stop,
                "trained_episodes": eps, "usd_per_episode": (self.meter.spent / max(1, self.groups_seen * self.cfg.group_size)),
                "wall_s": round(wall_s, 1), "steps_log": self.step_rows, "codec": self.codec.settings() if hasattr(self.codec, "settings") else None,
                "quarantine": {"events": len(self.quarantine.events), "quarantined": sorted({e["task"] for e in self.quarantine.events

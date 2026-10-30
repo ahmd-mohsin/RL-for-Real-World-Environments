@@ -2053,3 +2053,41 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   and lint-imports (5 contracts) clean.
 - **Merge notes.** `EarlyWarning` after `PassRateAlarm`; in `TinkerTrainer._step`, nine lines after the difficulty metrics
   and `_last_drops` in the last line; `call_lengths` before `staleness_metrics` (`behaviour_metrics` uses it).
+
+## 87. Part 1 A7: the student path stops on an open critical framework defect; the shaping shares
+
+- **Item.** A7 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(a) ("framework_health read by the
+  trainer ... Now, as a stop condition. A critical detector pauses the run. It never edits it"; acceptance: "Each
+  critical detector has a planted-defect test. Pause, then resume from the last checkpoint"), and the run monitor §2(a)
+  and §0 #3 ask for, the share of the gradient that comes from shaping only. Already there, not redone: the planted-defect
+  tests of every CRITICAL detector (`test_framework_health.py`), the hack-flag rate (entry 85) and the mismatch KL per
+  staleness bucket (`kl/mismatch/s<b>`, async-RL audit R2). Not taken: a stop on HIGH defects, a check every N steps
+  (measured below: it overlaps the next groups' sampling, so it costs no step time today).
+- **Files.** `src/crucible/train/bridges/tinker/trainer.py` (`TinkerTrainer.__init__` `health=`, `_start_health`,
+  `_health_check`, `_health_paused`, `run`, `summary`; `shaping_metrics`, `step_metrics`; module doc),
+  `src/crucible/factory/tinker.py` (`framework_pause`, `train(health_stop=True)`, module doc),
+  `scripts/train_monitor.py` (doc line), `tests/unit/test_part1_health_stop.py` (new, 5 tests).
+- **Public names.** `factory.tinker.framework_pause`, `train(..., health_stop=)`, `TinkerTrainer(health=)`,
+  `TinkerTrainer.health_stop`, `trainer.shaping_metrics`.
+- **Behaviour.** `train` passes `framework_pause` (`framework_health.health_report` over the run's rollouts, `steps.jsonl`
+  and `framework_fixes.jsonl`, exactly what `train_monitor.py health --run` reads) to the trainer. After each step (not
+  the last) the trainer starts it in a thread while the next groups sample; before the next step trains, an open
+  CRITICAL defect stops the run with `stop="framework_health"`, `summary["health_stop"]` (the step and up to 10 defects),
+  a `record("stop", ...)` and a log warning. The stop saves state like any stop. A resumed run starts the check before
+  its first step, so it trains nothing while the defect is open; once the fix is recorded (`train_monitor.py fix`, which
+  marks it fixed) it trains on. A check that raises is a warning and the run goes on (a false stop wastes a queue slot).
+  Cost: 358 stored targeting episodes (300-call, 8 GB) took 51 s; the next groups take minutes, so the step does not wait.
+  Each step's row also has `credit/shaping_share` (per trained token, |A − o| over |o| + |A − o|, o the outcome
+  advantage R − group mean) and `credit/shaping_only_share` (the advantage mass on tokens whose rollout has o = 0, a flat
+  group kept by honesty, over all of it). Runs built directly (`scripts/smoke/rl_loop.py`, `TinkerTrainer(...)`) have no
+  check unless they pass `health=`.
+- **Formats.** a new `stop` value, `framework_health`; `summary.json` gains `health_stop`; new metric keys (above).
+- **Tests.** `test_part1_health_stop.py` (new, 5: the stop before step 2 with state saved at step 1, a resume with the
+  defect open trains nothing, a resume after the fix trains steps 2 and 3; a raising check is a warning and 3 steps run;
+  `framework_pause` on a planted NaN loss returns the `trainer_numeric` defect and nothing after `record_fix`; `train`
+  hands the check over unless `health_stop=False`; the shaping shares on a hand-built batch and on the dashboard row).
+  The file fails to import on the code before. `test_observe.py`'s end-to-end toy run now runs the real check after
+  step 1 and still trains 2 steps (no false stop, no warning). The 18 test files that use the Tinker loop, the factory's
+  `train` or framework health: 298 passed, 2 skipped. Ruff check and lint-imports (5 contracts) clean.
+- **Merge notes.** In `TinkerTrainer.run`: the resume check after `sampler.start()`, `_health_paused` before `_step`, the
+  next check after it, the cancel at the top of `finally`. `shaping_metrics` after `behaviour_metrics`.
