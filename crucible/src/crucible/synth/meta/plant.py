@@ -82,16 +82,16 @@ class OpInfo(CrucibleModel):
 
 
 OPS: dict[str, OpInfo] = {
-    "drop_required": OpInfo(defect="D1", witness="lenient", variants=["base"], families=["DropStep", "Truncate", "minus_last_write"]),
-    "widen_frame": OpInfo(defect="D2", witness="lenient", variants=["coll", "app"], families=["ExtraWrite", "write_all", "shortcut"]),
+    "drop_required": OpInfo(defect="D1", witness="lenient", variants=["base", "last"], families=["DropStep", "Truncate", "minus_last_write"]),
+    "widen_frame": OpInfo(defect="D2", witness="lenient", variants=["coll", "app", "field"], families=["ExtraWrite", "write_all", "shortcut"]),
     "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance"], families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
-    "vacuous_required": OpInfo(defect="D4", witness="lenient", variants=["base"], families=["DropStep", "Truncate", "minus_last_write", "noop"]),
+    "vacuous_required": OpInfo(defect="D4", witness="lenient", variants=["base", "exists"], families=["DropStep", "Truncate", "minus_last_write", "noop"]),
     "hide_info": OpInfo(defect="D5", witness="hidden", variants=["sentence", "redact"]),
     "over_constrain": OpInfo(defect="D6", witness="strict", variants=["before", "at_most", "never"], families=["DropStep", "DupStep", "Reorder"]),
     "leak_decision": OpInfo(defect="D7", witness="leak", variants=["reason", "because", "humanised"]),
     "plant_affordance": OpInfo(defect="D8", witness="lenient", variants=["solve_button", "field_setter"], families=["shortcut", "planted"]),
-    "instruction_drift": OpInfo(defect="D9", witness="lenient", variants=["entity"], families=["SwapEntity", "PerturbValue", "ExtraWrite"]),
-    "break_solvability": OpInfo(defect="D10", witness="unsolvable", variants=["unknown_code"]),
+    "instruction_drift": OpInfo(defect="D9", witness="lenient", variants=["entity", "prefix"], families=["SwapEntity", "PerturbValue", "ExtraWrite"]),
+    "break_solvability": OpInfo(defect="D10", witness="unsolvable", variants=["unknown_code", "offset"]),
     "inject_nondet": OpInfo(defect="D11", witness="nondet", variants=["pinned", "allowed"]),
 }
 
@@ -145,11 +145,20 @@ def base_planter() -> Planter:
 
 
 def held_out_planter() -> Planter:
-    """Held-out variants (different phrasing, different mechanisms) for a locked set; disjoint from ``base_planter``."""
+    """Held-out variants (different phrasing, different mechanisms) for a locked set; disjoint from ``base_planter``. One
+    or more per defect class (RSI-1: the M3 set had none for D1, D2, D4, D9 and D10, so a locked matrix had no column for
+    them): ``drop_required:last`` (the last requirement, another why), ``widen_frame:field`` (any entity of the
+    collection, but only the fields π* writes), ``vacuous_required:exists`` (a state check that the record exists),
+    ``instruction_drift:prefix`` (the key becomes a prefix glob that also matches siblings), ``break_solvability:offset``
+    (a value just off what any tool produces)."""
     ops = [PlantOp(name="hide_info", variant="redact", params={"phrase": "the item"}), PlantOp(name="leak_decision", variant="humanised"),
            PlantOp(name="leak_decision", variant="because"), PlantOp(name="plant_affordance", variant="field_setter"),
            PlantOp(name="over_constrain", variant="never"), PlantOp(name="inject_nondet", variant="allowed"),
-           PlantOp(name="relax_value", variant="tolerance", version=2, params={"factor": 10})]
+           PlantOp(name="relax_value", variant="tolerance", version=2, params={"factor": 10}),
+           PlantOp(name="drop_required", variant="last", params={"why": "covered by the nightly reconciliation job"}),
+           PlantOp(name="widen_frame", variant="field", params={"why": "batch updates of this field are expected"}),
+           PlantOp(name="vacuous_required", variant="exists"), PlantOp(name="instruction_drift", variant="prefix"),
+           PlantOp(name="break_solvability", variant="offset", params={"suffix": "-legacy"})]
     return Planter(id="held-out", ops=ops)
 
 
@@ -344,11 +353,11 @@ def _values_visible(src: Task, oracle: Run, tools: Sequence[ToolInfo]) -> list[A
     return out
 
 
-def _unknown_value(v: Any, suffix: str) -> Any:
+def _unknown_value(v: Any, suffix: str, *, offset: bool = False) -> Any:
     if isinstance(v, bool) or v is None:
         return None
     if is_number(v):
-        return v * 1000 + 7
+        return round(v + 0.37, 2) if offset else v * 1000 + 7
     if isinstance(v, str) and v:
         return f"{v}{suffix}"
     return None
@@ -369,12 +378,19 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
     delta = delta_of(oracle, c)
     written = {(a, co) for a, co, _ in written_entities(delta)}
     if op.name == "drop_required":
-        for p in c.required:
+        for p in (c.required if v == "base" else list(reversed(c.required))):
             if p.kind == "state":
                 continue
             allow = p.model_copy(update={"id": _fresh_id(c, f"a_{p.id}"), "why": op.params.get("why", "this effect is routine and need not be checked")})
             c2 = c.model_copy(update={"required": [q for q in c.required if q.id != p.id], "allowed": [*c.allowed, allow]}, deep=True)
             out.append(_Draft(task=_with_contract(src, c2), site=p.id, change={"target": "required", "pattern": p.id, "coll": f"{p.app}.{p.coll}"}))
+    elif op.name == "widen_frame" and v == "field":
+        fields = sorted({(ch.addr.app, ch.addr.coll, ch.addr.field if ch.kind == "update" else "*", ch.kind) for ch in delta})
+        for app, coll, fld, kind in fields:
+            a = EffectPattern(id=_fresh_id(c, f"a_field_{fld.strip('*') or kind}"), app=app, coll=coll, key="*", field=fld, kind=kind,
+                              why=op.params.get("why", "batch updates of this field are expected"))
+            c2 = c.model_copy(update={"allowed": [*c.allowed, a]}, deep=True)
+            out.append(_Draft(task=_with_contract(src, c2), site=f"{app}.{coll}.{fld}:{kind}", change={"target": "allowed", "coll": f"{app}.{coll}", "wildcard": True}))
     elif op.name == "widen_frame":
         colls = sorted(written) if v == "coll" else sorted({(a, "*") for a, _ in written})
         for app, coll in colls:
@@ -410,13 +426,14 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
                     out.append(_Draft(task=_with_contract(src, c.model_copy(update={"answer": ans}, deep=True)), site=f"{q.id}.tol",
                                       change={"target": "answer", "pattern": q.id, "literal": q.value}))
     elif op.name == "vacuous_required":
-        for p in c.required:
+        for p in (c.required if v == "base" else list(reversed(c.required))):
             if p.kind == "update" and isinstance(p.value, PEq) and p.concrete() and oracle.start is not None:
                 old = oracle.start.get(Address(app=unglob(p.app), coll=unglob(p.coll), key=unglob(p.key), field=unglob(p.field)))
                 if old is MISSING:
                     continue
-                vac = EffectPattern(id=_fresh_id(c, f"{p.id}_v"), app=p.app, coll=p.coll, key=p.key, field=p.field, kind="state", value=PIn(vs=[old, p.value.v]))
-            elif p.kind == "insert":
+                pred = PIn(vs=[old, p.value.v]) if v == "base" else PAny()  # exists: the check only asks that the record has the field
+                vac = EffectPattern(id=_fresh_id(c, f"{p.id}_v"), app=p.app, coll=p.coll, key=p.key, field=p.field, kind="state", value=pred)
+            elif p.kind == "insert" and v == "base":
                 vac = EffectPattern(id=_fresh_id(c, f"{p.id}_v"), app=p.app, coll=p.coll, key="*", field="*", kind="state", where=dict(p.where), count=0,
                                     count_max="any")
             else:
@@ -450,15 +467,22 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
                     out.append(_Draft(task=src.model_copy(update={"instruction": " ".join(sents[:i] + sents[i + 1:])}, deep=True), site=f"sentence:{i}",
                                       change={"target": "instruction", "sentence": i}))
     elif op.name == "leak_decision":
-        tmpl = {"reason": "The reason code is {v}.", "because": "This is because of {v}.", "humanised": "Hint: it comes down to {h}."}[v]
+        tmpl = str(op.params.get("template") or {"reason": "The reason code is {v}.", "because": "This is because of {v}.",
+                                                   "humanised": "Hint: it comes down to {h}."}[v])
+        if "{v}" not in tmpl and "{h}" not in tmpl:  # a planter-loop template must quote the decision
+            return out
         for d in src.intent.derive:
             if text_spans(d, src.instruction):
                 continue
             h = str(d).replace("_", " ")
-            add = tmpl.format(v=d, h=h)
+            try:
+                add = tmpl.format(v=d, h=h)
+            except (KeyError, IndexError, ValueError):
+                return out
             ins2 = f"{src.instruction} {add}"
             out.append(_Draft(task=src.model_copy(update={"instruction": ins2}, deep=True), site=f"derive:{cjson(d)}",
-                              change={"target": "instruction", "literal": d, "span": [len(src.instruction) + 1, len(ins2)], "quoted": h if v == "humanised" else d}))
+                              change={"target": "instruction", "literal": d, "span": [len(src.instruction) + 1, len(ins2)],
+                                      "quoted": h if "{h}" in tmpl else d}))
     elif op.name == "plant_affordance":
         out += _affordance_drafts(src, op, oracle, tools)
     elif op.name == "over_constrain":
@@ -502,11 +526,17 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
     elif op.name == "instruction_drift":
         ents = sorted({e for p in c.required if (e := _pattern_entity(p)) is not None})
         for app, coll, key in ents:
+            glob = "*"
+            if v == "prefix":  # the shortest cut of the key whose prefix glob also matches a sibling: a too-lax key pattern
+                sibs = [k for k in (oracle.start.collection(app, coll) if oracle.start is not None else {}) if k != key]
+                glob = next((_lit_glob(key[:i]) + "*" for i in range(len(key) - 1, 0, -1) if any(k.startswith(key[:i]) for k in sibs)), "")
+                if not glob:
+                    continue
             req = []
             for p in c.required:
                 q = p
                 if _pattern_entity(p) == (app, coll, key):
-                    q = q.model_copy(update={"key": "*"})
+                    q = q.model_copy(update={"key": glob})
                 wh = {f: (PAny() if isinstance(pr, PEq) and key_text(pr.v) == key else pr) for f, pr in q.where.items()}
                 if wh != q.where:
                     q = q.model_copy(update={"where": wh})
@@ -516,15 +546,16 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
     elif op.name == "break_solvability":
         suffix = str(op.params.get("suffix", "_escalated"))
         visible = _values_visible(src, oracle, tools)
-        for i, p in enumerate(c.required):
+        order = list(enumerate(c.required)) if v == "unknown_code" else list(reversed(list(enumerate(c.required))))
+        for i, p in order:
             sites: list[tuple[str, Any, EffectPattern]] = []
             if isinstance(p.value, PEq):
-                nv = _unknown_value(p.value.v, suffix)
+                nv = _unknown_value(p.value.v, suffix, offset=v == "offset")
                 if nv is not None:
                     sites.append((f"{p.id}.value", nv, p.model_copy(update={"value": PEq(v=nv)})))
             for f, pred in sorted(p.where.items()):
                 if isinstance(pred, PEq):
-                    nv = _unknown_value(pred.v, suffix)
+                    nv = _unknown_value(pred.v, suffix, offset=v == "offset")
                     if nv is not None:
                         sites.append((f"{p.id}.where.{f}", nv, p.model_copy(update={"where": {**p.where, f: PEq(v=nv)}})))
             for site, nv, q in sites:

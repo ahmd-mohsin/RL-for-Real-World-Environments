@@ -148,3 +148,36 @@ async def test_code_failing_the_static_check_goes_back_to_the_coder(tmp_path):
     coder = FakeClient("kimi", seq({"code": "import os\n" + FIXED}, {"code": FIXED}))
     rep = await worldgen("IT helpdesk", tmp_path / "w", clients(coder=coder))
     assert rep.status == "accepted" and len(coder.calls) == 2 and "static check" in coder.calls[1][-1]["content"]
+
+
+async def test_the_seed_density_knob_and_reseed(tmp_path):
+    """§6 / §14.1: denser seeded Worlds. ``rows`` reaches the seeder; ``reseed`` adds swarm-written sibling rows to an
+    accepted World, table by table, never changing an existing row, and re-runs the smoke test."""
+    from crucible.synth.worldgen import reseed
+    from tests.unit.synth_fakes import section
+
+    cl = clients()
+    rep = await worldgen("IT helpdesk", tmp_path / "w", cl, rows=(30, 40))
+    assert rep.status == "accepted" and section(cl["seeder"].calls[0], "rows") == "30 to 40 rows per table"
+
+    def add(msgs, n):
+        have = section(msgs, "existing")
+        if n == 0:  # first a reply that reuses an existing key: refused with feedback
+            return {"tables": {"tickets": [have["tickets"][0]]}}
+        return {"tables": {"tickets": [{"id": f"T-{i}", "status": "open", "code": None} for i in range(100, 130)]}}
+
+    seeder = FakeClient("kimi", add)
+    rr = await reseed(tmp_path / "w", tmp_path / "dense", seeder, target={"tickets": 38, "nope": 5})
+    assert rr.status == "accepted" and rr.before["tickets"] == 8 and rr.after["tickets"] == 38 and rr.added == {"tickets": 30}
+    assert "nope" in rr.refused and "already used" in seeder.calls[1][-1]["content"]
+    assert "add exactly 30 new rows to table tickets" in section(seeder.calls[0], "rows")
+    old = json.loads((tmp_path / "w" / "seed.json").read_text())["tables"]["tickets"]
+    new = json.loads((tmp_path / "dense" / "seed.json").read_text())["tables"]["tickets"]
+    assert new[: len(old)] == old  # existing rows unchanged
+    assert (tmp_path / "dense" / "app.py").read_bytes() == (tmp_path / "w" / "app.py").read_bytes()
+    w = open_world(str(tmp_path / "dense"), str(tmp_path / "work2"))
+    try:
+        await w.reset(0)
+        assert len((await w.canon()).collection("desk", "tickets")) == 38
+    finally:
+        await w.close()

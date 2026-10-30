@@ -364,6 +364,7 @@ class Adjudicated(BaseFalsifier):
     def __init__(self, inner: BaseFalsifier, panel: Panel):
         self.inner, self.panel = inner, panel
         self.name = inner.name  # type: ignore[misc]
+        self._decided: dict[tuple[str, str], str] = {}  # (task digest, effect signature) -> the panel's decision
 
     async def applies(self, task: Task, ctx: FalsifyContext) -> str | None:
         f = getattr(self.inner, "applies", None)
@@ -375,9 +376,24 @@ class Adjudicated(BaseFalsifier):
     async def execute(self, probe: Probe, task: Task, ctx: FalsifyContext) -> Outcome:
         o = await self.inner.execute(probe, task, ctx)
         if o.valid and self.inner.label(probe, o)[0] == "suspect":
+            eff = o.data.get("effect")
+            k = (task.digest(), str(eff)) if eff is not None else None
+            if k is not None and k in self._decided:  # one effect is one trial (``finalize``): the panel judges it once
+                o.data["panel"] = self._decided[k]
+                o.data["panel_reused"] = True
+                return o
             v = await self.panel.decide(task, probe, o, ctx)
             o.data["panel"] = v.decision
+            if k is not None:
+                self._decided[k] = v.decision
         return o
+
+    def finalize(self, findings: list[Finding]) -> list[Finding]:
+        """The wrapped class's own finalisation (MUT keeps one trial per normalised effect). Without it a wrapped MUT
+        counted every duplicate mutant as a trial and its certificate bound was too tight (found in the M4 runs:
+        finance_ap t02 reported n_MUT = 66 for 20 distinct effects)."""
+        fin = getattr(self.inner, "finalize", None)
+        return fin(findings) if fin is not None else findings
 
     def label(self, probe: Probe, outcome: Outcome) -> tuple[Label, str | None]:
         lab, d = self.inner.label(probe, outcome)

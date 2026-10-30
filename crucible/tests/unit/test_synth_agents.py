@@ -164,3 +164,40 @@ async def test_calibration_picks_lambda_from_executed_anchors(tmp_path):
     assert rep.rows[0]["decided"] == 2 and rep.rows[0]["accuracy"] == 0.5 and rep.rows[2]["decided"] == 1
     rep = await calibrate(p, anchors, target=0.99, grid=(0.5, 0.6))
     assert not rep.calibrated and p.lam == 0.6  # nothing reached the target: the strictest λ, flagged
+
+
+async def test_an_adjudicated_mut_keeps_one_trial_per_effect_and_judges_each_effect_once():
+    """The M4 runs counted every duplicate mutant of a panel-wrapped MUT as a trial (its ``finalize`` was lost), which made
+    U_MUT too tight; the wrapper keeps MUT's effect deduplication and asks the panel once per effect."""
+    from crucible.synth.falsify import MUT
+    from crucible.synth.falsify.agents import Adjudicated
+
+    t = fx.any_reason()
+    plain = await falsify(t, MUT(), FalsifyContext())
+    a, b = FakeClient("nemotron", seq({"valid": False, "confidence": 0.9})), FakeClient("openai", seq({"valid": False, "confidence": 0.9}))
+    panel = Panel(members=[PanelMember("a", a), PanelMember("b", b)], lam=0.7)
+    wrapped = await falsify(t, Adjudicated(MUT(), panel), FalsifyContext())
+    assert wrapped.n == plain.n  # distinct effects only
+    assert plain.suspects and not wrapped.suspects and wrapped.c >= len(plain.suspects)
+    effects = {f.outcome.data["effect"] for f in wrapped.findings if f.outcome.data.get("panel")}
+    assert len(a.calls) == len(effects)  # one panel call per distinct effect, whatever the number of mutants behind it
+
+
+def test_ppi_mean_corrects_a_biased_judge_with_executed_labels():
+    from crucible.synth.meta.ppi import adjudicated_rates, ppi_mean, vote_score
+
+    # a judge that says "valid" 80% of the time on suspects but is right only on half of the labelled anchors
+    f_unl = [1.0] * 80 + [0.0] * 20
+    f_lab, y_lab = [1.0] * 10 + [0.0] * 10, [1.0] * 5 + [0.0] * 5 + [0.0] * 10
+    est = ppi_mean(f_unl, f_lab, y_lab)
+    assert est.estimate == pytest.approx(0.8 + (5 / 20 - 10 / 20))  # 0.55: the rectifier removes the judge's bias
+    assert est.lo < est.estimate < est.hi and est.naive == pytest.approx(0.8) and est.n_labeled == 20 and est.n_unlabeled == 100
+    assert est.classical is not None and est.classical[0] <= 0.25 <= est.classical[1]
+    assert vote_score([{"valid": True, "confidence": 0.9}, {"valid": False, "confidence": 0.8}]) == pytest.approx((0.9 + 0.2) / 2)
+    assert vote_score([{"valid": None, "error": "x"}]) == 0.5
+    rows = [{"cls": "ALT", "votes": [{"valid": False, "confidence": 0.9}] * 2, "decision": "invalid"}] * 6
+    rows += [{"cls": "MUT", "votes": [{"valid": True, "confidence": 0.9}] * 2, "decision": "valid"}] * 4
+    cal = [{"truth": True, "votes": [{"valid": True, "confidence": 0.9}] * 2}, {"truth": False, "votes": [{"valid": False, "confidence": 0.9}] * 2}]
+    out = adjudicated_rates(rows, cal)
+    assert set(out) == {"ALT", "MUT", "all"} and out["ALT"]["n_unlabeled"] == 6 and out["all"]["n_unlabeled"] == 10
+    assert out["ALT"]["decided_valid"] == 0 and out["MUT"]["decided_valid"] == 4

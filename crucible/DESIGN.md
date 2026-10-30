@@ -1882,6 +1882,52 @@ ONL: item 14); composition (M6) is not.
      custody, `apply_patch`, a clean certificate, D1/D2/D5/D6/D7/D8/D11 planted and caught, guard skip, migration and its
      drift detection, the threaded runner's bound and cache), `test_synth_online.py`, `test_synth_realdefects.py`,
      `test_synth_patch_pool.py` (the 12-task migration).
+15. **RSI-1: the regularised loop wired end to end (built 2026-10-29; part2-paper-core §9, §14.1).**
+   - **Open items closed.** `cegis.refine` re-runs every class on a version the last round's repair produced and hands
+     that pass's suspects to the injected adjudicator (`FinalPass`: decided, abstained, confirmed and archived ids);
+     before, they stayed open and rejected the task. `Adjudicated` keeps the wrapped class's `finalize` and asks the panel
+     once per normalised effect. **Bug found:** without `finalize`, a panel-wrapped MUT counted every duplicate mutant as a
+     trial, so the M4 certificates' U_MUT was too tight (finance_ap t02: n = 66 reported, 20 distinct effects); the M4
+     "certified" tasks are provisional under the fixed count. `meta/ppi.py`: the PPI mean estimator (rectifier from the
+     calibration anchors' executed truth; `ppi_py` when installed, else the same normal interval), naive and classical
+     beside it; the pipeline report carries it per class (`RunReport.adjudication`). Caveat recorded with every use: the
+     labels are oracle / no-op / minus-last-write traces, not suspects. **Denser Worlds:** `worldgen(rows=(lo, hi))`
+     reaches the seeder; `worldgen.reseed` asks the swarm seeder for NEW rows table by table (existing rows shown and never
+     changed; a reused key is refused with feedback; each table's additions must load and pass the smoke test, else that
+     table is reverted), copying design, schema, code and frozen tests unchanged; `finance_ap_world(invoices=N)` is the
+     pack's own density knob (a different draw, so new tasks). `RunConfig.lemmas` (the proposer's S lemmas), `paid` and
+     `repair` (off: a first-round-only measurement).
+   - **Planter.** `held_out_planter` gains a variant for every class the locked set lacked: `drop_required:last`,
+     `widen_frame:field` (any entity, only the written fields), `vacuous_required:exists`, `instruction_drift:prefix` (the
+     key becomes a prefix glob that also matches siblings), `break_solvability:offset`; `leak_decision` takes a
+     `template` (planter-loop phrasings). `accept_planter(population=)` measures the MMD of the population *with* the
+     candidate's plants: a one-operator candidate alone is one class and never matches a natural mix. The birth gate
+     caches class runs in the context and can stop early (anchors and sources first).
+   - **The loop** (`meta/abstract.py`, `meta/rsi.py`). Sources are the admitted tasks of every domain plus the fixtures,
+     re-checked clean by the deterministic classes (a task with a confirmed counterexample today is no anchor), split per
+     domain into dev and locked sources (no task feeds both); dev set = `base_planter`, locked set = `held_out_planter`
+     (disjoint variants, refused otherwise) under `data/sealed/synth-locked/`, read with `purpose="report"` only. The
+     abstractor sees *clusters*, never tasks: natural (archive) clusters and miss clusters (plants no class confirmed,
+     with the witness described in words: no tool, field, id or value), each with an opaque id the reply cites;
+     `OPERATOR_ABSTRACTOR`, `PLANTER_PROPOSER` (dev variants only) and `GUIDANCE_EDITOR` are `roles.Role`s that refuse
+     anchors, the locked set and task ids. Per round and arm: candidates → birth gate (sources from the cited clusters,
+     one evidence domain, so transfer is shown elsewhere) → `UpdateEngine.decide` on a fresh view (R1–R10 unchanged).
+     **J proxy of an F update:** K and B are fixed, so units are a view's plants, 1 when some class confirms a
+     counterexample (recall, 1 − the miss rate ρ̂ rests on); FA is R3's hard rule; cost = probes × $1e-6 nominal. Views:
+     a seeded draw of 60% of every planter version's dev plants per (domain, defect), plus every dev anchor (no new
+     proposals per view: that would cost a synthesis run per decision). R9's control: the incumbent with MUT's
+     neighbourhood enlarged to the candidate's probe spend. The planter loop (loop arm only): swarm parameterisations of
+     dev variants, witnessed, MMD ≤ μ = 1.1 × MMD(base dev plants, natural features), critic; accepted planters version P
+     and join every later view (fictitious play through R1). The meta loop (A): the abstractor's guidance edited by the
+     swarm; A and A′ each propose half the round's candidates and A′ is kept when its birth-gate pass rate is higher.
+     `prune` (R5) and `audit` (R10) run every round. The **control arm** has the same rounds with operator proposals
+     drawn at random from the DSL grammar (`random_operator`), same count. After every round each arm's population is
+     measured on the locked set (report only). `natural_features` maps an archived counterexample onto the plant
+     features (an approximation: the contract-diff size of a natural defect is unknown).
+   - **CLI** (`scripts/synth.py`): `reseed`, `certify --invoices`, `plant`, `recall [--adjudicate N]`, `evolve
+     [--evidence D] [--no-control]`, `lemma-test`; `--budget rsi` clips every run to `RSI_CAP_USD` = 40 over the work's
+     receipts (`work_spent`: every `spend.jsonl` whose run path carries "rsi"). Tests: `test_synth_rsi.py` (scripted
+     proposers), additions in the cegis, agents, worldgen, plant and library tests.
 
 ## 8. Layer 4: verification and isolation
 

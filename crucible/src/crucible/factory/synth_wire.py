@@ -225,6 +225,26 @@ class SynthWire:
                 "by_family": self.usage.by("family"), "by_model": self.usage.by("model"), "calls": len(self.usage.rows), "refused": self.meter.refused}
 
 
+RSI_CAP_USD = 40.0  # the first real RSI rounds (lead, 2026-10-29): every run of that work carries "rsi" in its run path
+
+
+def work_spent(data_root: str | Path, tag: str = "rsi") -> float:
+    """USD booked in the ``spend.jsonl`` files under ``data_root`` whose path below it contains ``tag`` (one piece of
+    work's runs: its own sub-tree, or run ids tagged with it)."""
+    root = Path(data_root)
+    tot = 0.0
+    for p in root.rglob("spend.jsonl"):
+        if tag not in str(p.relative_to(root).parent):
+            continue
+        for line in p.read_text().splitlines():
+            if line.strip():
+                try:
+                    tot += float(json.loads(line).get("usd") or 0.0)
+                except ValueError:
+                    continue
+    return round(tot, 6)
+
+
 def milestone_spent(data_root: str | Path) -> float:
     """USD booked in every ``spend.jsonl`` under ``data_root`` (the milestone's runs so far)."""
     tot = 0.0
@@ -253,11 +273,13 @@ class ClosingAdapter(CrucibleWorldAdapter):
                 self.pack_task.cleanup()
 
 
-async def finance_ap_world(seed: int, work: str) -> ClosingAdapter:
-    """The ``WorldRef`` factory of the finance_ap domain: the pack's AP World for ``seed``, opened under ``work``."""
+async def finance_ap_world(seed: int, work: str, invoices: int | None = None) -> ClosingAdapter:
+    """The ``WorldRef`` factory of the finance_ap domain: the pack's AP World for ``seed``, opened under ``work``.
+    ``invoices`` is the density knob (the pack draws 7-14 pending invoices by default; more invoices = more sibling
+    entities, so MUT's neighbourhood reaches n >= 59). It is a different draw of the World, so it names new tasks."""
     from crucible_pack_finance_ap.studio import APTask
 
-    t = APTask(int(seed))
+    t = APTask(int(seed), int(invoices) if invoices else None)
     w = await t.open(Path(work) / f"ap-{seed}-{uuid.uuid4().hex[:8]}")
     a = ClosingAdapter(w, seed=int(seed))
     a.pack_task = t
@@ -269,8 +291,9 @@ FINANCE_AP_DESCRIPTION = ("Accounts payable in an ERP: pending supplier invoices
                           "for decisions on invoices, figures from the records, and reviews of vendors and payments.")
 
 
-def finance_ap_env(work: str | Path, *, seeds: Sequence[int] = (0, 1, 2, 3)) -> DomainEnv:
+def finance_ap_env(work: str | Path, *, seeds: Sequence[int] = (0, 1, 2, 3), invoices: int | None = None) -> DomainEnv:
     work = str(Path(work))
+    extra = {"invoices": int(invoices)} if invoices else {}
 
     async def slice_(w: Any) -> dict[str, Any]:
         from crucible.synth.pipeline import default_slice
@@ -290,7 +313,7 @@ def finance_ap_env(work: str | Path, *, seeds: Sequence[int] = (0, 1, 2, 3)) -> 
         return out
 
     return DomainEnv(name="finance_ap", description=FINANCE_AP_DESCRIPTION, seeds=tuple(seeds), slice=slice_,
-                     world=lambda s: WorldRef(factory="crucible.factory.synth_wire:finance_ap_world", params={"seed": int(s), "work": work}))
+                     world=lambda s: WorldRef(factory="crucible.factory.synth_wire:finance_ap_world", params={"seed": int(s), "work": work, **extra}))
 
 
 def generated_env(app_dir: str | Path, work: str | Path, *, name: str, description: str) -> DomainEnv:

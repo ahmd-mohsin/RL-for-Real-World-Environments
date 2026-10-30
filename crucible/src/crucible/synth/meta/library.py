@@ -55,7 +55,6 @@ from crucible.synth.falsify.base import (
     effect_signature,
     entity_index,
     equivalent,
-    falsify,
     key_text,
     run_classes,
     typed_like,
@@ -416,39 +415,42 @@ def _src(x: Plant | Task) -> tuple[Task, str, str]:
 
 
 async def birth_gate(spec: OperatorSpec, *, sources: Sequence[Plant | Task], fresh: Sequence[Plant], anchors: Sequence[Task], ctx: FalsifyContext,
-                     cost_bar: float, min_hits: int = 1) -> GateReport:
+                     cost_bar: float, min_hits: int = 1, early_stop: bool = False) -> GateReport:
     """§9.5's birth gate for one operator (see the module docstring). ``fresh`` is a newly planted dev view; only its
-    plants from tasks *and* domains other than the sources' count towards transfer."""
+    plants from tasks *and* domains other than the sources' count towards transfer. Each class run is cached in
+    ``ctx`` (``run_classes(cache=True)``), so the update rule's evaluation of an operator that passed reuses it.
+    ``early_stop``: anchors first, then the sources; a false alarm or a source not reproduced skips the transfer search
+    (the gate has failed already; the skipped check is recorded as failed)."""
     op = compile_operator(spec)
     rep: dict[str, Any] = {}
     probes = 0
     trials = 0
+
+    async def one(task: Task) -> int:
+        nonlocal probes, trials
+        (r,) = await run_classes(task, [op], ctx, cache=True)
+        probes, trials = probes + len(r.findings), trials + 1
+        return r.c
+
+    alarms = [a.id for a in anchors if await one(a)]
+    rep["false_alarms"] = alarms
     repro = []
     src_ids, src_domains = set(), set()
     for s in sources:
         task, sid, dom = _src(s)
         src_ids.add(sid)
         src_domains.add(dom)
-        r = await falsify(task, op, ctx)
-        probes, trials = probes + len(r.findings), trials + 1
-        repro.append(r.c > 0)
+        repro.append(await one(task) > 0)
     rep["reproduced"] = repro
     others = [p for p in fresh if p.source_id not in src_ids and p.domain not in src_domains]
     hits = []
-    for p in others:
-        r = await falsify(p.task, op, ctx)
-        probes, trials = probes + len(r.findings), trials + 1
-        if r.c:
-            hits.append(p.id)
+    if early_stop and (alarms or not repro or not all(repro)):
+        rep["transfer_skipped"] = True
+    else:
+        hits = [p.id for p in others if await one(p.task)]
     rep["transfer_hits"] = hits
+    rep["transfer_candidates"] = len(others)
     rep["transfer_domains"] = sorted({p.domain for p in others if p.id in hits})
-    alarms = []
-    for a in anchors:
-        r = await falsify(a, op, ctx)
-        probes, trials = probes + len(r.findings), trials + 1
-        if r.c:
-            alarms.append(a.id)
-    rep["false_alarms"] = alarms
     rep["probes_per_task"] = probes / trials if trials else 0.0
     checks = {"reproduces_sources": bool(repro) and all(repro), "finds_on_other_domains": len(hits) >= min_hits, "zero_false_alarms": not alarms,
               "under_cost_bar": rep["probes_per_task"] <= cost_bar}
@@ -554,9 +556,13 @@ PlanterCritic = Callable[[Planter], Sequence[str] | Awaitable[Sequence[str]]]
 
 
 async def accept_planter(candidate: Planter, tasks: Sequence[Task], ctx: FalsifyContext, *, reference: Sequence[dict[str, float]], mu: float,
-                         falsifiers: Sequence[BaseFalsifier], critic: PlanterCritic | None = None, gamma: float | None = None) -> tuple[PlanterDecision, list[Plant]]:
+                         falsifiers: Sequence[BaseFalsifier], critic: PlanterCritic | None = None, gamma: float | None = None,
+                         population: Sequence[dict[str, float]] | None = None) -> tuple[PlanterDecision, list[Plant]]:
     """Plant with the candidate, then: every plant's witness re-validates by execution; MMD(features, reference) ≤ μ;
-    the critic finds no leakage. Returns the decision and the plants (which join the union when accepted)."""
+    the critic finds no leakage. Returns the decision and the plants (which join the union when accepted).
+    ``population``: the features of the planter population's current plants. Given, the MMD is that of the population
+    *with* the candidate's plants (does adding it move the planted distribution away from the natural one?); a
+    one-operator candidate alone is one defect class and can never match a natural mix of classes (RSI-1)."""
     batch = await plant_all(tasks, candidate, ctx)
     srcs = {t.id: t for t in tasks}
     valid = [(await validate(p, srcs[p.source_id], ctx))[0] for p in batch.kept]
@@ -564,7 +570,8 @@ async def accept_planter(candidate: Planter, tasks: Sequence[Task], ctx: Falsify
     if critic is not None:
         res = critic(candidate)
         leaks = list(await res) if inspect.isawaitable(res) else list(res)  # type: ignore[arg-type]
-    m = mmd(feature_matrix(p.features for p in batch.kept), feature_matrix(reference), gamma) if batch.kept and reference else None
+    sample = [*(population or []), *(p.features for p in batch.kept)]
+    m = mmd(feature_matrix(sample), feature_matrix(reference), gamma) if batch.kept and reference else None
     hits = await _hits(batch.kept, falsifiers, ctx) if batch.kept else {}
     caught = set().union(*hits.values()) if hits else set()
     miss = 1 - len(caught) / len(batch.kept) if batch.kept else None

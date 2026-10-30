@@ -192,3 +192,30 @@ async def test_cegis_distinguishes_certified_from_provisional(tmp_path):
     assert any(r.startswith("MUT:upper=") for r in small.reasons)
     big = await refine(fx.t5_batch(), repair=give_up, ctx=FalsifyContext(), archive=Archive(tmp_path / "b"), policy=pol)
     assert big.status == "admitted" and big.certificate.certified and big.certificate.classes["MUT"].n >= 59
+
+
+async def test_the_final_pass_adjudicates_the_suspects_of_a_last_round_repair(tmp_path):
+    """§14.1 open item: a repair accepted in the last round is falsified once more for its certificate, and the suspects
+    of that pass go to the adjudicator (before, they stayed open and the task was rejected for ``MUT:suspects``)."""
+    relaxed = fx.any_reason().contract  # any reason passes: wrong-reason mutants survive as suspects
+    async def repair(task, cxs):
+        return task.next_version(contract=relaxed)
+
+    seen: list[int] = []
+
+    async def adjudicate(task, suspects):
+        seen.append(len(suspects))
+        for f in suspects:  # the panel judges each surviving wrong-reason hold invalid: a confirmed D3
+            f.label, f.defect = "confirmed", "D3"
+        return list(suspects)
+
+    a = Archive(tmp_path)
+    rep = await refine(fx.planted("D2"), repair=repair, ctx=FalsifyContext(), archive=a, adjudicate=adjudicate, policy=LENIENT, max_rounds=1)
+    assert rep.rounds[0].repair == "accepted" and rep.task.version == 2
+    assert rep.final.rerun and rep.final.suspects == seen[-1] > 0 and rep.final.adjudicated == rep.final.suspects
+    assert rep.final.confirmed and set(rep.final.archived) <= {c.id for c in a.records("synth-test")}
+    mut = rep.certificate.classes["MUT"]
+    assert mut.suspects == 0 and mut.c >= rep.final.suspects and "MUT:suspects" not in " ".join(rep.reasons)
+    # without an adjudicator the same final pass leaves the suspects open (the M4 behaviour)
+    rep2 = await refine(fx.planted("D2"), repair=repair, ctx=FalsifyContext(), archive=Archive(tmp_path / "b"), policy=LENIENT, max_rounds=1)
+    assert rep2.final.rerun and rep2.final.adjudicated == 0 and any(r.startswith("MUT:suspects=") for r in rep2.reasons)

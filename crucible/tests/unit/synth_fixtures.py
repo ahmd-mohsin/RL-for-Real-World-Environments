@@ -419,6 +419,14 @@ def always_pass() -> Task:
     return _with(t1_hold(), id="planted/always-pass", contract=Contract(allowed=[EffectPattern(id="all", kind="any", why="anything goes")]))
 
 
+def any_reason() -> Task:
+    """t1 with every check of the reason relaxed to ``any`` (an eq -> any D3): MUT's wrong-reason holds survive as suspects."""
+    t = t1_hold()
+    req = [p.model_copy(update={"value": PAny()}) if p.id == "r_reason" else p.model_copy(update={"where": {**p.where, "reason": PAny()}}) if p.id == "r_audit"
+           else p for p in t.contract.required]
+    return _with(t, id="planted/any-reason", contract=t.contract.model_copy(update={"required": req}))
+
+
 def in_domain(t: Task) -> Task:
     """The task in its World's domain (``ap-test`` or ``desk-test``): M3's cross-domain checks (birth gate, R7,
     natural-likeness) need two domains, and the M2 fixtures all share ``synth-test``."""

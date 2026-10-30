@@ -584,12 +584,14 @@ TEST_APPROVER = Role(
 
 SEEDER = Role(
     name="seeder", stage="F2", output=SeedOut, temperature=0.6, max_tokens=16384,
-    sees=("design", "schema", "guidance"),
+    sees=("design", "schema", "guidance", "existing", "rows"),
     never=("tasks", "verifiers"),
     system=("You write the start state of an application: realistic rows for every table, consistent with each other (every "
             "reference points at a row that exists), with enough variety for many different tasks, and with distractors: rows "
             "that look like likely task targets but differ in one field (a similar name, a near-duplicate, a different status). "
-            "6 to 15 rows per table; every field of the schema in every row. "
+            "6 to 15 rows per table unless 'rows' says how many; every field of the schema in every row. When 'existing' rows "
+            "are shown, the state already exists: reply with NEW rows only, for the tables 'rows' names, with keys that are not "
+            "used yet, referring only to rows that exist (shown or new), and never repeat or change an existing row. "
             'Reply {"tables": {"<table>": [<row with its key field>, ...]}, "notes"}.'))
 
 ROLES: dict[str, Role] = {r.name: r for r in (PROPOSER, ORACLE_PROGRAMMER, CONTRACT_WRITER, REPAIRER, ALT_SOLVER, ATTACKER, PANEL, ABSTRACTOR,

@@ -123,6 +123,9 @@ class RunConfig:
     calib_tasks: int = 4
     show_reasons: bool = True
     max_mutants: int = 240
+    lemmas: tuple[str, ...] = ()  # the S component's design rules the proposer is shown (§9.5 synthesizer loop)
+    paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
+    repair: bool = True  # off: the repairer is never called (every repair is "declined"): first-round counterexamples only
 
 
 def admission_policy() -> AdmissionPolicy:
@@ -169,6 +172,7 @@ class RunReport(CrucibleModel):
     funnel: dict[str, Any] = Field(default_factory=dict)
     cost: dict[str, Any] = Field(default_factory=dict)
     calibration: dict[str, Any] | None = None
+    adjudication: dict[str, Any] = Field(default_factory=dict)  # per class: PPI estimate of the share judged valid (meta.ppi)
     lemmas: list[dict[str, Any]] = Field(default_factory=list)
     stopped: str | None = None
 
@@ -297,6 +301,7 @@ class Runner:
         self.slices: dict[int, dict[str, Any]] = {}
         self.panel: Panel | None = None
         self.ready: list[tuple[TaskRecord, Task, Run]] = []
+        self.panel_rows: list[dict[str, Any]] = []
 
     # -- A: propose, oracle, contract ------------------------------------------------------------------------------
     async def survey(self) -> None:
@@ -324,7 +329,8 @@ class Runner:
             try:
                 out = await ask(self.roles.proposer, PROPOSER, tag="propose:batch", retries=1, domain=self.env.description,
                                 tools=tool_catalogue(self.tools[seed]), world=compact(self.slices[seed], 24000), cell=cell,
-                                existing=[p["instruction"] for p in proposals if "instruction" in p] or None, count=want)
+                                existing=[p["instruction"] for p in proposals if "instruction" in p] or None, count=want,
+                                lemmas=list(self.cfg.lemmas) or None)
             except BudgetExceeded as e:
                 self.stop = f"budget: {e}"
                 break
@@ -476,6 +482,9 @@ class Runner:
                 fh.write(json.dumps(row, default=str) + "\n")
 
         async def repair(task: Task, cxs: list[Counterexample]) -> Task | None:
+            if not self.cfg.repair:
+                return None
+
             async def valid(o: RepairOut) -> Task | None:
                 row: dict[str, Any] = {"from_version": task.version, "counterexamples": [c.id for c in cxs], "give_up": o.give_up,
                                        "changed": [k for k in ("instruction", "oracle", "contract", "given", "derive") if getattr(o, k) is not None],
@@ -522,6 +531,8 @@ class Runner:
         alts = [llm_alt(n, c, budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}") for n, c in self.roles.alt]
         atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}") for n, c in self.roles.atk]
         paid = [x for x in (ALT(alts, exclude_families=builders) if alts else None, ATK(atks, exclude_families=builders) if atks else None) if x]
+        if not self.cfg.paid:
+            paid = []
         panel = self.panel
         falsifiers = cheap()
         if panel is not None:  # suspects (MUT survivors, ALT failures, ATK passes) are decided as they are found
@@ -534,6 +545,7 @@ class Runner:
             self.record(rec, rep)
             _jwrite(tdir / "cegis.json", rep.model_dump(mode="json"))
             if panel is not None and panel.log:
+                self.panel_rows += panel.log
                 with (self.dir / "panel.jsonl").open("a") as fh:
                     for row in panel.log:
                         fh.write(json.dumps(row, default=str) + "\n")
@@ -620,6 +632,10 @@ class Runner:
         for r in recs:
             if r.status == "pending":
                 r.status, r.reasons = ("budget", [self.stop[:300]]) if self.stop else ("error", ["not finished"])
+        if self.panel_rows:
+            from crucible.synth.meta.ppi import adjudicated_rates
+
+            self.report.adjudication = adjudicated_rates(self.panel_rows, (self.report.calibration or {}).get("votes") or [])
         self.report.stopped = self.stop
         self.report.finished = time.time()
         self.save()
@@ -684,6 +700,12 @@ def report_md(rep: RunReport) -> str:
     lines += ["", rep_line, "", "Reasons:", ""]
     lines += [f"- {k}: {v}" for k, v in (f.get("reasons") or {}).items()]
     lines += ["", "Confirmed defects (archived counterexamples):", ""] + [f"- {k}: {v}" for k, v in (f.get("confirmed_defects") or {}).items()]
+    if rep.adjudication:
+        lines += ["", ("Adjudicated probes judged valid (PPI mean with executed-truth anchors as labels; the anchors are oracle and degenerate "
+                       "traces, not suspects):"), "", "| class | judged | valid / invalid / abstain | naive | PPI | 95% interval |", "|---|---|---|---|---|---|"]
+        for k, a in rep.adjudication.items():
+            lines.append(f"| {k} | {a['n_unlabeled']} | {a['decided_valid']} / {a['decided_invalid']} / {a['abstained']} | {a['naive']:.3f} | "
+                         f"{a['estimate']:.3f} | {a['lo']:.3f}–{a['hi']:.3f} |")
     c = rep.cost or {}
     if c:
         lines += ["", "Cost (USD):", ""] + [f"- {k}: {v}" for k, v in (c.get("by_stage") or {}).items()] + [f"- total: {c.get('total_usd')}"]

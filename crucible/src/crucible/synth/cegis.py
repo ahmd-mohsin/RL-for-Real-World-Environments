@@ -16,6 +16,7 @@
           candidate ← repair(task, X_new ∪ reopened)     # sees counterexamples and reason codes only
           if candidate re-opens a counterexample the current version closes: refuse it (the monotone archive)
           else task ← candidate
+      if the last round's repair was accepted: re-run every class on that version and ADJUDICATE its suspects (archived)
       certify(task) → certified | provisional (c = 0, n too small for the U bound) | reject(reasons)
 
 The roles are ``Protocol``s (M4 binds them to model families through ``factory/synth_wire.py``; tests pass scripted
@@ -76,12 +77,25 @@ class RoundReport(CrucibleModel):
     refused_for: list[str] = Field(default_factory=list)
 
 
+class FinalPass(CrucibleModel):
+    """The certification pass on the final version: ``rerun`` when that version had not been falsified yet (the last
+    round's repair was accepted). Its suspects are adjudicated there (``adjudicated`` were decided, the rest abstained
+    and stay open) and the confirmed ones are archived."""
+
+    rerun: bool = False
+    suspects: int = 0
+    adjudicated: int = 0
+    confirmed: list[str] = Field(default_factory=list)
+    archived: list[str] = Field(default_factory=list)
+
+
 class CegisReport(CrucibleModel):
     task_id: str | None = None
     domain: str
     status: Literal["admitted", "provisional", "rejected", "dropped"]  # admitted = certified
     reasons: list[str] = Field(default_factory=list)
     rounds: list[RoundReport] = Field(default_factory=list)
+    final: FinalPass = Field(default_factory=FinalPass)
     certificate: Certificate | None = None
     task: Task | None = None
 
@@ -142,16 +156,28 @@ async def refine(task: Task, *, repair: Repairer, ctx: FalsifyContext, archive: 
             continue
         rr.repair = "accepted"
         task = candidate
+    final = FinalPass()
     if last is None or last[0] != task.version:
+        # the version being certified was never falsified (the last round's repair was accepted): re-run every class on
+        # it and decide its suspects here, or a suspect that a last-round repair introduced would stay open
         results = await _round(task, cheap_f, ctx)
         if paid:
             results += await _round(task, paid, ctx)
         last = (task.version, results)
+        final.rerun = True
+        suspects = [f for r in results for f in r.suspects]
+        final.suspects = len(suspects)
+        if adjudicate is not None and suspects:
+            decided = list(await adjudicate(task, suspects))  # relabels in place, so the certificate counts the decisions
+            final.adjudicated = len(suspects) - sum(len(r.suspects) for r in results)
+            cxs = [Counterexample.of(task, f) for f in decided if f.label == "confirmed"]
+            final.confirmed = [c.id for c in cxs]
+            final.archived = archive.add_all(cxs)
     reg = await regress(archive, task, ctx, every)
     cert = certify(task, last[1], policy, reopened=reg.reopened)
     status = {"certified": "admitted", "provisional": "provisional"}.get(cert.status, "rejected")
     return CegisReport(task_id=task.id, domain=task.domain, status=status, reasons=list(cert.reasons) + list(cert.provisional_for), rounds=rounds,
-                       certificate=cert, task=task)
+                       final=final, certificate=cert, task=task)
 
 
 async def synthesize(cell: Any, domain: str, *, propose: Proposer, build_oracle: OracleBuilder, generalise: Generaliser, repair: Repairer,

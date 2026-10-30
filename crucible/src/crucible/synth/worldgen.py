@@ -201,9 +201,10 @@ def _design_json(d: ToolDesignOut) -> dict[str, Any]:
 
 
 async def worldgen(keyword: str, out_dir: str | Path, clients: Mapping[str, RoleClient], *, guidance: str = "", max_debug_rounds: int = 3,
-                   max_drop_share: float = 0.25) -> WorldgenReport:
+                   max_drop_share: float = 0.25, rows: tuple[int, int] | None = None) -> WorldgenReport:
     """Synthesize an App for ``keyword`` into ``out_dir`` (module docstring). ``clients``: one ``RoleClient`` per
-    ``WORLDGEN_ROLES`` entry (the wire checks their families)."""
+    ``WORLDGEN_ROLES`` entry (the wire checks their families). ``rows`` = (lo, hi) rows per table asks the seeder for a
+    denser start state (more sibling entities per collection, so MUT's neighbourhood reaches n >= 59; §6)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     work = out / "work"
@@ -318,7 +319,8 @@ async def worldgen(keyword: str, out_dir: str | Path, clients: Mapping[str, Role
         try:
             seed: SeedOut = await ask(clients["seeder"], SEEDER, tag="worldgen:seed", check=lambda x: check_seed(x, schema), retries=1,
                                       design=_design_json(design), schema=schema.model_dump(mode="json"),
-                                      guidance=(guidance + ("\n" + seed_err if seed_err else "")) or None)
+                                      guidance=(guidance + ("\n" + seed_err if seed_err else "")) or None,
+                                      rows=f"{rows[0]} to {rows[1]} rows per table" if rows else None)
         except RoleFailed as e:
             return fail("seed", str(e))
         _jwrite(out / "seed.json", seed.model_dump(mode="json"))
@@ -363,6 +365,112 @@ async def smoke_world(app_dir: Path, work: Path) -> list[str]:
     finally:
         await w.close()
     return probs
+
+
+class ReseedReport(CrucibleModel):
+    source: str
+    dir: str
+    status: str = "started"  # accepted | rejected:<why>
+    target: dict[str, int] = Field(default_factory=dict)  # table -> rows wanted in total
+    before: dict[str, int] = Field(default_factory=dict)
+    after: dict[str, int] = Field(default_factory=dict)
+    added: dict[str, int] = Field(default_factory=dict)
+    refused: dict[str, str] = Field(default_factory=dict)  # table -> why its new rows were not kept
+    reasons: list[str] = Field(default_factory=list)
+
+
+COPY_FILES = ("design.json", "schema.json", "app.py", "tests.json", "test_report.json")
+
+
+def check_added(new: SeedOut, table: str, existing: Mapping[str, list[dict[str, Any]]], s: SchemaOut) -> None:
+    """New rows for one table: only that table, every row keyed, no key that exists or repeats, every schema field."""
+    t = {x.name: x for x in s.tables}[table]
+    extra = sorted(set(new.tables) - {table})
+    if extra:
+        raise ValueError(f"reply with rows for table {table!r} only, not {extra}")
+    rows = new.tables.get(table) or []
+    if not rows:
+        raise ValueError(f"no new rows for table {table!r}")
+    have = {str(r.get(t.key)) for r in existing.get(table, [])}
+    keys = [r.get(t.key) for r in rows]
+    if any(k is None for k in keys):
+        raise ValueError(f"a new {table} row has no key field {t.key!r}")
+    dup = sorted({str(k) for k in keys} & have)
+    if dup:
+        raise ValueError(f"keys already used in {table}: {dup[:8]} (new rows need new keys)")
+    if len({str(k) for k in keys}) != len(keys):
+        raise ValueError(f"new {table} keys repeat")
+    missing = sorted({f for r in rows for f in t.fields if f not in r})
+    if missing:
+        raise ValueError(f"new {table} rows miss schema fields {missing[:8]}")
+
+
+async def reseed(src_dir: str | Path, out_dir: str | Path, seeder: RoleClient, *, target: Mapping[str, int], guidance: str = "") -> ReseedReport:
+    """A denser start state for an accepted World (the seeding knob of §6: more sibling entities per collection, so the
+    MUT neighbourhood of a generated task reaches n >= 59). The design, schema, App code and frozen tests are copied
+    unchanged; the seeder (the swarm) writes NEW rows per table, one table at a time, up to ``target[table]`` rows in
+    total, given every existing row; existing rows are never changed. The merged state is checked against the schema,
+    loaded and smoke-tested in the sandbox; a table whose new rows break the load is reverted and recorded."""
+    src, out = Path(src_dir), Path(out_dir)
+    rep = ReseedReport(source=str(src), dir=str(out), target=dict(target))
+    if load_report(src).status != "accepted":
+        rep.status = "rejected:source"
+        rep.reasons.append("the source World was not accepted")
+        return rep
+    out.mkdir(parents=True, exist_ok=True)
+    for f in COPY_FILES:
+        if (src / f).exists():
+            (out / f).write_bytes((src / f).read_bytes())
+    design = ToolDesignOut.model_validate_json((src / "design.json").read_text())
+    schema = SchemaOut.model_validate_json((src / "schema.json").read_text())
+    seed = SeedOut.model_validate_json((src / "seed.json").read_text())
+    tables: dict[str, list[dict[str, Any]]] = {k: list(v) for k, v in seed.tables.items()}
+    rep.before = {k: len(v) for k, v in tables.items()}
+    for table, want in target.items():
+        if table not in {t.name for t in schema.tables}:
+            rep.refused[table] = "not a table of the schema"
+            continue
+        n_new = want - len(tables.get(table, []))
+        if n_new <= 0:
+            continue
+        try:
+            new: SeedOut = await ask(seeder, SEEDER, tag="worldgen:reseed", check=lambda x, t=table, have=tables: check_added(x, t, have, schema), retries=2,
+                                     design=_design_json(design), schema=schema.model_dump(mode="json"), existing=tables, guidance=guidance or None,
+                                     rows=f"add exactly {n_new} new rows to table {table} only (it has {len(tables.get(table, []))}); about a third of "
+                                          "them distractors of existing rows (the same pattern with one field different)")
+        except RoleFailed as e:
+            rep.refused[table] = f"seeder: {str(e)[:300]}"
+            continue
+        trial = {**tables, table: [*tables.get(table, []), *new.tables[table]]}
+        _jwrite(out / "seed.json", SeedOut(tables=trial, notes=seed.notes).model_dump(mode="json"))
+        try:
+            probs = await smoke_world(out, out / "work" / f"r{uuid.uuid4().hex[:8]}")
+        except (SandboxError, ValueError) as e:
+            probs = [f"does not load: {str(e)[:300]}"]
+        if probs:
+            rep.refused[table] = "; ".join(probs[:3])[:500]
+            continue
+        tables = trial
+        rep.added[table] = len(new.tables[table])
+    final = SeedOut(tables=tables, notes=(seed.notes + f" | reseeded from {src.name}: +{sum(rep.added.values())} rows").strip(" |"))
+    check_seed(final, schema)
+    _jwrite(out / "seed.json", final.model_dump(mode="json"))
+    probs = await smoke_world(out, out / "work" / f"f{uuid.uuid4().hex[:8]}")
+    if probs:
+        rep.status = "rejected:smoke"
+        rep.reasons += probs
+        return rep
+    rep.after = {k: len(v) for k, v in tables.items()}
+    base = load_report(src)
+    acc = base.model_copy(update={"seed_rows": rep.after, "dir": str(out), "reasons": [f"reseeded from {src}"]})
+    _jwrite(out / "worldgen_report.json", acc.model_dump(mode="json"))
+    manifest = json.loads((src / "world.json").read_text()) if (src / "world.json").exists() else {}
+    manifest.update({"files": {f: _sha(out / f) for f in (*COPY_FILES, "seed.json") if (out / f).exists()}, "parent": str(src),
+                     "reseed": rep.model_dump(mode="json", include={"target", "added", "refused"})})
+    _jwrite(out / "world.json", manifest)
+    rep.status = "accepted"
+    _jwrite(out / "reseed_report.json", rep.model_dump(mode="json"))
+    return rep
 
 
 def open_world(dir: str, work: str) -> SandboxWorld:
