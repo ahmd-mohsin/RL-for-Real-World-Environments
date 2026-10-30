@@ -1694,7 +1694,8 @@ class WindowTask(ExecTask):
         phi = self.phi(status)
         reward = 1.0 if full else 0.0  # the accept contract's verdict (floors, mutants killed at 0, flake) stays binary
         shaped = round(self.phi_weight * phi + (1.0 - self.phi_weight) * reward, 6) if not errors else 0.0
-        meta = {"failing_tests": sorted(set(failing))[:60], "statuses": {s: sum(1 for v in statuses.values() if v == s) for s in set(statuses.values())},
+        # failing_tests also holds tests that never ran (a panic aborts the rest of a Go binary); failed_tests only those that ran
+        meta = {"failing_tests": sorted(set(failing))[:60], "failed_tests": sorted({x for x in failing if statuses.get(x) == "failed"})[:60], "statuses": {s: sum(1 for v in statuses.values() if v == s) for s in set(statuses.values())},
                 "tail": tail[-2500:], "apply_errors": errors, "protected_writes": protected, "tests_intact": True, "why": why,
                 "kinds": {c: "outcome" for c in check_tests}, "milestones": status, "phi": phi, "full_pass": full,
                 "outcome_reward": shaped, "reward_rule": f"{self.phi_weight:g}*phi + {1 - self.phi_weight:g}*full_pass",

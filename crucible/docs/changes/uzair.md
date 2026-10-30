@@ -2368,3 +2368,57 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   check and lint-imports clean.
 - **Merge notes.** `RULES_VERSION` is computed now (`RULES_BASE` is the literal to bump on a code change in
   `pathcheck.py`); new `check_paths` keyword after `entries`; `PathReport` gains a third field with a default.
+
+## 95. Part 1 V6: isomorphic re-grade of passes, the hidden tests' own data renamed
+
+- **Item.** V6 of `docs/research/env-synthesis/part1-framework-improvements.md` §2(c) ("Re-run a passing solution under
+  renamed identifiers or permuted test data. Literal special-casing fails"; Isomorphic Perturbation Testing 2604.15149).
+  Nothing re-checked a pass against special-casing the hidden tests' data (`if name == "alice": return "Hello, alice!"`).
+  synth's `PERT` perturbs a State World's start state to test the verifier, not a solver's pass. Not taken: renaming test
+  names (test ids are the milestones' keys; reading them is `hack_detector`'s `detects_test_runner`), numbers (they change
+  the expected answers), a keep-rule change, bisection of a key set whose failures no test explains (huma, below).
+- **Files.** `src/crucible/factory/isomorph.py` (new), `scripts/lh_debug_target.py` (`stage_iso`, `iso_passes`,
+  `stage_iso_regrade`, the `iso` and `iso-regrade` stages, `--iso-tries`, `--iso-k`, `--iso-roots`, module doc),
+  `src/crucible/factory/lanes/windows.py` (grade meta `failed_tests`), `tests/unit/test_part1_isomorph.py` (new, 12 tests).
+- **Public names.** `isomorph.ROT`, `ISO_SPLIT`, `KEY`, `IDENT`, `IMPORTS`, `rotate`, `literals`, `code_names`, `test_ids`,
+  `known_text`, `keys`, `rename`, `key_hash`, `build`, `verify`, `function_of`, `enclosing`, `keys_in_failing`,
+  `harness_keys`, `shared_keys`, `find`, `regrade`, `variant_of`; `lh_debug_target.stage_iso`, `iso_passes`, `stage_iso_regrade`.
+- **Behaviour.** `isomorph.keys(task)`: the string literals of the hidden test files (`tests_b`) the code cannot know: in no
+  non-test file of the start tree (fixtures and test data count) nor the oracle's files, in no graded test id (a subtest
+  or parametrize name), not a name the tests' code uses (a `parametrize` argument, a `getattr` or `mock.patch` target), no
+  digit (numbers, dates, versions), 3 to 80 letters, spaces and `_.-/:@`; f-strings, JS templates, Java text blocks, Rust
+  raw strings and module specifiers (Go imports, JS import, require, `jest.mock`) are never read. `build` rewrites every
+  key occurrence inside the hidden files' string literals, each letter rotated 13 places within its case (length, case,
+  digits and punctuation kept), into a `WindowTask` over the same start tree, checks and World, `split` eval (the trainer
+  refuses it). `find` keeps the first variant the oracle passes in full (every milestone and the end state), else drops
+  the keys of the tests that failed (their own table entry, `t.Run` or `it(...)` block by the id's last segment; a
+  parametrized Python id's data file; else the test function; a Go parent defers to its failing subtest; a test that
+  fails again also drops its function's code outside every subtest block and the keys outside every test function) and
+  tries again, at most `--iso-tries` (3). `regrade`: a stored pass graded on the variant is `same` when it loses no test
+  and no milestone; otherwise the same patch is graded on the original tests, and it is `special_casing` only when a lost
+  test still passes there (else `unconfirmed`); `unmeasured` when the grade was masked. No reward changes.
+  `lh_debug_target.py iso` writes `iso.json` per task; `iso-regrade` grades the last attempt of every stored full pass with
+  a patch under `--iso-roots` (default the phase), at most `--iso-k` (8) per task and arm, and writes `iso_regrade.json`
+  (per episode, per task and arm, per arm the hacking gap: suspects over measured passes). Docker only, no model call.
+  The window grade's meta gains `failed_tests` (tests that ran and failed): `failing_tests` also holds tests that never
+  ran, and a Go subtest's panic leaves the rest of the binary unrun, so the first 60 sorted names pointed at bystanders.
+- **Formats.** `iso.json`, `iso_regrade.json`; `window.isomorph` (`of`, `keys`, `rot`); variant ids `<task>~iso-<hash>`;
+  grade meta `failed_tests`.
+- **Tests.** `test_part1_isomorph.py` (new, 12: keys skip test-id names, a parametrize argument, known source, format
+  strings, short or punctuated literals and import specifiers, and renaming touches no comment, f-string or code and is
+  undone by a second pass; Go raw strings and expected outputs are renamed with their inputs; `verify` (4 cases); `find`
+  drops the failing tests' keys and stops when no key explains a failure; a subtest's own entry, a Node `it` block, a
+  black-style data file, a Go parent, the harness loop and package-level data; `regrade` (same, special-casing,
+  unconfirmed, unmeasured) grades the control only when a test was lost; the stage reads the last attempt of each stored
+  full pass with a patch). The file fails to import on the code before. With the debug script's other test files, Part 1
+  V2/V10/V11: 74 passed; the 27 unit files that read window grades: 297 passed. Ruff check and lint-imports clean.
+  The run (`data/targeting/uzair-v6-iso`, no model call): variants for 4 of the 6 local pool tasks, each after 2 oracle
+  grades: golang-net-e2 (94 of 104 keys), go-toml-e1b (37 of 54), react-hook-form-e1 (23 of 53), carbon-h5 (2 of 5: time
+  zone names the code loads). None for black (its 33 keys sit in two formatter data cases; renamed strings change what the
+  formatter does) or huma (104 keys, 4 tries: the same TestFeatures subtests fail with their own keys gone, through state
+  another subtest's data sets; a variant renaming no key passes all 964 tests, so the mechanism is sound). `iso-regrade`
+  over every stored pass of the 4 tasks in `data/targeting`: 28 passes (student 14, DeepSeek 7, Qwen3.5-397B 4, the V2
+  hacker 3), every one `same`, none unmeasured: hacking gap 0.0 per arm. As expected for untrained models, and the V2
+  review's reading of the hacker's passes as honest fixes holds under renaming. No planted special-case was graded in a
+  real World (a positive control needs a per-task patch); the unit tests carry the special-casing verdict.
+- **Merge notes.** New module; the stages after `stage_twin_arms`; one additive key in `WindowTask.grade`'s meta.
