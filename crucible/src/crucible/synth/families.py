@@ -954,6 +954,49 @@ def list_instances(fdir: str | Path) -> list[Path]:
     return sorted(p for p in d.iterdir() if (p / "instance.json").exists()) if d.exists() else []
 
 
+BUILDER_ROLES = ("domain_spec_writer", "family_designer", "schema_deriver", "app_coder", "debugger", "blind_tester", "data_spec_writer", "doc_writer",
+                 "actor_writer")
+
+
+class InstanceDomain:
+    """A World instance as the batch runner takes it (``synth.batch.batch_domains``: an object with ``env`` and
+    ``cells``): the instance's ``DomainEnv`` (its DomainSpec's description, the family's builder families as
+    ``built_by``) and the DomainSpec's sampled cells, without the cells whose skill only uses thin tools (the density
+    gate's ``thin_tools``: no reference oracle on them reached n >= 59)."""
+
+    def __init__(self, inst: str | Path, work: str | Path, *, n_cells: int = 24, seed: int = 0, name: str | None = None):
+        from crucible.synth.pipeline import DomainEnv
+        from crucible.synth.task import WorldRef
+
+        inst = Path(inst).resolve()
+        spec = DomainSpec.model_validate_json((inst / "domain.json").read_text())
+        man = _jread(inst / "world.json")
+        gates = _jread(inst / "gates.json") if (inst / "gates.json").exists() else {}
+        thin = set(((gates.get("gates") or {}).get("density") or {}).get("details", {}).get("thin_tools") or [])
+        self.usable = bool(gates.get("usable"))
+        self.thin = sorted(thin)
+        cells = [c for c in spec.sample_cells(max(n_cells * 2, n_cells), seed)
+                 if not (thin and (sk := next((s for s in spec.skills if s.id == c.skill), None)) and sk.tools and set(sk.tools) <= thin)]
+        self.cells = [spec.cell_text(c) for c in cells[:n_cells]]
+        d, w = str(inst), str(Path(work).resolve())
+        self.env = DomainEnv(name=name or f"{man.get('family', inst.parent.parent.name)}-{inst.name}", description=spec.environment_text(),
+                             world=lambda s: WorldRef(factory="crucible.synth.worldgen:open_world", params={"dir": d, "work": w}), seeds=(0,),
+                             cells=tuple(self.cells),
+                             built_by=frozenset(f for r, f in (man.get("families") or {}).items() if r in BUILDER_ROLES))
+
+
+def usable_instances(worlds: str | Path) -> list[Path]:
+    """Every instance under a worlds root whose gates all passed (``gates.json`` usable)."""
+    out = []
+    for g in sorted(Path(worlds).glob("*/instances/*/gates.json")):
+        try:
+            if json.loads(g.read_text()).get("usable"):
+                out.append(g.parent)
+        except ValueError:
+            continue
+    return out
+
+
 WORLD_BUILD_ROLES: dict[str, Role] = {r.name: r for r in (FAMILY_DESIGNER, DATA_SPEC_WRITER, DOC_WRITER, ACTOR_WRITER)}
 
 

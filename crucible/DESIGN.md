@@ -2085,6 +2085,11 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).
      - *Accounting:* a stopped run loses the receipts of calls in flight; conservative estimates are booked by hand
        (`kind: unbooked_estimate`) so the cap stays honest.
+   - **Batch runner** (item 17): `families.InstanceDomain(inst, work)` is an object with `env` and `cells` that
+     `batch.batch_domains` takes: the instance's `DomainEnv` (the DomainSpec's description, `built_by` = the family's
+     builder families, so ALT/ATK never run on them) and the DomainSpec's sampled cells minus those whose skill only
+     uses thin tools; `usable_instances(worlds)` lists the instances whose gates all passed. `synth.py batch --world
+     name=<instance dir>` and `certify --world <instance dir>` use it. The worlds wire samples with `seed_by_tag`.
    - **Pilot** (`docs/research/env-synthesis/runs/worlds-1.md`): see the run report for the numbers and every issue the
      real calls and the gates found, with its fix.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome

@@ -60,7 +60,7 @@ def worlds_cap(a: argparse.Namespace) -> float:
 def _wire(run_dir: Path, cap_total: float) -> Any:
     from crucible.factory.synth_wire import SYNTH_ROLES, WORLD_ROLE_TABLE, SynthWire
 
-    return SynthWire(run_dir, cap_usd=cap_total, table={**SYNTH_ROLES, **WORLD_ROLE_TABLE})
+    return SynthWire(run_dir, cap_usd=cap_total, table={**SYNTH_ROLES, **WORLD_ROLE_TABLE}, seed_by_tag=True)
 
 
 def _prior(run_dir: Path) -> float:

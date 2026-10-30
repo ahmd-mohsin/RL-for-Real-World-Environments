@@ -222,6 +222,26 @@ async def test_calibration_sets_lambda_from_known_anchors(built):
     assert cal["rows"][0]["accuracy"] == 1.0
 
 
+async def test_a_usable_instance_plugs_into_the_batch_runner(built, tmp_path):
+    from crucible.synth.batch import batch_domains
+    from crucible.synth.families import InstanceDomain, usable_instances
+
+    fdir, _st, _cl = built
+    rep = make_instance(fdir, instance_config(fdir.name, 3))
+    await gate_instance(fdir, Path(rep.dir), panel=_panel(REALISTIC, tmp_path))
+    assert Path(rep.dir) in usable_instances(fdir.parent)
+    d = InstanceDomain(rep.dir, tmp_path / "work", n_cells=8)
+    assert d.usable and len(d.cells) == 8 and d.env.built_by == frozenset({"glm", "kimi", "deepseek"})
+    bd = batch_domains([d])[0]
+    assert bd.env is d.env and len(bd.grid()) == 8 and bd.grid()[0].kind.startswith("skill ")
+    w = await d.env.world(0).build()
+    try:
+        await w.reset(0)
+        assert any(t.name == "desk.assign_ticket" for t in await w.tools())
+    finally:
+        await w.close()
+
+
 def test_the_kit_tools():
     import asyncio
 

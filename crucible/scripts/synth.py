@@ -123,10 +123,9 @@ def _env(a: argparse.Namespace, d: Path):
         raise SystemExit(f"the World at {w} was not accepted: {rep.get('status')}")
     design = json.loads((w / "design.json").read_text())
     if (w / "domain.json").exists() and (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells
-        from crucible.synth.domain import spec_from_world
+        from crucible.synth.families import InstanceDomain
 
-        spec = spec_from_world(w)
-        return generated_env(w, d / "work", name=a.domain, description=spec.environment_text(), cells=spec.cell_texts(max(12, a.n), seed=0))
+        return InstanceDomain(w, d / "work", n_cells=max(12, a.n), name=a.domain).env
     return generated_env(w, d / "work", name=a.domain, description=f"{rep['keyword']}: {design.get('description', '')}")
 
 
@@ -718,6 +717,12 @@ def _batch_domains(a: argparse.Namespace, work: Path):
             out.append(BatchDomain(env, quota=a.quota, max_proposals=a.max_per_cell, truth=finance_ap_truth))
             continue
         w = Path(worlds[dom])
+        if (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells, its builders
+            from crucible.synth.families import InstanceDomain
+
+            inst = InstanceDomain(w, work / "work", name=dom)
+            out.append(BatchDomain(inst.env, cells=inst.cells, quota=a.quota, max_proposals=a.max_per_cell))
+            continue
         rep = json.loads((w / "worldgen_report.json").read_text())
         design = json.loads((w / "design.json").read_text())
         env = generated_env(w, work / "work", name=dom, description=f"{rep['keyword']}: {design.get('description', '')}")
