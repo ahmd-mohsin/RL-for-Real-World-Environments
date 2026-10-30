@@ -60,7 +60,17 @@ the abstractor and planter proposer gpt-oss-120b (no Qwen; the student never cal
 | 10 | item 19 (main) | every sampled call used seed 0, so repeated calls were copies | the proposers' clients seed by tag, with a salt per run and per E10 seed. The A/A numbers are unaffected (the falsifier seeds are CPU-side, no model call); smoke1's single proposal call is unaffected |
 | 11 | retro | a killed parent left its 10 shard workers computing | killed by pid; workers exit at their next pipe read |
 
-<!-- PILOTRES -->
+| 12 | p4 (2 rounds, both arms, 8 candidates, $0.0031) | 3 of 8 swarm candidates passed the birth gate on plants the population already caught; each then spent an α_t (0.005) and 20 fresh decision units to show a gain of exactly 0 (futility stop, e-value 1.0). The three tests used 60 of the 64 decision units and the loop arm stopped (`decision_split_dry`) after one round | a paired-mode gate check: the candidate must first confirm a counterexample on a proposal-split plant the incumbent misses (`gate:adds_on_proposal`, proposal data only) |
+| 13 | p4 | the locked set `rsi-2v3` read 84/84 when built and 81/84 in p4 | not a bug: item 18 (merged in between) changed TWIN; the locked set now has headroom 3/84 again (reported, not chased) |
+
+**p4 in numbers.** A/A on 60 proposal-split units with the item-20 population: replicate means −0.033, 0.017, 0, 0,
+0.017, **δ_AA = 0.041**; between-view spread 0.083 (loop arm) and 0.054 (control); the `t02` anchor dropped again (alarms
+at seeds 3 and 6). Loop arm round 1: 8 candidates, 3 past the gate, 3 tests (t = 1..3, α_t = 0.005 each, α spent 0.015),
+every one refused by R2 (futility at 20 units, mean gain 0, interval [0, 0]), R7 and R9; 3 planters refused (two not
+novel, one rewarded 0; headroom reward 0); dev headroom 6.6% (4 of 61 proposal plants, all expressible). Control arm, 2
+rounds × 8 random-DSL operators: none past the gate. Total pilot spend so far $0.006.
+
+<!-- PILOTRES2 -->
 
 ## 1. What was wrong with RSI-1's update test
 
