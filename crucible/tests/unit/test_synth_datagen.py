@@ -151,3 +151,22 @@ def test_cross_record_rules_hold_and_are_checked():
     bad.tables[1].rules = ["loss_date <= nid.expiry"]
     with pytest.raises(DataSpecError, match="not a ref field"):
         compile_spec(bad, schema)
+
+
+def test_two_way_links_are_backrefs_and_null_is_accepted():
+    # pilot 1: a notice links its claim and a claim its notice (refused as a cycle); the swarm writes null in rules
+    schema = {"notice": {"key": "nid", "fields": {"nid": "string", "claim_id": "string?"}},
+              "claim": {"key": "cid", "fields": {"cid": "string", "notice_id": "string"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "notice", "rows": 20, "fields": {"nid": {"kind": "seq", "prefix": "N-"}, "claim_id": {"kind": "backref", "table": "claim", "fk": "notice_id"}}},
+        {"table": "claim", "rows": 12, "rules": ["notice_id is not null"],
+         "fields": {"cid": {"kind": "seq", "prefix": "C-"}, "notice_id": {"kind": "ref", "table": "notice", "unique": True}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    by = {c["cid"]: c["notice_id"] for c in g.tables["claim"]}
+    linked = [n for n in g.tables["notice"] if n["claim_id"]]
+    assert len(linked) == 12 and all(by[n["claim_id"]] == n["nid"] for n in linked)
+    cyc = copy.deepcopy(spec.model_dump())
+    cyc["tables"][0]["fields"]["claim_id"] = {"kind": "ref", "table": "claim"}
+    with pytest.raises(DataSpecError, match="backref"):
+        compile_spec(DataSpec.model_validate(cyc), schema)

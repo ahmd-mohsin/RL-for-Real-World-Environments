@@ -58,8 +58,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TODAY = datetime(2026, 1, 1, tzinfo=UTC)  # the PyWorld clock's t0: no generated history lies after it
 KINDS = ("seq", "choice", "int", "number", "bool", "date", "date_offset", "ref", "ref_list", "lookup", "pool", "template", "calc", "const",
-         "list", "sum", "count")
-AGGREGATES = ("sum", "count")
+         "list", "sum", "count", "backref")
+AGGREGATES = ("sum", "count", "backref")
 
 
 class DataSpecError(ValueError):
@@ -164,7 +164,7 @@ def parse_expr(src: str) -> ast.Expression:
 def expr_names(src: str) -> set[str]:
     tree = parse_expr(src)
     calls = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} - calls - {"None", "True", "False"}
+    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} - calls - {"None", "True", "False", "null", "true", "false"}
 
 
 def _days_between(a: Any, b: Any) -> int:
@@ -180,7 +180,7 @@ def eval_expr(src: str, row: Mapping[str, Any], resolve: Any = None) -> Any:
     """Evaluate ``src`` on ``row``. ``resolve(ref_field, field)`` reads a field of the row a ref field points at
     (pilot 1: a loss date must lie within the referenced policy's period, which no per-row rule can say)."""
     tree = parse_expr(src)
-    env = {**_FUNCS, "days_between": _days_between, "None": None, "True": True, "False": False}
+    env = {**_FUNCS, "days_between": _days_between, "None": None, "True": True, "False": False, "null": None, "true": True, "false": False}
 
     def ev(n: ast.AST) -> Any:
         if isinstance(n, ast.Expression):
@@ -312,7 +312,7 @@ def _check_gen(t: str, f: str, g: Mapping[str, Any], schema_fields: Mapping[str,
                 want = wv if isinstance(wv, list) else [wv]
                 if not set(map(str, want)) & set(map(str, tg["values"])):
                     raise DataSpecError(f"{where}: ref filter {wf}={wv!r} matches none of {g['table']}.{wf}'s values {tg['values']}")
-    if k in ("sum", "count"):
+    if k in ("sum", "count", "backref"):
         child = tables[g["table"]]
         if g.get("fk") not in child.fields:
             raise DataSpecError(f"{where}: {k} needs fk, a field of {g['table']} that refers to {t}")
@@ -396,7 +396,8 @@ def compile_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> lis
         if state.get(n) == 2:
             return
         if state.get(n) == 1:
-            raise DataSpecError(f"tables refer to each other in a cycle: {' -> '.join((*path, n))}")
+            raise DataSpecError(f"tables refer to each other in a cycle: {' -> '.join((*path, n))}; generate the reverse link as a backref "
+                                '(the key of the row that refers back), not a ref')
         state[n] = 1
         for g in tables[n].fields.values():
             if g.get("kind") in ("ref", "ref_list") and g["table"] != n:
@@ -458,7 +459,7 @@ class _Sampler:
         self.used: dict[tuple[str, str], set[Any]] = {}
         self.seq: dict[str, int] = {}
         self.capped: dict[str, tuple[int, int]] = {}
-        self.idx, self.n_cur = 0, 0
+        self.idx, self.n_cur, self.free = 0, 0, False
         self.cover: dict[tuple[str, str], list[Any]] = {}
 
     def n_rows(self, t: TableGen) -> int:
@@ -506,7 +507,7 @@ class _Sampler:
             return f"{g.get('prefix', '')}{s}{g.get('suffix', '')}"
         if k == "choice":
             vals = list(g["values"])
-            if self.n_cur >= len(vals) and self.idx < len(vals) and t.fields.get(f, {}).get("kind") == "choice" and not t.fields[f].get("when"):
+            if not self.free and self.n_cur >= len(vals) and self.idx < len(vals) and t.fields.get(f, {}).get("kind") == "choice" and not t.fields[f].get("when"):
                 # every declared value occurs at least once in a big enough table (pilot 1: no user held the Finance Clerk
                 # role a ref filtered on, so an instance could not be generated); the rest follow the weights
                 order = self.cover.setdefault((t.table, f), rng.sample(vals, len(vals)))
@@ -607,7 +608,9 @@ class _Sampler:
         third of the rows and the swarm could not express the dependency."""
         seq0 = dict(self.seq)
         row: dict[str, Any] = {}
-        for _ in range(tries):
+        for k_try in range(tries):
+            self.free = k_try >= tries // 2  # later redraws drop the forced coverage value (pilot 1: an Employee forced onto the
+            # first row of a self-referencing hierarchy, which no manager could precede)
             before = {k: set(v) for k, v in self.used.items()}
             self.seq = dict(seq0)
             row = {}
@@ -723,6 +726,9 @@ def aggregates(compiled: list[tuple[TableGen, list[str]]], out: dict[str, list[d
                 mine = [c for c in children if str(c.get(fk)) == str(row[kf]) and (not skip or (str(g["table"]), str(c.get(str(schema[g["table"]]["key"])))) not in skip)]
                 if g["kind"] == "count":
                     row[f] = len(mine)
+                elif g["kind"] == "backref":  # the row that refers back here (a notice's claim): two-way links without a cycle
+                    ck = str(schema[g["table"]]["key"])
+                    row[f] = min((c[ck] for c in mine), key=str) if mine else None
                 else:
                     tot = sum(float(c.get(str(g["field"])) or 0) for c in mine)
                     row[f] = round(tot, int(g.get("round", 2)))
@@ -931,6 +937,7 @@ Generators ({"kind": ...}):
   const     {"value": ...}
   list      {"of": <generator>, "min": 0, "max": 3, "unique": true}
   sum       {"table": "<child table>", "fk": "<child field referring here>", "field": "<child number field>"}
+  backref   {"table": "<child table>", "fk": "<child field referring here>"}   the child row that points back (a two-way link)
   count     {"table": "<child table>", "fk": "<child field referring here>"}
   any generator may add "when": "<expression over this row>", "else": <a value or another generator>, and "null_p": 0.1 (nullable fields only)
 Expressions: field names, <ref field>.<field> (a field of the row a ref field points at, e.g. loss_date <= policy_id.expiry_date),
