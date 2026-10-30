@@ -208,3 +208,25 @@ async def test_e1_estimates_from_the_archive_and_the_locked_matrix():
     assert res and all(r["n_found"] >= 1 for r in res)
     assert {r["domain"] for r in res} <= {"ap-test", "desk-test"}
     assert all(set(c["classes"]) <= {"MUT", "TWIN", "RED", "NULL", "ATK", "ALT"} for c in cap)
+
+
+def test_the_natural_reference_uses_only_independently_found_validity_defects(tmp_path):
+    from crucible.synth.meta.rsi import load_real_defects, plant_key, real_defect_features
+
+    recs = [{"id": "a", "independent": True, "quality": "P1", "d_class": "D5", "mechanism": "unstated_rule"},
+            {"id": "b", "independent": True, "quality": "P2", "d_class": None, "mechanism": "too_hard"},  # learnability, no class
+            {"id": "c", "independent": False, "quality": "P1", "d_class": "D9", "mechanism": "archive"},  # falsifier-found
+            {"id": "d", "independent": True, "quality": "P1", "d_class": "D6", "mechanism": "stale_visible_test"}]
+    p = tmp_path / "rd.json"
+    p.write_text(json.dumps({"built_at": "x", "debug_lane_and_finance_ap": recs}))
+    f = real_defect_features(load_real_defects(p))
+    assert len(f) == 2 and f[0]["d:D5"] == 1.0 and f[0]["t:instruction"] == 1.0 and f[1]["t:required"] == 1.0
+    t = fx.in_domain(fx.t1_hold())
+    from crucible.synth.meta.plant import Plant, Witness
+
+    def mk(why: str) -> Plant:
+        c = t.contract.model_copy(update={"allowed": [t.contract.required[0].model_copy(update={"id": "a1", "why": why})]})
+        return Plant(id=f"p-{why}", defect="D1", op=PlantOp(name="drop_required"), domain=t.domain, source_id=t.id, source_version=1, source_digest="x",
+                     task=t.model_copy(update={"contract": c}), witness=Witness(kind="lenient"))
+
+    assert plant_key(mk("one reason")) == plant_key(mk("another reason"))  # a why text plants nothing new

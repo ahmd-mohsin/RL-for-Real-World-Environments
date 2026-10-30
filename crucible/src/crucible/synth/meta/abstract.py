@@ -229,12 +229,14 @@ PLANTER_DOC = ("PLANT OPERATORS (each plants one defect into a correct task by e
 
 PLANTER_PROPOSER = Role(
     name="planter_proposer", stage="plant", output=PlanterOut, temperature=0.7, max_tokens=3072,
-    sees=("operators", "miss_rates", "natural_mix", "count"),
+    sees=("operators", "miss_rates", "natural_mix", "count", "history"),
     never=("anchors", "locked_set", "task_ids", "gate_code", "tasks"),
     differs_from=BUILDERS, independent=True,
     system=("You design planted defects that test an automatic checker of RL tasks: realistic defects of the kinds real task "
             "writers make, which the current falsifiers miss. You see the plant operators, how often the falsifiers miss each one, and "
-            "the mix of defect classes found in real tasks. Propose new parameterisations of existing operators (new phrasings, "
+            "the mix of defect classes found in real tasks, and (history) how your earlier proposals fared: a planter is kept only "
+            "when it plants NEW defects (a parameter that does not change the planted checker or instruction plants nothing new) "
+            "and the falsifiers miss some of them. Propose new parameterisations of existing operators (new phrasings, "
             "tolerances, reasons). Never name a particular application, entity, id or value. " + PLANTER_DOC + "\n"
             'Reply {"planters": [{"name": "<operator>", "variant": "<variant>", "params": {...}}, ...], "notes"}.'))
 

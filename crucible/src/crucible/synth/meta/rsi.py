@@ -224,7 +224,58 @@ def natural_features(cx: Counterexample) -> dict[str, float]:
     return f
 
 
+_MECH_TARGET = {"unstated_rule": "instruction", "undescribed_fault": "instruction", "over_hidden_feedback": "instruction", "changelog_hint": "instruction",
+                "leak_other": "world", "fake_link_load": "world", "grading_bug_load": "world", "env_bug": "world", "stale_visible_test": "required",
+                "grading_bug": "required", "fake_link_coarse_test": "required", "path_rule_false_positive": "trace"}
+
+
+def real_defect_features(records: Iterable[Mapping[str, Any]]) -> list[dict[str, float]]:
+    """The natural-likeness reference from the M5 real-defect set (``synth.realdefects``; ``runs/m5/realdefects.json``):
+    only INDEPENDENTLY found validity defects (``independent``, quality P1, a D class), since falsifier-found ones are
+    detected by construction (lead, 2026-10-29). Each record maps onto the plant features by its class and by where its
+    mechanism sits (instruction, World, the checker's requirements or its trace rules); the size and literal features are
+    unknown for a person-found defect and set to the typical planted value (one edit). An approximation, reported as such."""
+    out = []
+    for r in records:
+        d = r.get("d_class")
+        if not (r.get("independent") and r.get("quality") == "P1" and d):
+            continue
+        f = dict.fromkeys(FEATURES, 0.0)
+        f[f"d:{d}"] = 1.0
+        tgt = _MECH_TARGET.get(str(r.get("mechanism")), "required")
+        f[f"t:{tgt}"] = 1.0
+        f["diff_size"] = math.log1p(2)
+        f["coll_written"] = 1.0 if tgt == "required" else 0.0
+        if d == "D7":
+            f["ins_edit"] = 0.1
+        out.append(f)
+    return out
+
+
+def load_real_defects(path: str | Path) -> list[dict[str, Any]]:
+    doc = json.loads(Path(path).read_text())
+    if isinstance(doc, list):
+        return doc
+    return [r for v in doc.values() if isinstance(v, list) for r in v if isinstance(r, dict)]
+
+
 # ---------------------------------------------------------------------------------------------------------- views and evaluation
+
+def _strip_why(v: Any) -> Any:
+    if isinstance(v, dict):
+        return {k: _strip_why(x) for k, x in v.items() if k not in ("why", "id")}
+    if isinstance(v, list):
+        return [_strip_why(x) for x in v]
+    return v
+
+
+def plant_key(p: Plant) -> str:
+    """A plant's content as the grader sees it (source, World, instruction, contract without why texts and pattern
+    ids): two plants with one key are one planted defect, however their planters were parameterised."""
+    t = p.task
+    return content_hash({"src": p.source_id, "world": t.world.model_dump(mode="json"), "ins": t.instruction,
+                         "c": _strip_why(t.contract.model_dump(mode="json"))}, 32)
+
 
 class Pool:
     """The dev plants by the planter version that produced them (``P@<v>``), and the dev anchors."""
@@ -261,9 +312,11 @@ class Sampler:
         rng = random.Random(f"view/{self.seed}/{tag}")
         out: list[str] = []
         for _k, ids in sorted(self.pool.by_planter.items()):
-            by: dict[tuple[str, str], list[str]] = {}  # strata: (domain, defect), so every view holds every class it can
+            # strata: domain only. RSI-1 stratified by (domain, defect) too: with deterministic falsifiers every such view
+            # had the same J, so the measured noise floor was δ = 0 and R2 degenerated to "any positive LCB"
+            by: dict[str, list[str]] = {}
             for i in ids if plants is None else [x for x in ids if x in set(plants)]:
-                by.setdefault((self.pool.plants[i].domain, self.pool.plants[i].defect), []).append(i)
+                by.setdefault(self.pool.plants[i].domain, []).append(i)
             for _d, xs in sorted(by.items()):
                 k = max(1, round((frac or self.frac) * len(xs)))
                 out += rng.sample(sorted(xs), min(k, len(xs)))
@@ -384,7 +437,8 @@ def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
         return got, {"lemmas": [x.model_dump(mode="json") for x in out.lemmas], "strategies": list(out.strategies), "errors": bad or errs,
                      "notes": out.notes[:500]}
 
-    async def planters(*, miss_rates: dict[str, float], natural_mix: dict[str, int], k: int, round: int) -> tuple[list[PlantOp], dict[str, Any]]:
+    async def planters(*, miss_rates: dict[str, float], natural_mix: dict[str, int], k: int, round: int,
+                       history: list[dict[str, Any]] | None = None) -> tuple[list[PlantOp], dict[str, Any]]:
         from crucible.synth.meta.abstract import dev_variants
 
         dv = dev_variants()
@@ -395,7 +449,7 @@ def swarm_proposers(client: Any, *, planter_client: Any = None) -> Proposers:
                     raise ValueError(f"planter {i}: unknown operator or variant {d.get('name')}:{d.get('variant')} (have {dv})")
 
         out = await ask(planter_client or client, PLANTER_PROPOSER, tag=f"plant:r{round}", check=check, retries=1,
-                        operators=sorted(miss_rates), miss_rates=miss_rates, natural_mix=natural_mix, count=k)
+                        operators=sorted(miss_rates), miss_rates=miss_rates, natural_mix=natural_mix, count=k, history=history or None)
         allowed = {"why", "factor", "phrase", "template", "suffix", "field"}
         res = [PlantOp(name=d["name"], variant=d.get("variant", "base"), version=100 + round,
                        params={kk: v for kk, v in (d.get("params") or {}).items() if kk in allowed and isinstance(v, str | int | float)}) for d in out.planters[:k]]
@@ -523,16 +577,21 @@ class Loop:
 
     def __init__(self, root: Path, pool: Pool, locked: PlantSet, locked_anchors: Sequence[Task], natural: Sequence[Counterexample], *,
                  ctx: FalsifyContext, report_ctx: FalsifyContext, config: EvolveConfig, dev_sources: Sequence[Task] = (), builders: Sequence[str] = (),
-                 natural_sources: Mapping[str, Task] | None = None, spend: Callable[[], float] | None = None):
+                 natural_sources: Mapping[str, Task] | None = None, spend: Callable[[], float] | None = None,
+                 reference: Sequence[dict[str, float]] | None = None):
         self.root, self.base_pool, self.locked, self.locked_anchors = Path(root), pool, locked, list(locked_anchors)
         self.dev_sources = list(dev_sources)
+        self.planter_history: list[dict[str, Any]] = []
         self.natural = list(natural)
         self.ctx, self.report_ctx, self.cfg = ctx, report_ctx, config
         self.builders = list(builders)
         self.natural_sources = dict(natural_sources or {})
         self.spend = spend or (lambda: 0.0)
         self.arms: list[Arm] = []
-        ref = [natural_features(c) for c in self.natural]
+        # the natural-likeness reference: given (the independently found real defects), else the archive's natural
+        # counterexamples (falsifier-found: a weaker reference, used only when no independent set exists)
+        ref = list(reference) if reference else [natural_features(c) for c in self.natural]
+        self.reference_kind = "independent real defects" if reference else "archive (falsifier-found)"
         self.reference = ref
         base = [p.features for p in pool.plants.values()]
         self.mu = (self.cfg.mu_margin * mmd(feature_matrix(base), feature_matrix(ref))) if base and ref else 0.0
@@ -630,7 +689,8 @@ class Loop:
         miss_rates = {k: round(sum(v) / len(v), 3) for k, v in sorted(rates.items())}
         mix = dict(Counter(c.defect or "?" for c in self._natural()).most_common())
         try:
-            ops, info = await proposers.planters(miss_rates=miss_rates, natural_mix=mix, k=self.cfg.planter_candidates, round=r)
+            ops, info = await proposers.planters(miss_rates=miss_rates, natural_mix=mix, k=self.cfg.planter_candidates, round=r,
+                                                 history=self.planter_history[-12:])
         except Exception as e:  # noqa: BLE001 - a failed proposal is recorded
             row.planter_decisions.append({"error": f"{type(e).__name__}: {str(e)[:300]}"})
             return
@@ -653,9 +713,22 @@ class Loop:
             except Exception as e:  # noqa: BLE001
                 row.planter_decisions.append({"op": op.key, "accepted": False, "refused_by": [f"error:{type(e).__name__}"], "detail": str(e)[:300]})
                 continue
-            d = {"op": op.key, "params": op.params, "accepted": dec.accepted, "checks": dec.checks, "mmd": dec.mmd, "mu": self.mu, "miss_rate": dec.miss_rate,
-                 "kept": dec.kept, "refused_by": [k for k, v in dec.checks.items() if not v]}
-            if dec.accepted:
+            # RSI-1: parameterisations that do not change a plant (a factor on eq_to_any, another why text) re-planted copies
+            # of existing plants, and planters the population already catches entirely were accepted every round. A
+            # planter now joins only with NOVEL plants (content without why texts) and a positive reward (§9.3: P is
+            # rewarded for planting defects the current F misses), measured on the novel plants.
+            have = {plant_key(p) for p in arm.pool.plants.values()}
+            novel = [p for p in plants if plant_key(p) not in have]
+            nvs, _ = await verdicts(novel, fs, self.ctx) if novel else ({}, 0)
+            reward = sum(1 for p in novel if not nvs[p.id].hit) / len(novel) if novel else 0.0
+            checks = {**dec.checks, "novel": bool(novel), "rewarded": reward > 0}
+            ok = all(checks.values())
+            d = {"op": op.key, "params": op.params, "accepted": ok, "checks": checks, "mmd": dec.mmd, "mu": self.mu, "miss_rate": reward,
+                 "kept": len(novel), "planted": dec.kept, "refused_by": [k for k, v in checks.items() if not v]}
+            plants = novel
+            self.planter_history.append({"round": r, "op": f"{op.name}:{op.variant}", "params": op.params, "accepted": ok, "refused_by": d["refused_by"],
+                                         "reward": round(reward, 3), "novel_plants": len(novel)})
+            if ok:
                 data = arm.store.get("P")
                 data["planters"].append(cand.model_dump(mode="json"))
                 v = arm.store.put("P", data)
@@ -663,8 +736,8 @@ class Loop:
                 arm.engine.head_digest["P"] = arm.store.digest("P", v)
                 arm.pool.add(f"P@{v}", plants)
                 d["version"] = v
-            arm.engine.ledger.append(Decision(kind="update", round=r, update_id=f"{arm.name}/r{r}/planter/{op.key}", component="P", accepted=dec.accepted,
-                                              evaluated=True, failed=[RuleFailure(rule="P", detail=k) for k, v in dec.checks.items() if not v],
+            arm.engine.ledger.append(Decision(kind="update", round=r, update_id=f"{arm.name}/r{r}/planter/{op.key}", component="P", accepted=ok,
+                                              evaluated=True, failed=[RuleFailure(rule="P", detail=k) for k, v in checks.items() if not v],
                                               metrics={k: d[k] for k in ("mmd", "mu", "miss_rate", "kept")}))
             row.planter_decisions.append(d)
             row.info.setdefault("planter_info", info)

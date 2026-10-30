@@ -439,7 +439,7 @@ class UpdateEngine:
         delta = max(2 * math.sqrt(_var(js)), (max(js) - min(js)) / 2)
         bands: dict[str, float] = {}
         for d in sorted({d for m in ms for d in m.fr}):
-            xs = [m.fr.get(d, 0.0) for m in ms]
+            xs = [m.fr[d] for m in ms if d in m.fr]  # a view without class d says nothing about its noise (RSI-1: a 0 there made bands > 1)
             bands[f"fr:{d}"] = max(self.config.min_band, 2 * math.sqrt(_var(xs)), (max(xs) - min(xs)) / 2)
         for key in ("p3", "p4"):
             xs = [getattr(m, key) for m in ms if getattr(m, key) is not None]

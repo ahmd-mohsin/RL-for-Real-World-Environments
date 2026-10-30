@@ -410,11 +410,20 @@ def cmd_evolve(a: argparse.Namespace) -> None:
     pool.add("P@1", dev.plants)
     builders = sorted({"deepseek", "glm", "kimi"})  # M4's builder families (proposer, oracle, repairer; contract writer; F1 World)
     rows_out: list = []
+    refinfo: dict = {}
 
     async def go() -> None:
         ctx, rctx = FalsifyContext(), FalsifyContext()
+        ref = None
+        if a.real_defects:
+            from crucible.synth.meta.rsi import load_real_defects, real_defect_features
+
+            ref = real_defect_features(load_real_defects(a.real_defects))
+            if not ref:
+                raise SystemExit(f"{a.real_defects}: no independently found P1 defect with a class")
         loop = Loop(d, pool, locked, locked_src, cxs, ctx=ctx, report_ctx=rctx, config=cfg, dev_sources=dev_src, builders=builders,
-                    natural_sources=nat_tasks, spend=lambda: wire.meter.spent)
+                    natural_sources=nat_tasks, spend=lambda: wire.meter.spent, reference=ref)
+        refinfo.update({"kind": loop.reference_kind, "n": len(loop.reference), "mu": loop.mu})
         props = swarm_proposers(wire.client("abstractor"), planter_client=wire.client("abstractor"))
 
         def save() -> None:
@@ -430,7 +439,7 @@ def cmd_evolve(a: argparse.Namespace) -> None:
             save()
             await ctx.close()
             await rctx.close()
-        (d / "config.json").write_text(json.dumps({"config": cfg.model_dump(mode="json"), "mu": loop.mu, "evidence": ev, "dev_plants": len(dev.plants),
+        (d / "config.json").write_text(json.dumps({"config": cfg.model_dump(mode="json"), "mu": loop.mu, "reference": refinfo, "evidence": ev, "dev_plants": len(dev.plants),
                                                    "locked_plants": len(locked.plants), "natural": len(cxs)}, indent=1))
 
     asyncio.run(go())
@@ -579,6 +588,8 @@ def main() -> None:
     ev.add_argument("--no-control", action="store_true")
     ev.add_argument("--no-planter", action="store_true")
     ev.add_argument("--no-meta", action="store_true")
+    ev.add_argument("--real-defects", default=None, help="the M5 real-defect set (realdefects.json): its independently found defects are the "
+                                                         "natural-likeness reference (else the archive)")
     ev.add_argument("--cap", type=float, default=5.0)
     ev.set_defaults(fn=cmd_evolve)
 

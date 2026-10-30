@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import copy
 import difflib
+import json
 import math
 import re
 from collections.abc import Iterable, Sequence
@@ -84,7 +85,7 @@ class OpInfo(CrucibleModel):
 OPS: dict[str, OpInfo] = {
     "drop_required": OpInfo(defect="D1", witness="lenient", variants=["base", "last"], families=["DropStep", "Truncate", "minus_last_write"]),
     "widen_frame": OpInfo(defect="D2", witness="lenient", variants=["coll", "app", "field"], families=["ExtraWrite", "write_all", "shortcut"]),
-    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance"], families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
+    "relax_value": OpInfo(defect="D3", witness="lenient", variants=["eq_to_any", "tolerance", "eq_to_in"], families=["PerturbValue", "WrongAnswer", "SwapEntity"]),
     "vacuous_required": OpInfo(defect="D4", witness="lenient", variants=["base", "exists"], families=["DropStep", "Truncate", "minus_last_write", "noop"]),
     "hide_info": OpInfo(defect="D5", witness="hidden", variants=["sentence", "redact"]),
     "over_constrain": OpInfo(defect="D6", witness="strict", variants=["before", "at_most", "never"], families=["DropStep", "DupStep", "Reorder"]),
@@ -150,7 +151,8 @@ def held_out_planter() -> Planter:
     them): ``drop_required:last`` (the last requirement, another why), ``widen_frame:field`` (any entity of the
     collection, but only the fields π* writes), ``vacuous_required:exists`` (a state check that the record exists),
     ``instruction_drift:prefix`` (the key becomes a prefix glob that also matches siblings), ``break_solvability:offset``
-    (a value just off what any tool produces)."""
+    (a value just off what any tool produces), ``relax_value:eq_to_in`` (eq v → in [v, w], w a value s₀ holds for that
+    field; added in RSI-2 after RSI-1's locked set had no D3 plant: the swarm contracts carry no tolerance)."""
     ops = [PlantOp(name="hide_info", variant="redact", params={"phrase": "the item"}), PlantOp(name="leak_decision", variant="humanised"),
            PlantOp(name="leak_decision", variant="because"), PlantOp(name="plant_affordance", variant="field_setter"),
            PlantOp(name="over_constrain", variant="never"), PlantOp(name="inject_nondet", variant="allowed"),
@@ -158,7 +160,8 @@ def held_out_planter() -> Planter:
            PlantOp(name="drop_required", variant="last", params={"why": "covered by the nightly reconciliation job"}),
            PlantOp(name="widen_frame", variant="field", params={"why": "batch updates of this field are expected"}),
            PlantOp(name="vacuous_required", variant="exists"), PlantOp(name="instruction_drift", variant="prefix"),
-           PlantOp(name="break_solvability", variant="offset", params={"suffix": "-legacy"})]
+           PlantOp(name="break_solvability", variant="offset", params={"suffix": "-legacy"}),
+           PlantOp(name="relax_value", variant="eq_to_in")]
     return Planter(id="held-out", ops=ops)
 
 
@@ -385,12 +388,20 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
             c2 = c.model_copy(update={"required": [q for q in c.required if q.id != p.id], "allowed": [*c.allowed, allow]}, deep=True)
             out.append(_Draft(task=_with_contract(src, c2), site=p.id, change={"target": "required", "pattern": p.id, "coll": f"{p.app}.{p.coll}"}))
     elif op.name == "widen_frame" and v == "field":
+        # one draft allowing, on ANY entity, exactly the kinds of change π* makes (its fields, its inserts): the frame is
+        # wide in entities, not in fields, so a write of π*'s kind on a sibling passes
         fields = sorted({(ch.addr.app, ch.addr.coll, ch.addr.field if ch.kind == "update" else "*", ch.kind) for ch in delta})
-        for app, coll, fld, kind in fields:
-            a = EffectPattern(id=_fresh_id(c, f"a_field_{fld.strip('*') or kind}"), app=app, coll=coll, key="*", field=fld, kind=kind,
-                              why=op.params.get("why", "batch updates of this field are expected"))
-            c2 = c.model_copy(update={"allowed": [*c.allowed, a]}, deep=True)
-            out.append(_Draft(task=_with_contract(src, c2), site=f"{app}.{coll}.{fld}:{kind}", change={"target": "allowed", "coll": f"{app}.{coll}", "wildcard": True}))
+        if fields:
+            adds: list[EffectPattern] = []
+            c2 = c
+            for app, coll, fld, kind in fields:
+                a = EffectPattern(id=_fresh_id(c2, f"a_field_{fld.strip('*') or kind}"), app=app, coll=coll, key="*", field=fld, kind=kind,
+                                  why=op.params.get("why", "batch updates of this field are expected"))
+                adds.append(a)
+                c2 = c2.model_copy(update={"allowed": [*c2.allowed, a]}, deep=True)
+            colls = sorted({f"{a.app}.{a.coll}" for a in adds})
+            out.append(_Draft(task=_with_contract(src, c2), site="fields:" + ",".join(f"{a.coll}.{a.field}:{a.kind}" for a in adds),
+                              change={"target": "allowed", "coll": colls[0], "wildcard": True}))
     elif op.name == "widen_frame":
         colls = sorted(written) if v == "coll" else sorted({(a, "*") for a, _ in written})
         for app, coll in colls:
@@ -398,6 +409,20 @@ def _drafts(src: Task, op: PlantOp, oracle: Run, tools: list[ToolInfo]) -> list[
                               why=op.params.get("why", "routine edits in this area are expected"))
             c2 = c.model_copy(update={"allowed": [*c.allowed, a]}, deep=True)
             out.append(_Draft(task=_with_contract(src, c2), site=f"{app}.{coll}", change={"target": "allowed", "coll": f"{app}.{coll}", "wildcard": True}))
+    elif op.name == "relax_value" and v == "eq_to_in":
+        # eq v -> in [v, w], w another value the start state holds for that field: a value set one entry too wide
+        for i, p in enumerate(c.required):
+            if not isinstance(p.value, PEq) or is_glob(p.field) or oracle.start is None:
+                continue
+            seen = sorted({cjson(r[unglob(p.field)]) for _a, co, _k, r in oracle.start.entities() if co == unglob(p.coll) and unglob(p.field) in r})
+            others = [x for x in seen if x != cjson(p.value.v) and x != "null"]
+            if not others:
+                continue
+            w = json.loads(others[0])
+            req = list(c.required)
+            req[i] = p.model_copy(update={"value": PIn(vs=[p.value.v, w])})
+            out.append(_Draft(task=_with_contract(src, c.model_copy(update={"required": req}, deep=True)), site=f"{p.id}.value:in",
+                              change={"target": "required", "pattern": p.id, "field": p.field, "coll": f"{p.app}.{p.coll}", "literal": p.value.v}))
     elif op.name == "relax_value":
         factor = float(op.params.get("factor", 100))
         for i, p in enumerate(c.required):

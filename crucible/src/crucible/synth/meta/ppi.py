@@ -78,12 +78,14 @@ def ppi_mean(f_unlabeled: Sequence[float], f_labeled: Sequence[float], y_labeled
 
         alpha = 2 * (1 - 0.5 * (1 + math.erf(z / math.sqrt(2))))
         lo, hi = ppi_mean_ci(np.array(y_labeled, float), np.array(f_labeled, float), np.array(f_unlabeled, float), alpha=alpha)
-        return PPIEstimate(estimate=theta, lo=max(0.0, float(lo)), hi=min(1.0, float(hi)), naive=naive, classical=classical, n_unlabeled=n_u,
+        return PPIEstimate(estimate=min(1.0, max(0.0, theta)), lo=max(0.0, float(lo)), hi=min(1.0, float(hi)), naive=naive, classical=classical, n_unlabeled=n_u,
                            n_labeled=n_l, method="ppi_py.ppi_mean_ci")
     except ImportError:
         pass
     hw = z * math.sqrt(_var(f_unlabeled) / n_u + _var(rect) / n_l)
-    return PPIEstimate(estimate=theta, lo=max(0.0, theta - hw), hi=min(1.0, theta + hw), naive=naive, classical=classical, n_unlabeled=n_u, n_labeled=n_l)
+    # a rate lies in [0, 1]: the rectified point estimate is clipped there (the raw value is kept: it shows the judge's bias)
+    return PPIEstimate(estimate=min(1.0, max(0.0, theta)), lo=max(0.0, theta - hw), hi=min(1.0, theta + hw), naive=naive, classical=classical,
+                       n_unlabeled=n_u, n_labeled=n_l, extra={"raw": theta})
 
 
 def vote_score(votes: Iterable[Mapping[str, Any]]) -> float:
