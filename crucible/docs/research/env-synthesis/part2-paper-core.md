@@ -699,8 +699,7 @@ only in M6/E4. Spend beyond $150 needs the lead's approval.
 
 ### 14.1 Status after M1–M4 (2026-10-29)
 
-**Built:** M1–M4. **Not built:** M5 (the debug-lane adapter, the real-defect set, the ONL hook) and M6 (composition,
-the Gym demo, the experiment runs).
+**Built:** M1–M5 (M5 in §14.2). **Not built:** M6 (composition, the Gym demo, the experiment runs).
 
 **The first end-to-end runs (M4).** The whole run was on the Tinker swarm, with no Qwen model in any role and the
 student never called. The run reports are in `runs/m4/`.
@@ -745,6 +744,47 @@ confidence. The panel prompt was tightened, and λ was set from executed-truth a
 | Family exhaustion | Three builder families leave two checker families (Nemotron, gpt-oss) for ALT, ATK, the panel and the abstractor, so the panel judges its own family's ALT traces. A sixth non-Qwen family on Tinker would fix it. |
 | Short generated tasks | They get 30–128 distinct mutants, so many are provisional. Denser seeded Worlds (more sibling entities) are the fix. |
 | Human queue | 53 panel abstentions on it_helpdesk (`human_queue.jsonl`) await a decision |
+
+### 14.2 M5: the repository substrate and the real-defect set (2026-10-29)
+
+**PatchTask.** The debug lane runs through the same contracts and falsifiers.
+- **Migration: 12 of 12 training-pool tasks recompute the lane's stored grades bit-identically.** That is 246 rows of
+  rewards, verdicts, milestones and mutant vectors. Simplified windows are compared on their own milestones.
+- **Certificates, CPU and Docker only (ALT and ATK not run):**
+  - no confirmed MUT, NULL, RED or REP counterexample on any task;
+  - one confirmed D6 on the swarm-pilot black task: two stale visible tests go red when the bugs are fixed;
+  - 11 MUT suspects on 8 tasks: fix hunks no hidden test needs, awaiting adjudication;
+  - status: 5 provisional (n = 15–37 distinct mutants, U 0.078–0.15) and 7 rejected on open suspects.
+
+**What changes on repositories (E7).**
+
+| Class | Applies? |
+|---|---|
+| MUT, NULL, RED, REP, ONL | Yes |
+| TAINT | Changed: changelog leaks, stale visible tests and ledgers; literal sourcing is report-only, because π*'s literals are whole file texts |
+| TWIN, PERT | No: a symptom report names no entity, and a mined commit has no distractors |
+
+**Spec decisions taken from M5:**
+1. **Require vs guard.** Exec checks have a kind. A `require` check must be false at s₀ (RED applies). A `guard`, such as
+   a pass-to-pass suite, holds at s₀ by design, and RED skips it.
+2. **Code mutants are suspects.** A DropHunk survivor on code is always a *suspect*, never a confirmed D1. Whether
+   untested code matters is a judgement.
+3. **The admission bound is relative to the World.** Each repository mutant costs a Docker run, and n ≥ 59 is out of
+   reach, so repository tasks are provisional at best. The paper reports U per substrate.
+4. **D6 covers misleading World feedback.** Stale visible tests and fake links are D6 sub-types. Fake links also touch
+   P3, on-intent.
+5. **ONL replays end states, not traces.** Eval agents use different tools from the synth World.
+6. **Only independent defects calibrate recall.** The real-defect set has 390 records, 351 of them P1 validity defects,
+   96 executable. Recall is calibrated **only** on the defects found independently of the falsifiers, by people during
+   task fixing: D5 7, D6 21, D7 11, D10 5, D11 3. Falsifier-found defects (archive, ONL) are detected at about 1 by
+   construction, and are reported separately.
+
+**First independent recall numbers.**
+- **D6: 10/11. D7: 2/3.**
+- **The misses are real gaps:**
+  - a fake link through one case file, where test ids do not overlap;
+  - a changelog line whose fix subject is too short to match;
+  - answers leaked through visible test data. No detector exists for this one yet.
 
 ## 15. Relation to prior work
 
