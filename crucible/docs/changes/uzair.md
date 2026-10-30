@@ -2024,3 +2024,32 @@ formats or behaviour, the tests that cover it, and where a merge is likely to co
   start on this Mac; the file never imports the trainer). Ruff check and lint-imports (5 contracts) clean.
 - **Merge notes.** One function after `step_metrics`, one line at the end of `step_metrics`, three lines in the module
   doc's **Dashboards** paragraph.
+
+## 86. Part 1 §3.2 #2 (second half): early-warning alarms on the student path, warnings only
+
+- **Item.** §3.2 #2 of `docs/research/env-synthesis/part1-framework-improvements.md`, "plus alarms on truncation share,
+  length surge and reward-std drop"; `notes/05-longhorizon-rl.md` §6.3 ("port `PassRateAlarm`; add truncation-share and
+  length-surge alarms that write a `stop` record or page the operator (not an automatic stop)"). Not taken: entropy and
+  grad-norm trend alarms (§6.2 lists them; no threshold in the literature to start from, and the numbers are logged since
+  entry 85 / prime-rl's rows), any automatic stop (A7, next), a persisted alarm history across a resume. Pattern: the
+  torch loop's `PassRateAlarm` (reused as is) and `StepMonitor`'s length-bias KS distance (`train.sim.ks_distance`).
+- **Files.** `src/crucible/train/monitors.py` (`EarlyWarning`, `ALARMS`, module doc),
+  `src/crucible/train/bridges/tinker/trainer.py` (`call_lengths`, `TinkerTrainer._step`, `__init__`, a module logger,
+  module doc), `tests/unit/test_part1_early_warning.py` (+2).
+- **Public names.** `monitors.EarlyWarning`, `monitors.ALARMS`, `trainer.call_lengths`, `TinkerTrainer.warnings`.
+- **Behaviour.** Each step's row also has `reward/flat_group_share` (groups finished since the last step whose rewards are
+  all equal, the `zero_spread` drops included: they never reach a batch), `length/ks_vs_recent` (KS distance of the
+  step's sampled tokens per call to the last 4,096 calls), and `alarm/<kind>` for the four alarms, 1 when fired, else 0:
+  `pass_rate_jump` (`PassRateAlarm`: more than 0.25 within 5 steps), `truncation_rise` (`stop/truncated` more than 0.15
+  above the mean of up to 5 earlier steps), `length_surge` (mean call tokens at least 1.5 times that mean),
+  `reward_spread_drop` (flat-group share more than 0.25 above it). The trend alarms stay quiet until 3 earlier steps
+  exist; the history is in memory, so a resumed run starts it again. A fired alarm is a log warning and a
+  `record("alarm", ...)` to the sinks; the run never stops on one.
+- **Formats.** new keys in the step's metrics (above); a new sink record kind, `alarm`.
+- **Tests.** `test_part1_early_warning.py` (+2: six steady steps fire nothing, then one step that moves every indicator
+  fires all four, and one earlier step is no baseline; through the loop, two flat groups dropped before step 1 give a
+  flat share of 2/3, the alarm reaches the sink and the log, and the run finishes both steps). The 20 test files that
+  use the Tinker loop or the monitors (the Claude-builder file excluded, entry 85): 362 passed, 2 skipped. Ruff check
+  and lint-imports (5 contracts) clean.
+- **Merge notes.** `EarlyWarning` after `PassRateAlarm`; in `TinkerTrainer._step`, nine lines after the difficulty metrics
+  and `_last_drops` in the last line; `call_lengths` before `staleness_metrics` (`behaviour_metrics` uses it).

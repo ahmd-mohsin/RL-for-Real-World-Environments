@@ -16,12 +16,15 @@
 ``PassRateAlarm``: a jump of more than ``delta`` in the training pass rate within ``window`` steps raises an alarm; the
 caller re-audits the batch's rollouts with the full verifier tier (a sudden jump is the classic signature of a hack:
 LongCat's Lean4 pass rate fell from 97.9% to 27.9% once the verifier was fixed).
+
+``EarlyWarning``: the student path's (Tinker loop's) alarms, warnings only: the pass-rate jump, a truncation rise, a
+length surge and a drop in within-group reward spread.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from crucible.train.sim import ks_distance
@@ -51,6 +54,63 @@ class PassRateAlarm:
         if older and recent and max(recent) - _mean(older[-self.window:]) > self.delta:
             return {"step": step, "pass_rate": pass_rate, "baseline": round(_mean(older[-self.window:]), 4), "action": "full-tier re-audit of this batch"}
         return None
+
+
+ALARMS = ("pass_rate_jump", "truncation_rise", "length_surge", "reward_spread_drop")
+
+
+@dataclass
+class EarlyWarning:
+    """Part 1 §3.2 #2, second half (2026-10-30; env-synthesis/notes/05-longhorizon-rl.md §6.1, §6.3): alarms on the
+    leading indicators of the student path's step row (``bridges.tinker.trainer.behaviour_metrics``). Warnings only: every
+    step's row carries ``alarm/<kind>`` (1 when it fired, else 0) and the fired ones are returned for the caller to log;
+    nothing stops the run. Each alarm compares the step with the mean of up to ``window`` earlier steps and stays quiet
+    until ``min_history`` of them exist; the history is in memory, so a resumed run starts it again.
+
+    - ``pass_rate_jump``: ``PassRateAlarm`` (a jump of more than 0.25 within 5 steps: the classic hack signature).
+    - ``truncation_rise``: ``stop/truncated`` more than ``truncation_delta`` above the recent mean (ScaleRL 2510.13786).
+    - ``length_surge``: the mean sampled tokens per call at least ``length_ratio`` times the recent mean (2602.01826: a
+      surge led collapse by about 190 steps). ``length/ks_vs_recent``, the KS distance of the step's call lengths to the
+      recent steps' (``StepMonitor``'s length-bias measure), is logged every step.
+    - ``reward_spread_drop``: ``reward/flat_group_share`` (finished groups whose rewards are all equal) more than
+      ``flat_delta`` above the recent mean (RAGEN 2504.20073: the within-group reward std fell 50 steps before the reward
+      collapsed)."""
+
+    window: int = 5
+    min_history: int = 3
+    truncation_delta: float = 0.15
+    length_ratio: float = 1.5
+    flat_delta: float = 0.25
+    pass_alarm: PassRateAlarm = field(default_factory=PassRateAlarm)
+    history: deque = field(default_factory=lambda: deque(maxlen=64))  # per step: the values the trend alarms compare
+    lengths: deque = field(default_factory=lambda: deque(maxlen=4096))  # the recent steps' sampled tokens per call
+
+    def update(self, step: int, m: Mapping[str, float], call_lengths: Sequence[int]) -> tuple[dict[str, float], list[dict]]:
+        """``m``: the step's row so far (``pass_rate``, ``stop/truncated``, ``reward/flat_group_share``); ``call_lengths``:
+        sampled tokens per call. Returns the keys to add to the row and the fired alarms."""
+        now = {"truncated": m.get("stop/truncated"), "call_tokens": _mean(call_lengths) if call_lengths else None,
+               "flat": m.get("reward/flat_group_share")}
+        prev = list(self.history)[-self.window:]
+
+        def recent(k: str) -> float | None:
+            xs = [h[k] for h in prev if h[k] is not None]
+            return _mean(xs) if len(xs) >= self.min_history else None
+
+        fired: list[dict] = []
+        if (pr := m.get("pass_rate")) is not None and (a := self.pass_alarm.update(step, pr)) is not None:
+            fired.append({"kind": "pass_rate_jump", **a})
+        if now["truncated"] is not None and (base := recent("truncated")) is not None and now["truncated"] - base > self.truncation_delta:
+            fired.append({"kind": "truncation_rise", "step": step, "value": now["truncated"], "baseline": round(base, 4)})
+        if now["call_tokens"] is not None and (base := recent("call_tokens")) and now["call_tokens"] >= self.length_ratio * base:
+            fired.append({"kind": "length_surge", "step": step, "value": now["call_tokens"], "baseline": round(base, 4)})
+        if now["flat"] is not None and (base := recent("flat")) is not None and now["flat"] - base > self.flat_delta:
+            fired.append({"kind": "reward_spread_drop", "step": step, "value": now["flat"], "baseline": round(base, 4)})
+        out = {f"alarm/{k}": float(any(a["kind"] == k for a in fired)) for k in ALARMS}
+        if call_lengths and self.lengths:
+            out["length/ks_vs_recent"] = ks_distance(list(call_lengths), list(self.lengths))
+        self.history.append(now)
+        self.lengths.extend(call_lengths)
+        return out, fired
 
 
 @dataclass

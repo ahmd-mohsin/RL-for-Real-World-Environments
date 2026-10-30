@@ -80,8 +80,10 @@ rate, pass rate, advantage stats (sequence and token), loss and every ``forward_
 logprob gap (``kl/sample_vs_train``) and importance ratio stats, staleness, drops by reason, tokens and USD booked since
 the previous step, cumulative spend vs the cap, and the sampler version, then the leading indicators
 (``behaviour_metrics``: entropy estimate, lengths and turns, stop-reason shares and truncation, format errors, flagged
-and give-up shares, within-group reward std); each drop is a ``record("drop", ...)``; the run
-summary goes to ``summary``. The trainer never finishes the sinks it is given: the caller does, after its own logging.
+and give-up shares, within-group reward std), the flat-group share and the ``monitors.EarlyWarning`` alarms
+(``alarm/<kind>``; a fired one is also a ``record("alarm", ...)`` and a log warning, never a stop); each drop is a
+``record("drop", ...)``; the run summary goes to ``summary``. The trainer never finishes the sinks it is given: the
+caller does, after its own logging.
 
 Layering: ``crucible.train`` never imports ``crucible.factory``; environments are anything with ``task``,
 ``run_spec(run_id=, policies=, k=, **kw)`` and ``policy_kwargs()`` (``factory.envs.NativeEnv``).
@@ -92,6 +94,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import statistics
 import time
@@ -107,8 +110,11 @@ from crucible.train.bridges.tinker.models import TinkerModel, resolve
 from crucible.train.bridges.tinker.sampler import TinkerSampler
 from crucible.train.bridges.tinker.spend import SpendMeter, TinkerCapReached
 from crucible.train.curriculum import DifficultySampler, SamplerConfig, draws_of, requires_of
+from crucible.train.monitors import EarlyWarning
 from crucible.train.quarantine import QuarantineConfig, TaskQuarantine
 from crucible.train.sinks import Sink, Tracking
+
+log = logging.getLogger(__name__)
 
 LOSSES = ("importance_sampling", "ppo", "cispo")
 # the quarantine only changes which task is sampled when, never the objective: a resume may change it (and a run made
@@ -351,9 +357,8 @@ def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str
     eps = [r for g in batch for r in g.records]
     if not eps:
         return out
-    own = [[t for t in r.turns if t.trainable and t.completion_token_ids] for r in eps]
-    out.update(_stats([len(t.completion_token_ids or ()) for ts in own for t in ts], "length/call_tokens"))
-    out.update(_stats([len(ts) for ts in own], "length/turns"))
+    out.update(_stats(call_lengths(batch), "length/call_tokens"))
+    out.update(_stats([sum(1 for t in r.turns if t.trainable and t.completion_token_ids) for r in eps], "length/turns"))
     out.update(_stats([r.trajectory_tokens for r in eps if r.trajectory_tokens is not None], "length/context_tokens"))
     stops = Counter(r.stop or "none" for r in eps)
     for s in sorted({"agent_done", *LIMIT_STOPS, *stops}):
@@ -368,6 +373,11 @@ def behaviour_metrics(batch: Sequence[Group], datums: Sequence[Any]) -> dict[str
     if stds:
         out["reward/group_std_mean"] = statistics.fmean(stds)
     return out
+
+
+def call_lengths(batch: Sequence[Group]) -> list[int]:
+    """Sampled tokens per call of the policy's own calls, over every episode of the batch."""
+    return [len(t.completion_token_ids) for g in batch for r in g.records for t in r.turns if t.trainable and t.completion_token_ids]
 
 
 def staleness_metrics(datums: Sequence[Any], target_logprobs: Sequence[Sequence[float]] | None, trained_version: int) -> dict[str, float]:
@@ -430,6 +440,8 @@ class TinkerTrainer:
         self._last_tokens: dict[str, int] = {}
         self._last_usd = 0.0
         self._last_step_t: float | None = None
+        self._last_drops: dict[str, int] = {}
+        self.warnings = EarlyWarning()  # Part 1 §3.2 #2: alarms on the leading indicators (warnings only)
         self.dir = Path(run_dir)
         # ``model``: a row other than the Tinker price table's, e.g. the DeltaAI bridge's zero-priced row with its own
         # context (``bridges.primerl.backend.local_model``): the meter then books tokens at 0 USD (GPU hours are the cost)
@@ -742,13 +754,22 @@ class TinkerTrainer:
         m["quarantine/events"] = float(len(self.quarantine.events))
         if self.difficulty is not None:
             m.update(self.difficulty.metrics())
+        # every group finished since the last step whose rewards are all equal: the ones dropped as zero_spread never reach
+        # a batch, so they are counted from the drops
+        zs = self.drops.get("zero_spread", 0) - self._last_drops.get("zero_spread", 0)
+        m["reward/flat_group_share"] = (zs + sum(len(set(g.rewards())) <= 1 for g in batch)) / (zs + len(batch))
+        warn, fired = self.warnings.update(step, m, call_lengths(batch))
+        m.update(warn)
+        for a in fired:  # warnings only: nothing here stops the run
+            log.warning("step %d: early-warning alarm %s: %s", step, a["kind"], a)
+            self.tracking.record("alarm", a, step)
         # the dashboard row in the run's own record too (staleness buckets, drops, SC / routing / MIS numbers): a run read
         # back from its directory (an offline W&B run cannot be) shows what the dashboard showed
         row["metrics"] = m
         self.step_rows.append(row)
         _append(self.dir / "steps.jsonl", row)
         self.tracking.log(m, step)
-        self._last_tokens, self._last_usd, self._last_step_t = tok, self.meter.spent, now
+        self._last_tokens, self._last_usd, self._last_step_t, self._last_drops = tok, self.meter.spent, now, dict(self.drops)
 
     async def _checkpoint(self) -> None:
         path = await self.trainer.save_state(f"{self.name}-state-s{self.state['step']:06d}", ttl_s=self.cfg.ttl_s)
