@@ -217,3 +217,16 @@ def test_threaded_runner_bounds_and_caches():
         assert len(r.log) == 7
     finally:
         r.close()
+
+
+def test_world_leak_by_subject_words(tmp_path):
+    """A changelog line holding every content word of a fix's subject but one (6+ words: the lane's strip rule) announces
+    the fix even with no issue number; a short subject is never matched by words."""
+    from crucible.synth.patch import FixUnit
+
+    env = env_for(tmp_path, changelog="# Changes\n\n- multiplying two numbers now returns their product, not their sum\n",
+                  units=[FixUnit(sha="c" * 40, subject="fix: multiplying two numbers returns their sum not product"),
+                         FixUnit(sha="d" * 40, subject="fix: add is wrong")])
+    res = run(falsify(env.task(), PatchTAINT(env, None, visible=False), env.context(fixture_runner(env))))
+    leaks = [f for f in res.confirmed if f.op == "world_leak"]
+    assert [f.site for f in leaks] == [f"world_leak:{'c' * 12}"] and leaks[0].outcome.data["near"] == ["CHANGELOG.md:3"]

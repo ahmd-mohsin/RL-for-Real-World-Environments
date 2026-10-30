@@ -1,0 +1,1845 @@
+{
+ "built_at": "2026-10-29T17:36:45",
+ "debug_lane_and_finance_ap": [
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "gotoml-a02114e3-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-go-toml-a02114e3"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "TAINT:visible_contradicts",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "gotoml-a02114e3-e1-stale-test",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-go-toml-a02114e3-e1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "black-90117fa0-budget",
+   "independent": true,
+   "mechanism": "budget_bound",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-90117fa0"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [],
+    "detail": {
+     "evidence": [],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": false,
+    "exhibits": null
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-python-black-ae5830b7",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "black-ae5830b7-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-ae5830b7"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "TAINT:visible_contradicts:visible_contradicts"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "n_stale": 2,
+       "stale": [
+        "tests/test_black.py::BlackTestCase::test_lines_with_leading_tabs_expanded",
+        "tests/test_format.py::test_simple_format[docstring]"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 1
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-python-black-ae5830b7",
+    "detector": "TAINT:visible_contradicts",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "black-ae5830b7-stale-tabs-test",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-ae5830b7"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "TAINT:visible_contradicts:visible_contradicts"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "n_stale": 2,
+       "stale": [
+        "tests/test_black.py::BlackTestCase::test_lines_with_leading_tabs_expanded",
+        "tests/test_format.py::test_simple_format[docstring]"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 1
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-python-black-ae5830b7",
+    "detector": "TAINT:visible_contradicts",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "black-ae5830b7-stale-docstring-case",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-ae5830b7"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "black-ae5830b7-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-ae5830b7"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P4: not a validity defect"
+   },
+   "id": "black-ec71b918-duplicate",
+   "independent": true,
+   "mechanism": "duplicate",
+   "quality": "P4",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-black-ec71b918"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "MUT:SharedCheck",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "carbon-93371b6f-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-93371b6f"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-93371b6f-too-easy-bench",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-93371b6f"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "unclassified: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_cause_unstated",
+   "quality": "unclassified",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-h1-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a-h1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-h2-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a-h2"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-h3-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a-h3"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "carbon-a783fb3a-h2b-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a-h2b"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets path_rule_false_positive"
+   },
+   "id": "carbon-a783fb3a-h3-install-check",
+   "independent": true,
+   "mechanism": "path_rule_false_positive",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-carbon-a783fb3a-h3"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "echo-61eca05b-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "unclassified: not a validity defect"
+   },
+   "id": "echo-61eca05b-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_cause_unstated",
+   "quality": "unclassified",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "echo-61eca05b-e1-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b-e1"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets path_rule_false_positive"
+   },
+   "id": "echo-61eca05b-e1-go-mod-tidy",
+   "independent": true,
+   "mechanism": "path_rule_false_positive",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b-e1"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "TAINT:world_leak",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "echo-61eca05b-cand-48128ab-changelog",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b (candidate with 48128ab)"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "MUT:SharedCheck",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "echo-61eca05b-cand-8148ea9-panic",
+   "independent": true,
+   "mechanism": "grading_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b (candidate with 8148ea9)"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets leak_other"
+   },
+   "id": "echo-perf-bench-visible-data",
+   "independent": true,
+   "mechanism": "leak_other",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-echo-61eca05b-e2"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m02~m04",
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintTable"
+       ]
+      },
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintBinaryNextLine"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-dc951aeb",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-dc951aeb-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-dc951aeb"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m02~m04",
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintTable"
+       ]
+      },
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintBinaryNextLine"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-dc951aeb",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-dc951aeb-grading",
+   "independent": true,
+   "mechanism": "grading_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-dc951aeb"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-dc951aeb-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-dc951aeb"
+  },
+  {
+   "d_class": "D7",
+   "detection": {
+    "by": [],
+    "detail": {
+     "evidence": [],
+     "invalid": 0,
+     "probes": 4
+    },
+    "detected": false,
+    "exhibits": null
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-dc951aeb",
+    "detector": "TAINT:world_leak",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-dc951aeb-changelog",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-dc951aeb"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-dc951aeb-e1",
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets leak_other"
+   },
+   "id": "mvdan-sh-dc951aeb-e1-table-entries",
+   "independent": true,
+   "mechanism": "leak_other",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-dc951aeb-e1"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m02~m04",
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/bash"
+       ]
+      },
+      {
+       "shared": [
+        "syntax/parser_test.go::TestParseFiles",
+        "syntax/parser_test.go::TestParseFiles/bash"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-04056a74",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-04056a74-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-04056a74"
+  },
+  {
+   "d_class": "D7",
+   "detection": {
+    "by": [
+     "TAINT:world_leak:world_leak:529a730840b6",
+     "TAINT:world_leak:world_leak:538e1be9532e"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "lines": []
+      },
+      {
+       "lines": []
+      }
+     ],
+     "invalid": 0,
+     "probes": 4
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-04056a74",
+    "detector": "TAINT:world_leak",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-04056a74-changelog",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-04056a74"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P4: not a validity defect"
+   },
+   "id": "mvdan-sh-04056a74-duplicate",
+   "independent": true,
+   "mechanism": "duplicate",
+   "quality": "P4",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-04056a74"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m02~m03",
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/zsh"
+       ]
+      },
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintTable"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-02a801cd",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-02a801cd-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m02~m03",
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/zsh"
+       ]
+      },
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintTable"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-02a801cd",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-02a801cd-grading",
+   "independent": true,
+   "mechanism": "grading_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "TAINT:visible_contradicts:visible_contradicts"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "n_stale": 27,
+       "stale": [
+        "syntax/parser_test.go::TestNodeEndPos",
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/bash",
+        "syntax/printer_test.go::TestPrintFiles/bash/#168",
+        "syntax/printer_test.go::TestPrintFiles/bash/#179",
+        "syntax/printer_test.go::TestPrintFiles/bats",
+        "syntax/printer_test.go::TestPrintFiles/bats/#139",
+        "syntax/printer_test.go::TestPrintFiles/bats/#150",
+        "syntax/printer_test.go::TestPrintFiles/mksh",
+        "syntax/printer_test.go::TestPrintFiles/mksh/#148",
+        "syntax/printer_test.go::TestPrintFiles/mksh/#159",
+        "syntax/printer_test.go::TestPrintFiles/posix",
+        "syntax/printer_test.go::TestPrintFiles/posix/#140",
+        "syntax/printer_test.go::TestPrintFiles/posix/#151",
+        "syntax/printer_test.go::TestPrintFiles/zsh",
+        "syntax/printer_test.go::TestPrintFiles/zsh/#184",
+        "syntax/printer_test.go::TestPrintFiles/zsh/#195",
+        "syntax/printer_test.go::TestPrintTable",
+        "syntax/printer_test.go::TestPrintTable/#221",
+        "syntax/printer_test.go::TestPrintTable/#221-nl"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 1
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-02a801cd",
+    "detector": "TAINT:visible_contradicts",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-02a801cd-stale-endpos",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "TAINT:visible_contradicts:visible_contradicts"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "n_stale": 27,
+       "stale": [
+        "syntax/parser_test.go::TestNodeEndPos",
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/bash",
+        "syntax/printer_test.go::TestPrintFiles/bash/#168",
+        "syntax/printer_test.go::TestPrintFiles/bash/#179",
+        "syntax/printer_test.go::TestPrintFiles/bats",
+        "syntax/printer_test.go::TestPrintFiles/bats/#139",
+        "syntax/printer_test.go::TestPrintFiles/bats/#150",
+        "syntax/printer_test.go::TestPrintFiles/mksh",
+        "syntax/printer_test.go::TestPrintFiles/mksh/#148",
+        "syntax/printer_test.go::TestPrintFiles/mksh/#159",
+        "syntax/printer_test.go::TestPrintFiles/posix",
+        "syntax/printer_test.go::TestPrintFiles/posix/#140",
+        "syntax/printer_test.go::TestPrintFiles/posix/#151",
+        "syntax/printer_test.go::TestPrintFiles/zsh",
+        "syntax/printer_test.go::TestPrintFiles/zsh/#184",
+        "syntax/printer_test.go::TestPrintFiles/zsh/#195",
+        "syntax/printer_test.go::TestPrintTable",
+        "syntax/printer_test.go::TestPrintTable/#221",
+        "syntax/printer_test.go::TestPrintTable/#221-nl"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 1
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-02a801cd",
+    "detector": "TAINT:visible_contradicts",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-02a801cd-stale-parens",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-02a801cd",
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets path_rule_false_positive"
+   },
+   "id": "mvdan-sh-02a801cd-install-false-fail",
+   "independent": true,
+   "mechanism": "path_rule_false_positive",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-02a801cd-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd"
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets over_hidden_feedback"
+   },
+   "id": "mvdan-sh-02a801cd-d1-overhidden",
+   "independent": true,
+   "mechanism": "over_hidden_feedback",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd-d1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-02a801cd-e1-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd-e1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-02a801cd-e5-budget",
+   "independent": true,
+   "mechanism": "budget_bound",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd-e5"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-02a801cd-e8-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-02a801cd-e8"
+  },
+  {
+   "d_class": "D6",
+   "detection": {
+    "by": [
+     "MUT:SharedCheck:m03~m04"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "shared": [
+        "syntax/printer_test.go::TestPrintFiles",
+        "syntax/printer_test.go::TestPrintFiles/bash",
+        "syntax/printer_test.go::TestPrintFiles/bats",
+        "syntax/printer_test.go::TestPrintFiles/mksh",
+        "syntax/printer_test.go::TestPrintFiles/posix",
+        "syntax/printer_test.go::TestPrintFiles/zsh"
+       ]
+      }
+     ],
+     "invalid": 0,
+     "probes": 6
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-5e983709",
+    "detector": "MUT:SharedCheck",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-5e983709-fake-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-5e983709-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709"
+  },
+  {
+   "d_class": "D7",
+   "detection": {
+    "by": [
+     "TAINT:world_leak:world_leak:210df7b8356c",
+     "TAINT:world_leak:world_leak:c49368a4f373"
+    ],
+    "detail": {
+     "evidence": [
+      {
+       "lines": []
+      },
+      {
+       "lines": []
+      }
+     ],
+     "invalid": 0,
+     "probes": 4
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "/Users/muahmed/Desktop/Projects/RL-for-Real-World-Environments/crucible/data/debug/gen/store/train/tasks/db-go-mvdan-sh-5e983709",
+    "detector": "TAINT:world_leak",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "mvdan-sh-5e983709-changelog",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-5e983709-e1-budget",
+   "independent": true,
+   "mechanism": "budget_bound",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709-e1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "mvdan-sh-5e983709-e2-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709-e2"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "TAINT:visible_contradicts",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "mvdan-sh-5e983709-e2-revert-stale",
+   "independent": true,
+   "mechanism": "stale_visible_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709-e2 (first build, revert mode)"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets leak_other"
+   },
+   "id": "mvdan-sh-5e983709-e1-table-entries",
+   "independent": true,
+   "mechanism": "leak_other",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709-e1"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets leak_other"
+   },
+   "id": "mvdan-sh-5e983709-e2-table-entries",
+   "independent": true,
+   "mechanism": "leak_other",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-mvdan-sh-5e983709-e2"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "pulldown-cmark-e072a230-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-rust-pulldown-cmark-e072a230"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "pulldown-cmark-e072a230-e1-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-rust-pulldown-cmark-e072a230-e1"
+  },
+  {
+   "d_class": "D10",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets env_bug"
+   },
+   "id": "pulldown-cmark-e072a230-e2-world-build",
+   "independent": true,
+   "mechanism": "env_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-rust-pulldown-cmark-e072a230-e2"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "golang-net-61a78cba-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net-61a78cba"
+  },
+  {
+   "d_class": "D11",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "no falsifier on the repository substrate targets grading_bug_load"
+   },
+   "id": "golang-net-61a78cba-testlegacy",
+   "independent": true,
+   "mechanism": "grading_bug_load",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net-61a78cba"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "unclassified: not a validity defect"
+   },
+   "id": "golang-net-61a78cba-trailer-case",
+   "independent": true,
+   "mechanism": "cause_unstated",
+   "quality": "unclassified",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net-61a78cba"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "golang-net-6c36e4c8-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net-6c36e4c8"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "golang-net-6c36e4c8-e1-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net-6c36e4c8-e1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "pipeline: not a validity defect"
+   },
+   "id": "golang-net-os-specific-packages",
+   "independent": true,
+   "mechanism": "false_refusal",
+   "quality": "pipeline",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-go-golang-net (window; version not stated)"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "react-hook-form-399578e2-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-node-react-hook-form-399578e2"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "TAINT:world_leak",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "react-hook-form-399578e2-e1-changelog",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-node-react-hook-form-399578e2-e1"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "react-hook-form-399578e2-e2-too-hard",
+   "independent": true,
+   "mechanism": "too_hard",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-node-react-hook-form-399578e2-e2"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "pipeline: not a validity defect"
+   },
+   "id": "isort-f66fa65b-leak-probe",
+   "independent": true,
+   "mechanism": "false_refusal",
+   "quality": "pipeline",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-isort-f66fa65b"
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": "TAINT:world_leak",
+    "status": "lost",
+    "why": "the defective version is not in the store (rebuilt or built elsewhere)"
+   },
+   "id": "isort-changelog-reworded",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-isort-f66fa65b (inferred)"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "isort-f66fa65b-budget",
+   "independent": true,
+   "mechanism": "budget_bound",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-isort-f66fa65b"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "isort-f66fa65b-3bug-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-isort-f66fa65b (3-bug unlinked variant)"
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "no_detector",
+    "why": "P2: not a validity defect"
+   },
+   "id": "isort-f66fa65b-5bug-too-easy",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "db-python-isort-f66fa65b (5-bug variant)"
+  },
+  {
+   "d_class": "D11",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-sqlglot-load-link",
+   "independent": true,
+   "mechanism": "fake_link_load",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "tobymao/sqlglot (screened window, no task built)"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-sqlglot-coarse-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "tobymao/sqlglot (screened window, no task built)"
+  },
+  {
+   "d_class": "D11",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-cel-go-load-link",
+   "independent": true,
+   "mechanism": "fake_link_load",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "google/cel-go (screened window, no task built)"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-yq-coarse-link",
+   "independent": true,
+   "mechanism": "fake_link_coarse_test",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "mikefarah/yq (screened window, no task built)"
+  },
+  {
+   "d_class": "D6",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-markdown-internal-timing",
+   "independent": true,
+   "mechanism": "test_calls_internal",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "Python-Markdown/markdown (screened window, no task built)"
+  },
+  {
+   "d_class": "D10",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-zod-world",
+   "independent": true,
+   "mechanism": "env_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "colinhacks/zod (screened window, no task built)"
+  },
+  {
+   "d_class": "D10",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "not_built",
+    "why": ""
+   },
+   "id": "screen-perfectionist-world",
+   "independent": true,
+   "mechanism": "env_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "train",
+   "task_version": "azat-io/eslint-plugin-perfectionist (screened window, no task built)"
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#1",
+   "independent": true,
+   "mechanism": "undescribed_fault",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#2",
+   "independent": true,
+   "mechanism": "unstated_rule",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D7",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#3",
+   "independent": true,
+   "mechanism": "changelog_hint",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D10",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#4",
+   "independent": true,
+   "mechanism": "env_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D10",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#5",
+   "independent": true,
+   "mechanism": "env_bug",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#6",
+   "independent": true,
+   "mechanism": "undescribed_fault",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#7",
+   "independent": true,
+   "mechanism": "undescribed_fault",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#8",
+   "independent": true,
+   "mechanism": "undescribed_fault",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#9",
+   "independent": true,
+   "mechanism": "unstated_rule",
+   "quality": "P1",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#10",
+   "independent": true,
+   "mechanism": "fake_link_cause_unstated",
+   "quality": "unclassified",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#11",
+   "independent": true,
+   "mechanism": "fake_link_cause_unstated",
+   "quality": "unclassified",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": null,
+   "detection": null,
+   "executable": {
+    "artifact": null,
+    "detector": null,
+    "status": "heldout",
+    "why": "held-out: counts only"
+   },
+   "id": "heldout#12",
+   "independent": true,
+   "mechanism": "too_easy",
+   "quality": "P2",
+   "source": "debug_lane",
+   "split": "heldout",
+   "task_version": null
+  },
+  {
+   "d_class": "D5",
+   "detection": {
+    "by": [
+     "TAINT:literal:literal:100",
+     "TAINT:literal:literal:101",
+     "TAINT:literal:literal:103",
+     "TAINT:literal:literal:104",
+     "TAINT:literal:literal:106"
+    ],
+    "detail": {
+     "repaired_version_confirmed": 0
+    },
+    "detected": true,
+    "exhibits": true
+   },
+   "executable": {
+    "artifact": "crucible_pack_finance_ap.studio:APTask(0)",
+    "detector": "TAINT:literal",
+    "status": "executable",
+    "why": ""
+   },
+   "id": "finance_ap-pack-oracle-unlisted-ids",
+   "independent": false,
+   "mechanism": "TAINT:literal",
+   "quality": "P1",
+   "source": "finance_ap",
+   "split": "train",
+   "task_version": "crucible_pack_finance_ap APTask(0).oracle"
+  }
+ ],
+ "notes": [
+  "only independent defects (found without the synth falsifiers) calibrate recall; the archive and the finance_ap finding are falsifier-found",
+  "held-out and benchmark tasks appear as counts only (heldout#k)"
+ ],
+ "swarm_archive_counts": {
+  "ALT:agent|D6|lost|None": 2,
+  "ATK:agent|D8|lost|None": 2,
+  "MUT:DropStep|D1|lost|None": 3,
+  "MUT:DropStep|D3|lost|None": 1,
+  "MUT:ExtraWrite|D2|lost|None": 34,
+  "MUT:ExtraWrite|D3|executable|False": 1,
+  "MUT:PerturbValue|D3|lost|None": 5,
+  "MUT:SwapEntity|D3|executable|False": 3,
+  "MUT:SwapEntity|D3|lost|None": 25,
+  "MUT:SwapEntity|D9|executable|False": 2,
+  "MUT:SwapEntity|D9|lost|None": 42,
+  "MUT:Truncate|D1|lost|None": 4,
+  "NULL:minus_last_write|D1|executable|True": 1,
+  "NULL:minus_last_write|D1|lost|None": 2,
+  "NULL:noop|D4|executable|True": 1,
+  "NULL:noop|D4|lost|None": 1,
+  "NULL:random_k|D8|executable|True": 8,
+  "NULL:random_k|D8|lost|None": 3,
+  "NULL:read_all|D4|executable|True": 1,
+  "NULL:read_all|D4|lost|None": 1,
+  "RED:pattern|D4|executable|False": 2,
+  "RED:pattern|D4|executable|True": 3,
+  "RED:pattern|D4|lost|None": 27,
+  "RED:start_state|D4|executable|True": 1,
+  "RED:start_state|D4|lost|None": 1,
+  "TAINT:derive|D7|executable|True": 4,
+  "TAINT:derive|D7|lost|None": 5,
+  "TAINT:literal|D5|executable|True": 9,
+  "TAINT:literal|D5|lost|None": 10,
+  "TAINT:q_const|D5|executable|True": 1,
+  "TAINT:q_const|D5|lost|None": 1,
+  "TWIN:twin|D9|executable|True": 44,
+  "TWIN:twin|D9|lost|None": 53
+ }
+}

@@ -1827,13 +1827,31 @@ ONL: item 14); composition (M6) is not.
      subtest: confirmed D6 at milestone scope, the fake link). NULL: noop, STATUS.json claims, minus-last-write,
      delete/stub the milestone test files, the lane's test_edit floor, a plumbing shim (conftest.py, go.work, .npmrc,
      .cargo/config.toml), a PATH shim (`bin/<runner>`). RED: §5's, guards skipped. TAINT: ledger (a milestone no report
-     requirement asks for: D5), world_leak (a fix's issue reference in a changelog of A′: D7), visible_contradicts (a
+     requirement asks for: D5), world_leak (a changelog line of A′ with a fix's issue reference, or every content word
+     of its subject, all but one from 6 words: the lane's strip rule; D7), visible_contradicts (a
      visible test that passes at A′ fails at B on two runs: a stale assertion, D6), report_literal (an output string the
      fix adds and a hidden test compares, in neither the report nor A′: **report-only**). REP: fresh grades of B and A′
      against the first, plus the lane's stored S10 (60 oracle grades) and S3 (60 reruns) as prior trials. TWIN and PERT do
      not apply (a symptom report names no entity; a mined commit has no distractors); ALT/ATK are paid, not run;
      `PATCH_POLICY` drops the ALT-pass rule (recorded). `certify_patch` prefetches every program probe's end state so the
      Docker runs go four at a time.
+   - **Certificates of the 12 pool tasks** (`runs/m5/certificates_summary.json`; 402 Docker runs, about 30 minutes).
+     Per task n is 15–37 distinct MUT effects, 7–8 NULL, 3–7 RED, 7–15 TAINT and 123 REP (3 fresh plus the lane's
+     stored 60 + 60). **No confirmed counterexample in MUT, NULL, RED or REP on any task.** One confirmed TAINT D6:
+     `db-python-black-ae5830b7-c1-516b23` (the swarm pilot's build) keeps two stale visible tests
+     (`test_lines_with_leading_tabs_expanded`, `test_simple_format[docstring]`): its revert-mode start tree has the old
+     versions, which fail on B, so an agent that fixes the bugs sees its own visible tests go red. 11 MUT suspects on 8
+     tasks, each a DropHunk survivor: code B changes that no hidden test needs (echo wraps a bind error with the field
+     name; go-toml, huma, react-hook-form, black, pulldown-cmark one or two regions each); they wait for adjudication.
+     One report-only literal (go-toml). Status: 5 provisional (c = 0, U_MUT 0.078–0.15 for want of n ≥ 59), 7 rejected
+     (open suspects; black c1 also its D6). MUT's n stays below 59 on every repo task: each distinct effect is a Docker
+     run, and a 1–8 file fix has few code regions.
+   - **E7 applicability (repositories).** MUT, NULL, RED, TAINT, REP apply; TWIN, PERT do not; ALT, ATK paid (not run);
+     ONL applies online. TAINT's §5 literal sourcing does not transfer (π*'s literals are whole file texts); on repos it is
+     ledger + World leak + stale visible tests, and literal sourcing is report-only. Recall gaps found on real defects: a
+     fake link through one *case file* (black ae5830b7: m03's case file holds m02's cases; test ids do not overlap, so
+     SharedCheck misses it), a changelog line naming a fix whose subject is too short to match (mvdan-sh dc951aeb's
+     "implement $-"), and answers leaked through visible test data in strip mode (4 records: no class targets it).
    - **The real-defect set** (`realdefects.py`, E8). Debug-lane records (`docs/research/env-synthesis/runs/m5/
      debug_lane_defects.json`, 86, each training record with doc, line and an exact quote checked on load; held-out
      tasks as counts only, ids and quotes dropped), every confirmed counterexample of the M4 archives (214, hash chain
@@ -1844,6 +1862,14 @@ ONL: item 14); composition (M6) is not.
      finance_ap finding are falsifier-found and are reported apart. `measure` runs the detector on every executable
      version: the debug lane's through `synth_patch_wire.detect_debug` on its defective version in `data/debug`, the
      archive's by re-running its class on the stored task version (a scratch work dir), finance_ap on the pack World.
+     **Built 2026-10-29** (`runs/m5/realdefects*.json`, `realdefects_table.md`): 390 records, 351 P1. Independent
+     (debug lane, 74 training + 12 held-out as counts): D5 7, D6 21, D7 11, D10 5, D11 3, plus 39 P2/P4/pipeline/
+     unclassified. Falsifier-found (the archives had grown to 303 records by the build; finance_ap 1): D1 10, D2 34, D3 35,
+     D4 38, D5 22, D6 2, D7 9, D8 13, D9 141. Executable: 96 (debug lane 14, archive 81, finance_ap 1); 229 lost (the
+     archive's repaired versions, debug versions rebuilt elsewhere), 46 without a detector, 7 screened windows never
+     built. **Detection on the independent executable ones: D6 10/11, D7 2/3** (the misses are the gaps above). On the
+     falsifier-found ones (1 by construction for most): D9 44/46, D8 8/8, D5 11/11, D7 4/4, D4 6/8, D1 1/1, D3 0/4 (MUT
+     survivors the panel confirmed: without a model they stay suspects).
    - **ONL** (`falsify/online.py`). `RolloutObs` from an eval `episodes.jsonl` row (`path:*` gate failures become
      flags), a training `rewards.jsonl` row, or a `RolloutRecord` with its trace and patch. Monitors: `l1_rules`
      (`credit.hack_detector.rule_flags` over the trace), `gate_flags`, `component_flags`. Confirmers: `judged` (the L2

@@ -278,7 +278,8 @@ async def detect_debug(defect: Any, *, root: Path, parallel: int = 4) -> Any:
                 details.append({k: v for k, v in o.data.items() if k in ("shared", "lines", "stale", "n_stale")})
         if n == 0:
             return Detection(detected=None, detail={"why": "no valid probe", "invalid": invalid, "errors": details[:3]})
-        return Detection(detected=bool(hits), exhibits=bool(hits), by=hits[:10], detail={"probes": n, "invalid": invalid, "evidence": details[:5]})
+        # a hit shows the artifact still has the defect; a miss alone cannot tell a recall gap from a version rebuilt clean
+        return Detection(detected=bool(hits), exhibits=True if hits else None, by=hits[:10], detail={"probes": n, "invalid": invalid, "evidence": details[:5]})
     finally:
         if runner is not None:
             runner.close()

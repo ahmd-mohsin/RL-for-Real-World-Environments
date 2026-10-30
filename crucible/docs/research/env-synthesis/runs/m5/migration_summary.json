@@ -1,0 +1,103 @@
+{
+ "all_equal": true,
+ "at": "2026-10-29T16:53:23",
+ "note": "first pass: 11/12 equal; black-ae5830b7-c1-516b23 differed on 2 rows (its stored mutant vectors name m01/m02, its parent's milestones); compared on its own milestones it is equal (rerun)",
+ "tasks": {
+  "db-go-carbon-93371b6f": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 20.5
+  },
+  "db-go-carbon-a783fb3a-h5": {
+   "differences": [],
+   "docker_runs": 10,
+   "equal": true,
+   "errors": [],
+   "rows": 28,
+   "seconds": 29.2
+  },
+  "db-go-echo-61eca05b-e2": {
+   "differences": [],
+   "docker_runs": 8,
+   "equal": true,
+   "errors": [],
+   "rows": 22,
+   "seconds": 13.5
+  },
+  "db-go-go-toml-a02114e3-e1b": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 8.3
+  },
+  "db-go-golang-net-6c36e4c8-e2": {
+   "differences": [],
+   "docker_runs": 9,
+   "equal": true,
+   "errors": [],
+   "rows": 25,
+   "seconds": 48.0
+  },
+  "db-go-huma-815e1ff8": {
+   "differences": [],
+   "docker_runs": 8,
+   "equal": true,
+   "errors": [],
+   "rows": 22,
+   "seconds": 19.7
+  },
+  "db-go-mvdan-sh-dc951aeb-e1": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 23.4
+  },
+  "db-node-react-hook-form-399578e2-e1": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 48.8
+  },
+  "db-python-black-90117fa0-e1": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 58.4
+  },
+  "db-python-black-ae5830b7-c1-516b23": {
+   "differences": [],
+   "docker_runs": 6,
+   "equal": true,
+   "errors": [],
+   "rows": 16,
+   "seconds": 57.6
+  },
+  "db-python-black-ae5830b7-e1": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 62.2
+  },
+  "db-rust-pulldown-cmark-e072a230-e2": {
+   "differences": [],
+   "docker_runs": 7,
+   "equal": true,
+   "errors": [],
+   "rows": 19,
+   "seconds": 6.4
+  }
+ }
+}
