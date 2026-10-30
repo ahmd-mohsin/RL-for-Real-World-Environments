@@ -469,7 +469,7 @@ def cmd_frontier_round(a: argparse.Namespace, data_root: Callable[[argparse.Name
         d = root / a.domain / f"{rid}-perfect-frontier-{name}"
         d.mkdir(parents=True)
         wire = SynthWire(d, cap_usd=a.cap_arm)
-        cfg = RunConfig(n_tasks=a.n, batch=a.batch, max_rounds=a.rounds, concurrency=4, cells=cells,
+        cfg = RunConfig(n_tasks=a.n, batch=a.batch, max_rounds=a.rounds, concurrency=4,
                         alt_budget=AgentBudget(max_calls=20, max_turns=24), atk_budget=AgentBudget(max_calls=12, max_turns=14))
         if a.domain == "finance_ap":
             env = finance_ap_env(d / "work", seeds=tuple(int(x) for x in a.seeds.split(",")), invoices=a.invoices)
@@ -479,6 +479,8 @@ def cmd_frontier_round(a: argparse.Namespace, data_root: Callable[[argparse.Name
             wrep = json.loads((Path(a.world) / "worldgen_report.json").read_text())
             design = json.loads((Path(a.world) / "design.json").read_text())
             env = generated_env(a.world, d / "work", name=a.domain, description=f"{wrep['keyword']}: {design.get('description', '')}")
+        if cells:  # the K loop's targeted requests, as the proposer's cells (``DomainEnv.cells``)
+            env.cells = cells
         r = Runner(env, wire.run_roles(), cfg, d, root, run_id=d.name, cost=wire.cost, families=wire.families())
         await r.run()
         synth_usd = wire.cost()["total_usd"]

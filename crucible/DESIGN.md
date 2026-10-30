@@ -2023,8 +2023,8 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      `frontier_round` runs a targeted and an untargeted batch at the same budget from one injected proposer, `compare`
      (budget within 35%, perfect tasks per dollar with a bootstrap interval, in-band rate, targeted-mode hit rate),
      then admits. `knob_kept` is principle 15. The real round (`synth.py frontier-round`) turns each request into the
-     proposer's cell in words (`request_text`: the cell, the missing skill, each knob change) through the one additive
-     pipeline field `RunConfig.cells` (empty: `CELLS`), runs the swarm pipeline per arm under one cap each, then P2, P3,
+     proposer's cell in words (`request_text`: the cell, the missing skill, each knob change) through item 18's
+     `DomainEnv.cells` (the control arm keeps `CELLS`), runs the swarm pipeline per arm under one cap each, then P2, P3,
      P4 and `perfect` on every new task.
    - **Outcome classifier** (`outcome.py`; the probe side of the task-creation RSI loop, no training). Per rollout:
      `intended_pass` (constrained values observed before written, π*'s effects), `intended_fail` (a skill-mode first
