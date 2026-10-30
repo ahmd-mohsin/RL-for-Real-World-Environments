@@ -45,7 +45,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from crucible.synth.datagen import DATAGEN_FORMAT, PROFILES, TODAY, DataSpec, DataSpecError, Generated, Profile, generate, integrity
+from crucible.synth.datagen import DATAGEN_FORMAT, PROFILES, TODAY, DataSpec, DataSpecError, Generated, generate, integrity
 from crucible.synth.domain import DomainSpec, PolicyParam, bind_design, generate_spec
 from crucible.synth.roles import (
     APP_API_DOC,
@@ -297,6 +297,12 @@ def check_docs(docs: DocsOut, spec: DomainSpec, *, stale_values: list[str] | Non
             raise ValueError(f"the data_standards document does not say how to treat {w} records")
     if not any(w in ds for w in ("master", "source of truth", "takes precedence", "prevails", "authoritative")):
         raise ValueError("the data_standards document does not say which source wins when two records disagree (the master record)")
+
+
+def _log_attempt(app: Path, attempt: int, problem: str) -> None:
+    """Every refused data generator, with its problem (``app/datagen_attempts.jsonl``): the record of why a stage spent."""
+    with (app / "datagen_attempts.jsonl").open("a") as fh:
+        fh.write(json.dumps({"t": time.time(), "attempt": attempt, "problem": problem[:3000]}) + "\n")
 
 
 def check_permission_tests(tests: ToolTestsOut, d: ToolDesignOut, spec: DomainSpec) -> None:
@@ -582,22 +588,32 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         data_tables = {k: v for k, v in sm.items() if k not in ("documents", "policy_params", "colleagues")}
         tg = targets(d.model_dump(mode="json"), s.model_dump(mode="json"))
         feedback = ""
+        log = app / "datagen_attempts.jsonl"
+        if log.exists() and log.read_text().strip():  # a resumed stage: start from the last problem (the wire samples at a fixed
+            last = json.loads(log.read_text().strip().splitlines()[-1])  # seed, so the same prompt would return the same refused
+            feedback = f"An earlier generator was refused: {last['problem'][-1500:]}"  # generator: pilot 1, insurance, twice)
         for attempt in range(cfg.data_attempts):
-            def chk(x: DataSpec) -> None:
+            def chk(x: DataSpec, attempt: int = attempt) -> None:
                 missing = sorted(set(data_tables) - {t.table for t in x.tables})
                 if missing:
                     raise ValueError(f"no generator for tables {missing}")
                 x = DataSpec(tables=[t for t in x.tables if t.table in data_tables], notes=x.notes)
-                g = generate(x, data_tables, seed=0, profile=Profile(min_rows={t: cfg.k_min for t in tg}))
-                probs = integrity(x, data_tables, g)
-                if probs:
-                    raise DataSpecError("the sampled data breaks its own checks: " + "; ".join(probs[:12]))
-                pp = [p for p in sp.policy_params if p.type == "ref"]
-                for p in pp:
-                    if p.table not in data_tables:
-                        raise DataSpecError(f"policy parameter {p.name} refers to table {p.table}, which has no generator")
-                    if not _ref_candidates(g, data_tables, p):
-                        raise DataSpecError(f"policy parameter {p.name}: no {p.table} row matches {p.where}")
+                # every instance profile at its own seed (pilot 1: a spec that sampled at seed 0 failed at 3 of 4 instance seeds)
+                for sd, pname in ((0, "standard"), (1, "dense"), (2, "noisy"), (3, "clean")):
+                    try:
+                        base = PROFILES[pname]
+                        g = generate(x, data_tables, seed=sd, profile=base.model_copy(update={"min_rows": {t: round(cfg.k_min * max(1.0, base.scale)) for t in tg}}))
+                        probs = integrity(x, data_tables, g)
+                        if probs:
+                            raise DataSpecError(f"the sampled data ({pname} profile) breaks its own checks: " + "; ".join(probs[:12]))
+                        for p in (p for p in sp.policy_params if p.type == "ref"):
+                            if p.table not in data_tables:
+                                raise DataSpecError(f"policy parameter {p.name} refers to table {p.table}, which has no generator")
+                            if not _ref_candidates(g, data_tables, p):
+                                raise DataSpecError(f"policy parameter {p.name}: no {p.table} row matches {p.where}")
+                    except DataSpecError as e:
+                        _log_attempt(app, attempt, f"{pname}: {e}")
+                        raise
 
             try:
                 ds: DataSpec = await ask(clients["data_spec_writer"], DATA_SPEC_WRITER, tag="family:datagen", check=chk, retries=2,
@@ -605,6 +621,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                                          datagen_format=DATAGEN_FORMAT, feedback=feedback or None)
             except RoleFailed as e:  # a fresh conversation with the last problem (pilot 1: one long repair thread kept failing)
                 feedback = f"An earlier generator was refused: {str(e)[-1500:]}"
+                _log_attempt(app, attempt, feedback)
                 if attempt == cfg.data_attempts - 1:
                     raise ValueError(f"data generator: {e}") from None
                 continue
@@ -621,6 +638,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
             if not probs:
                 return
             feedback = "The sampled start state broke the application: " + "; ".join(probs[:6])
+            _log_attempt(app, attempt, feedback)
         raise ValueError(f"data generator: {feedback}")
 
     async def s_docs() -> None:
@@ -721,13 +739,13 @@ def _ref_candidates(g: Generated, schema: Mapping[str, Mapping[str, Any]], p: Po
 
 def _operator_candidates(spec: DomainSpec, g: Generated, schema: Mapping[str, Mapping[str, Any]], p: PolicyParam, cands: list[Any], index: int) -> list[Any]:
     """The actor config's acting user: someone who does the domain's main work. The spec's roles are ranked by how
-    much they may do; instances cycle over the top two (the main operator, then the next), and the user is drawn among
+    much they may do; every instance acts as a user of the top role (instances differ in which user), drawn among
     the eligible users holding that role. Pilot 1: a seeded draw made a returns instance act as a Finance Clerk, so
     every write tool refused with PERMISSION_DENIED and no task could act."""
     roles = sorted(spec.permissions.roles, key=lambda r: -len(r.may))
     if not roles:
         return []
-    want = roles[index % min(2, len(roles))].role
+    want = roles[0].role  # pilot 1: cycling to the second role made a leave instance act as an Employee (submit only)
     rows = g.tables.get(str(p.table), [])
     kf = schema[str(p.table)]["key"]
     allowed = {str(c) for c in cands}

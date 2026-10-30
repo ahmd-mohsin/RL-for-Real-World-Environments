@@ -503,7 +503,7 @@ class _Sampler:
             return f"{g.get('prefix', '')}{s}{g.get('suffix', '')}"
         if k == "choice":
             vals = list(g["values"])
-            if self.n_cur >= 2 * len(vals) and self.idx < len(vals) and t.fields.get(f, {}).get("kind") == "choice" and not t.fields[f].get("when"):
+            if self.n_cur >= len(vals) and self.idx < len(vals) and t.fields.get(f, {}).get("kind") == "choice" and not t.fields[f].get("when"):
                 # every declared value occurs at least once in a big enough table (pilot 1: no user held the Finance Clerk
                 # role a ref filtered on, so an instance could not be generated); the rest follow the weights
                 order = self.cover.setdefault((t.table, f), rng.sample(vals, len(vals)))
@@ -577,7 +577,13 @@ class _Sampler:
         return keep
 
     def pick_ref(self, table: str, f: str, g: Mapping[str, Any]) -> Any:
-        keys = self.candidates(g)
+        if str(g["table"]) == table:  # a self-reference (a manager among users): the first rows have no parent yet
+            try:
+                keys = self.candidates(g)
+            except DataSpecError:
+                return None  # pilot 1: the top of a hierarchy has no manager
+        else:
+            keys = self.candidates(g)
         if g.get("unique"):
             return self.pick_pool(table, f, keys, True)
         return self.rng.choice(keys)
