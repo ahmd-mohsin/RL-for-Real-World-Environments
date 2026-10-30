@@ -415,7 +415,7 @@ def _natural(root: Path, domains: list[str]):
 _REPORT: dict = {}  # E10: one report context for every arm (the locked-set measurements are a function of the population)
 
 
-def _make_loop(a: argparse.Namespace, cfg, d: Path, spend, shards_factory, seeded=None):
+def _make_loop(a: argparse.Namespace, cfg, d: Path, spend, shards_factory, seeded=None, own_ctx: bool = False):
     from crucible.synth.falsify import FalsifyContext
     from crucible.synth.meta.rsi import Loop, load_real_defects, real_defect_features
 
@@ -430,6 +430,7 @@ def _make_loop(a: argparse.Namespace, cfg, d: Path, spend, shards_factory, seede
 
     return Loop(d, _pool(dev, dev_src), locked, locked_src, cxs, ctx=FalsifyContext(), report_ctx=_REPORT.setdefault("ctx", FalsifyContext()) if seeded is not None else FalsifyContext(), config=cfg, dev_sources=dev_src,
                 builders=["deepseek", "glm", "kimi"], natural_sources=nat_tasks, spend=spend, reference=ref, natural_refresh=refresh, shards=shards_factory,
+                make_ctx=FalsifyContext if own_ctx else None,
                 seeded=seeded)
 
 
@@ -451,7 +452,7 @@ def cmd_evolve(a: argparse.Namespace) -> None:
             pools.append(ShardPool(a.workers))
         return pools[0]
 
-    loop = _make_loop(a, cfg, d, lambda: wire.meter.spent, shards)
+    loop = _make_loop(a, cfg, d, lambda: wire.meter.spent, shards, own_ctx=True)  # each arm its own Worlds: the arms run concurrently
     props = swarm_proposers(_seeded(wire.client("abstractor")), planter_client=_seeded(wire.client("abstractor")), salt=a.label)
 
     def save() -> None:

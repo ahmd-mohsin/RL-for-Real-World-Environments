@@ -146,9 +146,14 @@ intervals, not as tests.
 
 ## 8. Student probes
 
-The per-task probe loop runs only on admitted tasks of the 100-task pool, with the learnability agent's probe runner and
-outcome classifier. The student is the only model probed; probes are not training. The online monitor during RL
-training is a separate safety net and is not an input to RSI-2. No pass rate enters J or any gate.
+RSI runs at task-creation time. The per-task probe loop (`meta/rsi.ProbeLoop`) runs on every admitted task of the
+100-task pool: the learnability agent's probe runner (`learn.StudentProbe`, 8 rollouts, `WireClient(seed_by_tag=True)`
+so the rollouts are independent samples) and its outcome classifier (`synth.outcome`, consumed through
+`rsi.LearnClassifier`); repairs through CEGIS under the monotone archive; T1–T7; ≤ 3 repairs per task; a re-probe of 8
+rollouts after each accepted repair, for the drift monitor only. The student is the only model probed; probes are not
+training. The online monitor during RL training is a separate safety net and is not an input to RSI-2. No pass rate
+enters J or any gate. Lessons lifted from the probe loop (archive counterexamples, lemma candidates, World-builder
+fixes) become system-level candidates and are decided like every other update (§4), with the generalisation gates.
 
 ## 9. Amendments
 

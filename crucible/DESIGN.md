@@ -2503,7 +2503,7 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      by a stable hash so each shard's per-seed class cache keeps every unit it measured (`FEvaluator(shards=...)`).
    - **The per-task probe loop** (`rsi.ProbeLoop`; lead, 2026-10-29: RSI at task-creation time, not after training).
      The student's probe rollouts (`StudentProbe`, the learnability agent's runner) are classified (`OutcomeClassifier`,
-     the learnability agent's; `ProbeOutcome` is the record consumed) as intended pass / intended fail / unintended pass
+     `synth.outcome` through `LearnClassifier`: its `uncertain` is never a task defect, `decided_by` sets the evidence) as intended pass / intended fail / unintended pass
      / unintended fail; executed unintended outcomes become PROBE counterexamples (the student's program with the verdict
      the task should have given; `ProbeReplay` re-runs them in archive regressions) and drive a CEGIS repair of the task,
      World instance or contract; lessons are lifted (archive → natural clusters → F; repair → lemma candidates; World or

@@ -820,6 +820,7 @@ class Loop:
         self.make_ctx = make_ctx
         self.seeded = seeded  # seeded contexts shared by every arm of this loop (only without make_ctx: they share the Worlds)
         self.headroom_cache: Any = None
+        self._report_lock = asyncio.Lock()
         # the natural-likeness reference: given (the independently found real defects), else the archive's natural
         # counterexamples (falsifier-found: a weaker reference, used only when no independent set exists)
         ref = list(reference) if reference else [natural_features(c) for c in self.natural]
@@ -1055,8 +1056,8 @@ class Loop:
 
         async def locked_gain(theta: Any, cand: Any) -> float:
             fs0, fs1 = population(theta.data.get("F")), population(cand.data.get("F"))
-            m0 = await measure(self.locked.plants, [], fs0, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
-            m1 = await measure(self.locked.plants, [], fs1, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
+            m0 = await self._rmeasure(self.locked.plants, [], fs0, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
+            m1 = await self._rmeasure(self.locked.plants, [], fs1, self.report_ctx, set_name=self.locked.name, set_kind="locked", purpose="report")
             h0 = {o.plant_id: bool(o.hit) for o in m0.plants}
             h1 = {o.plant_id: bool(o.hit) for o in m1.plants}
             return sum(h1[k] - h0[k] for k in h0) / max(1, len(h0))
@@ -1311,12 +1312,18 @@ class Loop:
         row.game = game
         row.locked = await self.locked_summary(arm)
         if self.family is not None:
-            fm = await measure(self.family.plants, self.family_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.family.name,
+            fm = await self._rmeasure(self.family.plants, self.family_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.family.name,
                                set_kind="locked", purpose="report")
             row.family = summary(fm)
 
+    async def _rmeasure(self, *args: Any, **kw: Any) -> RecallMatrix:
+        """``recall.measure`` on the shared report context, one caller at a time (pilot p3: two arms measuring the locked
+        set concurrently through one context reset a file-backed World under each other: SnapshotMismatch)."""
+        async with self._report_lock:
+            return await measure(*args, **kw)
+
     async def locked_summary(self, arm: Arm) -> dict[str, Any]:
-        m = await measure(self.locked.plants, self.locked_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.locked.name,
+        m = await self._rmeasure(self.locked.plants, self.locked_anchors, population(arm.store.get("F")), self.report_ctx, set_name=self.locked.name,
                           set_kind="locked", purpose="report")
         return summary(m)
 

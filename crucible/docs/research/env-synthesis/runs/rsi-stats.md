@@ -180,9 +180,15 @@ the reusable holdout, the held-out World family reported.
 **Interfaces consumed.** The student-probe runner is the learnability agent's `StudentProbe` (`rollouts(task, n, start)`
 → graded `Rollout`s with a replayable literal program). The outcome classifier (`OutcomeClassifier.classify(task,
 rollouts)` → `ProbeOutcome`: index, the grader's verdict, kind, mechanism, defect, evidence ∈ executed / calibrated /
-judged / none, `alt_solved` and its family, the program) is the learnability agent's; `meta/rsi.py` defines the record it
-consumes and enforces T1–T7 whatever the classifier says. The online monitor during RL training is a separate safety net
-and is **not** an input to this loop.
+judged / none, `alt_solved` and its family, the program) is the learnability agent's `synth.outcome`, adapted by
+`rsi.LearnClassifier`: its `uncertain` label is never a task defect (an uncertain fail becomes an unattributed fail, an
+uncertain pass a suspect), `decided_by` = execution gives executed evidence and = panel calibrated evidence, and the
+certification's ALT solvers are T7's independent solver. `meta/rsi.py` enforces T1–T7 whatever the classifier emits.
+Measured with the real classifier on a planted D1 task and three scripted rollouts
+(`test_the_probe_loop_consumes_the_learnability_classifier`): the full solution is an intended pass, the shortcut that
+skips the customer email an unintended pass ("lax requirement", decided by execution), a wrong article an intended fail
+("skill_gap: decision"); the shortcut is archived as a PROBE counterexample and the repair is accepted under T2–T5. The
+online monitor during RL training is a separate safety net and is **not** an input to this loop.
 
 ### 9.6′ What the paper reports about the loop (additions)
 
