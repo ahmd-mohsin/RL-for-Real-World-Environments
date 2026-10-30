@@ -5,7 +5,8 @@ Probes:
 - ``pattern`` (one per R pattern): a ``state`` pattern that s₀ already satisfies; a change pattern with ``count == 0``;
   a fully concrete update pattern whose predicates already hold for that cell at s₀ (the "change" is the status quo); a
   concrete insert whose entity already exists with those fields; a concrete delete of an entity already absent;
-- ``exec`` (one per exec check): the predicate already true on the do-nothing episode.
+- ``exec`` (one per ``require`` exec check): the predicate already true on the do-nothing episode. A ``guard`` (a
+  pass-to-pass suite) holds at s₀ by design and is not probed.
 Change patterns with a wildcard address are never vacuous on s₀ alone (they still need a change) and are left to MUT,
 NULL and TWIN. All probes are property probes (re-checked by site on replay).
 """
@@ -37,6 +38,8 @@ class RED(BaseFalsifier):
         for p in task.contract.required:
             out.append(Probe(cls="RED", op="pattern", site=pattern_site(p), expect="property", data={"id": p.id}))
         for x in task.contract.exec:
+            if x.kind == "guard":  # a preservation check holds at s₀ by design; it rewards nothing on its own
+                continue
             out.append(Probe(cls="RED", op="exec", site=f"exec:{x.name}:{cjson(x.args)}", expect="property", data={"id": x.id}))
         return out
 

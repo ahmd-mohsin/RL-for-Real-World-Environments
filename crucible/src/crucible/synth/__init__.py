@@ -10,6 +10,10 @@ the lemma bank).
 M4: ``roles`` (role prompts, schemas, visibility and family rules as data; the ``RoleClient`` protocol), LLM ALT/ATK
 runners and the adjudication panel (``falsify.agents``), ``worldgen`` + ``sandbox`` (F1 World synthesis with blind frozen
 tests; model code only in a restricted child process), ``pipeline`` (one end-to-end run over a domain).
+M5: ``patch`` (the repository substrate: a file-tree World, the fix commit as the oracle, the lane's grader as a contract
+with exec checks run in custody through an injected runner, migration of stored grades), ``falsify.patch`` (MUT, NULL,
+RED, TAINT, REP on repositories), ``realdefects`` (the real-defect set, E8), ``falsify.online`` (ONL on eval and training
+rollouts).
 
 Layering: beside ``crucible.forge``; imports runtime, verify, world and core, never factory. LLM roles are injected.
 """

@@ -1630,7 +1630,8 @@ Multi-language debugging lane (`docs/research/swarm-pipeline/07-debug-lane.md`; 
 The trusted base of the Part 2 paper (`docs/research/env-synthesis/part2-paper-core.md`): an environment is a claim
 ("this start state, instruction and verifier reward exactly the intended skill") put under falsification. Code:
 `src/crucible/synth/`; layer `crucible.forge | crucible.synth` (synth imports runtime, verify, world and core, never
-factory). M1–M4 are built (M4, the model-driven roles: item 13); the debug-lane adapter (M5) and composition (M6) are not.
+factory). M1–M5 are built (M4, the model-driven roles: item 13; M5, the repository substrate, the real-defect set and
+ONL: item 14); composition (M6) is not.
 
 1. **Canonical state** (`canon.py`). `CanonState` maps `(app, coll, key, field)` to JSON values; the key is an entity,
    never a position: SQL by primary key (`PRAGMA table_info`), else a declared natural key, else the row's hash; files
@@ -1787,6 +1788,74 @@ factory). M1–M4 are built (M4, the model-driven roles: item 13); the debug-lan
      ($1.07); it_helpdesk 19 executed → 2 certified, 1 provisional, 16 rejected, 1 dropped, 21 repairs accepted on 10
      tasks ($1.94). The binding rule on both is §6's "ALT has a pass from a non-builder family": the solvers misapply the
      AP policy (duplicates, a blocked vendor's shared bank account), and the panel confirms those attempts are invalid.
+14. **M5: the repository substrate, the real-defect set and ONL (built 2026-10-29; CPU and local Docker, no model call).**
+   - **`PatchTask`** (`patch.py`). A `PatchWorld` is an overlay of writes over the read-only start tree A′
+     (`repo.read_file`, `list_files`, `write_file`, `delete_file`, `apply_patch`: a unified diff applied in pure Python
+     with context checks). `canon()` is `canon_fs` of A′ with the overlay, plus a `role` per path from an injected
+     classifier (`source`, `doc`, `test`, `golden`, `config`, `vendored`, `plumbing`, `vcs`). Every written text goes to a
+     content store by sha256. The oracle is one `write_file`/`delete_file` step per file B changes. The contract is the
+     lane's grader as data: one `exec` check per lane check (`c_<m>` kind `require`, `c_regress` kind `guard`), A = any
+     change to a `source`/`doc` path (with a why), every other change `FORBIDDEN_EFFECT`. The exec predicate reads only the
+     end `CanonState`, maps changed paths back to text through the content store (an unknown hash is a
+     `CustodyError`: fail closed) and asks an injected runner. `ThreadedRunner` runs the async grade on its own loop
+     thread, at most `parallel` at once, one cached result per distinct file set; an unmeasured grade is never a verdict
+     (`GRADER_ERROR:exec`, the probe invalid). `phi`/`lane_reward` recompute Φ and the shaped reward with the lane's
+     rounding. **Decision (`ExecCheck.kind`):** a `guard` (a pass-to-pass suite) must hold but holds at s₀ by design, so RED
+     does not probe it; without it RED calls every regression suite vacuous (D4).
+   - **The wire** (`factory/synth_patch_wire.py`; synth never imports factory). `Pool` opens a debug root's training store
+     only (`WindowStore(split="train")`; any `data/sealed` path refused) and builds the lane's own `DebugTask` with its
+     authored report, no clone. `lane_roles` is the task's language profile plus the lane's `is_protected` and the hidden
+     test files (every lane-protected path is forbidden; vendored and `.git` too). `lane_runner` grades through
+     `WindowTask.grade` (`apply_files`: protected paths dropped as the lane drops them) in the task's World image, reading
+     per-test statuses from the lane's sandbox run; mode `visible` is S3's existing-suite run (`run_tests`, no hidden test).
+     Containers `crucible-lh-d-synth-*`, at most 4, `--rm`, leftovers removed by name. CLI `scripts/synth_debug.py`
+     (`migrate`, `certify`, `realdefects`).
+   - **Migration (`patch.migrate`; `tests/unit/test_synth_patch_pool.py`, marked docker+slow).** For each of the 12
+     built training-pool tasks: B, A′, the lane's floors (as its own patches, through `apply_patch`) and every
+     commit-revert mutant graded through the adapter and compared with the stored gate record (S8 rewards and verdicts, S3
+     `oracle_milestones` and `start_any_milestone_test`) and the window's mutant vectors. **246 rows, 12 of 12 equal**
+     (90 Docker runs, about 7 minutes), rewards to the bit (0.333334, 0.416666, 0.375, ...). The first pass differed on 2
+     rows of `db-python-black-ae5830b7-c1-516b23`: a simplified window keeps its parent's mutant vectors, which name m01
+     and m02, milestones it does not have; compared on its own milestones it is equal (the rule is in `migrate`, with a
+     note on the row).
+   - **Falsifiers on repositories** (`falsify/patch.py`, the E7 column; classes keep §5's names). MUT: Identity,
+     DropFile and DropHunk (source files only, comment-only regions never proposed, at most 16 hunks sampled; a survivor
+     is a *suspect* D1: whether untested code matters is a judgement), RevertFix (the lane's mutant: a survivor or a
+     mutant whose own milestone still passes is confirmed D1; one failing a milestone that does not require it, suspect
+     D6), ExtraSource (an inert comment must pass: FORBIDDEN is confirmed D6), ExtraForbidden per forbidden role and
+     EditTest (must fail: a pass is confirmed D2), SharedCheck (two milestones graded by one test or a parent and its
+     subtest: confirmed D6 at milestone scope, the fake link). NULL: noop, STATUS.json claims, minus-last-write,
+     delete/stub the milestone test files, the lane's test_edit floor, a plumbing shim (conftest.py, go.work, .npmrc,
+     .cargo/config.toml), a PATH shim (`bin/<runner>`). RED: §5's, guards skipped. TAINT: ledger (a milestone no report
+     requirement asks for: D5), world_leak (a fix's issue reference in a changelog of A′: D7), visible_contradicts (a
+     visible test that passes at A′ fails at B on two runs: a stale assertion, D6), report_literal (an output string the
+     fix adds and a hidden test compares, in neither the report nor A′: **report-only**). REP: fresh grades of B and A′
+     against the first, plus the lane's stored S10 (60 oracle grades) and S3 (60 reruns) as prior trials. TWIN and PERT do
+     not apply (a symptom report names no entity; a mined commit has no distractors); ALT/ATK are paid, not run;
+     `PATCH_POLICY` drops the ALT-pass rule (recorded). `certify_patch` prefetches every program probe's end state so the
+     Docker runs go four at a time.
+   - **The real-defect set** (`realdefects.py`, E8). Debug-lane records (`docs/research/env-synthesis/runs/m5/
+     debug_lane_defects.json`, 86, each training record with doc, line and an exact quote checked on load; held-out
+     tasks as counts only, ids and quotes dropped), every confirmed counterexample of the M4 archives (214, hash chain
+     verified), and the finance_ap oracle finding. `MECHANISM_CLASS` maps mechanisms to D1–D11 (stale visible test D6,
+     changelog hint D7, fake link by a coarse test D6, by a load-dependent test D11, environment D10, unstated rule and
+     undescribed fault D5); too easy/hard and budget-bound are P2, duplicates P4, factory false refusals `pipeline`.
+     **Decision (independence):** only defects found without the synth falsifiers calibrate recall; the archive and the
+     finance_ap finding are falsifier-found and are reported apart. `measure` runs the detector on every executable
+     version: the debug lane's through `synth_patch_wire.detect_debug` on its defective version in `data/debug`, the
+     archive's by re-running its class on the stored task version (a scratch work dir), finance_ap on the pack World.
+   - **ONL** (`falsify/online.py`). `RolloutObs` from an eval `episodes.jsonl` row (`path:*` gate failures become
+     flags), a training `rewards.jsonl` row, or a `RolloutRecord` with its trace and patch. Monitors: `l1_rules`
+     (`credit.hack_detector.rule_flags` over the trace), `gate_flags`, `component_flags`. Confirmers: `judged` (the L2
+     judge's `hack/confirmed`) and `ReplayConfirmer` (executed: the rollout's end state through the certified contract;
+     the contract rejecting it, or the pass needing the flagged actions, confirms; a pass that holds without them clears).
+     `OnlineCertifier.consume` counts every passing rollout as a trial (`results(task)` is the ONL `ClassResult`),
+     archives confirmed counterexamples and appends one `QuarantineRecord` per counterexample to `quarantine.jsonl`;
+     `with_online` rejects a certificate on a confirmed one. M2's `OnlineMonitor` API is kept.
+   - **Tests**: `test_synth_patch.py` (a fixture repo with two bugs and an in-process runner: oracle/start, frame and
+     custody, `apply_patch`, a clean certificate, D1/D2/D5/D6/D7/D8/D11 planted and caught, guard skip, migration and its
+     drift detection, the threaded runner's bound and cache), `test_synth_online.py`, `test_synth_realdefects.py`,
+     `test_synth_patch_pool.py` (the 12-task migration).
 
 ## 8. Layer 4: verification and isolation
 

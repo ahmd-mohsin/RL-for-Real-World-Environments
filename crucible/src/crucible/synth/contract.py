@@ -204,10 +204,15 @@ class TraceConstraint(CrucibleModel):
 
 
 class ExecCheck(CrucibleModel):
+    """A black-box predicate from the exec registry. ``kind`` says what it is for: a ``require`` check is evidence the
+    task was done (a hidden fail-to-pass test); a ``guard`` must hold but holds by design at the start state too (a
+    pass-to-pass regression suite), so RED does not call it vacuous. Both gate the verdict the same way."""
+
     id: str
     name: str
     args: dict[str, Any] = Field(default_factory=dict)
     expect: Any = True
+    kind: Literal["require", "guard"] = "require"
 
 
 class Contract(CrucibleModel):
