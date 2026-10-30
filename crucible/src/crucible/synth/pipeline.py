@@ -50,11 +50,8 @@ from crucible.synth.program import Program, Run
 from crucible.synth.roles import (
     ABSTRACTOR,
     CONTRACT_DOC,
-    CONTRACT_WRITER,
     DEFECTS_DOC,
-    ORACLE_PROGRAMMER,
     PROGRAM_DOC,
-    PROPOSER,
     REPAIRER,
     ContractOut,
     RepairOut,
@@ -68,6 +65,7 @@ from crucible.synth.roles import (
     parse_program,
     program_doc,
     tool_catalogue,
+    variant,
 )
 from crucible.synth.task import IntentCard, Task, WorldRef
 
@@ -93,6 +91,7 @@ class DomainEnv:
     slice: Callable[[SynthWorld], Awaitable[dict[str, Any]]] | None = None
     max_rows: int = 40
     cells: Sequence[str] | None = None  # the proposer's cells (default ``CELLS``); compose.py's follow-up links pass their own
+    built_by: frozenset[str] = frozenset()  # families that built the World (a worldgen App): never ALT/ATK on its tasks
 
 
 @dataclass
@@ -128,6 +127,11 @@ class RunConfig:
     writer_lemmas: tuple[str, ...] = ()  # ... and those the contract writer is shown (lemmas whose role is the writer)
     paid: bool = True  # ALT and ATK; off for a first-round-only measurement (the lemma test)
     repair: bool = True  # off: the repairer is never called (every repair is "declined"): first-round counterexamples only
+    # yield work (synth.batch): the prompt variant of the builder roles and the ALT solver (``roles.variant``), whether the
+    # oracle programmer sees the proposer's derive values (off: an independent derivation), and the ALT finish nudge
+    variant: str = "v1"
+    oracle_sees_derive: bool = True
+    alt_finish_nudge: bool = False
 
 
 def admission_policy() -> AdmissionPolicy:
@@ -214,7 +218,9 @@ def run_problems(r: Run) -> list[str]:
     out = []
     if r.error:
         out.append(f"the program stopped: {r.error}")
-    out += [f"step {c.step} ({c.tool}) returned an error: {c.obs.error[:300]}" for c in r.calls if c.obs.error]
+    # a read that errors changes nothing and can be the evidence itself (the purchase order an invoice bills does not
+    # exist: yield-1 dropped 3 correct po_mismatch oracles as dead); a later step that refers into it stops the program
+    out += [f"step {c.step} ({c.tool}) returned an error: {c.obs.error[:300]}" for c in r.calls if c.obs.error and not c.read_only]
     if out:
         out += [f"observation of {c.step} ({c.tool}): {compact(c.obs.value, 700)}" for c in r.calls[:10] if c.obs.error is None]
     return out
@@ -304,6 +310,13 @@ class Runner:
         self.panel: Panel | None = None
         self.ready: list[tuple[TaskRecord, Task, Run]] = []
         self.panel_rows: list[dict[str, Any]] = []
+        # hooks for synth.batch (defaults: the M4 behaviour): the deterministic classes per task, a wrapper of the paid
+        # classes (concurrent agents), a screen between the executed oracle and the contract writer (a reason drops the
+        # task as "filtered"), and a sink for every ALT/ATK agent turn
+        self.cheap_factory: Callable[[], list[Any]] = cheap
+        self.wrap_paid: Callable[[list[Any]], list[Any]] | None = None
+        self.screen: Callable[[TaskRecord, Task, Run], Awaitable[str | Task | None]] | None = None  # a Task: use it (intent re-derived)
+        self.agent_log: Callable[[TaskRecord, str, dict[str, Any]], None] | None = None
 
     # -- A: propose, oracle, contract ------------------------------------------------------------------------------
     async def survey(self) -> None:
@@ -330,7 +343,7 @@ class Runner:
             cell = cells[b % len(cells)]
             want = min(self.cfg.batch, self.cfg.n_tasks - len(recs))
             try:
-                out = await ask(self.roles.proposer, PROPOSER, tag="propose:batch", retries=1, domain=self.env.description,
+                out = await ask(self.roles.proposer, variant("proposer", self.cfg.variant), tag="propose:batch", retries=1, domain=self.env.description,
                                 tools=tool_catalogue(self.tools[seed]), world=compact(self.slices[seed], 24000), cell=cell,
                                 existing=[p["instruction"] for p in proposals if "instruction" in p] or None, count=want,
                                 lemmas=list(self.cfg.lemmas) or None)
@@ -385,9 +398,9 @@ class Runner:
                 return prog, r
 
             try:
-                prog, r = await ask(self.roles.oracle_programmer, ORACLE_PROGRAMMER, tag=f"oracle:{rec.id}", check=executed,
-                                    retries=self.cfg.oracle_retries, task=p["instruction"], intent={"skill": p.get("skill"), "given": p.get("given"),
-                                                                                                     "derive": p.get("derive")},
+                prog, r = await ask(self.roles.oracle_programmer, variant("oracle_programmer", self.cfg.variant), tag=f"oracle:{rec.id}", check=executed,
+                                    retries=self.cfg.oracle_retries, task=p["instruction"],
+                                    intent={"skill": p.get("skill"), "given": p.get("given"), **({"derive": p.get("derive")} if self.cfg.oracle_sees_derive else {})},
                                     tools=tool_catalogue(self.tools[rec.seed]), world=compact(self.slices[rec.seed], 24000), program_format=PROGRAM_DOC)
             except RoleFailed as e:
                 rec.status, rec.reasons, rec.note = "dropped", ["oracle:dead"], str(e)[:600]
@@ -397,11 +410,18 @@ class Runner:
             rec.stage = "oracle"
             rec.oracle_writes = sum(1 for c in r.calls if not c.read_only)
             task = task.model_copy(update={"oracle": prog}, deep=True)
+            if self.screen is not None:
+                why = await self.screen(rec, task, r)
+                if isinstance(why, Task):  # the screen re-derived the intent card from the executed oracle
+                    task = why
+                elif why:
+                    rec.status, rec.reasons = "filtered", [why]
+                    return
             from crucible.synth.infer import skeleton
 
             sk = skeleton(r, task.contract.normalizers)
             try:
-                co: ContractOut = await ask(self.roles.contract_writer, CONTRACT_WRITER, tag=f"contract:{rec.id}", retries=1, task=p["instruction"],
+                co: ContractOut = await ask(self.roles.contract_writer, variant("contract_writer", self.cfg.variant), tag=f"contract:{rec.id}", retries=1, task=p["instruction"],
                                             intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(self.tools[rec.seed]),
                                             skeleton=contract_doc(sk), effects=effects_view(r, sk.normalizers), answer=r.answer,
                                             contract_format=CONTRACT_DOC, lemmas=list(self.cfg.writer_lemmas) or None)
@@ -454,12 +474,15 @@ class Runner:
         return Panel(members=[PanelMember(n, c) for n, c in self.roles.panel], lam=self.cfg.lam, queue=self.dir / "human_queue.jsonl",
                      show_reasons=self.cfg.show_reasons)
 
-    async def calibrate_panel(self) -> None:
+    async def calibrate_panel(self, ready: Sequence[tuple[TaskRecord, Task, Run]] | None = None) -> None:
+        """``ready``: the built tasks to take anchors from (default ``self.ready``; synth.batch passes its own, so that
+        tasks other builds append meanwhile are never touched)."""
         self.panel = self.make_panel()
-        if self.panel is None or not self.cfg.calibrate or not self.ready:
+        src = list(self.ready if ready is None else ready)
+        if self.panel is None or not self.cfg.calibrate or not src:
             return
         anchors: list[Anchor] = []
-        for rec, task, r in self.ready[: self.cfg.calib_tasks]:
+        for rec, task, r in src[: self.cfg.calib_tasks]:
             anchors.append(Anchor(task=task, attempt=Attempt(trace=trace_view(r.calls), answer=r.answer, reasons=[]), valid=True, kind="oracle"))
             anchors.append(Anchor(task=task, attempt=Attempt(trace=[], answer=None, reasons=[]), valid=False, kind="noop"))
             writes = [i for i, c in enumerate(r.calls) if not c.read_only]
@@ -530,14 +553,24 @@ class Runner:
         t0 = time.time()
         ctx = FalsifyContext(max_mutants=self.cfg.max_mutants)
         tdir = self.dir / "tasks" / f"t{rec.n:02d}"
-        builders = self.roles.builder_families()
-        alts = [llm_alt(n, c, budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}") for n, c in self.roles.alt]
-        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}") for n, c in self.roles.atk]
+        builders = self.roles.builder_families() | set(self.env.built_by)
+
+        def sink(name: str) -> Callable[[dict[str, Any]], None] | None:
+            if self.agent_log is None:
+                return None
+            hook = self.agent_log
+            return lambda row: hook(rec, name, row)
+
+        alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}",
+                        finish_nudge=self.cfg.alt_finish_nudge, log=sink(n)) for n, c in self.roles.alt]
+        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}", log=sink(n)) for n, c in self.roles.atk]
         paid = [x for x in (ALT(alts, exclude_families=builders) if alts else None, ATK(atks, exclude_families=builders) if atks else None) if x]
         if not self.cfg.paid:
             paid = []
+        if self.wrap_paid is not None:
+            paid = self.wrap_paid(paid)
         panel = self.panel
-        falsifiers = cheap()
+        falsifiers = self.cheap_factory()
         if panel is not None:  # suspects (MUT survivors, ALT failures, ATK passes) are decided as they are found
             panel = Panel(members=panel.members, lam=panel.lam, queue=panel.queue, show_reasons=panel.show_reasons, tag=f"adjudicate:{rec.id}")
             falsifiers = [Adjudicated(f, panel) if f.name == "MUT" else f for f in falsifiers]

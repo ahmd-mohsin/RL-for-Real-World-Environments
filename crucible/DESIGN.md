@@ -1774,7 +1774,8 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      calibration, panel log, human queue, lemmas, report.json/.md, usage.jsonl, spend.jsonl); the archive is
      `<data>/synth/<domain>/archive.jsonl`.
    - **The wire** (`factory/synth_wire.py`): `SYNTH_ROLES` on the swarm preset (proposer, oracle programmer and
-     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b; ATK
+     repairer DeepSeek-V4.1-Flash; contract writer GLM-5.3; ALT Nemotron-3-Ultra + Nemotron-3-Super + gpt-oss-120b (in
+     fact Ultra twice: a shared runner name, item 17; now Ultra ×2 + gpt-oss); ATK
      Nemotron-3-Super + gpt-oss-120b; panel Nemotron-3-Ultra + gpt-oss-120b; abstractor gpt-oss; F1: Kimi-K2.6 designs
      and codes, DeepSeek tests blind, Nemotron-Ultra approves disputes. Measured in the M4 runs: Kimi as proposer
      deliberated in plain text past 16k tokens without reaching its JSON; gpt-oss as a solver quits after one call), checked by `ModelBook(preset="swarm")` and the synth rules (`SameFamilyError`; no Qwen anywhere: the
@@ -2201,6 +2202,101 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        value) is caught by MUT but not closed by the merge;
      - TWIN suspects have no inline judge;
      - the locked-set FR/FA has not been re-measured after the TWIN changes.
+17. **Part 2 batch runner and yield (built 2026-10-29; part2-paper-core §7, §9.5 S, §13 E6).**
+   - **The batch runner** (`synth/batch.py`; CLI `synth.py batch | batch-report`). A batch runs arms side by side over a
+     cell grid (domain × World instance (start-state seed) × cell kind; `BatchDomain`; `batch_domains` adapts a
+     `DomainEnv` or any object with `env` and `cells`, the interface a DomainSpec with a cell grid has to meet). Each arm
+     (`Arm`: prompt variant and yield settings) has its own run directory, wire and hard cap, so arms compare at equal
+     spend on fresh proposals. Per arm three worker pools are pipelined through queues: propose (one proposer call = one
+     batch for one cell) → dedup → pre-filters → build (`Runner.build`: oracle executed, the `screen` hook, contract
+     writer) → panel calibration once per domain → refine (`Runner.refine_one`). The stage code is the pipeline's own;
+     the hooks added to `pipeline.Runner` are `cheap_factory`, `wrap_paid`, `screen` (a reason drops the task as
+     `filtered`, a `Task` replaces it), `agent_log` and `calibrate_panel(ready=)`; `RunConfig` gains `variant`,
+     `oracle_sees_derive`, `alt_finish_nudge`; `DomainEnv.built_by` (World-author families, excluded from ALT/ATK).
+     Every model call goes through `Resilient`: one semaphore over all arms and roles, transient errors retried with
+     exponential backoff and jitter (never a budget, JSON or leak error), latency booked per stage. `serial=True` runs the
+     same code one candidate and one call at a time, in-process, with no concurrent agents: the speed baseline.
+   - **Process parallelism** (`synth/offload.py`). `FalsifyPool` runs the deterministic classes of one task version in a
+     `spawn` worker (its own World from the `WorldRef`, its own context) and `Offloaded` hands `falsify` the worker's
+     findings as they are: the counted findings equal an in-process run's (tested; an uncounted duplicate mutant keeps
+     the worker's label), archive replay stays in-process, MUT stays `Adjudicated` in the parent. `ConcurrentAgents`
+     runs every ALT/ATK attempt at once, each on its own context (one World per context is reset before every run).
+     Measured: one deterministic round of a dense finance_ap task is about 12 s of CPU, and in yield-1 the six workers
+     were busy 11 200 s of a 2 344 s batch: the CPU falsifiers, not the model calls, bound the refine stage.
+   - **Resumable.** Candidate state `<arm>/cands/<id>.json` after every transition, proposer replies
+     `<arm>/props/<cell>-b<k>.json` before their candidates. A restart keeps finished candidates, refines built ones,
+     builds unbuilt ones, admits proposer replies whose candidates were never written, and restarts a cut-off refine
+     under a fresh attempt id `<id>~2` (the cut-off attempt's archived counterexamples stay on record and never act as
+     regressions of the new attempt). Tested: a resumed run reaches the uninterrupted run's outcomes with no new
+     proposer call.
+   - **Spend.** `SynthWire(stage_caps=)`: a `StageMeter` (a `SpendMeter`) per stage (`ROLE_STAGE`) holds every call's
+     worst case in the stage meter and the run meter and books in both; receipt rows carry `stage`, so a resumed meter
+     restarts from them. `stop_proposing_usd` is the soft limit; the proposer also pauses while more than
+     `max_backlog` candidates (default build + refine workers) wait, so in-flight work finishes inside the hard cap.
+     `YIELD_CAP_USD` = 35 over every receipt under `<data>/synth/yield/`, clipped to the milestone's 60.
+   - **Scheduling and dedup.** A cell is open below its admitted quota and its proposal maximum; the proposer takes the
+     open cell with the largest deficit after in-flight candidates at the running yield. Proposer calls in flight
+     reserve their proposals, and a call that returned nothing counts against the cell's maximum. Dedup per World
+     instance (`yieldkit.Deduper`): exact (case, spacing and punctuation folded) and near (the same entity ids and derive
+     values, or word 3-shingle Jaccard ≥ 0.8 on the same entities); the same template on another entity is not a
+     duplicate.
+   - **Metrics** (`arm_metrics`, `report_md`): the funnel proposed → unique → pre-filter pass → oracle executed →
+     contract → falsified → repaired → admitted; cost per stage and per candidate (tags; a proposer call is split over
+     its batch, untagged calls over the built candidates); admitted per USD and USD per admitted with bootstrap intervals
+     over candidates; yield with a Wilson interval; the first-round confirmed rate; oracle truth (finance_ap); the size
+     and cell of the admitted tasks (the R4 Goodhart check); per domain; and speed: wall clock, admitted per hour, wall
+     per admitted, busy time per stage, model latency per stage and the serial-equivalent time over the wall clock.
+   - **Failure analysis** (`synth/failures.py`; CLI `synth.py failures`). One row per task of a run directory: stage,
+     status, a primary reason (`PRIMARY_ORDER`), the failure mode of every adjudicated failed ALT attempt from the panel's
+     written reasons (`alt_mode`: no_action, no_write, not_found, skipped_rule, wrong_decision, incomplete, split, valid)
+     and, with `synth_wire.finance_ap_truth` (the pack's own policy decision for every invoice a contract pins), whether
+     the oracle is right.
+   - **Yield tools** (`synth/yieldkit.py`, `roles.py` v2). Pre-filters before the oracle (an id the World lacks; a derive
+     value in the instruction, TAINT's rule). The blind oracle (`oracle_sees_derive=False`) and `agreement`/`reconcile`:
+     when its decision values differ from the proposer's derive, the intent card is re-derived from the executed oracle
+     (agreeing values plus the oracle's decision values the instruction does not state; the proposer's values were
+     leak-checked before the oracle ran, so TAINT's derive check loses nothing). Prompt variants as data
+     (`roles.variant`, `VARIANTS`): `PROPOSER_V2`, `ORACLE_PROGRAMMER_V2` (rule by rule, in an `analysis` key, before the
+     program), `CONTRACT_WRITER_V2` (exact keys, narrow allowed patterns), `ALT_SOLVER_V2` (read the documents the task
+     names; a decision is a write) with `llm_agent(finish_nudge=True)` (one generic nudge when an attempt finishes with
+     no successful write). `CLARITY_CHECKER` (GLM, differs from proposer and oracle programmer): solves the task on paper
+     from what the agent sees and drops unclear or disagreeing tasks. The lemma batch (`repair_pairs`, `lemma_clusters`,
+     `lemma_leaks`; CLI `synth.py lemmas`): (counterexample, repair) pairs to the abstractor as clusters, the
+     deterministic leakage critic on its lemmas, acceptance by `meta.lemmas.lemma_acceptance` against the arm without
+     them.
+   - **Framework bugs the real runs found and fixed:**
+     1. **The ALT naming bug.** Nemotron Ultra and Super were both `alt_solver-nemotron`; ALT finds its runner by name,
+        so Ultra ran twice and Super never ran (M4, RSI-1). Names are unique, `_AgentFalsifier` refuses duplicates, and
+        `SYNTH_ROLES` says what ran: Ultra ×2 + gpt-oss (Super passed 0 of 12 correct-oracle finance_ap tasks).
+     2. **A reached cap was not a stop.** The chat engine wraps `TinkerCapReached` in `EngineCallError`; the wire took it
+        for a failed call (panel members abstained, ALT attempts failed) and the arm went on refusing calls.
+        `WireClient` and `Resilient` re-raise the budget refusal behind such an error (`batch.budget_cause`). M4 and
+        RSI-1 never reached their caps, so no earlier result is affected; yield-2's tail was (see the run report).
+     3. **A read that errors killed the oracle.** The v2 oracle reads the purchase order an invoice bills; for a
+        po_mismatch case it does not exist, and `run_problems` dropped the correct oracle as dead. Errors of read-only
+        calls are evidence now; a refused write or a reference into an errored read still is a problem.
+     4. **Calibration lost a built task**: the batch swapped `Runner.ready` while other builds appended to it.
+     5. **Unthrottled proposing** queued 30+ candidates per arm ahead of refine, so the soft limit could not act:
+        backpressure (`max_backlog`).
+   - **Findings** (`docs/research/env-synthesis/runs/yield-1.md`). With DeepSeek proposing, 16 of 31 stored finance_ap
+     oracles pin a decision the pack's policy does not reach (the oracle programmer copied the proposer's derive), and 14
+     of the 31 `ALT:no_pass` rejections had a wrong oracle; the blind v2 oracle is right on 29 of 31. On correct tasks
+     the solvers' weakness is real (Ultra 4 of 12). At equal caps on fresh proposals (yield-1, and yield-2 before its
+     cap), the improved arm `a1` admits 4.49 per USD (95% 3.19–5.90) against `a0`'s 2.21 (1.24–3.32), difference 2.28
+     (0.57–4.03); 0 of its admitted finance_ap tasks has a wrong oracle, against 3 of `a0`'s. The lemma batch is refused
+     by the gate (the first-round rate did not fall, J fell, spend 48% higher). The clarity self-check dropped 1 wrong
+     and 3 right oracles of 19 at about USD 0.02 a call and stays off by default (arm `a1c`).
+   - **Open (structural, reported).** A task whose oracle and ALT solvers make the same mistake is certified: three
+     admitted finance_ap tasks contradict the pack's policy (compound cases where this World's own rule order decides the
+     reason code, and a tolerance edge); no falsifier class checks the reference decision against the World's rules,
+     and the panel judges only failing ALT attempts. The same wrong oracles poison calibration (oracle traces are the
+     "valid" anchors: yield-2 `a0` fell to λ = 0.95, uncalibrated).
+   - **Tests**: `tests/unit/test_synth_batch.py` (scripted roles on the fixture helpdesk World: two arms pipelined with
+     dedup and pre-filters, resume after a crash, offloaded classes equal in-process, concurrent agents, duplicate agent
+     names, the finish nudge, `Resilient` retries and bound, a wrapped cap refusal, dedup, pre-filters/agreement/
+     reconcile, the scheduler, per-candidate cost and the bootstrap, failure modes, mining a run directory, lemma
+     clusters and the critic, the blind oracle, the stage meter, unique ALT names, calibration with concurrent builds,
+     read errors in the oracle).
 
 ## 8. Layer 4: verification and isolation
 

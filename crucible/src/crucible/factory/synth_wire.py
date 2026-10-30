@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,6 +49,7 @@ from crucible.factory.models import (
     backend,
     parse_spec,
 )
+from crucible.synth.batch import budget_cause
 from crucible.synth.iface import CrucibleWorldAdapter
 from crucible.synth.pipeline import DomainEnv, RunRoles
 from crucible.synth.roles import ROLES, family_problems
@@ -64,8 +66,12 @@ SYNTH_ROLES: dict[str, tuple[str, ...]] = {
     "contract_writer": (GLM,),
     "repairer": (DEEPSEEK,),
     # M4 run 1: gpt-oss-120b quits after one call (it reports success it did not make) and Nemotron-3-Super misapplies the
-    # AP policy (ALT passed on 5 of 17 finance_ap tasks); Nemotron-3-Ultra solves best and leads the solvers
-    "alt_solver": (NEMOTRON_ULTRA, NEMOTRON, GPT_OSS),
+    # AP policy (ALT passed on 5 of 17 finance_ap tasks); Nemotron-3-Ultra solves best and leads the solvers.
+    # Yield work: the table said Ultra + Super + gpt-oss, but both Nemotron solvers were named "alt_solver-nemotron" and ALT
+    # ran Ultra twice (Super never ran as a solver in M4 or RSI-1). With unique names that is now explicit: on 12 finance_ap
+    # tasks whose oracle is right, Ultra passed 4, Super 0 (2 with the v2 harness), gpt-oss 0, so the second attempt stays
+    # Ultra's. gpt-oss stays because ALT needs two families.
+    "alt_solver": (NEMOTRON_ULTRA, NEMOTRON_ULTRA, GPT_OSS),
     "attacker": (NEMOTRON, GPT_OSS),
     "panel": (NEMOTRON_ULTRA, GPT_OSS),
     "abstractor": (GPT_OSS,),
@@ -83,6 +89,9 @@ SYNTH_ROLES: dict[str, tuple[str, ...]] = {
     # §10 composition (synth/compose.py): one instruction for a composed task, and knob rewrites; a builder family (the
     # proposer's, which writes instructions), never a solver's, attacker's or judge's
     "instruction_writer": (DEEPSEEK,),
+    # yield work: the instruction-clarity self-check, an independent derivation in a builder family other than the
+    # proposer's and the oracle programmer's (GLM already builds: it adds no family to the builder set ALT must avoid)
+    "clarity_checker": (GLM,),
 }
 
 # The six-family assignment (§14.1 "family exhaustion", 2026-10-29): with Inkling, the panel shares no family with the
@@ -96,6 +105,12 @@ SYNTH_ROLES_DISJOINT: dict[str, tuple[str, ...]] = {
     "leak_panel": (INKLING, NEMOTRON_ULTRA),
     "leak_probe": (GPT_OSS,),
 }
+
+# the stage a role's calls are booked under (per-stage hard caps: ``SynthWire(stage_caps=...)``)
+ROLE_STAGE: dict[str, str] = {"proposer": "propose", "oracle_programmer": "oracle", "contract_writer": "contract", "repairer": "repair",
+                              "alt_solver": "ALT", "attacker": "ATK", "panel": "adjudicate", "abstractor": "abstract", "clarity_checker": "clarity",
+                              "tool_designer": "worldgen", "schema_deriver": "worldgen", "app_coder": "worldgen", "blind_tester": "worldgen",
+                              "debugger": "worldgen", "test_approver": "worldgen", "seeder": "worldgen"}
 
 
 def _book_roles(table: Mapping[str, Sequence[str]]) -> dict[str, str]:
@@ -167,6 +182,12 @@ class Usage:
         return {k: round(v, 5) for k, v in sorted(out.items())}
 
 
+# The chat engine wraps every non-LLM error of a call in ``EngineCallError`` (``train.world_env``), the meter's
+# ``TinkerCapReached`` included, so before yield-2 a reached cap reached the synth pipeline as a model failure: panel
+# members abstained, ALT attempts failed, and the run went on refusing calls instead of stopping. ``WireClient`` re-raises
+# the budget refusal behind such an error (``synth.batch.budget_cause``).
+
+
 class WireClient:
     """``roles.RoleClient`` over an ``LLMClient``-shaped chat client (``complete(messages, ...) -> LLMResponse``)."""
 
@@ -194,7 +215,13 @@ class WireClient:
         last = ""
         for attempt in range(self.json_retries + 1):
             t0 = time.monotonic()
-            r = await self.inner.complete(msgs, temperature=temperature, max_tokens=max_tokens, seed=self._seed(tag, attempt))
+            try:
+                r = await self.inner.complete(msgs, temperature=temperature, max_tokens=max_tokens, seed=self._seed(tag, attempt))
+            except Exception as e:
+                cap = budget_cause(e)
+                if cap is not None:  # the meter refused the call: a budget stop, not a model or provider failure
+                    raise cap from e
+                raise
             self.calls += 1
             stage = (tag or self.role).split(":", 1)[0]
             self.usage.add({"t": round(time.time(), 3), "tag": tag, "stage": stage, "role": self.role, "model": self.model, "family": self.family,
@@ -217,19 +244,62 @@ class WireClient:
 
 # ---------------------------------------------------------------------------------------------------------- the wire
 
-class SynthWire:
-    """Clients for every synth role on one run's meter (module docstring)."""
+def stage_meter(parent: Any, stage: str, cap_usd: float) -> Any:
+    """A per-stage hard cap on top of the run's ``SpendMeter`` (yield work). It is a ``SpendMeter``: a call holds its worst
+    case in the stage meter AND the run meter (refused with ``TinkerCapReached`` when either cannot pay it) and books its
+    measured cost in both; the run's receipt rows carry ``stage``, so a resumed run restarts the stage meter from them."""
+    from contextlib import contextmanager
 
-    def __init__(self, run_dir: str | Path, *, cap_usd: float, table: Mapping[str, Sequence[str]] | None = None, make: Any = None):
+    from crucible.train.bridges.tinker.spend import SpendMeter
+
+    class StageMeter(SpendMeter):
+        def __init__(self) -> None:
+            super().__init__(cap_usd)
+            self.parent, self.stage = parent, stage
+            if parent.path is not None and parent.path.exists():
+                for line in parent.path.read_text().splitlines():
+                    if line.strip():
+                        row = json.loads(line)
+                        if row.get("stage") == stage:
+                            self._add(row)
+
+        @contextmanager
+        def hold(self, est_usd: float, what: str):  # type: ignore[override]
+            with self.parent.hold(est_usd, what), super().hold(est_usd, f"stage {stage}: {what}"):
+                yield
+
+        def book(self, kind: str, model: Any, **kw: Any) -> float:  # type: ignore[override]
+            usd = self.parent.book(kind, model, stage=stage, **kw)
+            with self._lock:
+                self._add({"kind": kind, "model": getattr(model, "name", None), "usd": usd})
+            return usd
+
+    return StageMeter()
+
+
+class SynthWire:
+    """Clients for every synth role on one run's meter (module docstring). ``stage_caps`` (stage -> USD; stages are
+    ``ROLE_STAGE``'s) adds a hard cap per stage on top of the run's cap."""
+
+    def __init__(self, run_dir: str | Path, *, cap_usd: float, table: Mapping[str, Sequence[str]] | None = None, make: Any = None,
+                 stage_caps: Mapping[str, float] | None = None, seed_by_tag: bool = False):
         from crucible.train.bridges.tinker.spend import SpendMeter
+
+        # distinct samples per call tag (the yield arms: yield-1/2 ran the two Ultra ALT attempts on one seed, and 120 of
+        # 216 attempt pairs were the same trajectory)
+        self.seed_by_tag = seed_by_tag
 
         self.dir = Path(run_dir)
         self.table = dict(table or SYNTH_ROLES)
         self.book = check_assignment(self.table)
         self.meter = SpendMeter(cap_usd, path=self.dir / "spend.jsonl")
+        self.stage_meters = {s: stage_meter(self.meter, s, float(c)) for s, c in (stage_caps or {}).items()}
         self.usage = Usage(self.dir / "usage.jsonl")
         self._make = make  # tests inject a fake maker(model, role) -> chat client
         self._clients: dict[tuple[str, int], WireClient] = {}
+
+    def meter_for(self, role: str) -> Any:
+        return self.stage_meters.get(ROLE_STAGE.get(role, ""), self.meter)
 
     def client(self, role: str, i: int = 0) -> WireClient:
         if role not in ROLES:
@@ -240,8 +310,8 @@ class SynthWire:
             if self._make is not None:
                 inner = self._make(spec.model, role)
             else:
-                inner = backend(spec.provider).make(spec.model, role=role, meter=self.meter)
-            self._clients[k] = WireClient(inner, role=role, model=spec.model, family=spec.family, usage=self.usage)
+                inner = backend(spec.provider).make(spec.model, role=role, meter=self.meter_for(role))
+            self._clients[k] = WireClient(inner, role=role, model=spec.model, family=spec.family, usage=self.usage, seed_by_tag=self.seed_by_tag)
         return self._clients[k]
 
     def clients(self, role: str) -> list[WireClient]:
@@ -249,7 +319,11 @@ class SynthWire:
 
     def run_roles(self) -> RunRoles:
         def named(role: str) -> list[tuple[str, WireClient]]:
-            return [(f"{role}-{c.family}", c) for c in self.clients(role)]
+            # unique names: two models of one family (Nemotron Ultra and Super) once shared "alt_solver-nemotron", and the
+            # ALT falsifier, which finds its runner by name, ran the first of them twice (yield work, M4 records)
+            cs = self.clients(role)
+            fams = Counter(c.family for c in cs)
+            return [(f"{role}-{c.family}" + (f"-{i}" if fams[c.family] > 1 else ""), c) for i, c in enumerate(cs)]
 
         return RunRoles(proposer=self.client("proposer"), oracle_programmer=self.client("oracle_programmer"), contract_writer=self.client("contract_writer"),
                         repairer=self.client("repairer"), alt=named("alt_solver"), atk=named("attacker"), panel=named("panel"),
@@ -269,6 +343,7 @@ class SynthWire:
 
 
 RSI_CAP_USD = 40.0  # the first real RSI rounds (lead, 2026-10-29): every run of that work carries "rsi" in its run path
+YIELD_CAP_USD = 35.0  # the throughput and yield work (lead, 2026-10-29): every run under "<data root>/yield/"
 
 
 def work_spent(data_root: str | Path, tag: str = "rsi") -> float:
@@ -357,6 +432,50 @@ def finance_ap_env(work: str | Path, *, seeds: Sequence[int] = (0, 1, 2, 3), inv
 
     return DomainEnv(name="finance_ap", description=FINANCE_AP_DESCRIPTION, seeds=tuple(seeds), slice=slice_,
                      world=lambda s: WorldRef(factory="crucible.factory.synth_wire:finance_ap_world", params={"seed": int(s), "work": work, **extra}))
+
+
+_AP_TRUTH: dict[tuple[int, int | None], dict[int, tuple[str, str | None]]] = {}
+
+
+def finance_ap_truth(task: Mapping[str, Any]) -> str | None:
+    """Executed ground truth for a finance_ap task (yield work, ``synth.failures``): the pack's own policy decision for
+    every invoice the task's contract requires a status or reason on (``eq`` predicates), against what the oracle wrote.
+    ``right`` when every pinned invoice matches the pack's expected (status, reason), ``wrong`` when one does not, None
+    when the task pins no invoice decision (a figure, a report) or is not a finance_ap task."""
+    wrote: dict[int, dict[str, Any]] = {}
+    for r in (task.get("contract") or {}).get("required") or []:
+        v = r.get("value") or {}
+        if (r.get("app"), r.get("coll")) == ("erp", "invoices") and r.get("field") in ("status", "reason") and v.get("op") == "eq" and str(r.get("key")).isdigit():
+            wrote.setdefault(int(r["key"]), {})[r["field"]] = v.get("v")
+    return _ap_verdict(task, wrote)
+
+
+def finance_ap_run_truth(task: Mapping[str, Any], effects: Sequence[Mapping[str, Any]]) -> str | None:
+    """``finance_ap_truth`` from an executed run's effects (``pipeline.effects_view`` rows: change, kind, old, new), for a
+    task that has no contract yet (the batch screen, after the oracle ran)."""
+    wrote: dict[int, dict[str, Any]] = {}
+    for e in effects:
+        m = re.match(r"^erp\.invoices\[(\d+)\]\.(status|reason)$", str(e.get("change", "")))
+        if m:
+            wrote.setdefault(int(m.group(1)), {})[m.group(2)] = e.get("new")
+    return _ap_verdict(task, wrote)
+
+
+def _ap_verdict(task: Mapping[str, Any], wrote: Mapping[int, Mapping[str, Any]]) -> str | None:
+    from crucible_pack_finance_ap.world import draw
+
+    w = (task.get("world") or {}).get("params") or {}
+    if (task.get("world") or {}).get("factory", "").rsplit(":", 1)[-1] != "finance_ap_world" or not wrote:
+        return None
+    k = (int(w.get("seed", 0)), int(w["invoices"]) if w.get("invoices") else None)
+    if k not in _AP_TRUTH:
+        _AP_TRUTH[k] = {c.invoice_id: c.expected for c in draw(k[0], k[1]).cases}
+    exp = _AP_TRUTH[k]
+    for iid, x in wrote.items():
+        e = exp.get(iid)
+        if e is None or ("status" in x and x["status"] != e[0]) or ("reason" in x and (x["reason"] or None) != e[1]):
+            return "wrong"
+    return "right"
 
 
 def generated_env(app_dir: str | Path, work: str | Path, *, name: str, description: str) -> DomainEnv:
