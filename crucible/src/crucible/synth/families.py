@@ -719,6 +719,26 @@ def _ref_candidates(g: Generated, schema: Mapping[str, Mapping[str, Any]], p: Po
     return [r[kf] for r in rows if str(r[kf]) not in noise and all((r.get(a) in b) if isinstance(b, list) else r.get(a) == b for a, b in (p.where or {}).items())]
 
 
+def _operator_candidates(spec: DomainSpec, g: Generated, schema: Mapping[str, Mapping[str, Any]], p: PolicyParam, cands: list[Any], index: int) -> list[Any]:
+    """The actor config's acting user: someone who does the domain's main work. The spec's roles are ranked by how
+    much they may do; instances cycle over the top two (the main operator, then the next), and the user is drawn among
+    the eligible users holding that role. Pilot 1: a seeded draw made a returns instance act as a Finance Clerk, so
+    every write tool refused with PERMISSION_DENIED and no task could act."""
+    roles = sorted(spec.permissions.roles, key=lambda r: -len(r.may))
+    if not roles:
+        return []
+    want = roles[index % min(2, len(roles))].role
+    rows = g.tables.get(str(p.table), [])
+    kf = schema[str(p.table)]["key"]
+    allowed = {str(c) for c in cands}
+
+    def norm(x: Any) -> str:
+        return str(x).strip().lower().replace("_", " ")
+
+    hit = [r[kf] for r in rows if str(r[kf]) in allowed and any(norm(v) == norm(want) for v in r.values() if isinstance(v, str))]
+    return hit
+
+
 def policy_variant(spec: DomainSpec, cfg: InstanceConfig, g: Generated, schema: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     """The instance's policy parameter values: the spec's defaults for instance 0, else a seeded draw (numbers: the
     default scaled by 0.5 to 2, rounded to a nice value, clipped to [min, max]; choices uniformly; booleans flipped half
@@ -746,6 +766,8 @@ def _draw_params(spec: DomainSpec, cfg: InstanceConfig, g: Generated, schema: Ma
             continue
         if p.type == "ref":
             cands = _ref_candidates(g, schema, p)
+            if p.name == spec.permissions.acting_param:
+                cands = _operator_candidates(spec, g, schema, p, cands, cfg.index) or cands
             out[p.name] = rng.choice(cands) if cands else p.default
             continue
         if cfg.index == 0:

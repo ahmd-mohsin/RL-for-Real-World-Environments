@@ -2063,6 +2063,10 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        held the role a filter needed, so an instance could not be generated). The reference oracle tries the instance
        rows most like the blind test's fixture row first, and the density share now counts a write tool with no
        reference oracle as not reaching n.
+     - *The actor config acted as the wrong person.* A seeded draw made a returns instance act as a Finance Clerk, so
+       every write tool refused with PERMISSION_DENIED and no reference oracle (and no task) could act. The acting user
+       is now drawn among users holding one of the spec's two most-empowered roles (ranked by what they may do),
+       cycled across instances; the link-following discoverability probe follows up to 200 ids per get tool.
      - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
        be disputed (a procurement App spent three rounds on one).
      - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).

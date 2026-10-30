@@ -526,7 +526,7 @@ async def obscurity_gate(inst: Path) -> GateResult:
         asked: set[tuple[str, str]] = set()
         for _hop in range(2):
             for n, arg, tn in getters:
-                ids = [str(r.get(key_of[tn])) for r in seed.get(tn, []) if str(r.get(key_of[tn])) in seen][:60]
+                ids = [str(r.get(key_of[tn])) for r in seed.get(tn, []) if str(r.get(key_of[tn])) in seen][:200]
                 for k in ids:
                     if (n, k) in asked:
                         continue
