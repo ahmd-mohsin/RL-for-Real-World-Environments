@@ -884,7 +884,8 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                     add(f"{tn}[{k}]: rule {rule!r} cannot be evaluated: {e}")
                     continue
                 if not ok:
-                    add(f"{tn}[{k}]: rule {rule!r} does not hold")
+                    hint = " (an equality to a referenced row's field is a copy: generate it with lookup)" if re.search(r"==\s*\w+\.\w+|\w+\.\w+\s*==", rule) else ""
+                    add(f"{tn}[{k}]: rule {rule!r} does not hold{hint}")
     # aggregates against a recomputation over the non-noise rows
     if spec.tables:
         try:

@@ -305,6 +305,25 @@ def _log_attempt(app: Path, attempt: int, problem: str) -> None:
         fh.write(json.dumps({"t": time.time(), "attempt": attempt, "problem": problem[:3000]}) + "\n")
 
 
+def _history(app: Path, latest: str, k: int = 4) -> str:
+    """Feedback for a fresh data-generator conversation: the last ``k`` distinct logged problems plus ``latest`` (pilot 1:
+    with only the last problem, the writer repeated an earlier mistake, a stale marker outside its choices, three times)."""
+    seen: list[str] = []
+    p = app / "datagen_attempts.jsonl"
+    if p.exists():
+        for line in p.read_text().splitlines():
+            try:
+                prob = str(json.loads(line).get("problem", ""))
+            except ValueError:
+                continue
+            prob = prob.removeprefix("An earlier generator was refused: ")
+            if prob and prob not in seen:
+                seen.append(prob)
+    probs = [x[-600:] for x in seen[-k:]]
+    head = [latest] if latest else []
+    return "\n".join([*head, "Problems earlier generators had (avoid every one):", *[f"- {x}" for x in probs]]) if probs else latest
+
+
 def check_permission_tests(tests: ToolTestsOut, d: ToolDesignOut, spec: DomainSpec) -> None:
     """The blind tests must drive the permission model: for at least half of the write tools that declare
     PERMISSION_DENIED (and at least one), a test whose fixture sets the acting user (policy_params) to a user without the
@@ -589,9 +608,8 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         tg = targets(d.model_dump(mode="json"), s.model_dump(mode="json"))
         feedback = ""
         log = app / "datagen_attempts.jsonl"
-        if log.exists() and log.read_text().strip():  # a resumed stage: start from the last problem (the wire samples at a fixed
-            last = json.loads(log.read_text().strip().splitlines()[-1])  # seed, so the same prompt would return the same refused
-            feedback = f"An earlier generator was refused: {last['problem'][-1500:]}"  # generator: pilot 1, insurance, twice)
+        if log.exists() and log.read_text().strip():  # a resumed stage: start from the logged problems (the wire samples at a fixed seed,
+            feedback = _history(app, "")  # so the same prompt would return the same refused generator: pilot 1, insurance, twice)
         for attempt in range(cfg.data_attempts):
             def chk(x: DataSpec, attempt: int = attempt) -> None:
                 missing = sorted(set(data_tables) - {t.table for t in x.tables})
@@ -620,7 +638,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                                          domain_spec=sp.model_dump(mode="json", exclude={"apps"}), design=design_doc(d, sp), schema=s.model_dump(mode="json"),
                                          datagen_format=DATAGEN_FORMAT, feedback=feedback or None)
             except RoleFailed as e:  # a fresh conversation with the last problem (pilot 1: one long repair thread kept failing)
-                feedback = f"An earlier generator was refused: {str(e)[-1500:]}"
+                feedback = _history(app, f"An earlier generator was refused: {str(e)[-1200:]}")
                 _log_attempt(app, attempt, feedback)
                 if attempt == cfg.data_attempts - 1:
                     raise ValueError(f"data generator: {e}") from None
