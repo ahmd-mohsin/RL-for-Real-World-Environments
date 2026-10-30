@@ -38,7 +38,7 @@ import random
 import shutil
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -297,6 +297,28 @@ def check_docs(docs: DocsOut, spec: DomainSpec, *, stale_values: list[str] | Non
         raise ValueError("the data_standards document does not say which source wins when two records disagree (the master record)")
 
 
+def check_permission_tests(tests: ToolTestsOut, d: ToolDesignOut, spec: DomainSpec) -> None:
+    """The blind tests must drive the permission model: for at least half of the write tools that declare
+    PERMISSION_DENIED (and at least one), a test whose fixture sets the acting user (policy_params) to a user without the
+    authority and expects the refusal. Pilot 1: an AR App declared PERMISSION_DENIED on all eight write tools, no test
+    exercised it, and the code had no permission check at all."""
+    perm = {t.name for t in d.tools if not t.read_only and "PERMISSION_DENIED" in " ".join(t.errors).upper()}
+    if not perm:
+        return
+    acting = spec.permissions.acting_param
+    covered = set()
+    for t in tests.tests:
+        sets_actor = any(r.get("name") == acting for r in t.fixture.get("policy_params", []))
+        if not sets_actor:
+            continue
+        covered |= {c.tool.split(".")[-1] for c in t.calls if c.expect == "error" and c.tool.split(".")[-1] in perm}
+    need = max(1, (len(perm) + 1) // 2)
+    if len(covered) < need:
+        raise ValueError(f"write permission refusals are untested: add tests for at least {need} of {sorted(perm)} (covered {sorted(covered)}) whose "
+                         f"fixture has a policy_params row {{\"name\": \"{acting}\", \"value\": <a user id>}} for a user whose role or limit does not "
+                         "allow the call, and which expect the call to be refused (PERMISSION_DENIED)")
+
+
 def check_actors(a: ActorsOut, schema: Mapping[str, Mapping[str, Any]]) -> None:
     import re
 
@@ -403,7 +425,7 @@ def load_state(fdir: Path) -> FamilyState | None:
 # ---------------------------------------------------------------------------------------------------------- build
 
 async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, RoleClient], *, function: str = "", cfg: FamilyConfig | None = None,
-                       spent: Callable[[], float] | None = None, restart_from: str | None = None) -> FamilyState:
+                       spent: Callable[[], float] | None = None, restart_from: str | None = None, redo: Sequence[str] = ()) -> FamilyState:
     """Build (or resume) the family of ``keyword`` under ``fdir`` (module docstring). ``clients``: one ``RoleClient`` per
     ``FAMILY_ROLES`` entry (the wire checks their families). ``spent()`` is the run meter's total (stage costs).
     ``restart_from``: rebuild that stage and every later one (the old App directory is copied aside first, never
@@ -412,12 +434,16 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
     fdir = Path(fdir)
     app = fdir / "app"
     st = load_state(fdir) or FamilyState(family=fdir.name, keyword=keyword, function=function)
-    if restart_from is not None and st.stages:
-        if restart_from not in STAGES:
+    if (restart_from is not None or redo) and st.stages:
+        if restart_from is not None and restart_from not in STAGES:
             raise ValueError(f"unknown stage {restart_from!r}")
+        bad = sorted(set(redo or ()) - set(STAGES))
+        if bad:
+            raise ValueError(f"unknown stages {bad}")
         if app.exists():
             shutil.copytree(app, fdir / f"app.prev-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}")
-        for s in STAGES[STAGES.index(restart_from):]:
+        reset = list(STAGES[STAGES.index(restart_from):]) if restart_from is not None else list(redo or ())
+        for s in reset:
             if s in st.stages:
                 st.stages[s].status = "pending"
         st.status, st.reasons = "building", []
@@ -522,7 +548,11 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
 
     async def s_tests() -> None:
         d, sp, s = design(), spec(), schema()
-        t: ToolTestsOut = await ask(clients["blind_tester"], BLIND_TESTER, tag="family:tests", check=lambda t: check_tests(t, d, s), retries=2,
+        def chk(t: ToolTestsOut) -> None:
+            check_tests(t, d, s)
+            check_permission_tests(t, d, sp)
+
+        t: ToolTestsOut = await ask(clients["blind_tester"], BLIND_TESTER, tag="family:tests", check=chk, retries=2,
                                     design=design_doc(d, sp), schema=s.model_dump(mode="json"), test_format=TEST_FORMAT_DOC)
         _jwrite(app / "tests.json", t.model_dump(mode="json"))
         st.tests_written = len(t.tests)
@@ -570,8 +600,12 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                 ds: DataSpec = await ask(clients["data_spec_writer"], DATA_SPEC_WRITER, tag="family:datagen", check=chk, retries=2,
                                          domain_spec=sp.model_dump(mode="json", exclude={"apps"}), design=design_doc(d, sp), schema=s.model_dump(mode="json"),
                                          datagen_format=DATAGEN_FORMAT, feedback=feedback or None)
-            except RoleFailed as e:
-                raise ValueError(f"data generator: {e}") from None
+            except RoleFailed as e:  # a fresh conversation with the last problem (pilot 1: one long repair thread kept failing)
+                feedback = f"An earlier generator was refused: {str(e)[-1500:]}"
+                if attempt == cfg.data_attempts - 1:
+                    raise ValueError(f"data generator: {e}") from None
+                continue
+
             ds = DataSpec(tables=[t for t in ds.tables if t.table in data_tables], notes=ds.notes)
             _jwrite(app / "datagen.json", ds.model_dump(mode="json"))
             # loaded and smoke-tested with the kit tables of a default instance (no documents yet: an empty library)
@@ -792,7 +826,7 @@ def _materialize(app: Path, out: Path, ds: DataSpec, spec: DomainSpec, schema: S
         tables["colleagues"] = _bind_actors(actors, g, data_tables, cfg)
     _jwrite(out / "seed.json", {"tables": tables, "notes": f"instance {cfg.id} of {cfg.family} (profile {prof.name})"})
     _jwrite(out / "noise.json", [n.model_dump(mode="json") for n in g.noise])
-    return {"params": params, "rows": {t: len(r) for t, r in tables.items()}, "noise": _noise_counts(g)}
+    return {"params": params, "rows": {t: len(r) for t, r in tables.items()}, "noise": _noise_counts(g), "capped": g.capped}
 
 
 def _noise_counts(g: Generated) -> dict[str, int]:
@@ -811,6 +845,7 @@ class InstanceReport(_M):
     rows: dict[str, int] = Field(default_factory=dict)
     noise: dict[str, int] = Field(default_factory=dict)
     seed_digest: str = ""
+    capped: dict[str, list[int]] = Field(default_factory=dict)
     elapsed_s: float = 0.0
 
 
@@ -840,7 +875,7 @@ def make_instance(fdir: str | Path, cfg: InstanceConfig, *, k_min: int | None = 
             raise ValueError(f"instance {cfg.id}: copied {f} differs from the frozen family")
     rep0 = _jread(app / "worldgen_report.json")
     _jwrite(out / "worldgen_report.json", {**rep0, "dir": str(out), "reasons": [f"instance {cfg.id} of family {cfg.family}"]})
-    rep = InstanceReport(id=cfg.id, family=cfg.family, dir=str(out), config=cfg, params=info["params"], rows=info["rows"], noise=info["noise"],
+    rep = InstanceReport(id=cfg.id, family=cfg.family, dir=str(out), config=cfg, params=info["params"], rows=info["rows"], noise=info["noise"], capped=info["capped"],
                          seed_digest=_sha(out / "seed.json"), elapsed_s=round(time.monotonic() - t0, 3))
     _jwrite(out / "instance.json", rep.model_dump(mode="json"))
     _jwrite(out / "world.json", {**man, "instance": cfg.model_dump(mode="json"), "files": {**man["files"], "seed.json": rep.seed_digest},

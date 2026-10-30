@@ -221,7 +221,7 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
     # enums: tool enums against the data's values of a same-named field (stale markers aside)
     design = _jread(app / "design.json")
     stale = {(t.table, f): v for t in spec.tables if t.stale for f, v in t.stale.set.items()}
-    enum_checks, enum_bad = 0, []
+    enum_checks, enum_bad, enum_disjoint = 0, [], []
     def norm(x: str) -> str:
         return re.sub(r"[\s_\-]+", "_", x.strip().lower())
 
@@ -239,8 +239,10 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
                 vals = {str(r.get(p["name"])) for r in rws if r.get(p["name"]) is not None and r.get(p["name"]) != stale.get((tn, p["name"]))}
                 enum_checks += 1
                 clash = sorted(v for v in vals - allowed if norm(v) in {norm(a) for a in allowed})  # "In Progress" vs "in_progress"
-                if clash or (vals and not vals & allowed):  # another spelling, or another vocabulary altogether
-                    enum_bad.append(f"{tool['name']}.{p['name']} accepts {sorted(allowed)[:8]} but {tn}.{p['name']} holds {sorted(vals - allowed)[:6]}")
+                if clash:  # another spelling of the same value: the agent would send what the tool refuses
+                    enum_bad.append(f"{tool['name']}.{p['name']} accepts {sorted(allowed)[:8]} but {tn}.{p['name']} holds {clash[:6]}")
+                elif vals and not vals & allowed:  # pilot 1: usually two concepts under one name (a release reason vs a hold reason)
+                    enum_disjoint.append(f"{tool['name']}.{p['name']} vs {tn}.{p['name']}")
     reasons += enum_bad[:5]
     unused = []
     for t in spec.tables:
@@ -252,7 +254,7 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
                 if missing:
                     unused.append(f"{t.table}.{f}: {missing}")
     return GateResult(gate="integrity", passed=not reasons, reasons=reasons, elapsed_s=round(time.monotonic() - t0, 2),
-                      details={"data_problems": len(probs), "doc_param_checks": doc_checks, "enum_checks": enum_checks,
+                      details={"data_problems": len(probs), "doc_param_checks": doc_checks, "enum_checks": enum_checks, "enum_disjoint": enum_disjoint,
                                "declared_values_never_used": unused[:10], "noise": {k: sum(1 for n in noise if n.kind == k) for k in ("near_duplicate", "stale", "conflict")}})
 
 

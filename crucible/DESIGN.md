@@ -2043,6 +2043,16 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        it flags another spelling or a disjoint vocabulary); target records reachable only through links now count (two
        hops through get tools keyed by a table's id); the permission check replays the blind test's refusal on its own
        fixture and requires PERMISSION_DENIED in the message (any refusal counted before).
+     - *Permissions untested and unimplemented.* An AR App declared PERMISSION_DENIED on all eight write tools; no blind
+       test exercised it and the code had no check at all (none of the five families' tests covered it).
+       `check_permission_tests`: for at least half of those tools a test whose fixture sets the acting user
+       (`policy_params`) to someone without the authority must expect the refusal, so the debugger has to implement it.
+     - *Data language:* a `when`/`else` branch may be a generator (approval limits by role); a table is capped at its
+       unique pools' size (a dense profile asked 55+ customers of 55 names; `Generated.capped` records it); a `ref` filter
+       on a value the target never takes is refused with the values it can match; a refused generator gets a fresh
+       conversation with the last problem (up to `data_attempts`). The enum check fails only on another spelling of an
+       accepted value; a disjoint vocabulary is recorded (`enum_disjoint`: usually two concepts under one field name).
+       `build --redo` resets exactly the named stages.
      - *Debugger hints:* an "undeclared write" failure tells the debugger the design cannot change and the test should
        be disputed (a procurement App spent three rounds on one).
      - *Catalogue:* the function field is the framework's (the swarm wrote a description there for 5 of 16 areas).

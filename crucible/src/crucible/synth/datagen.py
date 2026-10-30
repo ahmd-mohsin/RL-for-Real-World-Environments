@@ -135,6 +135,7 @@ class NoiseItem(_M):
 class Generated(_M):
     tables: dict[str, list[dict[str, Any]]]
     noise: list[NoiseItem] = Field(default_factory=list)
+    capped: dict[str, list[int]] = Field(default_factory=dict)  # table -> [rows wanted, rows its unique pools allow]
 
 
 # ---------------------------------------------------------------------------------------------------------- expressions
@@ -269,6 +270,9 @@ def _deps(g: Mapping[str, Any]) -> set[str]:
         out |= _deps(g["of"])
     if g.get("when"):
         out |= expr_names(str(g["when"]))
+    if isinstance(g.get("else"), dict) and "kind" in g["else"]:
+        out |= _deps(g["else"])
+
     return out
 
 
@@ -285,6 +289,16 @@ def _check_gen(t: str, f: str, g: Mapping[str, Any], schema_fields: Mapping[str,
         raise DataSpecError(f"{where}: pool needs a non-empty values list")
     if k in ("ref", "ref_list", "sum", "count") and g.get("table") not in tables:
         raise DataSpecError(f"{where}: {k} names table {g.get('table')!r}, which the spec does not generate")
+    if k in ("ref", "ref_list") and g.get("where"):  # pilot 1: a filter on a value the target field never takes
+        target = tables[g["table"]]
+        for wf, wv in (g.get("where") or {}).items():
+            tg = target.fields.get(wf)
+            if tg is None:
+                raise DataSpecError(f"{where}: ref filter field {wf!r} is not a field of {g['table']}")
+            if tg.get("kind") == "choice":
+                want = wv if isinstance(wv, list) else [wv]
+                if not set(map(str, want)) & set(map(str, tg["values"])):
+                    raise DataSpecError(f"{where}: ref filter {wf}={wv!r} matches none of {g['table']}.{wf}'s values {tg['values']}")
     if k in ("sum", "count"):
         child = tables[g["table"]]
         if g.get("fk") not in child.fields:
@@ -310,6 +324,8 @@ def _check_gen(t: str, f: str, g: Mapping[str, Any], schema_fields: Mapping[str,
         raise DataSpecError(f"{where}: template needs a template text")
     if g.get("when"):
         parse_expr(str(g["when"]))
+    if isinstance(g.get("else"), dict) and "kind" in g["else"]:
+        _check_gen(t, f, g["else"], schema_fields, tables)
     for n in _deps(g):
         if n not in tables[t].fields:
             raise DataSpecError(f"{where}: refers to {n!r}, which is not a field of {t}")
@@ -422,9 +438,17 @@ class _Sampler:
         self.by_key: dict[str, dict[str, dict[str, Any]]] = {}
         self.used: dict[tuple[str, str], set[Any]] = {}
         self.seq: dict[str, int] = {}
+        self.capped: dict[str, tuple[int, int]] = {}
 
     def n_rows(self, t: TableGen) -> int:
-        return max(round(t.rows * self.profile.scale), int(self.profile.min_rows.get(t.table, 0)), 1)
+        """Rows wanted (scale, the density minimum), capped at what the table's unique pools can name: pilot 1's dense
+        profile asked 55+ customers of a 55-name pool. The density gate judges whether the cap leaves enough."""
+        want = max(round(t.rows * self.profile.scale), int(self.profile.min_rows.get(t.table, 0)), 1)
+        caps = [len(g["values"]) for g in t.fields.values() if g.get("kind") == "pool" and g.get("unique") and not g.get("when")]
+        if caps and want > min(caps):
+            self.capped[t.table] = (want, min(caps))
+            return min(caps)
+        return want
 
     def key_of(self, table: str) -> str:
         return str(self.schema[table]["key"])
@@ -442,7 +466,8 @@ class _Sampler:
 
     def gen(self, t: TableGen, f: str, g: Mapping[str, Any], row: dict[str, Any]) -> Any:
         if g.get("when") and not eval_expr(str(g["when"]), row):
-            return g.get("else")
+            e = g.get("else")  # a literal, or a generator of its own (pilot 1: approval limits by role)
+            return self.gen(t, f, e, row) if isinstance(e, dict) and "kind" in e else e
         if g.get("null_p") and self.rng.random() < float(g["null_p"]):
             return None
         k = g["kind"]
@@ -574,7 +599,7 @@ class _Sampler:
                 self.by_key[t.table][str(row[kf])] = rows[-1]
         aggregates(self.compiled, self.out, self.schema)
         noise = self.plant()
-        return Generated(tables=self.out, noise=noise)
+        return Generated(tables=self.out, noise=noise, capped={k: list(v) for k, v in self.capped.items()})
 
     # -- noise -----------------------------------------------------------------------------------------------------
     def fresh_key(self, t: TableGen) -> Any:
@@ -853,7 +878,7 @@ Generators ({"kind": ...}):
   list      {"of": <generator>, "min": 0, "max": 3, "unique": true}
   sum       {"table": "<child table>", "fk": "<child field referring here>", "field": "<child number field>"}
   count     {"table": "<child table>", "fk": "<child field referring here>"}
-  any generator may add "when": "<expression over this row>", "else": <value>, and "null_p": 0.1 (nullable fields only)
+  any generator may add "when": "<expression over this row>", "else": <a value or another generator>, and "null_p": 0.1 (nullable fields only)
 Expressions: field names, literals, + - * / // %, == != < <= > >=, in, not in, and, or, not, x if c else y,
 round(), min(), max(), abs(), len(), days_between(a, b). Dates are ISO text and compare as text.
 Keys use seq (or a unique pool/template). Every reference is a ref. Weights and ranges must look like a real company's data."""

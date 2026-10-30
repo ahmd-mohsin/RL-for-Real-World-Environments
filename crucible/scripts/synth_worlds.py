@@ -116,7 +116,7 @@ def cmd_build(a: argparse.Namespace) -> None:
             t0 = time.monotonic()
             try:
                 st = await build_family(kw, fdir, wire.family_clients(), function=fn, cfg=cfg, spent=lambda: wire.meter.spent,
-                                        restart_from=a.restart_from or None)
+                                        restart_from=a.restart_from or None, redo=[x for x in a.redo.split(",") if x])
                 status = st.status
             except Exception as e:  # noqa: BLE001 - a budget stop or a crash is recorded per family; the others go on
                 status = f"stopped: {type(e).__name__}: {str(e)[:300]}"
@@ -325,6 +325,7 @@ def add_parser(sub: Any) -> None:
     w.add_argument("--rounds", type=int, default=3)
     w.add_argument("--no-actors", action="store_true")
     w.add_argument("--restart-from", default="", help="build: rebuild from this stage on (old files copied aside)")
+    w.add_argument("--redo", default="", help="build: rebuild exactly these stages, e.g. tests,debug,base,freeze")
     w.add_argument("--guidance", default="")
     w.add_argument("--family", default="all")
     w.add_argument("--instances", default="all")
