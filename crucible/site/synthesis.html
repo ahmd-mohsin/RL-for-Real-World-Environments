@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crucible task synthesis</title>
-<meta name="description" content="The complete task synthesis pipeline in one diagram. A request becomes certified RL tasks with a measured defect bound, and a regularised loop improves the pipeline.">
+<meta name="description" content="The complete task synthesis pipeline in one diagram. A request becomes certified RL tasks with a measured defect bound. Student probes at creation time drive a regularised loop over each task.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap">
@@ -142,7 +142,7 @@ footer a { margin-right: 16px; }
   <div class="wrap intro">
     <div class="kicker">Task and environment synthesis</div>
     <h2>From a request to a perfect RL task</h2>
-    <p class="lede">The diagram follows one task from a domain request to a certified, trainable task. Planted defects then measure the pipeline, and a regularised loop improves it. One accounts payable example runs through every step.</p>
+    <p class="lede">The diagram follows one task from a domain request to a certified, trainable task. Student probes at creation time drive a regularised loop that repairs, relabels, keeps or reserves each task. Planted defects measure the pipeline, and versioned rules settle every blocking case. One accounts payable example runs through every step.</p>
     <div class="props" aria-label="The four properties of a perfect task">
       <div><b>Property 1</b><h3>Valid</h3><p>None of eleven defect classes is present. A certificate bounds the rate.</p></div>
       <div><b>Property 2</b><h3>Learnable</h3><p>The student succeeds between 10 and 60 percent of the time.</p></div>
@@ -157,7 +157,7 @@ footer a { margin-right: 16px; }
       <button class="btn" id="b-prev" aria-label="Previous step">◀</button>
       <button class="btn solid" id="b-next" aria-label="Next step">Next ▶</button>
       <span id="tour-count">Step through</span>
-      <span id="tour-title">Forty steps, one task</span>
+      <span id="tour-title">Forty-five steps, one task</span>
       <button class="btn" id="b-loops">Show loops</button>
       <span class="hint">Select any step. Arrow keys move through the steps.</span>
     </div>
