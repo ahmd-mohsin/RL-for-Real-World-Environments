@@ -589,6 +589,8 @@ SCHEMA_DERIVER = Role(
             "for a field that may be null). Every collection a tool writes must be a table. "
             'Reply {"tables": [{"name", "key", "fields": {"<field>": "<type>"}, "description"}]}.'))
 
+CLOCK_T0 = "2026-01-01T00:00:00Z"  # iface.PyWorld's t0 and datagen.TODAY: what ctx.now() returns at reset (told to the coder and the tester)
+
 APP_API_DOC = """APP API (the module you write runs inside an isolated sandbox)
 Write a Python module that defines exactly one function:
     def build(app):
@@ -604,7 +606,8 @@ Write a Python module that defines exactly one function:
                 raise ToolError(f"no thing {thing_id}")
             t["status"] = "closed"
             return {"id": thing_id, "status": "closed"}
-- ctx.tables[<table>] is a dict key -> row dict (mutate it to write); ctx.now() is the clock (ISO text); ctx.rng a seeded
+- ctx.tables[<table>] is a dict key -> row dict (mutate it to write); ctx.now() is the clock (ISO text; it starts at
+  2026-01-01T00:00:00Z, "today" for every date rule); ctx.rng a seeded
   random.Random. Keys are the row's key field value (strings, or integers when the key field is an integer).
 - A write tool declares every table it changes in writes=[...]; read-only tools change nothing. Raise ToolError("...") to
   refuse a call (bad argument, wrong state); a refused call changes nothing.
@@ -640,7 +643,8 @@ TEST_FORMAT_DOC = """TEST FORMAT
             "expect_absent": {"<table>": ["<key>"]}}]}
 A result subset matches when every key it names is in the result with an equal value (lists: same length, items matched in
 order). Write 2 tests per tool (3 for a complex write tool), 16 to 26 tests in all, with small fixtures (at most
-four rows per table, only the fields a test needs plus the key)."""
+four rows per table, only the fields a test needs plus the key). The application's clock (today) is 2026-01-01T00:00:00Z:
+fixture dates are history before it (2025), and a deadline or window that must still be open lies after it."""
 
 DEBUGGER = Role(
     name="debugger", stage="F1", output=DebugOut, temperature=0.0, max_tokens=20000,
@@ -1107,6 +1111,7 @@ __all__ = [
     "ATTACK_STRATEGIES",
     "BUILDERS",
     "CLARITY_CHECKER",
+    "CLOCK_T0",
     "CONTRACT_DOC",
     "DEFECTS_DOC",
     "JUDGED_BY_PANEL",

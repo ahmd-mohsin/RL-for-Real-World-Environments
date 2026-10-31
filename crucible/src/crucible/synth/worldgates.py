@@ -31,6 +31,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from crucible.synth import policy
 from crucible.synth.datagen import DataSpec, DataSpecError, Generated, NoiseItem, eval_expr, integrity
 from crucible.synth.domain import DomainSpec
 from crucible.synth.families import (
@@ -53,7 +54,7 @@ from crucible.synth.worldkit import KIT_NAMES, fmt_value, placeholders
 from crucible.verify.calibrate import clopper_pearson_upper
 
 KIT_TABLE_NAMES = ("documents", "policy_params", "colleagues")
-N_MIN = 59
+N_MIN = int(policy.param("R-density", "n_min"))  # R-density (DESIGN item 24): never a constant of its own
 CODES = ("NOT_FOUND", "INVALID_ARGUMENT", "INVALID_STATE", "PERMISSION_DENIED", "CONFLICT")
 PAGEISH = frozenset({"page", "page_size", "per_page", "limit", "offset", "cursor"})
 
@@ -77,6 +78,7 @@ class InstanceGates(_M):
     gates: dict[str, GateResult] = Field(default_factory=dict)
     usable: bool = False
     why: list[str] = Field(default_factory=list)
+    remedies: list[dict[str, Any]] = Field(default_factory=list)  # policy.resolve's remedy per failing gate (DESIGN item 24)
 
     def decide(self, required: Sequence[str]) -> None:
         self.why = [f"{g}: not run" for g in required if g not in self.gates]
@@ -149,7 +151,7 @@ async def determinism_gate(fdir: Path, inst: Path, *, replays: Mapping[str, bool
     man = frozen_manifest(fdir)
     redo = inst / "work" / f"regen-{uuid.uuid4().hex[:8]}"
     _materialize(app, redo, DataSpec.model_validate(_jread(app / "datagen.json")), DomainSpec.model_validate_json((app / "domain.json").read_text()),
-                 SchemaOut.model_validate(_jread(app / "schema.json")), cfg, k_min=int(man.get("k_min", 40)),
+                 SchemaOut.model_validate(_jread(app / "schema.json")), cfg, k_min=int(cfg.k_min or man.get("k_min", 40)),
                  docs=_docs(app), actors=_actors(app))
     regen_same = _sha(redo / "seed.json") == _sha(inst / "seed.json")
     if not regen_same:
@@ -553,6 +555,182 @@ async def obscurity_gate(inst: Path) -> GateResult:
     return GateResult(gate="obscurity", passed=not reasons, reasons=reasons, details=det, elapsed_s=round(time.monotonic() - t0, 2))
 
 
+# ---------------------------------------------------------------------------------------------------------- the listing rule, executed
+
+SYNTH_ROWS = 6
+
+
+def synthetic_seed(design: Mapping[str, Any], schema: Mapping[str, Any], spec: DomainSpec | None = None, n: int = SYNTH_ROWS) -> dict[str, Any]:
+    """A start state with ``n`` rows per data table, made from the schema alone (no data generator exists at the code
+    stage): keys per table; a field named for another table's key holds that table's key of the same row; a field named
+    like an enum parameter of the design cycles its values; dates are dates; every other string is unique to its table
+    (``<table>:<field>:<i>``), so a listed item can be told apart from a row that only links to it."""
+    from crucible.synth.families import words
+
+    tables = [t for t in schema.get("tables", []) if t["name"] not in KIT_TABLE_NAMES]
+    keys = {t["name"]: t["key"] for t in tables}
+    by_keyname: dict[str, str] = {}
+    for t in tables:
+        by_keyname.setdefault(t["key"], t["name"])
+        ws = words(t["name"])
+        if ws:
+            by_keyname.setdefault(f"{'_'.join(ws)}_id", t["name"])
+    enums: dict[str, list[Any]] = {}
+    for tool in design.get("tools", []):
+        for p in tool.get("params", []):
+            if p.get("enum"):
+                enums.setdefault(p["name"], list(p["enum"]))
+    roles = [r.role for r in (spec.permissions.roles if spec else [])]
+    user_table = spec.permissions.user_table if spec else None
+
+    def key(tn: str, i: int) -> Any:
+        ty = str(next(t for t in tables if t["name"] == tn)["fields"].get(keys[tn], "string"))
+        return 100 + i if ty.startswith("integer") else f"{''.join(w[0] for w in words(tn)).upper() or 'X'}-{100 + i}"
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for t in tables:
+        rows = []
+        for i in range(n):
+            r: dict[str, Any] = {}
+            for f, ty in t["fields"].items():
+                base = str(ty).rstrip("?")
+                fl = f.lower()
+                if f == t["key"]:
+                    v: Any = key(t["name"], i)
+                elif f in by_keyname and by_keyname[f] != t["name"]:
+                    v = key(by_keyname[f], i)
+                elif t["name"] == user_table and fl == "role" and roles:
+                    v = roles[i % len(roles)]
+                elif f in enums:
+                    v = enums[f][i % len(enums[f])]
+                elif base in ("integer",):
+                    v = i + 1
+                elif base == "number":
+                    v = 100.0 * (i + 1)
+                elif base == "boolean":
+                    v = False
+                elif base == "array":
+                    v = []
+                elif base == "object":
+                    v = {}
+                elif "date" in fl or fl.endswith(("_at", "_on")):
+                    v = f"2025-12-{10 + i:02d}" + ("T09:00:00Z" if fl.endswith("_at") else "")
+                else:
+                    v = f"{t['name']}:{f}:{i}"
+                r[f] = v
+            rows.append(r)
+        out[t["name"]] = rows
+    if spec is not None:
+        params = []
+        for p in spec.policy_params:
+            v = p.default
+            if p.name == spec.permissions.acting_param and user_table in out and out[user_table]:
+                v = out[user_table][0][keys[user_table]]
+            params.append({"name": p.name, "value": v, "unit": p.unit, "description": p.meaning})
+        out["policy_params"] = params
+    kit = {t["name"] for t in schema.get("tables", [])} & set(KIT_TABLE_NAMES)
+    out = {k: v for k, v in out.items() if k not in KIT_TABLE_NAMES or k in kit}
+    for k in kit:
+        out.setdefault(k, [])
+    return {"tables": out, "notes": "synthetic rows for the listing check"}
+
+
+_SYNTH = re.compile(r"^[A-Za-z_]\w*:\w+:\d+$")  # synthetic_seed's table-unique strings (a timestamp has colons too: worlds-2)
+
+
+def _item_rows(items: Sequence[Any], rows: Sequence[Mapping[str, Any]], key: str, table: str) -> set[str]:
+    """The rows (by key) a listing returned as items: an item holding the row's key and either one of the row's
+    table-unique strings or no other table's (a loss notice item that only links a claim id is not a claim)."""
+    got: set[str] = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        vals: set[str] = set()
+        _strings(it, vals)
+        foreign = any(_SYNTH.match(v) and not v.startswith(f"{table}:") for v in vals)
+        for r in rows:
+            uniq = {v for f, v in r.items() if f != key and isinstance(v, str) and v.startswith(f"{table}:")}
+            if str(r[key]) in vals and (uniq & vals or not foreign):
+                got.add(str(r[key]))
+    return got
+
+
+async def listing_problems(app_dir: Path, work: Path, design: Mapping[str, Any], schema: Mapping[str, Any], spec: DomainSpec | None = None,
+                           *, share: float = 0.0) -> tuple[list[str], dict[str, Any]]:
+    """The listing rule, executed (``families.unlisted_targets`` is its design-stage form): the App is loaded on a
+    synthetic start state and every paged read tool that needs no other argument is paged through, unfiltered and with
+    each value of each of its enum filters; every collection tasks may act on must have more than ``share`` of its rows
+    listed as items by some tool (by default: the tool exists and lists that collection; how many of the real rows an
+    agent can reach is the obscurity gate's measure, since a list may rightly be scoped to the acting user's
+    department). Problems name the collection, the tools tried and any error. worlds-1: insurance claims were reachable
+    only through a loss notice's summary."""
+    import shutil
+
+    from crucible.synth.families import design_targets, paged
+
+    # the collections the design-stage rule demanded a lister for (``design_targets`` without the schema): the coder
+    # cannot add a tool, so a target only the schema's keys reveal is the obscurity gate's (worlds-2: returns' shipments
+    # are keyed by a tracking number the receipt tool takes, and three coder attempts could not satisfy a demand the
+    # design never made)
+    tg = [c for c in design_targets(design) if c in {t["name"] for t in schema.get("tables", [])}]
+    if not tg:
+        return [], {}
+    d = Path(work) / f"lst{uuid.uuid4().hex[:8]}"
+    d.mkdir(parents=True, exist_ok=True)
+    for f in ("app.py", "design.json", "schema.json", "kit.json"):
+        if (Path(app_dir) / f).exists():
+            shutil.copyfile(Path(app_dir) / f, d / f)
+    seed = synthetic_seed(design, schema, spec)
+    _jwrite(d / "seed.json", seed)
+    keys = {t["name"]: t["key"] for t in schema.get("tables", [])}
+    app = design["app"]
+    listers = [t for t in design.get("tools", []) if paged(t)]
+    seen: dict[str, set[str]] = {c: set() for c in tg}
+    errors: dict[str, str] = {}
+    w = SandboxWorld(d, d / "work")
+    try:
+        await w.reset(0)
+        for t in listers:
+            pnames = {p["name"] for p in t.get("params", [])}
+            variants: list[dict[str, Any]] = [{}]
+            for p in t.get("params", []):
+                if p.get("enum") and not p.get("required") and p["name"] not in PAGEISH:
+                    variants += [{p["name"]: v} for v in p["enum"]]
+            for extra in variants[:24]:
+                outs = []
+                if "page" in pnames:
+                    size = "page_size" if "page_size" in pnames else ("per_page" if "per_page" in pnames else None)
+                    for pg in range(1, 6):
+                        o = await w.call(f"{app}.{t['name']}", {"page": pg, **({size: 50} if size else {}), **extra})
+                        if not o.ok:
+                            if not extra:
+                                errors[t["name"]] = (o.error or "")[:200]
+                            break
+                        outs.append(o.value)
+                        if not (isinstance(o.value, dict) and o.value.get("next_page")):
+                            break
+                else:
+                    o = await w.call(f"{app}.{t['name']}", {"offset": 0, "limit": 50, **extra} if "offset" in pnames else {"limit": 50, **extra})
+                    if o.ok:
+                        outs.append(o.value)
+                    elif not extra:
+                        errors[t["name"]] = (o.error or "")[:200]
+                for v in outs:
+                    items = _items(v) or []
+                    for c in tg:
+                        seen[c] |= _item_rows(items, seed["tables"].get(c, []), keys[c], c)
+    finally:
+        await w.close()
+    cover = {c: round(len(seen[c]) / max(1, len(seed["tables"].get(c, []))), 3) for c in tg}
+    low = sorted(c for c, v in cover.items() if v <= share)
+    probs = []
+    if low:
+        probs.append(f"no paged list or search tool lists the records of {low} (share of synthetic rows listed: {[cover[c] for c in low]}; paged read "
+                     f"tools tried: {[t['name'] for t in listers]}{'; errors: ' + json.dumps(errors)[:400] if errors else ''}). Every collection tasks "
+                     "act on needs a read-only list_<records> or search_<records> tool with page and page_size that returns its records as items")
+    return probs, {"targets": tg, "cover": cover, "listers": [t["name"] for t in listers], "errors": errors}
+
+
 # ---------------------------------------------------------------------------------------------------------- density
 
 def _key_tables(test: Mapping[str, Any], sm: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
@@ -598,6 +776,7 @@ async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 2
             continue
         found = None
         tries = 0
+        errs: dict[str, int] = {}
         for test, call in calls.get(t["name"], []):
             kt = _key_tables(test, sm)
             args0 = dict(call.get("args") or {})
@@ -615,10 +794,48 @@ async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 2
                 if r.error is None and all(c.obs.ok for c in r.calls) and r.start is not None and r.end is not None and r.start.fingerprint() != r.end.fingerprint():
                     found = {"tool": t["name"], "program": prog, "run": r, "subst": subst, "tries": tries}
                     break
+                why = r.error or next((c.obs.error for c in r.calls if not c.obs.ok), None) or "no state change"
+                errs[_why(why)] = errs.get(_why(why), 0) + 1
             if found:
                 break
-        out.append(found or {"tool": t["name"], "program": None, "tries": tries})
+        out.append(found or {"tool": t["name"], "program": None, "tries": tries, "refusals": errs,
+                             "tests": len(calls.get(t["name"], []))})
     return out
+
+
+def _why(err: str) -> str:
+    """A refusal's reason with ids and numbers masked, so equal reasons on different rows count together."""
+    e = re.sub(r"^ToolError:\s*", "", str(err)).strip()
+    e = re.sub(r"\b[A-Za-z]*[-_]?\d[\w-]*\b", "<id>", e)
+    return e[:110]
+
+
+async def sibling_reach(world: SynthWorld, inst: Path, ref: Mapping[str, Any], *, limit: int = 160) -> dict[str, Any]:
+    """How many sibling entities a reference oracle's call succeeds on (``SwapEntity`` and ``ExtraWrite``'s raw
+    material): for its key argument, every non-noise instance key of that table in turn, executed. Returns
+    ``{"table", "arg", "rows", "ok", "refusals": {reason: count}}``: what the data generator is told when a collection
+    is not dense (worlds-1: returns' resolve_return succeeded on a dozen of 80 return requests)."""
+    sm = schema_map(_jread(inst / "schema.json"))
+    seed_tables = _jread(inst / "seed.json")["tables"]
+    noise = {(n["table"], str(n["key"])) for n in _jread(inst / "noise.json") if n["kind"] in ("near_duplicate", "stale")}
+    subst = dict(ref.get("subst") or {})
+    if not subst or ref.get("program") is None:
+        return {}
+    arg, tn = next(iter(subst.items()))
+    kf = sm[tn]["key"]
+    keys = [r[kf] for r in seed_tables.get(tn, []) if (tn, str(r[kf])) not in noise][:limit]
+    prog: Program = ref["program"]
+    ok, why = 0, {}
+    for k in keys:
+        st = prog.steps[0].model_copy(deep=True)
+        st.args[arg] = Lit(v=k)
+        r = await run(world, prog.model_copy(update={"steps": [st]}), f"reach: {ref['tool']}", seed=0, taint=False)
+        if r.error is None and all(c.obs.ok for c in r.calls) and r.start is not None and r.end is not None and r.start.fingerprint() != r.end.fingerprint():
+            ok += 1
+        else:
+            w = _why(r.error or next((c.obs.error for c in r.calls if not c.obs.ok), None) or "no state change")
+            why[w] = why.get(w, 0) + 1
+    return {"table": tn, "arg": arg, "rows": len(keys), "ok": ok, "refusals": dict(sorted(why.items(), key=lambda x: -x[1])[:4])}
 
 
 async def choose_actor(inst: Path) -> dict[str, Any]:
@@ -676,14 +893,24 @@ async def choose_actor(inst: Path) -> dict[str, Any]:
     return {"user": best[1] if best else None, "role": best[2] if best else None, "scores": scores}
 
 
-async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_mutants: int = 240, share: float = 0.5) -> tuple[GateResult, dict[str, bool]]:
-    """The density gate (module docstring) and the replay determinism of each reference program."""
-    from crucible.synth.falsify import MUT, FalsifyContext
+async def density_gate(inst: Path, *, k_min: int | None = None, n_min: int = N_MIN, max_mutants: int = 240, share: float = 0.5, holdout: float | None = None,
+                       diagnose: bool = False) -> tuple[GateResult, dict[str, bool]]:
+    """The density gate (module docstring) and the replay determinism of each reference program.
+
+    **Shown mutants** (worlds-2; item 22's V5 split, ``falsify.mut.HOLDOUT`` = 0.2 by default): a certificate's n counts
+    only the mutants a repair loop is shown, so the bar n >= ``n_min`` is on ``MUT(split="shown")``'s distinct mutants
+    and the held-out share is measured beside it (``MUTHeldOut``); about 75 distinct in all reach 59 shown. ``holdout=0``
+    is the whole neighbourhood, as before. ``diagnose``: for every reference oracle, the sibling rows its call succeeds
+    on (``sibling_reach``), for the data generator's feedback."""
+    from crucible.synth.falsify import MUT, FalsifyContext, MUTHeldOut
     from crucible.synth.falsify.base import falsify
+    from crucible.synth.falsify.mut import HOLDOUT
     from crucible.synth.infer import skeleton
     from crucible.synth.task import Task, WorldRef
 
     t0 = time.monotonic()
+    k_min = int(policy.param("R-density", "k_min")) if k_min is None else int(k_min)
+    h = HOLDOUT if holdout is None else float(holdout)
     design = _jread(inst / "design.json")
     sm = schema_map(_jread(inst / "schema.json"))
     seed_tables = _jread(inst / "seed.json")["tables"]
@@ -702,24 +929,31 @@ async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_m
         refs = await reference_programs(inst, w)
         for rf in refs:
             if rf.get("program") is None:
-                per_tool.append({"tool": rf["tool"], "reference": False, "tries": rf.get("tries", 0)})
+                per_tool.append({"tool": rf["tool"], "reference": False, "tries": rf.get("tries", 0), "refusals": rf.get("refusals") or {},
+                                 "tests": rf.get("tests", 0)})
                 continue
             r: Run = rf["run"]
             again = await run(w, rf["program"], f"reference: {rf['tool']}", seed=0, taint=False)
             replays[rf["tool"]] = bool(again.end is not None and r.end is not None and again.end.fingerprint() == r.end.fingerprint())
             task = Task(id=f"ref/{inst.parent.parent.name}/{inst.name}/{rf['tool']}", domain=inst.parent.parent.name, world=ref, seed=0,
                         instruction=f"reference: {rf['tool']}", contract=skeleton(r), oracle=rf["program"])
+            n_ho: int | None = None
             ctx = FalsifyContext(max_mutants=max_mutants)
             try:
-                res = await falsify(task, MUT(), ctx)
+                res = await falsify(task, MUT(split="shown", holdout=h) if h > 0 else MUT(), ctx)
+                if h > 0:
+                    n_ho = (await falsify(task, MUTHeldOut(holdout=h), ctx)).n
             finally:
                 await ctx.close()
             ops: dict[str, int] = {}
             for f in res.findings:
                 if f.outcome.valid:
                     ops[f.op] = ops.get(f.op, 0) + 1
-            per_tool.append({"tool": rf["tool"], "reference": True, "n_distinct": res.n, "probes": len(res.findings), "by_op": ops,
-                             "confirmed": res.c, "args": {k: compact(v.v, 60) for k, v in rf["program"].steps[0].args.items()}})
+            row = {"tool": rf["tool"], "reference": True, "n_distinct": res.n, "n_heldout": n_ho, "holdout": h, "probes": len(res.findings), "by_op": ops,
+                   "confirmed": res.c, "args": {k: compact(v.v, 60) for k, v in rf["program"].steps[0].args.items()}}
+            if diagnose:
+                row["reach"] = await sibling_reach(w, inst, rf)
+            per_tool.append(row)
     finally:
         await w.close()
     ns = [p["n_distinct"] for p in per_tool if p.get("reference")]
@@ -741,7 +975,13 @@ async def density_gate(inst: Path, *, k_min: int = 40, n_min: int = N_MIN, max_m
     if ns and short:
         reasons.append(f"target collections no reference oracle covers densely (best distinct n per collection): {short}")
     thin = sorted(p["tool"] for p in per_tool if int(p.get("n_distinct") or 0) < n_min)
-    det = {"targets": counts, "k_min": k_min, "n_min": n_min, "write_tools": len(per_tool), "references": len(ns), "reached": len(reached), "best": max(ns, default=0),
+    ho_by_coll: dict[str, int] = {}
+    for p in per_tool:
+        for c in writes.get(p["tool"], set()):
+            if c in counts and best_by_coll.get(c) == int(p.get("n_distinct") or 0) and p.get("n_heldout") is not None:
+                ho_by_coll[c] = max(ho_by_coll.get(c, 0), int(p["n_heldout"]))
+    det = {"targets": counts, "k_min": k_min, "n_min": n_min, "holdout": h, "split": "shown" if h > 0 else "all", "heldout_by_collection": ho_by_coll,
+           "write_tools": len(per_tool), "references": len(ns), "reached": len(reached), "best": max(ns, default=0),
            "median": statistics.median(ns) if ns else 0, "best_by_collection": best_by_coll, "thin_tools": thin,
            "dense_share": round(len(reached) / max(1, len(per_tool)), 3), "per_tool": per_tool}
     return GateResult(gate="density", passed=not reasons, reasons=reasons, details=det, elapsed_s=round(time.monotonic() - t0, 2)), replays
@@ -875,10 +1115,21 @@ class Anchor(_M):
     summary: dict[str, Any]
 
 
-async def calibrate_panel(panel: RealismPanel, anchors: Sequence[Anchor], *, target: float = 0.9, grid: Sequence[float] = (0.5, 0.6, 0.7, 0.8, 0.9),
-                          floor: float = 0.6) -> dict[str, Any]:
+async def calibrate_panel(panel: RealismPanel, anchors: Sequence[Anchor], *, target: float | None = None, grid: Sequence[float] = (0.5, 0.6, 0.7, 0.8, 0.9),
+                          floor: float | None = None, min_decided: int | None = None, require_both: bool | None = None,
+                          refuse_uncalibrated: bool | None = None) -> dict[str, Any]:
     """λ from anchors whose truth is known (the rule of ``falsify.agents.calibrate``): the smallest grid value whose
-    decided anchors are ≥ ``target`` accurate; none → the largest, flagged uncalibrated; never below ``floor``."""
+    decided anchors are ≥ ``target`` accurate, with at least ``min_decided`` decided and (``require_both``) both truths
+    among them; never below ``floor``. None qualifies: λ above 1 with ``refuse_uncalibrated`` (the panel decides
+    nothing), else the largest. Every keyword left None is R-panel's (``policy.panel_calibration()``, DESIGN item 24:
+    the strict rule); passing them is a measurement under another rule, recorded in the result."""
+    pc = policy.panel_calibration()
+    target = pc["target"] if target is None else target
+    floor = pc["floor"] if floor is None else floor
+    min_decided = pc["min_decided"] if min_decided is None else min_decided
+    require_both = pc["require_both"] if require_both is None else require_both
+    refuse_uncalibrated = pc["refuse_uncalibrated"] if refuse_uncalibrated is None else refuse_uncalibrated
+    rule = {"target": target, "floor": floor, "min_decided": min_decided, "require_both": require_both, "refuse_uncalibrated": refuse_uncalibrated}
     saved = panel.lam
     panel.lam = 0.0
     try:
@@ -888,20 +1139,33 @@ async def calibrate_panel(panel: RealismPanel, anchors: Sequence[Anchor], *, tar
     rows, chosen = [], None
     for lam in grid:
         dec = cor = 0
+        truths: set[bool] = set()
         for a, v in zip(anchors, verdicts, strict=True):
             vals = {x.ok for x in v.votes}
             if None in vals or len(vals) != 1 or min(x.out.confidence for x in v.votes if x.out) < lam:
                 continue
             dec += 1
+            truths.add(a.truth)
             cor += int(vals.pop() == a.truth)
         acc = cor / dec if dec else 0.0
         rows.append({"lam": lam, "decided": dec, "correct": cor, "accuracy": round(acc, 4), "coverage": round(dec / max(1, len(anchors)), 4),
-                     "error_upper95": round(clopper_pearson_upper(dec - cor, dec, 0.05), 4) if dec else 1.0})
-        if chosen is None and dec and acc >= target:
+                     "both_truths": len(truths) == 2, "error_upper95": round(clopper_pearson_upper(dec - cor, dec, 0.05), 4) if dec else 1.0})
+        if chosen is None and dec >= max(1, min_decided) and acc >= target and (not require_both or len(truths) == 2):
             chosen = lam
-    panel.lam = max(floor, chosen if chosen is not None else max(grid))
+    panel.lam = max(floor, chosen if chosen is not None else (1.01 if refuse_uncalibrated else max(grid)))
     votes = [{"kind": a.kind, "truth": a.truth, "votes": [x.model_dump(mode="json") for x in v.votes]} for a, v in zip(anchors, verdicts, strict=True)]
-    return {"lam": panel.lam, "calibrated": chosen is not None, "target": target, "rows": rows, "votes": votes}
+    # per anchor kind at the chosen lambda (worlds-2: the panel's accuracy on instances the executed gates rejected)
+    by_kind: dict[str, dict[str, int]] = {}
+    for a, v in zip(anchors, verdicts, strict=True):
+        k = by_kind.setdefault(a.kind, {"n": 0, "decided": 0, "correct": 0})
+        k["n"] += 1
+        vals = {x.ok for x in v.votes}
+        if None in vals or len(vals) != 1 or min(x.out.confidence for x in v.votes if x.out) < panel.lam:
+            continue
+        k["decided"] += 1
+        k["correct"] += int(vals.pop() == a.truth)
+    return {"lam": panel.lam, "calibrated": chosen is not None, "target": target, "rule": rule, "policy_version": policy.tag(), "rows": rows,
+            "by_kind": by_kind, "votes": votes}
 
 
 # ---------------------------------------------------------------------------------------------------------- summaries and anchors
@@ -1029,16 +1293,45 @@ def anchors_from(positives: Sequence[Mapping[str, Any]], *, kinds: Sequence[str]
     return out
 
 
+REALISM_GATES = ("integrity", "surface", "obscurity")
+
+
+async def rejected_anchors(worlds: str | Path, *, per_family: int = 4) -> list[Anchor]:
+    """Negative anchors with known truth from the executed gates (worlds-2): instances a *realism* gate rejected
+    (integrity, surface, obscurity: data that breaks its own rules, a tool surface without refusals, records an employee
+    cannot find) are not realistic, whatever the panel reads in their summary. A density, build or determinism failure is
+    no realism verdict, so those instances are not anchors. worlds-1: the panel rated all 20 instances realistic, the 8
+    the gates rejected included; with these anchors its accuracy on such Worlds is measured, not assumed."""
+    out: list[Anchor] = []
+    for fam in sorted(p for p in Path(worlds).iterdir() if (p / "instances").exists()):
+        n = 0
+        for g in sorted(fam.glob("instances/*/gates.json")):
+            if n >= per_family:
+                break
+            try:
+                rec = json.loads(g.read_text())
+            except ValueError:
+                continue
+            failed = [k for k in REALISM_GATES if k in rec.get("gates", {}) and not rec["gates"][k].get("passed")]
+            if not failed:
+                continue
+            out.append(Anchor(kind=f"gate:{failed[0]}", truth=False, summary=await instance_summary(g.parent)))
+            n += 1
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------- one instance
 
 async def gate_instance(fdir: Path, inst: Path, *, panel: RealismPanel | None = None, k_min: int | None = None, n_min: int = N_MIN,
-                        max_mutants: int = 240, only: Sequence[str] | None = None) -> InstanceGates:
+                        max_mutants: int = 240, only: Sequence[str] | None = None, reseed_tries: int = 0, rebuild_tries: int = 0, can_reseed: bool = True,
+                        restartable: bool = False) -> InstanceGates:
     """Every gate on one instance (``only``: a subset), recorded in ``<inst>/gates.json`` (earlier results kept)."""
     fdir, inst = Path(fdir), Path(inst)
     path = inst / "gates.json"
     g = InstanceGates.model_validate_json(path.read_text()) if path.exists() else InstanceGates(family=fdir.name, instance=inst.name, dir=str(inst))
     man = frozen_manifest(fdir)
-    k = int(k_min or man.get("k_min", 40))
+    icfg = (_jread(inst / "instance.json").get("config") or {}) if (inst / "instance.json").exists() else {}
+    k = int(k_min or icfg.get("k_min") or man.get("k_min") or policy.param("R-density", "k_min"))
     want = list(only or REQUIRED)
 
     def keep(r: GateResult) -> None:
@@ -1079,14 +1372,58 @@ async def gate_instance(fdir: Path, inst: Path, *, panel: RealismPanel | None = 
     if "obscurity" in want:
         keep(await guarded("obscurity", obscurity_gate(inst)))
     if "panel" in want and panel is not None:
-        keep(await guarded("panel", _panel_gate(panel, inst)))
+        keep(await guarded("panel", _panel_gate(panel, inst, g.gates)))
     g.decide(REQUIRED)
+    g.remedies = remedies_for(g, reseed_tries=reseed_tries, rebuild_tries=rebuild_tries, can_reseed=can_reseed, restartable=restartable)
     _jwrite(path, g.model_dump(mode="json"))
     return g
 
 
-async def _panel_gate(panel: RealismPanel, inst: Path) -> GateResult:
-    return await panel.gate(await instance_summary(inst), ident=f"{inst.parent.parent.name}/{inst.name}")
+# stages a failing gate points at when a family is rebuilt (``families.build_family(restart_from=)``)
+GATE_STAGE = {"build": "debug", "determinism": "datagen", "integrity": "datagen", "surface": "code", "obscurity": "design", "panel": "datagen"}
+
+
+def remedies_for(g: InstanceGates, *, reseed_tries: int = 0, rebuild_tries: int = 0, can_reseed: bool = True, restartable: bool = False) -> list[dict[str, Any]]:
+    """R-density's remedies for an instance's failing gates (DESIGN item 24): a failing density gate raises
+    ``density_gate_failing`` (facts: can_reseed, reseed_tries), any other ``world_gate_failing`` (gate, restartable,
+    rebuild_tries); ``policy.resolve`` returns the first lawful remedy, recorded in ``gates.json`` with the rule and the
+    policy version. The gate runner carries them out (``scripts/synth_worlds.py gate``: reseed_denser regenerates the
+    instance denser and gates it again; rebuild_stage names the family stage to rebuild; not_used keeps the reasons)."""
+    out = []
+    for name, r in g.gates.items():
+        if r.passed:
+            continue
+        if name == "density":
+            c = policy.Condition(kind="density_gate_failing", subject=f"{g.family}/{g.instance}", raised_by="worldgates.gate_instance",
+                                 facts={"can_reseed": bool(can_reseed), "reseed_tries": int(reseed_tries)})
+        else:
+            c = policy.Condition(kind="world_gate_failing", subject=f"{g.family}/{g.instance}", raised_by="worldgates.gate_instance",
+                                 facts={"gate": name, "restartable": bool(restartable and name in GATE_STAGE), "rebuild_tries": int(rebuild_tries)})
+        rem = policy.resolve(c)
+        out.append({"gate": name, "condition": c.kind, "action": rem.action, "rule": rem.rule, "policy_version": rem.policy_version,
+                    "stage": GATE_STAGE.get(name) if rem.action == "rebuild_stage" else None, "reason": rem.reason})
+    return out
+
+
+async def _panel_gate(panel: RealismPanel, inst: Path, executed: Mapping[str, GateResult] | None = None) -> GateResult:
+    """The realism panel. An uncalibrated panel (λ > 1, R-panel's strict rule) decides nothing: the condition
+    ``uncalibrated_panel`` goes to ``policy.resolve`` and its remedy is carried out: ``executed_check`` decides on the
+    executed realism gates (integrity, surface, obscurity) and says so; any other remedy leaves the instance in the
+    human queue, not used."""
+    if panel.lam <= 1.0:
+        return await panel.gate(await instance_summary(inst), ident=f"{inst.parent.parent.name}/{inst.name}")
+    t0 = time.monotonic()
+    ran = {g: r for g, r in (executed or {}).items() if g in REALISM_GATES}
+    rem = policy.resolve(policy.Condition(kind="uncalibrated_panel", subject=f"{inst.parent.parent.name}/{inst.name}", raised_by="worldgates.panel",
+                                          facts={"executed_check_available": len(ran) == len(REALISM_GATES), "panel_calibrated": False,
+                                                 "more_anchors_available": False}))
+    det = {"decision": "abstain", "lam": panel.lam, "remedy": rem.action, "rule": rem.rule, "policy_version": rem.policy_version}
+    if rem.action == "executed_check":
+        ok = all(r.passed for r in ran.values())
+        return GateResult(gate="panel", passed=ok, details={**det, "decided_by": sorted(ran)}, elapsed_s=round(time.monotonic() - t0, 2),
+                          reasons=[] if ok else [f"panel uncalibrated; executed realism gates failed: {sorted(g for g, r in ran.items() if not r.passed)}"])
+    return GateResult(gate="panel", passed=False, details=det, elapsed_s=round(time.monotonic() - t0, 2),
+                      reasons=[f"panel uncalibrated (lambda {panel.lam}); remedy {rem.action}: not used until decided"])
 
 
 __all__ = [
@@ -1108,8 +1445,13 @@ __all__ = [
     "gate_instance",
     "instance_summary",
     "integrity_gate",
+    "listing_problems",
     "obscurity_gate",
     "reference_programs",
+    "rejected_anchors",
+    "remedies_for",
+    "sibling_reach",
     "surface_gate",
+    "synthetic_seed",
     "world_summary",
 ]

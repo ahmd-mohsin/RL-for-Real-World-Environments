@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ from crucible.synth.roles import (
     APP_API_DOC,
     APP_CODER,
     BLIND_TESTER,
+    CLOCK_T0,
     DEBUGGER,
     SCHEMA_DERIVER,
     SEEDER,
@@ -223,17 +225,24 @@ def _hint(detail: str) -> str:
                 "write, the test contradicts the design: dispute it.")
     if "parameters not in the design" in detail or "design parameters the code does not take" in detail:
         return "\nHINT: the tool's parameters must be exactly the design's."
+    if re.search(r"expired|overdue|too late|late report|window|deadline|in the past|past due|not yet|future|days? (old|ago|since)", detail, re.IGNORECASE):
+        # worlds-2: a purchase-requisition test's fixture had required_by 2024-06-01; the App refused it as expired against the
+        # World clock (2026-01-01), and three debug rounds neither fixed nor disputed it
+        return (f"\nHINT: the World clock (ctx.now()) starts at {CLOCK_T0}. If this test fails only because its fixture's dates lie "
+                "before that day (the tester wrote them without the clock), the test contradicts the specification: dispute it, saying so.")
     return ""
 
 
 async def test_and_debug(out: Path, design: ToolDesignOut, design_doc: Mapping[str, Any], schema_doc: Mapping[str, Any], code: AppCodeOut,
                          tests: ToolTestsOut, frozen: str, clients: Mapping[str, RoleClient], rep: WorldgenReport, *, max_debug_rounds: int = 3,
                          max_drop_share: float = 0.25, exclude_tools: frozenset[str] | set[str] = frozenset(), app_api: str = APP_API_DOC,
-                         tag: str = "worldgen", debugger_role: Role = DEBUGGER) -> list[str]:
+                         tag: str = "worldgen", debugger_role: Role = DEBUGGER,
+                         extra: Callable[[Path], Awaitable[list[str]]] | None = None) -> list[str]:
     """Run the frozen blind tests (and the conformance check) in the sandbox; while any fails, the debugger edits the code
     only, and a disputed test is dropped only on a third family's approval (module docstring). Returns the dropped test
     ids; on failure ``rep.status`` is ``rejected:tests`` with the reason. ``exclude_tools``: registered tools that are not
-    the design's (the framework kit). ``design_doc`` is what the roles are shown (the design plus any platform notes)."""
+    the design's (the framework kit). ``design_doc`` is what the roles are shown (the design plus any platform notes).
+    ``extra(app_dir)``: further executed conformance problems (World families: the listing rule), failures like the rest."""
     tests_path = out / "tests.json"
     work = out / "work"
     by_id = {t.id: t.model_dump(mode="json") for t in tests.tests}
@@ -251,6 +260,12 @@ async def test_and_debug(out: Path, design: ToolDesignOut, design_doc: Mapping[s
         except SandboxError as e:
             conf = [f"the module does not load: {e}"]
         res += [{"id": f"conformance:{i}", "passed": False, "detail": c} for i, c in enumerate(conf)]
+        if extra is not None:
+            try:
+                more = await extra(out)
+            except SandboxError as e:
+                more = [f"the module does not load: {e}"]
+            res += [{"id": f"conformance:x{i}", "passed": False, "detail": c} for i, c in enumerate(more)]
         return res
 
     def code_ok(c: AppCodeOut) -> None:

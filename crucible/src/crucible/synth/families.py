@@ -45,7 +45,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from crucible.synth.datagen import DATAGEN_FORMAT, PROFILES, TODAY, DataSpec, DataSpecError, Generated, generate, integrity
+from crucible.synth import policy
+from crucible.synth.datagen import DATAGEN_FORMAT, PROFILES, TODAY, DataSpec, DataSpecError, Generated, generate, integrity, normalize_spec
 from crucible.synth.domain import DomainSpec, PolicyParam, bind_design, generate_spec
 from crucible.synth.roles import (
     APP_API_DOC,
@@ -146,7 +147,83 @@ def realism_design_problems(d: ToolDesignOut, acting_param: str = "acting_user_i
     silent = [t.name for t in rw if not any(c in " ".join(t.errors).upper() for c in ("NOT_FOUND", "INVALID_ARGUMENT", "INVALID_STATE"))]
     if silent:
         out.append(f"write tools without NOT_FOUND / INVALID_ARGUMENT / INVALID_STATE errors: {silent}")
+    unlisted = unlisted_targets(d.model_dump(mode="json"))
+    if unlisted:
+        out.append(LISTING_RULE.format(colls=unlisted))
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------- the listing rule
+
+LISTING_RULE = ("collections tasks act on have no paged list or search tool: {colls}. Give each a read-only list_<records> or search_<records> "
+                "tool named for it, with page and page_size (result: items, page, total, next_page) and optional filters, so an employee can find "
+                "every record without knowing its id")
+LIST_VERBS = frozenset({"list", "search", "find", "query", "browse", "lookup", "get", "all"})
+
+
+def words(name: str) -> list[str]:
+    """``LossNotice`` / ``loss_notices`` / ``list_loss_notices`` as singular lower-case words."""
+    import re
+
+    out = []
+    for w in re.split(r"[^a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()):
+        if not w:
+            continue
+        if w.endswith("ies") and len(w) > 4:
+            w = w[:-3] + "y"
+        elif w.endswith(("sses", "ches", "shes", "xes")):
+            w = w[:-2]
+        elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+            w = w[:-1]
+        out.append(w)
+    return out
+
+
+def key_names(coll: str) -> set[str]:
+    """The parameter names a tool would use for ``coll``'s key: ``loss_notice_id``, ``claim_id``, ``po_id``."""
+    ws = words(coll)
+    if not ws:
+        return set()
+    return {f"{'_'.join(ws)}_id", f"{ws[-1]}_id", f"{''.join(w[0] for w in ws)}_id" if len(ws) > 1 else f"{ws[0]}_id", f"{coll}_id", f"{coll.lower()}_id"}
+
+
+def paged(tool: Mapping[str, Any]) -> bool:
+    """A read tool that pages and needs no argument besides its paging ones."""
+    names = {p["name"] for p in tool.get("params", [])}
+    req = {p["name"] for p in tool.get("params", []) if p.get("required")}
+    return bool(tool.get("read_only")) and any(s <= names for s in PAGE_PARAMS) and not (req - {n for s in PAGE_PARAMS for n in s})
+
+
+def lists(tool: Mapping[str, Any], coll: str) -> bool:
+    """Whether a paged read tool is named for ``coll`` (its head noun: claims, notices, refunds, accounts)."""
+    ws = words(coll)
+    return bool(ws) and paged(tool) and ws[-1] in set(words(str(tool["name"]))) - LIST_VERBS
+
+
+def design_targets(design: Mapping[str, Any], schema: Mapping[str, Any] | None = None) -> list[str]:
+    """The collections tasks may act on (``targets``); before a schema exists, a written collection a write tool names
+    by a key-like parameter (``key_names``)."""
+    if schema is not None:
+        return targets(design, schema)
+    kit = {"documents", "policy_params", "colleagues"}
+    params = {p["name"] for t in design.get("tools", []) if not t.get("read_only") for p in t.get("params", [])}
+    written = {c for t in design.get("tools", []) if not t.get("read_only") for c in t.get("writes") or []} - kit
+    full = {c: key_names(c) - {f"{words(c)[-1]}_id"} | ({f"{words(c)[0]}_id"} if len(words(c)) == 1 else set()) for c in written if words(c)}
+    head: dict[str, list[str]] = {}
+    for c in written:
+        if words(c):
+            head.setdefault(f"{words(c)[-1]}_id", []).append(c)
+    # a head-noun name (account_id for customer_accounts) counts only when one written collection has that head noun
+    # (line_id names no single one of requisition_lines, purchase_order_lines, goods_receipt_lines)
+    return sorted(c for c in written if c in full and (full[c] & params or (f"{words(c)[-1]}_id" in params and head[f"{words(c)[-1]}_id"] == [c])))
+
+
+def unlisted_targets(design: Mapping[str, Any], schema: Mapping[str, Any] | None = None) -> list[str]:
+    """The listing rule (worlds-1: the insurance App had no list tool for claims, so 29-38% of claims could be found and
+    the obscurity gate failed after $6 of building; returns had none for refunds): every collection tasks may act on has
+    a paged read tool named for it. Executed again at the code stage (``worldgates.listing_problems``)."""
+    tools = [t for t in design.get("tools", []) if t.get("read_only")]
+    return [c for c in design_targets(design, schema) if not any(lists(t, c) for t in tools)]
 
 
 # Pilot 1: a family App (9 to 14 tools with permission checks and policy parameters) does not fit F1's 20k-token coder
@@ -208,7 +285,8 @@ DATA_SPEC_WRITER = Role(
             "documents, policy_params, colleagues), a generator per field, in the format given. The data must look like a real "
             "mid-sized company's: realistic names, codes, amounts with realistic distributions, statuses with realistic weights, dates "
             "in order (history before today), every reference pointing at a row that exists, and enough rows that tasks can choose among "
-            "many similar records (tables tasks act on: 40 to 80 rows; reference tables: 8 to 30). Give each table people search by a "
+            "many similar records (tables tasks act on: 80 to 150 rows, 40 or more of them in a state some write tool on that table accepts, "
+            "as in a real department's queues; reference tables: 8 to 30). Give each table people search by a "
             "near_duplicate rule and each table with a status a stale rule. Rows must satisfy the tools' preconditions often enough "
             "that most records can be acted on (e.g. most invoices pending), and the acting user's table must hold users of every role. "
             "Where a real record keeps a copy of a master value (a customer's name or tier on a request, a supplier's name on an "
@@ -400,6 +478,72 @@ def targets(design: Mapping[str, Any], schema: Mapping[str, Any] | None = None) 
     return sorted(out or written)
 
 
+N_MIN_SHOWN = int(policy.param("R-density", "n_min"))  # worldgates.N_MIN, on the shown mutants (R-density)
+
+
+def _log_density(app: Path, attempt: int, dens: Mapping[str, Any]) -> None:
+    with (app / "datagen_density.jsonl").open("a") as fh:
+        fh.write(json.dumps({"t": time.time(), "attempt": attempt, **{k: v for k, v in dens.items() if k != "feedback"}}, default=str) + "\n")
+
+
+DENSITY_HEAD = ("DENSITY. Tasks act on every collection below, and each needs a write tool whose call succeeds on many sibling rows: the "
+                "checker varies a reference call over the collection's rows and needs at least {n} distinct outcomes among the 80% of "
+                "variations it is shown (about 75 in all), so about 40 or more rows must be in a state the tool accepts (and 80 or more rows "
+                "in all). Measured on your generator's data:")
+DENSITY_TAIL = ("Raise those tables' rows and the weights of the statuses and other values the tools accept, so many records await each step "
+                "of the work, as in a real department's queues; keep everything else realistic, and keep every rule. A PERMISSION_DENIED "
+                "refusal means the acting user's role or limit: make sure users of every role exist with realistic limits.")
+
+
+def density_text(det: Mapping[str, Any], writes: Mapping[str, set[str]], short: Mapping[str, int]) -> str:
+    """The data generator's density feedback from the density gate's details (``diagnose``)."""
+    lines = [DENSITY_HEAD.format(n=N_MIN_SHOWN)]
+    for c, n in sorted(short.items()):
+        lines.append(f"- {c}: best {n} distinct outcomes shown (need {N_MIN_SHOWN}).")
+        for p in det.get("per_tool", []):
+            if c not in writes.get(p["tool"], set()):
+                continue
+            if p.get("reference"):
+                r = p.get("reach") or {}
+                if r:
+                    ref = "; ".join(f"{k} x{v}" for k, v in (r.get("refusals") or {}).items())
+                    lines.append(f"  {p['tool']} succeeded on {r.get('ok')} of {r.get('rows')} {r.get('table')} rows" + (f"; the others were refused: {ref}" if ref else ""))
+            else:
+                ref = "; ".join(f"{k} x{v}" for k, v in (p.get("refusals") or {}).items())
+                lines.append(f"  {p['tool']} succeeded on no row it was tried on" + (f" (refused: {ref})" if ref else ""))
+    lines.append(DENSITY_TAIL)
+    return "\n".join(lines)
+
+
+async def density_probe(app: Path, probe: Path, sp: DomainSpec, s: SchemaOut, cfg0: InstanceConfig, *, k_min: int) -> dict[str, Any]:
+    """The density gate on the data stage's probe instance, after the acting user is chosen by execution (as
+    ``worlds instances --pick-actor`` does): ``{"short": {collection: best shown n}, "best_by_collection", "heldout_by_collection",
+    "feedback"}``. worlds-1: returns' Customer and Refund collections reached n = 12-39 and were only measured at the gate,
+    after the family was frozen."""
+    from crucible.synth.worldgates import choose_actor, density_gate
+
+    ds = DataSpec.model_validate(_jread(app / "datagen.json"))
+    ch = await choose_actor(probe)
+    acting = sp.permissions.acting_param
+    if ch.get("user") is not None:
+        _materialize(app, probe, ds, sp, s, cfg0.model_copy(update={"params": {**cfg0.params, acting: ch["user"]}}), k_min=k_min, docs=None, actors=None)
+    g, _ = await density_gate(probe, k_min=k_min, diagnose=True)
+    det = g.details
+    design = _jread(app / "design.json")
+    writes = {t["name"]: set(t.get("writes") or []) for t in design["tools"] if not t.get("read_only")}
+    best = dict(det.get("best_by_collection") or {})
+    short = {c: int(best.get(c, 0)) for c in det.get("targets", {}) if int(best.get(c, 0)) < N_MIN_SHOWN}
+    return {"short": short, "best_by_collection": {c: int(best.get(c, 0)) for c in det.get("targets", {})}, "heldout_by_collection": det.get("heldout_by_collection"),
+            "rows": det.get("targets"), "actor": ch.get("role"), "reasons": g.reasons, "feedback": density_text(det, writes, short) if short else ""}
+
+
+async def _listing(app: Path, d: ToolDesignOut, s: SchemaOut, sp: DomainSpec) -> list[str]:
+    from crucible.synth.worldgates import listing_problems
+
+    probs, _ = await listing_problems(app, app / "work", d.model_dump(mode="json"), s.model_dump(mode="json"), sp)
+    return probs
+
+
 # ---------------------------------------------------------------------------------------------------------- state
 
 class StageRecord(_M):
@@ -433,8 +577,9 @@ class FamilyState(_M):
 class FamilyConfig(_M):
     max_debug_rounds: int = 3
     max_drop_share: float = 0.25
-    k_min: int = 40  # rows per targetable collection in every instance (density)
+    k_min: int = int(policy.param("R-density", "k_min"))  # rows per targetable collection in every instance (R-density)
     data_attempts: int = 3
+    density: bool = True  # measure the shown-mutant density at the data stage and feed it back (worlds-2)
     actors: bool = True
     guidance: str = ""
 
@@ -471,6 +616,10 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         if app.exists():
             shutil.copytree(app, fdir / f"app.prev-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}")
         reset = list(STAGES[STAGES.index(restart_from):]) if restart_from is not None else list(redo or ())
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        if "datagen" in reset and (app / "datagen_attempts.jsonl").exists() and set(reset) & {"design", "schema", "code"}:
+            # a new design: the old generator's problems are about tables that may no longer exist (worlds-2)
+            (app / "datagen_attempts.jsonl").replace(app / f"datagen_attempts.prev-{stamp}.jsonl")
         for s in reset:
             if s in st.stages:
                 st.stages[s].status = "pending"
@@ -565,10 +714,14 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
     async def s_code() -> None:
         d, sp, s = design(), spec(), schema()
 
-        def code_ok(c: AppCodeOut) -> None:
+        async def code_ok(c: AppCodeOut) -> None:
             probs = check_code(c.code)
             if probs:
                 raise ValueError("the module fails the sandbox's static check: " + "; ".join(probs[:8]))
+            (app / "app.py").write_text(c.code)  # the listing rule, executed on a synthetic start state
+            probs = await _listing(app, d, s, sp)
+            if probs:
+                raise ValueError("; ".join(probs))
 
         c: AppCodeOut = await ask(clients["app_coder"], FAMILY_APP_CODER, tag="family:code", check=code_ok, retries=2, design=design_doc(d, sp),
                                   schema=s.model_dump(mode="json"), app_api=APP_API_DOC + "\n" + KIT_API_DOC)
@@ -596,7 +749,8 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         rep = WorldgenReport(keyword=keyword, app=d.app, families=st.families)
         dropped = await test_and_debug(app, d, design_doc(d, sp), s.model_dump(mode="json"), AppCodeOut(code=(app / "app.py").read_text()), tests, frozen,
                                        clients, rep, max_debug_rounds=cfg.max_debug_rounds, max_drop_share=cfg.max_drop_share,
-                                       exclude_tools=KIT_NAMES, app_api=APP_API_DOC + "\n" + KIT_API_DOC, tag="family", debugger_role=FAMILY_DEBUGGER)
+                                       exclude_tools=KIT_NAMES, app_api=APP_API_DOC + "\n" + KIT_API_DOC, tag="family", debugger_role=FAMILY_DEBUGGER,
+                                       extra=lambda a: _listing(a, d, s, sp))
         st.tests_dropped, st.pass_history, st.debug_rounds = dropped, list(rep.pass_history), rep.debug_rounds
         if rep.status.startswith("rejected"):
             raise ValueError("; ".join(rep.reasons))
@@ -607,15 +761,19 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         data_tables = {k: v for k, v in sm.items() if k not in ("documents", "policy_params", "colleagues")}
         tg = targets(d.model_dump(mode="json"), s.model_dump(mode="json"))
         feedback = ""
+        best: tuple[int, DataSpec, dict[str, Any]] | None = None
         log = app / "datagen_attempts.jsonl"
         if log.exists() and log.read_text().strip():  # a resumed stage: start from the logged problems (the wire samples at a fixed seed,
             feedback = _history(app, "")  # so the same prompt would return the same refused generator: pilot 1, insurance, twice)
         for attempt in range(cfg.data_attempts):
-            def chk(x: DataSpec, attempt: int = attempt) -> None:
+            def chk(x: DataSpec, attempt: int = attempt) -> DataSpec:
                 missing = sorted(set(data_tables) - {t.table for t in x.tables})
                 if missing:
                     raise ValueError(f"no generator for tables {missing}")
                 x = DataSpec(tables=[t for t in x.tables if t.table in data_tables], notes=x.notes)
+                x, fixed = normalize_spec(x, data_tables)  # mechanical repairs, recorded in the spec's notes
+                if fixed:
+                    x = x.model_copy(update={"notes": (x.notes + " | framework: " + "; ".join(fixed)).strip(" |")})
                 # every instance profile at its own seed (pilot 1: a spec that sampled at seed 0 failed at 3 of 4 instance seeds)
                 for sd, pname in ((0, "standard"), (1, "dense"), (2, "noisy"), (3, "clean")):
                     try:
@@ -632,6 +790,7 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                     except DataSpecError as e:
                         _log_attempt(app, attempt, f"{pname}: {e}")
                         raise
+                return x
 
             try:
                 ds: DataSpec = await ask(clients["data_spec_writer"], DATA_SPEC_WRITER, tag="family:datagen", check=chk, retries=2,
@@ -653,10 +812,27 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                 probs = await smoke_world(probe, probe / "work")
             except (SandboxError, ValueError) as e:
                 probs = [f"the start state does not load: {str(e)[:600]}"]
-            if not probs:
+            if probs:
+                feedback = "The sampled start state broke the application: " + "; ".join(probs[:6])
+                _log_attempt(app, attempt, feedback)
+                continue
+            if not cfg.density:
                 return
-            feedback = "The sampled start state broke the application: " + "; ".join(probs[:6])
+            # density by design (worlds-2): the reference oracles' shown distinct mutants measured on this start state;
+            # a collection below the bar goes back to the writer with the rows its tools succeed on and why they refuse
+            dens = await density_probe(app, probe, sp, s, InstanceConfig(family=st.family, index=0, seed=0, profile="standard"), k_min=cfg.k_min)
+            _log_density(app, attempt, dens)
+            deficit = sum(max(0, N_MIN_SHOWN - n) for n in dens["best_by_collection"].values())
+            if best is None or deficit < best[0]:
+                best = (deficit, ds, dens)
+            if not dens["short"]:
+                return
+            feedback = dens["feedback"]
             _log_attempt(app, attempt, feedback)
+        if best is not None:  # the densest accepted generator stands; the density gate judges each instance
+            _jwrite(app / "datagen.json", best[1].model_dump(mode="json"))
+            st.stages["datagen"].note = f"density short after {cfg.data_attempts} attempts: {best[2]['short']}"
+            return
         raise ValueError(f"data generator: {feedback}")
 
     async def s_docs() -> None:
@@ -724,6 +900,7 @@ class InstanceConfig(_M):
     profile: str = "standard"
     params: dict[str, Any] = Field(default_factory=dict)  # the policy variant (resolved values; empty = drawn from the seed)
     colleagues: list[str] = Field(default_factory=list)  # the actor config (empty = drawn from the seed)
+    k_min: int | None = None  # this instance's rows per target collection (R-density's reseed_denser raises it; None = the family's)
 
     @property
     def id(self) -> str:
@@ -875,6 +1052,7 @@ def _materialize(app: Path, out: Path, ds: DataSpec, spec: DomainSpec, schema: S
     data_tables = {k: v for k, v in sm.items() if k not in ("documents", "policy_params", "colleagues")}
     design = _jread(app / "design.json")
     base = PROFILES.get(cfg.profile, PROFILES["standard"])
+    k_min = int(cfg.k_min or k_min)
     prof = base.model_copy(update={"min_rows": {t: round(k_min * max(1.0, base.scale)) for t in targets(design, schema.model_dump(mode="json")) if t in data_tables}})
     g = generate(ds, data_tables, seed=cfg.seed, profile=prof)
     params = policy_variant(spec, cfg, g, data_tables)
@@ -1018,7 +1196,10 @@ __all__ = [
     "build_family",
     "check_actors",
     "check_docs",
+    "density_probe",
+    "density_text",
     "design_doc",
+    "design_targets",
     "family_id",
     "frozen_manifest",
     "instance_config",
@@ -1030,5 +1211,6 @@ __all__ = [
     "realism_design_problems",
     "schema_map",
     "targets",
+    "unlisted_targets",
     "with_kit",
 ]

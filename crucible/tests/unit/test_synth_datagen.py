@@ -6,7 +6,20 @@ import copy
 
 import pytest
 
-from crucible.synth.datagen import PROFILES, DataSpec, DataSpecError, Profile, compile_spec, eval_expr, generate, integrity, near_variant
+from crucible.synth.datagen import (
+    PROFILES,
+    DataSpec,
+    DataSpecError,
+    Profile,
+    compile_spec,
+    eval_expr,
+    generate,
+    integrity,
+    near_variant,
+    normalize_spec,
+    rewrite_implies,
+    rule_holds,
+)
 from tests.unit.synth_world_fixtures import DATAGEN, SCHEMA
 
 
@@ -81,10 +94,12 @@ def test_compile_refuses_bad_specs_with_feedback():
     d["tables"][1]["fields"]["created_at"] = {"kind": "date_offset", "from": "due_at"}
     with pytest.raises(DataSpecError, match="cycle"):
         compile_spec(DataSpec.model_validate(d), s)
-    d = copy.deepcopy(DATAGEN)
-    d["tables"][1]["stale"] = {"set": {"status": "gone"}}
-    with pytest.raises(DataSpecError, match="not one of its choice values"):
-        compile_spec(DataSpec.model_validate(d), s)
+    d = copy.deepcopy(DATAGEN)  # worlds-1: a stale marker the live rows never take ("inactive") is accepted, on stale rows only
+    d["tables"][1]["stale"] = {"set": {"status": "gone"}, "older": ["created_at"]}
+    g = generate(DataSpec.model_validate(d), s, seed=0, profile=Profile(stale=0.2))
+    assert integrity(DataSpec.model_validate(d), s, g) == []
+    gone = [r for r in g.tables["tickets"] if r["status"] == "gone"]
+    assert gone and {r["ticket_id"] for r in gone} <= {str(n.key) for n in g.noise if n.kind == "stale"}
 
 
 def test_aggregates_and_expressions():
@@ -188,3 +203,103 @@ def test_two_way_links_are_backrefs_and_null_is_accepted():
     cyc["tables"][0]["fields"]["claim_id"] = {"kind": "ref", "table": "claim"}
     with pytest.raises(DataSpecError, match="backref"):
         compile_spec(DataSpec.model_validate(cyc), schema)
+
+
+def test_every_static_problem_comes_back_at_once():
+    # worlds-1: the purchase-requisition writer got one problem per round over four rounds (32 logged refusals)
+    d = copy.deepcopy(DATAGEN)
+    d["tables"][0]["fields"]["role"] = {"kind": "magic"}
+    d["tables"][1]["rules"].append("due_at >= ghost")
+    d["tables"][1]["near_duplicate"] = {"vary": ["nothing"]}
+    d["tables"][2]["fields"]["ticket_id"] = {"kind": "ref", "table": "nowhere"}
+    with pytest.raises(DataSpecError) as e:
+        compile_spec(DataSpec.model_validate(d), _schema())
+    msg = str(e.value)
+    assert msg.startswith("4 problems") and all(w in msg for w in ("unknown kind", "ghost", "nothing", "nowhere"))
+
+
+def test_implies_chains_and_sql_nulls():
+    # worlds-1: `implies` was invalid syntax, `po_id.requisition_id.raised_at` was refused, `limit >= 0` on null was a TypeError
+    assert rewrite_implies("a == 1 implies b > 2") == "(not (a == 1)) or (b > 2)"
+    assert rewrite_implies("x and (a implies b) or c") == "x and ((not (a)) or (b)) or c"
+    assert rewrite_implies("s == 'implies' or t") == "s == 'implies' or t"  # a string literal is not the operator
+    assert eval_expr("status == 'approved' implies budget != 'exceeded'", {"status": "approved", "budget": "exceeded"}) is False
+    assert eval_expr("status == 'approved' implies budget != 'exceeded'", {"status": "draft", "budget": "exceeded"}) is True
+    assert eval_expr("limit >= 0", {"limit": None}) is None and rule_holds(None)
+    assert eval_expr("limit >= 0", {"limit": -1}) is False and not rule_holds(False)
+    assert eval_expr("a == null or a > b", {"a": None, "b": 1}) is True
+    assert eval_expr("a > 1 or b > 1", {"a": None, "b": 0}) is None  # unknown, not False
+    assert eval_expr("a > 1 and b > 1", {"a": None, "b": 0}) is False
+    assert eval_expr("not (a > 1)", {"a": None}) is None and eval_expr("a + 1", {"a": None}) is None and eval_expr("round(a)", {"a": None}) is None
+    schema = {"req": {"key": "rid", "fields": {"rid": "string", "raised": "string", "limit": "number?"}},
+              "po": {"key": "pid", "fields": {"pid": "string", "req_id": "string", "ordered": "string"}},
+              "inv": {"key": "iid", "fields": {"iid": "string", "po_id": "string", "dated": "string"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "req", "rows": 20, "rules": ["limit >= 0"], "fields": {"rid": {"kind": "seq", "prefix": "R-"}, "raised": {"kind": "date", "days_ago": [200, 300]},
+                                                                      "limit": {"kind": "number", "min": 10, "max": 90, "null_p": 0.5}}},
+        {"table": "po", "rows": 20, "fields": {"pid": {"kind": "seq", "prefix": "P-"}, "req_id": {"kind": "ref", "table": "req"},
+                                              "ordered": {"kind": "date_offset", "from": "req_id.raised", "min_days": 1, "max_days": 20}}},
+        {"table": "inv", "rows": 30, "rules": ["dated >= po_id.req_id.raised", "po_id.req_id.limit == null implies dated >= po_id.ordered"],
+         "fields": {"iid": {"kind": "seq", "prefix": "I-"}, "po_id": {"kind": "ref", "table": "po"},
+                    "dated": {"kind": "date_offset", "from": "po_id.req_id.raised", "min_days": 0, "max_days": 60}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    assert any(r["limit"] is None for r in g.tables["req"])
+    raised = {r["rid"]: r["raised"] for r in g.tables["req"]}
+    po = {r["pid"]: r for r in g.tables["po"]}
+    assert all(i["dated"] >= raised[po[i["po_id"]]["req_id"]] for i in g.tables["inv"])
+    g.tables["inv"][0]["dated"] = "2020-01-01"
+    assert any("po_id.req_id.raised" in p for p in integrity(spec, schema, g))
+    bad = spec.model_copy(deep=True)
+    bad.tables[2].rules = ["dated >= po_id.ordered.raised"]
+    with pytest.raises(DataSpecError, match="ordered is not a ref field of po"):
+        compile_spec(bad, schema)
+
+
+def test_a_unique_template_numbers_its_overflow():
+    schema = {"inv": {"key": "iid", "fields": {"iid": "string", "ref": "string"}}}
+    spec = DataSpec.model_validate({"tables": [{"table": "inv", "rows": 30, "fields": {
+        "iid": {"kind": "seq", "prefix": "I-"}, "ref": {"kind": "template", "template": "INV-{n}", "parts": {"n": ["1", "2", "3"]}, "unique": True}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    refs = [r["ref"] for r in g.tables["inv"]]
+    assert len(set(refs)) == 30 and integrity(spec, schema, g) == []
+
+
+def test_a_two_way_link_written_as_two_refs_is_normalised_to_a_backref():
+    # worlds-1: told "use a backref" three times, the writer wrote requisitions -> purchase_orders -> requisitions again
+    schema = {"req": {"key": "rid", "fields": {"rid": "string", "po_id": "string?"}},
+              "po": {"key": "pid", "fields": {"pid": "string", "req_id": "string"}}}
+    raw = DataSpec.model_validate({"tables": [
+        {"table": "req", "rows": 20, "fields": {"rid": {"kind": "seq", "prefix": "R-"}, "po_id": {"kind": "ref", "table": "po"}}},
+        {"table": "po", "rows": 8, "fields": {"pid": {"kind": "seq", "prefix": "P-"}, "req_id": {"kind": "ref", "table": "req", "unique": True}}}]})
+    with pytest.raises(DataSpecError, match="cycle"):
+        compile_spec(raw, schema)
+    spec, notes = normalize_spec(raw, schema)
+    assert notes and spec.tables[0].fields["po_id"] == {"kind": "backref", "table": "po", "fk": "req_id"}
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == [] and sum(1 for r in g.tables["req"] if r["po_id"]) == 8
+    both = copy.deepcopy(schema)
+    both["po"]["fields"]["req_id"] = "string?"  # both sides optional: no side is clearly the reverse link, so it stays refused
+    assert normalize_spec(raw, both)[1] == []
+
+
+def test_if_then_rules_and_conflicts_never_land_on_a_copied_master():
+    # worlds-2: the insurance writer wrote 16 rules as "if A then B"; a conflict planted on a loss notice's insured name
+    # (itself a copy of the policy's) broke the claim that copies it
+    assert eval_expr("if status == 'merged' then target != null", {"status": "merged", "target": None}) is False
+    assert eval_expr("if status == 'merged' then target != null", {"status": "open", "target": None}) is True
+    assert eval_expr("if a > 1 then 'big' else 'small'", {"a": 0}) == "small"
+    schema = {"pol": {"key": "pid", "fields": {"pid": "string", "name": "string"}},
+              "notice": {"key": "nid", "fields": {"nid": "string", "pid": "string", "name": "string"}},
+              "claim": {"key": "cid", "fields": {"cid": "string", "nid": "string", "name": "string"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "pol", "rows": 30, "fields": {"pid": {"kind": "seq", "prefix": "P-"}, "name": {"kind": "template", "template": "{a} {b}",
+                                                                                             "parts": {"a": ["Ann", "Bo", "Cy"], "b": ["Lee", "Ng", "Roy"]}}}},
+        {"table": "notice", "rows": 40, "fields": {"nid": {"kind": "seq", "prefix": "N-"}, "pid": {"kind": "ref", "table": "pol"},
+                                                  "name": {"kind": "lookup", "ref": "pid", "field": "name"}}},
+        {"table": "claim", "rows": 40, "fields": {"cid": {"kind": "seq", "prefix": "C-"}, "nid": {"kind": "ref", "table": "notice"},
+                                                 "name": {"kind": "lookup", "ref": "nid", "field": "name"}}}]})
+    for sd in range(4):
+        g = generate(spec, schema, seed=sd, profile=Profile(conflict=0.3, near_duplicate=0, stale=0))
+        assert integrity(spec, schema, g) == []
+        assert {n.table for n in g.noise if n.kind == "conflict"} == {"claim"}  # the notice's name is the claim's master

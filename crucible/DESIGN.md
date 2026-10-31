@@ -2097,6 +2097,64 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      pass costs about $0.8–1.6 and 40–60 min (Kimi-bound); an instance costs $0 and 0.05 s to generate, 20–70 s to gate,
      about $0.017 to rate. The realism panel rated all 20 instances realistic, including the 8 the executed gates
      reject: necessary, not sufficient. The run report lists every issue the real calls and the gates found, with its fix.
+   - **worlds-2: the three failed families rebuilt and the causes fixed in the builder** (built 2026-10-30; results
+     `docs/research/env-synthesis/runs/worlds-2.md`; USD 5.56 of the 6 cap). Each fix has a regression test
+     (`tests/unit/test_synth_worlds2.py`, `test_synth_datagen.py`).
+     - *The listing rule* (insurance had no list tool for claims, returns none for refunds or customers, PR none for
+       purchase orders). Every collection tasks may act on (`families.design_targets`: written and named by a key-like
+       parameter; unique head nouns only, so `line_id` names none of three line tables) has a paged read tool named for
+       it (`lists`: page parameters, no other required argument, the collection's head noun in its name). It is checked
+       at the design stage (`unlisted_targets` → `realism_design_problems`, back to the designer) and executed at the
+       code stage and in every debug round (`worldgates.listing_problems`: the App loaded on `synthetic_seed`, every paged
+       read tool paged through, unfiltered and per enum filter value; an item counts as a row when it holds the row's key
+       and one of the row's table-unique strings, or no other table's). The executed check asks only what the design
+       rule asked (the coder cannot add a tool), and a timestamp is not a synthetic string; both were real-run bugs
+       that cost three coder attempts each. AR's frozen design fails the rule (invoices); its instances are kept, since
+       obscurity reaches 100% of invoices through account links.
+     - *Density by design.* The density gate's bar is on the **shown** mutants (`MUT(split="shown")`, h = item 22's
+       0.2), and the held-out count is measured beside it (`MUTHeldOut`; `heldout_by_collection`); `holdout=0` is the
+       old measure. The data stage measures it: after the smoke test, `families.density_probe` chooses the actor by
+       execution and runs the gate with `diagnose` (`worldgates.sibling_reach`: per reference oracle, the rows its call
+       succeeds on and the refusals, masked and counted); a collection below 59 shown goes back to the writer
+       (`density_text`), the densest accepted generator is kept, and `datagen_density.jsonl` records every attempt
+       (`FamilyConfig.density`, CLI `--no-density`). The writer is asked for 80 to 150 rows per target table, 40 or
+       more in a state some write tool accepts.
+     - *The data generator* (32 refusals over four rounds for PR). `compile_spec` returns every static problem at once
+       (up to 15; it used to stop at the first, so each round fixed one and made another); `A implies B` and
+       `if A then B [else C]`; chained references `a.b.c` in rules, `when`, `calc` and `date_offset` (`follow`); SQL
+       nulls (comparison or arithmetic with null is unknown, Kleene `and`/`or`/`not`, a rule holds unless False:
+       `limit >= 0` on a null limit was a TypeError on every row); a stale marker outside the live choice values is
+       accepted on stale rows only (six refusals); a unique template numbers its overflow; `normalize_spec` turns a
+       two-way link written as two refs into a backref on the nullable side (recorded in the spec's notes);
+       conflicting-source noise is never planted on a field another lookup copies (insurance: a conflict on the loss
+       notice's insured name broke the claim that copies it, three refusals the writer could not fix); a redesign moves
+       the old attempt log aside.
+     - *The clock.* `roles.CLOCK_T0` (= `PyWorld.t0` = `datagen.TODAY`, 2026-01-01) is stated to the coder
+       (`APP_API_DOC`) and the blind tester (`TEST_FORMAT_DOC`); a date-shaped failure (expired, window, deadline, ...)
+       gets a debugger hint to dispute a test whose fixture dates predate the clock (PR's t11, `required_by` 2024-06-01,
+       failed three debug rounds; with the hint it was disputed and dropped by the approver in one).
+     - *The realism panel.* `worldgates.rejected_anchors`: instances a realism gate (integrity, surface, obscurity)
+       rejected are negative anchors with known truth (density, build or determinism failures are not realism
+       verdicts); `calibrate_panel` reports accuracy per anchor kind (`by_kind`). Measured: the panel rated all 4
+       obscurity-rejected returns instances realistic at confidence 0.90 to 0.98, so with them it is 7 of 11 correct.
+     - *Policy (item 24, R-density and R-panel).* `worldgates.N_MIN`, `families.N_MIN_SHOWN`, `FamilyConfig.k_min` and
+       `density_gate`'s default read R-density. `gate_instance` raises `density_gate_failing` (can_reseed, reseed_tries)
+       or `world_gate_failing` (gate, restartable, rebuild_tries) through `policy.resolve` and records the remedy, rule
+       and policy version in `gates.json` (`InstanceGates.remedies`). The gate runner carries the remedy out:
+       `reseed_denser` regenerates the instance with 1.5× the rows per target (`InstanceConfig.k_min`, so determinism
+       regenerates it), keeps the earlier record (`gates.reseed<k>.json`) and gates it in full, up to `max_reseed`;
+       `rebuild_stage` (only with `--allow-rebuild`) goes to the family's `rebuild_requests.jsonl` with the stage
+       (`GATE_STAGE`); `not_used` keeps the reasons. `calibrate_panel` defaults to `policy.panel_calibration()` (≥ 6
+       decided of both truths, target 0.9, floor 0.7, else λ > 1); an uncalibrated panel raises `uncalibrated_panel`
+       and carries out its remedy: `executed_check` decides on the executed realism gates (recorded as `decided_by`),
+       otherwise the human queue. With the rejected anchors the panel is uncalibrated (λ 1.01), so the realism verdict
+       now rests on the executed gates, as R-panel prescribes.
+     - *Results.* Insurance: redesigned with `list_claims`, dense on the first data attempt; **6 of 6 instances usable**
+       (claims 100% reachable, was 29-38%; 71-101 shown and 11-36 held-out distinct mutants per collection).
+       Re-gated under the shown bar: AR 6/6 and leave 6/6 (leave i02, 58 shown, was reseeded twice by R-density's remedy
+       and then passed). **18 usable instances from 3 families** (the lead's ≥ 4 families is not met). Returns (new
+       design with list tools for customers, refunds and policy exceptions; code accepted on re-check, tests pending) and
+       PR (new design, debug passed, datagen stopped at its cap) are unfinished for budget: about USD 1 and 0.5 to finish.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`
@@ -2767,7 +2825,8 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
    - **Wiring left for files other agents own** (exact sites in `runs/policy-1.md` §4): `meta/rsi.py` (TaskRules defaults
      from the ledger; TaskLoop.step raises conditions and dispatches on `resolve`; `archive_recheck` default h),
      `recert.py` (strict panel calibration at line 291; name the phase-1 deviation; `ManifestRow.policy_version`),
-     `families.py`/`worldgates.py` (N_MIN, k_min, gate conditions, the realism panel's calibration). Until then
+     `families.py`/`worldgates.py` (N_MIN, k_min, gate conditions, the realism panel's calibration: wired by worlds-2,
+     item 16). Until then
      conformance tests pin their constants to the ledger.
    - **Tests**: `tests/unit/test_synth_policy.py` (a test per rule; hypothesis properties: no returned remedy relaxes
      validity or fails a principle, escalation only on the four grounds, evidence first; the ledger's chain and guards;

@@ -146,16 +146,93 @@ _ALLOWED = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, a
             ast.IsNot, ast.Name, ast.Load, ast.Constant, ast.List, ast.Tuple, ast.IfExp, ast.Call, ast.Attribute)
 
 
+_IMPLIES = re.compile(r"\bimplies\b")
+
+
+def _close(s: str, i: int) -> int:
+    """The index of the bracket closing the one at ``i`` (string literals skipped), or -1."""
+    pairs = {"(": ")", "[": "]"}
+    stack, j = [pairs[s[i]]], i + 1
+    while j < len(s):
+        c = s[j]
+        if c in "'\"":
+            j = s.find(c, j + 1)
+            if j < 0:
+                return -1
+        elif c in pairs:
+            stack.append(pairs[c])
+        elif c in ")]":
+            if not stack or stack.pop() != c:
+                return -1
+            if not stack:
+                return j
+        j += 1
+    return -1
+
+
+_IF_THEN = re.compile(r"^\s*if\s+(.+?)\s+then\s+(.+?)(?:\s+else\s+(.+?))?\s*$", re.DOTALL)
+
+
+def rewrite_implies(src: str) -> str:
+    """``A implies B`` as ``(not (A)) or (B)``: the lowest-precedence operator, right-associative, inside brackets too.
+    worlds-1: the purchase-requisition data writer stated two rules with ``implies``; Python has no such operator, so
+    both were refused as invalid syntax. A whole expression ``if A then B`` (worlds-2: the insurance writer's 16 rules)
+    is ``A implies B``; ``if A then B else C`` is ``B if A else C``."""
+    m = _IF_THEN.match(src)
+    if m:
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        return f"({rewrite_implies(b)}) if ({rewrite_implies(a)}) else ({rewrite_implies(c)})" if c else rewrite_implies(f"({a}) implies ({b})")
+    if not _IMPLIES.search(src):
+        return src
+    out, i = [], 0
+    while i < len(src):
+        c = src[i]
+        if c in "'\"":
+            j = src.find(c, i + 1)
+            j = len(src) - 1 if j < 0 else j
+            out.append(src[i:j + 1])
+            i = j + 1
+        elif c in "([":
+            j = _close(src, i)
+            if j < 0:
+                return src  # unbalanced: the parser reports it
+            out.append(c + rewrite_implies(src[i + 1:j]) + src[j])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    s = "".join(out)
+    # the first top-level ``implies`` (brackets were rewritten, so any left is at depth 0 or inside a literal)
+    depth, i = 0, 0
+    while i < len(s):
+        c = s[i]
+        if c in "'\"":
+            j = s.find(c, i + 1)
+            i = len(s) if j < 0 else j + 1
+            continue
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        m =_IMPLIES.match(s, i) if depth == 0 and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] == "_")) else None
+        if m:
+            left, right = s[:i].strip(), s[m.end():].strip()
+            return f"(not ({left})) or ({rewrite_implies(right)})"
+        i += 1
+    return s
+
+
 def parse_expr(src: str) -> ast.Expression:
     try:
-        tree = ast.parse(src.strip(), mode="eval")
+        tree = ast.parse(rewrite_implies(src.strip()), mode="eval")
     except SyntaxError as e:
         raise DataSpecError(f"expression {src!r}: {e.msg}") from None
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED):
             raise DataSpecError(f"expression {src!r}: {type(node).__name__} is not allowed")
-        if isinstance(node, ast.Attribute) and (not isinstance(node.value, ast.Name) or node.attr.startswith("_")):
-            raise DataSpecError(f"expression {src!r}: only <ref field>.<field of the referenced row> may use a dot")
+        if isinstance(node, ast.Attribute) and (_path(node) is None or node.attr.startswith("_")):
+            raise DataSpecError(f"expression {src!r}: only <ref field>.<field of the referenced row> (or a chain of ref fields, "
+                                "a.b.c) may use a dot")
         if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name) and node.func.id in (*_FUNCS, "days_between")):
             raise DataSpecError(f"expression {src!r}: only round, min, max, abs, len, days_between may be called")
     return tree
@@ -171,14 +248,43 @@ def _days_between(a: Any, b: Any) -> int:
     return (parse_date(b) - parse_date(a)).days
 
 
+def _path(n: ast.AST) -> list[str] | None:
+    """``a.b.c`` as ``["a", "b", "c"]`` (None if the chain does not start at a name)."""
+    out: list[str] = []
+    while isinstance(n, ast.Attribute):
+        out.append(n.attr)
+        n = n.value
+    if not isinstance(n, ast.Name):
+        return None
+    return [n.id, *reversed(out)]
+
+
+def expr_paths(src: str) -> set[tuple[str, ...]]:
+    """The dotted paths an expression reads through references (``policy_id.expiry`` or ``po_id.requisition_id.raised_at``):
+    the outermost chains only."""
+    tree = parse_expr(src)
+    inner = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    return {tuple(p) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and id(n) not in inner and (p := _path(n))}
+
+
 def expr_refs(src: str) -> set[tuple[str, str]]:
-    """The ``<ref field>.<field>`` pairs an expression reads (a cross-record rule)."""
-    return {(n.value.id, n.attr) for n in ast.walk(parse_expr(src)) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+    """The ``<ref field>.<rest of the path>`` pairs an expression reads (a cross-record rule)."""
+    return {(p[0], ".".join(p[1:])) for p in expr_paths(src)}
+
+
+_ORDER = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 
 
 def eval_expr(src: str, row: Mapping[str, Any], resolve: Any = None) -> Any:
-    """Evaluate ``src`` on ``row``. ``resolve(ref_field, field)`` reads a field of the row a ref field points at
-    (pilot 1: a loss date must lie within the referenced policy's period, which no per-row rule can say)."""
+    """Evaluate ``src`` on ``row``. ``resolve(ref_field, path)`` reads a field of the row a ref field points at, ``path``
+    possibly dotted again (pilot 1: a loss date must lie within the referenced policy's period, which no per-row rule
+    can say; worlds-1: an invoice date after its PO's requisition's date needs two hops).
+
+    **Nulls follow SQL** (worlds-1: the purchase-requisition writer's ``approval_limit >= 0`` on a nullable limit failed
+    with a TypeError on every row without one, four rounds running): an ordering comparison, arithmetic or a function
+    call with a null operand is *unknown* (None); ``and``/``or``/``not`` are three-valued (Kleene); an ``if`` test that
+    is unknown takes the else branch. A rule holds unless it is False (an unknown rule holds, as a SQL CHECK
+    constraint does); a ``when`` that is unknown takes ``else``. ``==`` / ``!=`` / ``is`` compare with null as before."""
     tree = parse_expr(src)
     env = {**_FUNCS, "days_between": _days_between, "None": None, "True": True, "False": False, "null": None, "true": True, "false": False}
 
@@ -188,9 +294,10 @@ def eval_expr(src: str, row: Mapping[str, Any], resolve: Any = None) -> Any:
         if isinstance(n, ast.Constant):
             return n.value
         if isinstance(n, ast.Attribute):
+            p = _path(n) or []
             if resolve is None:
-                raise DataSpecError(f"expression {src!r}: {n.value.id}.{n.attr} needs the referenced row")  # type: ignore[attr-defined]
-            return resolve(n.value.id, n.attr)  # type: ignore[attr-defined]
+                raise DataSpecError(f"expression {src!r}: {'.'.join(p)} needs the referenced row")
+            return resolve(p[0], ".".join(p[1:]))
         if isinstance(n, ast.Name):
             if n.id in row:
                 return row[n.id]
@@ -200,32 +307,52 @@ def eval_expr(src: str, row: Mapping[str, Any], resolve: Any = None) -> Any:
         if isinstance(n, ast.List | ast.Tuple):
             return [ev(x) for x in n.elts]
         if isinstance(n, ast.BoolOp):
-            vals = (ev(x) for x in n.values)
-            return all(vals) if isinstance(n.op, ast.And) else any(vals)
+            unknown = False
+            for x in n.values:
+                v = ev(x)
+                if v is None:
+                    unknown = True
+                elif isinstance(n.op, ast.And) and not v:
+                    return False
+                elif isinstance(n.op, ast.Or) and v:
+                    return True
+            return None if unknown else isinstance(n.op, ast.And)
         if isinstance(n, ast.UnaryOp):
             v = ev(n.operand)
+            if v is None:
+                return None
             return (not v) if isinstance(n.op, ast.Not) else (-v if isinstance(n.op, ast.USub) else +v)
         if isinstance(n, ast.BinOp):
             a, b = ev(n.left), ev(n.right)
+            if a is None or b is None:
+                return None
             ops = {ast.Add: lambda: a + b, ast.Sub: lambda: a - b, ast.Mult: lambda: a * b, ast.Div: lambda: a / b, ast.FloorDiv: lambda: a // b,
                    ast.Mod: lambda: a % b}
             return ops[type(n.op)]()
         if isinstance(n, ast.Compare):
             left = ev(n.left)
+            unknown = False
             for op, right_n in zip(n.ops, n.comparators, strict=True):
                 right = ev(right_n)
+                if (isinstance(op, _ORDER) and (left is None or right is None)) or (isinstance(op, ast.In | ast.NotIn) and right is None):
+                    unknown = True
+                    left = right
+                    continue
                 ok = {ast.Eq: lambda x, y: x == y, ast.NotEq: lambda x, y: x != y, ast.Lt: lambda x, y: x < y, ast.LtE: lambda x, y: x <= y,
                       ast.Gt: lambda x, y: x > y, ast.GtE: lambda x, y: x >= y, ast.In: lambda x, y: x in y, ast.NotIn: lambda x, y: x not in y,
                       ast.Is: lambda x, y: x is y, ast.IsNot: lambda x, y: x is not y}[type(op)](left, right)
                 if not ok:
                     return False
                 left = right
-            return True
+            return None if unknown else True
         if isinstance(n, ast.IfExp):
             return ev(n.body) if ev(n.test) else ev(n.orelse)
         if isinstance(n, ast.Call):
             f = env[n.func.id]  # type: ignore[union-attr]
-            return f(*[ev(a) for a in n.args])
+            args = [ev(a) for a in n.args]
+            if any(a is None for a in args):
+                return None
+            return f(*args)
         raise DataSpecError(f"expression {src!r}: unsupported")
 
     try:
@@ -344,51 +471,82 @@ def _check_gen(t: str, f: str, g: Mapping[str, Any], schema_fields: Mapping[str,
             raise DataSpecError(f"{where}: refers to {n!r}, which is not a field of {t}")
 
 
+def _check_path(t: TableGen, rule: str, path: tuple[str, ...], tables: Mapping[str, TableGen]) -> None:
+    cur = t
+    for i, hop in enumerate(path[:-1]):
+        g = cur.fields.get(hop) or {}
+        rest = ".".join(path[i + 1:])
+        if g.get("kind") not in ("ref", "backref"):
+            raise DataSpecError(f"table {t.table}: rule {rule!r}: {hop} is not a ref field{'' if cur is t else ' of ' + cur.table}, so {hop}.{rest} has no "
+                                "referenced row")
+        if g.get("table") not in tables:
+            raise DataSpecError(f"table {t.table}: rule {rule!r}: {hop} refers to {g.get('table')!r}, which the spec does not generate")
+        cur = tables[str(g["table"])]
+    if path[-1] not in cur.fields:
+        raise DataSpecError(f"table {t.table}: rule {rule!r}: {path[-1]} is not a field of {cur.table}")
+
+
+MAX_FEEDBACK = 15
+
+
 def compile_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> list[tuple[TableGen, list[str]]]:
     """Check the spec against the schema (``{table: {"key": k, "fields": {f: type}}}``) and order it: tables by their
-    ``ref`` dependencies, each table's fields by their own. ``DataSpecError`` names the first problem."""
+    ``ref`` dependencies, each table's fields by their own. ``DataSpecError`` names **every** problem found (up to
+    ``MAX_FEEDBACK``), one per field, rule or table: worlds-1's purchase-requisition writer got one problem per round,
+    fixed it, and made another, over four rounds and 32 logged refusals."""
     tables = {t.table: t for t in spec.tables}
+    probs: list[str] = []
+
+    def chk(fn: Any, *args: Any) -> None:
+        try:
+            fn(*args)
+        except DataSpecError as e:
+            probs.append(str(e))
+        except (KeyError, TypeError, ValueError, AttributeError) as e:  # a malformed generator: say where
+            probs.append(f"{' / '.join(str(a) for a in args[:2] if isinstance(a, str))}: malformed ({type(e).__name__}: {e})")
+
     if len(tables) != len(spec.tables):
-        raise DataSpecError("a table is generated twice")
+        probs.append("a table is generated twice")
     for t in spec.tables:
         if t.table not in schema:
-            raise DataSpecError(f"table {t.table!r} is not in the schema")
+            probs.append(f"table {t.table!r} is not in the schema")
+            continue
         sf = schema[t.table]["fields"]
         missing = sorted(set(sf) - set(t.fields))
         if missing:
-            raise DataSpecError(f"table {t.table}: no generator for schema fields {missing}")
+            probs.append(f"table {t.table}: no generator for schema fields {missing}")
         extra = sorted(set(t.fields) - set(sf))
         if extra:
-            raise DataSpecError(f"table {t.table}: generators for fields the schema does not have {extra}")
+            probs.append(f"table {t.table}: generators for fields the schema does not have {extra}")
         key = schema[t.table]["key"]
-        kg = t.fields[key]
+        kg = t.fields.get(key) or {}
         if kg.get("kind") not in ("seq", "pool", "template"):
-            raise DataSpecError(f"table {t.table}: the key {key!r} needs a seq, pool or template generator")
-        if kg.get("kind") in ("pool", "template") and not kg.get("unique"):
-            raise DataSpecError(f"table {t.table}: a pool or template key must be unique (\"unique\": true)")
+            probs.append(f"table {t.table}: the key {key!r} needs a seq, pool or template generator")
+        elif kg.get("kind") in ("pool", "template") and not kg.get("unique"):
+            probs.append(f"table {t.table}: a pool or template key must be unique (\"unique\": true)")
         for f, g in t.fields.items():
-            _check_gen(t.table, f, g, sf, tables)
+            chk(_check_gen, t.table, f, g, sf, tables)
         for r in t.rules:
-            bad = expr_names(r) - set(t.fields)
-            if bad:
-                raise DataSpecError(f"table {t.table}: rule {r!r} names unknown fields {sorted(bad)}")
-            for rf, f in expr_refs(r):
-                rg = t.fields.get(rf) or {}
-                if rg.get("kind") not in ("ref", "backref"):
-                    raise DataSpecError(f"table {t.table}: rule {r!r}: {rf} is not a ref field, so {rf}.{f} has no referenced row")
-                if f not in tables[rg["table"]].fields:
-                    raise DataSpecError(f"table {t.table}: rule {r!r}: {f} is not a field of {rg['table']}")
+            try:
+                bad = expr_names(r) - set(t.fields)
+                if bad:
+                    raise DataSpecError(f"table {t.table}: rule {r!r} names unknown fields {sorted(bad)}")
+                for p in expr_paths(r):
+                    _check_path(t, r, p, tables)
+            except DataSpecError as e:
+                probs.append(str(e) if str(e).startswith("table ") else f"table {t.table}: {e}")
         for nf in (t.near_duplicate.vary if t.near_duplicate else []):
             if nf not in t.fields or nf == key:
-                raise DataSpecError(f"table {t.table}: near_duplicate varies {nf!r}, which is not a non-key field")
+                probs.append(f"table {t.table}: near_duplicate varies {nf!r}, which is not a non-key field")
         if t.stale:
+            # the stale marker may be a value the live rows never take ("inactive", "archived"): it only marks the planted
+            # outdated clones (worlds-1: refusing it cost the purchase-requisition writer six rounds; integrity accepts
+            # it on stale rows only)
             for f in [*t.stale.set, *t.stale.older]:
                 if f not in t.fields or f == key:
-                    raise DataSpecError(f"table {t.table}: stale names {f!r}, which is not a non-key field")
-            for f, v in t.stale.set.items():
-                g = t.fields[f]
-                if g.get("kind") == "choice" and v not in g["values"]:
-                    raise DataSpecError(f"table {t.table}: stale sets {f}={v!r}, which is not one of its choice values {g['values']}")
+                    probs.append(f"table {t.table}: stale names {f!r}, which is not a non-key field")
+    if probs:
+        raise DataSpecError(_joined(probs))
     order: list[str] = []
     state: dict[str, int] = {}
 
@@ -425,9 +583,70 @@ def compile_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> lis
             fo.append(f)
 
         for f in t.fields:
-            fvisit(f, ())
+            chk(fvisit, f, ())
         out.append((t, fo))
+    if probs:
+        raise DataSpecError(_joined(probs))
     return out
+
+
+def _joined(probs: Sequence[str]) -> str:
+    uniq = list(dict.fromkeys(probs))
+    head = "; ".join(uniq[:MAX_FEEDBACK])
+    more = f" (and {len(uniq) - MAX_FEEDBACK} more)" if len(uniq) > MAX_FEEDBACK else ""
+    return (f"{len(uniq)} problems: " if len(uniq) > 1 else "") + head + more
+
+
+def _nullable(ty: Any) -> bool:
+    return str(ty).endswith("?")
+
+
+def normalize_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> tuple[DataSpec, list[str]]:
+    """Mechanical repairs the framework makes before compiling (each is recorded): a two-way link written as two refs
+    (``requisitions.linked_po_id`` -> purchase_orders and ``purchase_orders.requisition_id`` -> requisitions) becomes a
+    ``backref`` on the side whose schema field is nullable, when exactly one side is (the optional link is the reverse
+    one). worlds-1: the purchase-requisition writer was told "use a backref" three times and wrote the two refs again."""
+    tables = {t.table: t for t in spec.tables}
+    notes: list[str] = []
+    out = spec.model_copy(deep=True)
+    otables = {t.table: t for t in out.tables}
+    for a in tables.values():
+        for fa, ga in a.fields.items():
+            if ga.get("kind") != "ref" or ga.get("table") == a.table or ga.get("table") not in tables:
+                continue
+            b = tables[str(ga["table"])]
+            back = [fb for fb, gb in b.fields.items() if gb.get("kind") == "ref" and gb.get("table") == a.table]
+            if len(back) != 1:
+                continue
+            fb = back[0]
+            na = _nullable((schema.get(a.table) or {}).get("fields", {}).get(fa))
+            nb = _nullable((schema.get(b.table) or {}).get("fields", {}).get(fb))
+            if na and not nb and otables[a.table].fields[fa].get("kind") == "ref" and otables[b.table].fields[fb].get("kind") == "ref":
+                otables[a.table].fields[fa] = {"kind": "backref", "table": b.table, "fk": fb}
+                notes.append(f"{a.table}.{fa} (a ref to {b.table}, which refers back through {fb}) generated as a backref")
+    return out, notes
+
+
+def rule_holds(v: Any) -> bool:
+    """A rule holds unless it evaluates False: an unknown (null) result holds, as a SQL CHECK constraint does."""
+    return v is None or bool(v)
+
+
+def follow(tables: Mapping[str, TableGen], by_key: Mapping[str, Mapping[str, Mapping[str, Any]]], t: TableGen, row: Mapping[str, Any], rf: str,
+           path: str) -> Any:
+    """The value at ``rf.path`` from ``row``: ``rf`` a ref (or backref) field of ``t``, ``path`` a field of the row it
+    points at or, dotted, a path onward through that row's own ref fields. Null anywhere on the way is null."""
+    g = t.fields.get(rf) or {}
+    if g.get("kind") not in ("ref", "backref") or row.get(rf) is None:
+        return None
+    target = by_key.get(str(g["table"]), {}).get(str(row.get(rf)))
+    if target is None:
+        return None
+    head, _, rest = path.partition(".")
+    if not rest:
+        return target.get(head)
+    nt = tables.get(str(g["table"]))
+    return None if nt is None else follow(tables, by_key, nt, target, head, rest)
 
 
 # ---------------------------------------------------------------------------------------------------------- sampling
@@ -530,7 +749,7 @@ class _Sampler:
             return fmt_date(d, bool(g.get("time")))
         if k == "date_offset":
             src = str(g["from"])  # a field of this row, or <ref>.<field> of the referenced row (pilot 1: an approval after its requisition)
-            base = self.resolver(t, row)(*src.split(".", 1)) if "." in src else row.get(src)
+            base = self.resolver(t, row)(*src.split(".", 1)) if "." in src else row.get(src)  # a chain a.b.c too (worlds-1)
             if base is None:
                 return None
             d = parse_date(base) + timedelta(days=rng.randint(int(g.get("min_days", 0)), int(g.get("max_days", 30))))
@@ -548,6 +767,7 @@ class _Sampler:
         if k == "pool":
             return self.pick_pool(t.table, f, g["values"], bool(g.get("unique")))
         if k == "template":
+            v = ""
             for _ in range(200):
                 parts = {p: rng.choice(list(vs)) for p, vs in (g.get("parts") or {}).items()}
                 try:
@@ -558,7 +778,14 @@ class _Sampler:
                     if g.get("unique"):
                         self.used[(t.table, f)].add(v)
                     return v
-            raise DataSpecError(f"{t.table}.{f}: a unique template ran out of combinations")
+            # worlds-1: a unique invoice-reference template ran out of combinations at the dense profile; number the
+            # overflow as a unique pool does
+            used = self.used[(t.table, f)]
+            k = len(used) + 1
+            while f"{v}-{k}" in used:
+                k += 1
+            used.add(f"{v}-{k}")
+            return f"{v}-{k}"
         if k == "calc":
             v = eval_expr(str(g["expr"]), row, self.resolver(t, row))
             return round(v, int(g["round"])) if g.get("round") is not None and isinstance(v, int | float) else v
@@ -594,11 +821,10 @@ class _Sampler:
         return self.rng.choice(keys)
 
     def resolver(self, t: TableGen, row: Mapping[str, Any]) -> Any:
+        tables = {x.table: x for x, _ in self.compiled}
+
         def resolve(rf: str, f: str) -> Any:
-            g = t.fields.get(rf) or {}
-            if g.get("kind") not in ("ref", "backref") or row.get(rf) is None:
-                return None
-            return (self.by_key.get(str(g["table"]), {}).get(str(row.get(rf))) or {}).get(f)
+            return follow(tables, self.by_key, t, row, rf, f)
 
         return resolve
 
@@ -625,7 +851,7 @@ class _Sampler:
             ok = True
             for r in t.rules:
                 try:
-                    ok = bool(eval_expr(r, row, self.resolver(t, row)))
+                    ok = rule_holds(eval_expr(r, row, self.resolver(t, row)))
                 except DataSpecError:
                     ok = True  # an unevaluable rule is integrity's to report
                 if not ok:
@@ -663,6 +889,18 @@ class _Sampler:
                 return k
         raise DataSpecError(f"table {t.table}: no fresh key for a noise row")
 
+    @property
+    def masters(self) -> set[tuple[str, str]]:
+        """(table, field) pairs some lookup copies."""
+        out = set()
+        for t, _ in self.compiled:
+            for g in t.fields.values():
+                if g.get("kind") == "lookup":
+                    rg = t.fields.get(str(g.get("ref"))) or {}
+                    if rg.get("table"):
+                        out.add((str(rg["table"]), str(g.get("field"))))
+        return out
+
     def plant(self) -> list[NoiseItem]:
         out: list[NoiseItem] = []
         p = self.profile
@@ -677,7 +915,10 @@ class _Sampler:
             def count(rate: float, n: int = len(base)) -> int:
                 return 0 if rate <= 0 else max(1, round(rate * n))
 
-            lookups = [(f, g) for f, g in t.fields.items() if g.get("kind") == "lookup"]
+            # a field another table's lookup copies is that copy's master: a conflict planted on it would make the
+            # downstream copy disagree with no planted record of it (worlds-2: a claim's insured name copies its loss
+            # notice's, which copies the policy's; every conflict on the notice broke the claim's integrity)
+            lookups = [(f, g) for f, g in t.fields.items() if g.get("kind") == "lookup" and (t.table, f) not in self.masters]
             if lookups:
                 for src in rng.sample(base, min(len(base), count(p.conflict))):
                     f, g = rng.choice(lookups)
@@ -855,8 +1096,7 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                     fr = str(g["from"])
                     if "." in fr:
                         rf_, ff_ = fr.split(".", 1)
-                        rg_ = t.fields.get(rf_) or {}
-                        src = (by_key.get(str(rg_.get("table")), {}).get(str(r.get(rf_))) or {}).get(ff_)
+                        src = follow(tables, by_key, t, r, rf_, ff_)
                     else:
                         src = r.get(fr)
                     if not is_date(v):
@@ -872,10 +1112,7 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
             if (tn, k) in noise_keys:
                 continue
             def resolve(rf: str, f: str, r: Mapping[str, Any] = r, t: TableGen = t) -> Any:
-                g = t.fields.get(rf) or {}
-                if g.get("kind") not in ("ref", "backref") or r.get(rf) is None:
-                    return None
-                return (by_key.get(str(g["table"]), {}).get(str(r.get(rf))) or {}).get(f)
+                return follow(tables, by_key, t, r, rf, f)
 
             for rule in t.rules:
                 try:
@@ -883,7 +1120,7 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                 except DataSpecError as e:
                     add(f"{tn}[{k}]: rule {rule!r} cannot be evaluated: {e}")
                     continue
-                if not ok:
+                if not rule_holds(ok):
                     hint = " (an equality to a referenced row's field is a copy: generate it with lookup)" if re.search(r"==\s*\w+\.\w+|\w+\.\w+\s*==", rule) else ""
                     add(f"{tn}[{k}]: rule {rule!r} does not hold{hint}")
     # aggregates against a recomputation over the non-noise rows
@@ -951,9 +1188,14 @@ Generators ({"kind": ...}):
   count     {"table": "<child table>", "fk": "<child field referring here>"}
   any generator may add "when": "<expression over this row>", "else": <a value or another generator>, and "null_p": 0.1 (nullable fields only)
 Expressions: field names, <ref field>.<field> (a field of the row a ref field points at, e.g. loss_date <= policy_id.expiry_date),
-literals, + - * / // %, == != < <= > >=, in, not in, and, or, not, x if c else y,
-round(), min(), max(), abs(), len(), days_between(a, b). Dates are ISO text and compare as text.
-Keys use seq (or a unique pool/template). Every reference is a ref. Weights and ranges must look like a real company's data."""
+a chain of ref fields (invoice_date >= po_id.requisition_id.raised_at), literals, + - * / // %, == != < <= > >=, in, not in, and, or,
+not, A implies B (or if A then B), x if c else y, round(), min(), max(), abs(), len(), days_between(a, b). Dates are ISO text and compare as text.
+Nulls work as in SQL: a comparison or arithmetic with null is unknown, and a rule that is unknown holds (approval_limit >= 0 holds
+where approval_limit is null); test for null with == null / != null.
+Keys use seq (or a unique pool/template). Every reference is a ref to ONE table: a field that may point at either of two tables
+(record_type + record_id) cannot be a ref; give it a pool or template, and no rule may read through it.
+Two tables that point at each other: one side is the ref, the other a backref. A stale marker may be a value live rows never take
+(status "archived"). Weights and ranges must look like a real company's data."""
 
 
 __all__ = [
@@ -968,8 +1210,13 @@ __all__ = [
     "TableGen",
     "compile_spec",
     "eval_expr",
+    "expr_paths",
+    "follow",
     "generate",
     "integrity",
     "near_variant",
+    "normalize_spec",
+    "rewrite_implies",
+    "rule_holds",
     "value_sets",
 ]

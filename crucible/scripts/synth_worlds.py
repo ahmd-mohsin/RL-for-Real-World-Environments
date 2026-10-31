@@ -108,7 +108,8 @@ def cmd_build(a: argparse.Namespace) -> None:
     if not todo:
         raise SystemExit("nothing to build")
     each = round(min(a.per_family_cap, cap / len(todo)), 4)
-    cfg = FamilyConfig(k_min=a.k_min, max_debug_rounds=a.rounds, actors=not a.no_actors, guidance=a.guidance)
+    cfg = FamilyConfig(**({"k_min": a.k_min} if a.k_min else {}), max_debug_rounds=a.rounds, actors=not a.no_actors, guidance=a.guidance, density=not a.no_density,
+                       data_attempts=a.data_attempts)
     print(f"building {len(todo)} families, {a.parallel} at a time, at most {each} USD each", flush=True)
 
     async def one(kw: str, fn: str, sem: asyncio.Semaphore) -> dict[str, Any]:
@@ -206,7 +207,7 @@ def _panel(wire: Any, root: Path) -> Any:
 
 
 def cmd_calibrate(a: argparse.Namespace) -> None:
-    from crucible.synth.worldgates import anchors_from, calibrate_panel
+    from crucible.synth.worldgates import anchors_from, calibrate_panel, rejected_anchors
 
     root = worlds_root(a)
     cap = worlds_cap(a)
@@ -216,7 +217,10 @@ def cmd_calibrate(a: argparse.Namespace) -> None:
 
     async def go() -> dict[str, Any]:
         pos = await _finance_ap_summaries(d / "work")
-        return await calibrate_panel(panel, anchors_from(pos))
+        anchors = anchors_from(pos)
+        if a.rejected_anchors:  # worlds-2: instances a realism gate rejected are negative anchors with known truth
+            anchors += await rejected_anchors(root, per_family=a.rejected_anchors)
+        return await calibrate_panel(panel, anchors)
 
     cal = asyncio.run(go())
     cal["cost"] = wire.cost()
@@ -227,7 +231,10 @@ def cmd_calibrate(a: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------------------------------------- gates
 
 def cmd_gate(a: argparse.Namespace) -> None:
-    from crucible.synth.families import list_instances
+    import math
+
+    from crucible.synth import policy
+    from crucible.synth.families import InstanceConfig, list_instances, make_instance
     from crucible.synth.worldgates import gate_instance
 
     root = worlds_root(a)
@@ -244,6 +251,29 @@ def cmd_gate(a: argparse.Namespace) -> None:
         panel.lam = float(json.loads(cal_p.read_text())["lam"])
     only = [x for x in a.only.split(",") if x] or None
     rows = []
+    max_reseed = int(policy.param("R-density", "max_reseed"))
+
+    async def act_on_remedies(fdir: Path, inst: Path, g: Any) -> Any:
+        """Carry out policy.resolve's remedies (DESIGN item 24, R-density): reseed_denser regenerates the instance with
+        1.5x the rows per target collection (same seed, profile, policy variant and acting user; the earlier gates
+        record is kept beside it) and gates it again, up to max_reseed times; rebuild_stage is recorded in the family's
+        rebuild_requests.jsonl (a paid build the operator runs under its own cap); not_used keeps the reasons."""
+        tries = 0
+        while any(r["action"] == "reseed_denser" for r in g.remedies) and tries < max_reseed:
+            tries += 1
+            info = json.loads((inst / "instance.json").read_text())
+            cfg = InstanceConfig.model_validate(info["config"])
+            man = json.loads((fdir / "app" / "world.json").read_text())
+            k = int(cfg.k_min or a.k_min or man.get("k_min") or policy.param("R-density", "k_min"))
+            (inst / "gates.json").replace(inst / f"gates.reseed{tries - 1}.json")
+            make_instance(fdir, cfg.model_copy(update={"k_min": math.ceil(k * 1.5)}))
+            # a new start state: every gate runs again, whatever --only asked
+            g = await gate_instance(fdir, inst, panel=panel, reseed_tries=tries, can_reseed=tries < max_reseed, restartable=a.allow_rebuild)
+        for r in g.remedies:
+            if r["action"] == "rebuild_stage":
+                with (fdir / "rebuild_requests.jsonl").open("a") as fh:
+                    fh.write(json.dumps({"t": time.time(), "instance": inst.name, **r}) + "\n")
+        return g
 
     async def go() -> None:
         sem = asyncio.Semaphore(a.parallel)
@@ -251,11 +281,16 @@ def cmd_gate(a: argparse.Namespace) -> None:
         async def one(fdir: Path, inst: Path) -> None:
             async with sem:
                 t0 = time.monotonic()
-                g = await gate_instance(fdir, inst, panel=panel, k_min=a.k_min, only=only)
+                g = await gate_instance(fdir, inst, panel=panel, k_min=a.k_min, only=only, restartable=a.allow_rebuild)
+                g = await act_on_remedies(fdir, inst, g)
                 rows.append({"family": fdir.name, "instance": inst.name, "usable": g.usable, "why": g.why, "s": round(time.monotonic() - t0, 1),
+                             "remedies": [(r["gate"], r["action"]) for r in g.remedies],
                              "gates": {k: v.passed for k, v in g.gates.items()},
-                             "density": g.gates["density"].details.get("per_tool") and [(p["tool"], p.get("n_distinct")) for p in g.gates["density"].details["per_tool"]]
-                             if "density" in g.gates else None})
+                             "density": g.gates["density"].details.get("per_tool") and [(p["tool"], p.get("n_distinct"), p.get("n_heldout"))
+                                                                                       for p in g.gates["density"].details["per_tool"]]
+                             if "density" in g.gates else None,
+                             "density_by_collection": {"shown": g.gates["density"].details.get("best_by_collection"),
+                                                       "heldout": g.gates["density"].details.get("heldout_by_collection")} if "density" in g.gates else None})
 
         jobs = []
         for fdir in _families(root, a.family):
@@ -292,6 +327,7 @@ def cmd_report(a: argparse.Namespace) -> None:
                           "usable": bool(g and g.get("usable")), "gates": {k: v["passed"] for k, v in (g or {}).get("gates", {}).items()},
                           "gate_s": round(sum(v.get("elapsed_s", 0) for v in (g or {}).get("gates", {}).values()), 1),
                           "why": (g or {}).get("why"), "density_best": dens.get("best"), "density_median": dens.get("median"),
+                          "density_split": dens.get("split", "all"), "density_shown": dens.get("best_by_collection"), "density_heldout": dens.get("heldout_by_collection"),
                           "density_reached": f"{dens.get('reached')}/{dens.get('references')}" if dens else None})
         fams.append({"family": fdir.name, "keyword": st.keyword, "status": st.status, "reasons": st.reasons[-2:], "wall_s": st.elapsed_s, "usd": st.usd,
                      "tools": st.tools, "tables": st.tables, "tests": st.tests_written, "dropped": len(st.tests_dropped), "debug_rounds": st.debug_rounds,
@@ -334,7 +370,7 @@ def add_parser(sub: Any) -> None:
     w.add_argument("--include-built", action="store_true", help="build: also resume families already started")
     w.add_argument("--parallel", type=int, default=5)
     w.add_argument("--per-family-cap", type=float, default=4.0)
-    w.add_argument("--k-min", type=int, default=40)
+    w.add_argument("--k-min", type=int, default=None, help="rows per target collection (default: R-density's k_min)")
     w.add_argument("--rounds", type=int, default=3)
     w.add_argument("--no-actors", action="store_true")
     w.add_argument("--restart-from", default="", help="build: rebuild from this stage on (old files copied aside)")
@@ -347,5 +383,9 @@ def add_parser(sub: Any) -> None:
     w.add_argument("--no-panel", action="store_true")
     w.add_argument("--pick-actor", action="store_true", help="instances: choose the acting user by execution (worldgates.choose_actor)")
     w.add_argument("--only", default="")
+    w.add_argument("--allow-rebuild", action="store_true", help="gate: failing gates may resolve to rebuild_stage (recorded in rebuild_requests.jsonl)")
+    w.add_argument("--no-density", action="store_true", help="build: skip the data stage's density measurement and feedback")
+    w.add_argument("--data-attempts", type=int, default=3, help="build: data-generator conversations (each may be refused or sent back for density)")
+    w.add_argument("--rejected-anchors", type=int, default=0, help="calibrate: up to this many realism-gate-rejected instances per family as negative anchors")
     w.set_defaults(fn=lambda a: {"catalogue": cmd_catalogue, "build": cmd_build, "instances": cmd_instances, "calibrate": cmd_calibrate,
                                  "gate": cmd_gate, "report": cmd_report}[a.action](a))

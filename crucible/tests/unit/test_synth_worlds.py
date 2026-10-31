@@ -217,9 +217,15 @@ async def test_calibration_sets_lambda_from_known_anchors(built):
         return dict(REALISTIC, confidence=0.85)
 
     p = RealismPanel(members=[("a", FakeClient("nemotron", judge)), ("b", FakeClient("gpt-oss", judge))])
-    cal = await calibrate_panel(p, anchors)
+    # the M4 rule, for measurement: one decided anchor qualifies a lambda
+    cal = await calibrate_panel(p, anchors, floor=0.6, min_decided=1, require_both=False, refuse_uncalibrated=False)
     assert cal["calibrated"] and cal["lam"] == 0.6 and p.lam == 0.6
     assert cal["rows"][0]["accuracy"] == 1.0
+    # R-panel (the default, DESIGN item 24): 4 anchors cannot give 6 decided of both truths, so the panel abstains
+    cal = await calibrate_panel(p, anchors)
+    assert not cal["calibrated"] and p.lam > 1 and cal["rule"]["min_decided"] == 6 and cal["policy_version"].startswith("policy-v")
+    cal = await calibrate_panel(p, anchors_from([s, s]))  # 2 reviewed + 6 degraded: 8 decided of both truths, all correct
+    assert cal["calibrated"] and cal["lam"] == 0.7  # never below R-panel's floor
 
 
 async def test_a_usable_instance_plugs_into_the_batch_runner(built, tmp_path):
