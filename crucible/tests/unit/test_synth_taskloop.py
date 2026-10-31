@@ -72,7 +72,8 @@ class Knobs:
         self.allow, self.cell_change = allow, cell_change
 
     async def moves(self, task, direction):
-        return [KnobMove(knob="toy", direction=direction)] if direction in self.allow else []
+        # a declared knob of R-too-hard (DESIGN item 24): an undeclared one is no lawful move and the task is reserved
+        return [KnobMove(knob="fewer_distractors" if direction == "easier" else "distractors", direction=direction)] if direction in self.allow else []
 
     async def apply(self, task, move):
         tag = "band"
@@ -134,7 +135,7 @@ async def test_in_band_keeps_and_no_lawful_move_retires(tmp_path):
     assert d.move in ("KEEP", "HOLD")  # one in three: in band, or undecided at k_max (never an edit)
     loop2, _, _ = _loop(tmp_path / "b", tag="hard", knobs=Knobs(allow=("harder",)))
     (d2,) = await loop2.run_typed_round(1)
-    assert d2.move == "RESERVE" and "no declared knob" in " ".join(d2.why)
+    assert d2.move == "RESERVE" and "no lawful move" in " ".join(d2.why) and d2.rule == "R-too-hard" and d2.policy_version
 
 
 async def test_variants_that_change_what_is_taught_or_lack_an_independent_solver_are_refused(tmp_path):
@@ -191,6 +192,11 @@ async def test_a_wrong_reference_decision_is_repaired_first_and_a_disputed_one_i
     loop2, _, _ = _loop(tmp_path / "b", tag="hard", wrong="missing_receipt")  # every failing rollout holds with one other reason
     (d2,) = await loop2.run_typed_round(1)
     assert d2.move == "HOLD" and d2.oracle["status"] == "disputed" and loop2.lineages[d2.task_id].status == "held"
+    # R-oracle (item 23/24): when the World's executed rules say the reference is right, agreeing runs are a shared mistake
+    right = ORACLE(truths=[lambda t: "right"])
+    loop3, _, _ = _loop(tmp_path / "c", tag="hard", wrong="missing_receipt", oracle=right)
+    (d3,) = await loop3.run_typed_round(1)
+    assert d3.oracle["status"] == "right" and d3.oracle["overruled_dispute"] and d3.move != "HOLD"
 
 
 async def test_mostly_uncertain_evidence_holds():

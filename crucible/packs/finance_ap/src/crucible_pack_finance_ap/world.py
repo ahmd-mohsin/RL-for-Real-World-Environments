@@ -159,7 +159,13 @@ def decide(w: APWorld, inv: dict, *, tol_pm: int | None = None, hold_order: list
 
 # ------------------------------------------------------------------------------------------------ the generator
 
-def draw(seed: int, n: int | None = None) -> APWorld:
+def draw(seed: int, n: int | None = None, extra: int = 0) -> APWorld:
+    """The world of ``seed`` with ``n`` pending invoices (7-14 drawn when None). ``extra`` > 0 makes a **denser
+    superset** of that same world (DESIGN §7.7 item 23): the world of (seed, n) is generated first, unchanged, and then
+    ``extra`` more pending invoices are added from a second stream (``.../extra``), each with the base rates of an
+    ordinary invoice (no forced cases) and only NEW vendors, purchase orders, receipts and earlier invoices. No row of
+    the base world changes and no base vendor gains an invoice, so every base invoice keeps its data, its vendor's
+    invoice list and its AP-3 decision (``decide``); only the collections grow. ``draw(seed, n)`` is unchanged."""
     r = random.Random(f"finance_ap/v{GENERATOR_VERSION}/{seed}")
     tol_pm = r.choice(TOLERANCES_PM)
     order = list(HOLD_RULES)
@@ -169,6 +175,20 @@ def draw(seed: int, n: int | None = None) -> APWorld:
     alias_world = r.random() < ALIAS_SHARE
     p_clean = r.uniform(0.45, 0.70)
     weights = {"vendor_blocked": 1.0, "duplicate": 1.4, "po_mismatch": 0.6, "bank_verification": 1.0, "price_variance": 1.6, "missing_receipt": 1.4}
+    def random_plan() -> set[str]:  # an ordinary invoice: the base rates (``r`` is read at call time: the extra stream too)
+        k = 0 if r.random() < p_clean else (1 if r.random() < 0.7 else 2)
+        traps: set[str] = set()
+        while len(traps) < k:
+            traps.add(r.choices(list(weights), weights=list(weights.values()))[0])
+        if k == 0 and r.random() < 0.6:
+            traps.add(r.choice(NEAR_MISSES))
+        elif k and r.random() < 0.25:
+            nm = r.choice(NEAR_MISSES)
+            if not (nm.startswith("dup_") and "duplicate" in traps) and not (nm.endswith("tolerance") and "price_variance" in traps) \
+                    and not (nm == "receipts_exact" and "missing_receipt" in traps):
+                traps.add(nm)
+        return traps
+
     plans: list[set[str]] = []
     for i in range(n):
         if i in (0, 1):  # every world: two compound hold cases on the ADJACENT pairs of its hold order (B7: the one compound
@@ -186,18 +206,7 @@ def draw(seed: int, n: int | None = None) -> APWorld:
         if i == 5:  # ... and a payee the policy stops: a blocked vendor re-registered under a new id, or a blocked vendor
             plans.append({"vendor_alias"} if alias_world else {"vendor_blocked"})
             continue
-        k = 0 if r.random() < p_clean else (1 if r.random() < 0.7 else 2)
-        traps: set[str] = set()
-        while len(traps) < k:
-            traps.add(r.choices(list(weights), weights=list(weights.values()))[0])
-        if k == 0 and r.random() < 0.6:
-            traps.add(r.choice(NEAR_MISSES))
-        elif k and r.random() < 0.25:
-            nm = r.choice(NEAR_MISSES)
-            if not (nm.startswith("dup_") and "duplicate" in traps) and not (nm.endswith("tolerance") and "price_variance" in traps) \
-                    and not (nm == "receipts_exact" and "missing_receipt" in traps):
-                traps.add(nm)
-        plans.append(traps)
+        plans.append(random_plan())
     r.shuffle(plans)
 
     names = r.sample(NAMES, len(NAMES))
@@ -205,6 +214,7 @@ def draw(seed: int, n: int | None = None) -> APWorld:
     accounts: set[str] = set()
     aliases: set[str] = set()  # alias vendor ids: never reused for another planned invoice
     hist, po_seq = [9001], [5000]
+    frozen: set[str] = set()  # the base world's vendors while ``extra`` invoices are added: never reused
 
     def new_account() -> str:
         while (a := f"ACCT-{r.randrange(10**7, 10**8)}") in accounts:
@@ -232,7 +242,7 @@ def draw(seed: int, n: int | None = None) -> APWorld:
 
     def vendor(blocked: bool, bank: bool, avoid: str | None = None) -> str:
         pool = [v for v in w.vendors if (v["status"] == "blocked") == blocked and bool(v["bank_changed_unverified"]) == bank and v["id"] != avoid
-                and v["id"] not in aliases]
+                and v["id"] not in aliases and v["id"] not in frozen]
         if pool and r.random() < 0.35:
             return r.choice(pool)["id"]
         vid = f"V-{100 + len(w.vendors)}"
@@ -244,7 +254,7 @@ def draw(seed: int, n: int | None = None) -> APWorld:
 
     def alias_of_blocked() -> str:
         """A blocked payee re-registered: a new vendor id and name, active, with the blocked vendor's bank account."""
-        src = next((v for v in w.vendors if v["status"] == "blocked" and v["id"] not in aliases), None)
+        src = next((v for v in w.vendors if v["status"] == "blocked" and v["id"] not in aliases and v["id"] not in frozen), None)
         if src is None or r.random() < 0.5:
             bid = vendor(True, False)
             src = next(v for v in w.vendors if v["id"] == bid)
@@ -265,7 +275,7 @@ def draw(seed: int, n: int | None = None) -> APWorld:
         cuts = sorted(r.sample(range(1, total_c), k - 1))
         return [b - a for a, b in zip([0, *cuts], [*cuts, total_c])]
 
-    for i, plan in enumerate(plans):
+    def materialize(i: int, plan: set[str]) -> None:
         iid = 100 + i
         vid = alias_of_blocked() if "vendor_alias" in plan else vendor("vendor_blocked" in plan, "bank_verification" in plan)
         at_bar = "at_tolerance" in plan
@@ -327,6 +337,17 @@ def draw(seed: int, n: int | None = None) -> APWorld:
             past(vid, sim, amount_c, "approved")
         w.invoices.append({"id": iid, "vendor_id": vid, "po_id": po_id, "invoice_number": number, "amount": round(amount_c / 100, 2),
                            "status": "pending", "reason": None})
+
+    for i, plan in enumerate(plans):
+        materialize(i, plan)
+    if extra > 0:  # the denser superset (docstring): a second stream, new entities only
+        base = len(plans)
+        frozen.update(v["id"] for v in w.vendors)
+        r = random.Random(f"finance_ap/v{GENERATOR_VERSION}/{seed}/extra")
+        more = [random_plan() for _ in range(int(extra))]
+        plans.extend(more)
+        for j, plan in enumerate(more):
+            materialize(base + j, plan)
     for inv in [x for x in w.invoices if x["status"] == "pending"]:
         exp, fired = decide(w, inv)
         plan = plans[inv["id"] - 100]

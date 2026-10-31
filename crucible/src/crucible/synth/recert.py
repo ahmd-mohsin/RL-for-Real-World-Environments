@@ -99,6 +99,7 @@ class Item(CrucibleModel):
     seed0: bool = True
     alt_names_shared: bool = False
     archive_root: str = ""
+    task_file: str = ""  # when the task is not the stored cegis.json's (item 23: a densified or renamed version), its own file
 
     @property
     def tdir(self) -> Path:
@@ -202,26 +203,41 @@ def det_population(holdout: float, truths: Sequence[str] = ()) -> list[BaseFalsi
 
 # ---------------------------------------------------------------------------------------------------------- phase 1
 
-def det_job(task_json: str, work: str, max_mutants: int, holdout: float, truths: Sequence[str], archive: str) -> str:
+async def det_run(task: Task, ctx: FalsifyContext, holdout: float, truths: Sequence[str], archive: Archive, *, mut_all: bool = True,
+                  extra_replay: Sequence[BaseFalsifier] = ()) -> dict[str, Any]:
+    """Phase 1 on one task in the caller's context (``det_job``'s body; the per-task loop's full re-check calls it in
+    process). ``extra_replay``: further classes whose archived counterexamples replay (the loop's PROBE)."""
+    t0 = time.monotonic()
+    fs = det_population(holdout, truths)
+    res = await run_classes(task, [*fs, MUTHeldOut(holdout=holdout)] if holdout > 0 else fs, ctx)
+    nondet = any(r.cls == "REP" and r.c > 0 for r in res)
+    mall = None
+    if mut_all and holdout > 0 and not nondet:
+        mall = (await falsify(task, MUT(), ctx)).model_dump(mode="json")
+    reg = await regress(archive, task, ctx, [*fs, ALT(), ATK(), *extra_replay])
+    return {"results": [r.model_dump(mode="json") for r in res], "mut_all": mall, "regress": reg.model_dump(mode="json"),
+            "cpu_s": round(time.monotonic() - t0, 2)}
+
+
+def det_job(task_json: str, work: str, max_mutants: int, holdout: float, truths: Sequence[str], archive: str, *, mut_all: bool = True,
+            probe_replay: bool = False) -> str:
     """Worker side of phase 1 (module docstring): JSON with ``results`` (every class, MUT-HO included), ``mut_all`` (MUT
-    on the whole neighbourhood, h = 0), ``regress`` and ``cpu_s``."""
+    on the whole neighbourhood, h = 0), ``regress`` and ``cpu_s``. ``probe_replay``: the per-task loop's archived
+    student-probe (PROBE) counterexamples replay too (item 23)."""
 
     async def go() -> str:
         task = Task.model_validate_json(task_json)
         ctx = FalsifyContext(work_world(work), max_mutants=max_mutants)
-        t0 = time.monotonic()
+        extra: list[BaseFalsifier] = []
+        if probe_replay:
+            from crucible.synth.meta.rsi import ProbeReplay
+
+            extra.append(ProbeReplay())
         try:
-            fs = det_population(holdout, truths)
-            res = await run_classes(task, [*fs, MUTHeldOut(holdout=holdout)] if holdout > 0 else fs, ctx)
-            nondet = any(r.cls == "REP" and r.c > 0 for r in res)
-            mut_all = None
-            if holdout > 0 and not nondet:
-                mut_all = (await falsify(task, MUT(), ctx)).model_dump(mode="json")
-            reg = await regress(Archive(archive), task, ctx, [*fs, ALT(), ATK()])
+            doc = await det_run(task, ctx, holdout, truths, Archive(archive), mut_all=mut_all, extra_replay=extra)
         finally:
             await ctx.close()
-        return json.dumps({"results": [r.model_dump(mode="json") for r in res], "mut_all": mut_all, "regress": reg.model_dump(mode="json"),
-                           "cpu_s": round(time.monotonic() - t0, 2)})
+        return json.dumps(doc)
 
     return asyncio.run(go())
 
@@ -248,7 +264,9 @@ def det_policy() -> AdmissionPolicy:
     suspects): what remains rejects for good."""
     from crucible.synth.pipeline import admission_policy
 
-    return admission_policy().model_copy(update={"require_alt_pass": False, "allow_open_suspects": True})
+    # a named deviation for phase 1 only (DESIGN item 24): its certificate records ``deviations`` under this scope, and
+    # every status a manifest carries comes from phase 2 under the full admission rule
+    return admission_policy().model_copy(update={"require_alt_pass": False, "allow_open_suspects": True, "scope": "recert-phase1"})
 
 
 def det_verdict(task: Task, doc: dict[str, Any]) -> tuple[str, list[str], int]:
@@ -553,6 +571,8 @@ class ManifestRow(CrucibleModel):
     outcome: str = ""
     causes: list[dict[str, str]] = Field(default_factory=list)
     alt: dict[str, Any] = Field(default_factory=dict)  # passes / n of phase 2, per agent
+    policy_version: str = ""  # the policy the re-certification ran under (DESIGN item 24; "" before it)
+    remedy: dict[str, Any] | None = None  # a blocked row's lawful remedy (an underpowered provisional row: R-holdout's densify)
 
     def load_task(self) -> Task:
         raw = json.loads(Path(self.task_path).read_text())
@@ -568,6 +588,20 @@ def load_manifest(path: str | Path, *, statuses: Sequence[str] | None = None) ->
         raise ValueError(f"{path}: not a {SCHEMA} manifest")
     rows = [ManifestRow.model_validate(r) for r in doc["rows"]]
     return [r for r in rows if statuses is None or r.status in statuses]
+
+
+def underpowered_remedy(status: str, reasons: Sequence[str], mut_n: int | None, heldout_n: int | None, *, can_densify: bool,
+                        densify_tries: int = 0) -> dict[str, Any] | None:
+    """A provisional row short of n raises ``underpowered_certificate`` (R-holdout): its remedy (densify the World and
+    re-certify, else provisional) travels with the row. None for any other row."""
+    if status != "provisional" or not any(r.startswith("MUT:upper") for r in reasons):
+        return None
+    from crucible.synth.policy import Condition, resolve
+
+    rem = resolve(Condition(kind="underpowered_certificate", facts={"shown_n": mut_n, "heldout_n": heldout_n, "can_densify": can_densify,
+                                                                   "densify_tries": densify_tries}, raised_by="synth.recert"))
+    return {"condition": "underpowered_certificate", "action": rem.action, "rule": rem.rule, "policy_version": rem.policy_version,
+            "facts": {"shown_n": mut_n, "heldout_n": heldout_n, "can_densify": can_densify, "densify_tries": densify_tries}}
 
 
 def write_new(path: Path, doc: dict[str, Any]) -> Path:
@@ -603,5 +637,5 @@ def summarize(rows: Sequence[ManifestRow]) -> dict[str, Any]:
 
 
 __all__ = ["ADMITTED", "CAUSES", "SCHEMA", "STATUSES", "Item", "ManifestRow", "OldCert", "Recorder", "Source", "Stored", "attribute", "beside", "certify_paid",
-           "classify_reason", "collect", "copy_archive", "det_job", "det_policy", "det_population", "det_results", "det_verdict", "load_det",
-           "load_manifest", "paid_rows", "resolve_truths", "save_det", "slug", "status_h0", "status_of", "summarize", "work_world", "write_new"]
+           "classify_reason", "collect", "copy_archive", "det_job", "det_policy", "det_population", "det_results", "det_run", "det_verdict", "load_det",
+           "load_manifest", "paid_rows", "resolve_truths", "save_det", "slug", "status_h0", "status_of", "summarize", "underpowered_remedy", "work_world", "write_new"]

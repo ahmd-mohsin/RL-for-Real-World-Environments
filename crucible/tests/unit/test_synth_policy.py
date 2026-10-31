@@ -289,12 +289,27 @@ def test_r_too_hard_and_r_band_conform_to_taskloop():
     assert {"REPAIR", "RESKILL", "DESCEND", "ASCEND", "KEEP", "RESERVE"} <= set(TaskMove.__args__) and "RETIRE" not in TaskMove.__args__
 
 
-@pytest.mark.skip(reason="wiring TODO (meta/rsi.py is owned by the TaskLoop agent): TaskLoop.step should raise Condition('band_too_hard'|"
-                         "'band_too_easy'|'band_undecided'|'mostly_uncertain_rollouts'|'wrong_oracle'|'disputed_oracle') and act on "
-                         "policy.resolve(...).action instead of its inline order (rsi.py TaskLoop.step, after the ORACLE precondition and "
-                         "before _try_reskill); TaskRules defaults should read policy.param(...)")
-def test_taskloop_resolves_through_the_policy():
-    pass
+async def test_taskloop_resolves_through_the_policy(tmp_path):
+    """TaskLoop.step raises the named conditions and acts on resolve(c).action, recording the version and the rule
+    (DESIGN item 23 wiring of item 24)."""
+    from crucible.synth.meta.rsi import KnobMove
+    from tests.unit.test_synth_taskloop import Knobs, _loop
+
+    class Illegal(Knobs):  # derive -> given is never an easier move (R-too-hard forbidden_easier)
+        async def moves(self, task, direction):
+            return [KnobMove(knob="derive_to_given", direction=direction)]
+
+    loop, _task, _ = _loop(tmp_path / "a", tag="hard", knobs=Illegal())
+    (d,) = await loop.run_typed_round(1)
+    assert d.move == "RESERVE" and d.rule == "R-too-hard" and d.policy_version == policy.tag()
+    (r,) = [x for x in d.remedies if x["condition"] == "band_too_hard"]
+    assert r["action"] == "reserve" and r["facts"]["easier_knob"] == "derive_to_given" and r["considered"]
+    loop2, _, _ = _loop(tmp_path / "b", tag="hard")
+    (d2,) = await loop2.run_typed_round(1)
+    assert d2.move == "DESCEND" and d2.accepted and d2.remedies[-1]["action"] == "descend"
+    loop3, _, _ = _loop(tmp_path / "c", tag="easy")
+    (d3,) = await loop3.run_typed_round(1)
+    assert d3.move == "ASCEND" and d3.remedies[-1]["condition"] == "band_too_easy" and d3.remedies[-1]["action"] == "ascend"
 
 
 def test_r_band_more_rollouts_within_the_cap_else_hold():

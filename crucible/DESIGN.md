@@ -2825,13 +2825,95 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
    - **Wiring left for files other agents own** (exact sites in `runs/policy-1.md` §4): `meta/rsi.py` (TaskRules defaults
      from the ledger; TaskLoop.step raises conditions and dispatches on `resolve`; `archive_recheck` default h),
      `recert.py` (strict panel calibration at line 291; name the phase-1 deviation; `ManifestRow.policy_version`),
-     `families.py`/`worldgates.py` (N_MIN, k_min, gate conditions, the realism panel's calibration: wired by worlds-2,
-     item 16). Until then
-     conformance tests pin their constants to the ledger.
+     `families.py`/`worldgates.py` (N_MIN, k_min, gate conditions, the realism panel's calibration). All three are now
+     wired: `meta/rsi.py` and `recert.py` by item 23, `families.py` and `worldgates.py` by worlds-2 (item 16).
+     Conformance tests pin their constants to the ledger.
    - **Tests**: `tests/unit/test_synth_policy.py` (a test per rule; hypothesis properties: no returned remedy relaxes
      validity or fails a principle, escalation only on the four grounds, evidence first; the ledger's chain and guards;
      the ladder on scripted solvers; a skipped wiring TODO naming TaskLoop's call site). One compose-2 test calibrates its
      fixture panel with `panel_rule="m4"` (too few anchors for the strict rule; it tests per-part repair).
+
+23. **Part 2 denser Worlds and the first TaskLoop run (built 2026-10-30; results `docs/research/env-synthesis/runs/taskloop-1.md`).**
+   The lead kept V5's 20% held-out share and asked for denser Worlds for the 60 tasks recert-1 left provisional only for
+   want of shown mutants, then the first real run of the per-task loop on the whole training-side pool.
+   - **Superset density** (`synth/densify.py`; the finance_ap pack's `draw(seed, n, extra=k)`, `APTask(extra=)`;
+     `synth_wire.finance_ap_world(extra_invoices=)`, `finance_ap_denser`, the policy truth keyed by (seed, invoices,
+     extra)). A re-draw with more invoices is another World (the pack shuffles its plans), so a task's named invoice would
+     change. The denser World is the original World unchanged plus k pending invoices from a second stream, on new
+     vendors, POs, receipts and earlier invoices only (golden digests pin the base Worlds; every base row and decision is
+     kept; no base vendor gains an invoice). `densified(task, ref)` is the next version with only the World replaced
+     (instruction, card, contract and π* asserted equal). `check_dense`: π* passes on the denser World with the same effect
+     and answer, every observation the same or only grown, else the task is density-sensitive (a finding, never an edit;
+     errors compared with filesystem paths masked). `measure_level` runs MUT's shown and held-out splits;
+     `densify_job` (a `spawn` worker) measures levels in order and picks the smallest whose shown split reaches 59.
+   - **Measured:** at MUT's 240-mutant cap density does not raise n (read-step sibling swaps share one effect and fill
+     the cap); a single-invoice decision's neighbourhood is 350–430 mutants, so dense certificates use `max_mutants = 480`
+     (recorded; never bound). Of the 60: 47 reach 59 at +15 invoices, 8 at +30, 2 at +45, 1 at +60, 1 at +90; one cannot
+     (its π* reaches the invoice through a ref, so MUT's neighbourhood is capped by `MAX_SIBLINGS = 64`, not the World:
+     left provisional). Full re-certification (all classes, h = 0.2, the archive replayed, real seeds): **53 certified**,
+     1 provisional, 2 on hold, 4 rejected (TWIN D9 2: the new version's TWIN sample drew a base sibling the old one had
+     not; ALT no pass 2). Pool manifest for the loop: 57 certified, 32 provisional, 10 on hold, 96 rejected (of 195).
+   - **Unique ids** (`synth_taskloop.unique_ids`, `copy_records`): 19 ids were held by 46 tasks of different runs; the
+     loop's lineages, archive regressions and student seeds are keyed by id, so each gets `<run>/<id>`, its archive
+     records re-keyed, and a full re-certification (MUT's split and TWIN's sample are keyed by the id: renaming must come
+     before measuring, found when 7 renamed tasks certified at n 56–58; re-measured and certified in `pool-2b`).
+   - **`recert`**: `det_run` (phase 1 in the caller's context or a worker; `det_job(probe_replay=)` replays PROBE
+     counterexamples), `Item.task_file` (a densified or renamed version's own file), `ManifestRow.policy_version` and
+     `remedy` (a provisional row short of n raises `underpowered_certificate`: R-holdout's densify, else provisional),
+     the phase-1 policy named `scope="recert-phase1"` (its certificates record the deviation), the CLI's panel calibrated
+     by `policy.panel_calibration()` (item 24: an uncalibrated panel abstains), `report --densify-tries`.
+   - **TaskLoop on a stored pool** (`meta/loopkit.py`, `meta/rsi.py`, CLI `scripts/synth_taskloop.py loop|report`):
+     - *P1 precondition* (`TaskLoop(validity=)`): after ORACLE, a rejected version raises `confirmed_counterexample`
+       (R-admission-fixed): repaired from its confirmed **shown** counterexamples (never MUT-HO), else its lineage is
+       `rejected` (kept with its reasons; never moved, kept or reserved); an on-hold one raises `open_suspects`
+       (R-panel → human queue) and waits; a wrong oracle is an invalid task (held, never reserved).
+     - *Full re-certification after every edit* (`Recertifier`): phase 1 in a `spawn` worker, phase 2 (ALT, ATK, LEAK,
+       the calibrated panels) in process; `recheck` (G3/T5/RS3) passes only certified or provisional versions;
+       `alt_solves` is G6; results cached per (id, version, digest) and logged (`recert.jsonl`).
+     - *The policy* (item 24 wiring): `TaskRules` defaults read R-band, R-too-hard and R-uncertain; `step` raises
+       `wrong_oracle`, `disputed_oracle`, `confirmed_counterexample`, `open_suspects`, `mostly_uncertain_rollouts`,
+       `band_undecided`, `band_too_hard`/`band_too_easy` with measured facts and acts on `resolve(c).action`; every
+       `TaskDecision` records `policy_version`, `rule` and `remedies` (facts, action, what was passed over), also in the
+       ledger. Out-of-band tasks follow R-too-hard's ladder (RESKILL → DESCEND/ASCEND by a *declared* knob → RESERVE); an
+       in-band task tries RESKILL (Amendment 1's label correction) before KEEP. `archive_recheck` defaults to the policy's h.
+     - *Concurrency*: `run_typed_round(concurrency=, on_error=)`; `TaskKeyedContext` keys Worlds by (task id, ref), since
+       tasks share World instances; G7 and RS5 reserve their slot under a lock before the band rollouts; a step that
+       raises is recorded and the round goes on. Held and rejected lineages are not re-probed.
+     - *Stored diagnosis* (prereg §8.1; `TaskLoop(stored=)`, `synth_taskloop.stored_rollouts`): the learnability store's
+       rollouts of the exact (id, version, digest), student and simulator are round 1's diagnosis (91 tasks); acceptance
+       draws indices past them.
+     - *Cells* (`label_cell`): the proposer's free-text labels mapped to the domain's `DomainSpec` skills by IDF-weighted
+       token overlap (ties or none: `<domain>:unmapped`), so G7/RS5's histogram and RESKILL's spec-skill labels share one
+       space; a RESKILL into the same cell, with no stated value on the old card's derive list, confirms the label.
+     - *The repairer* is `pipeline.make_repairer` (the pipeline's repairer role, factored out); the deriver sees the
+       values π* wrote (`written_values`) and gets two retries.
+   - **Fixes the pilot forced** (each with a test): a deriver whose answers all fail RS1/RS2 crashed the step (now a
+     refused RESKILL that spends the attempt); a dispute by agreeing student runs held a task whose reference decision the
+     World's executed rules confirmed (R-oracle: the rules settle it; recorded as `overruled_dispute`); a harder knob the
+     World cannot take (finance_ap's SQL World takes neither distractors nor paginate) counted as a refused edit and
+     re-probed the task each round (now the next declared knob, else RESERVE); undeclared knob names never move a task.
+     The full run forced three more: a wrong-oracle repair was refused by T2 because the student's "intended fail" was
+     the policy's right decision graded against the wrong oracle (labels decided under a wrong reference decision are
+     now void in its repair); a variant refused under G4 was re-tried on fresh rollouts the next round, re-measuring
+     toward a pass (a refused knob is not re-tried on its lineage); `--only` calibrated the panels on the selected tasks
+     (they calibrate on the whole pool's valid tasks).
+   - **Results** (taskloop-1, policy-v23, 195 tasks, 3 rounds, 51 min, USD 12.29: student 7.45, swarm 4.84). Decisions:
+     REPAIR 74 (3 accepted, all P1; refused mostly by the candidate's re-certification, T5 53), RESKILL 25 accepted (2
+     kept, 23 reserved under the new label; 33 attempts refused, RS3 18, RS4 15), DESCEND 0 (no lawful easier knob on plain
+     tasks), ASCEND 0 of 52 (finance_ap takes no distractors; paginate never moved the band or failed P3), KEEP 17. Final
+     lineages: kept 19, reserved 71, held 85 (invalid with a refused repair, on-hold certificates, it_helpdesk disputes,
+     uncertain), rejected 20. Band of the 90 valid tasks that reached it: 10 too hard, 22 in band, 58 too easy. Drift: 3
+     re-probed repaired tasks (the alarm needs 5). Lessons: one PROBE cluster (hidden information, 7 tasks) that TAINT
+     already confirms; 3 oracle reviews; the gate's MDE at α_t 0.005 is 0.20 at 52 units, so nothing was submitted.
+     **8 perfect tasks** (kept, certified, on intent, novel; all densified in Part A): USD 1.54 each for the loop, 2.07
+     with Part A. Finding for the lead: 5 of 7 in-band tasks re-labelled by RESKILL left the band on RS4's fresh 16
+     rollouts although only the card changed (the band test's error), and were reserved. Details: `runs/taskloop-1.md`.
+   - Tests: `tests/unit/test_synth_taskloop_pool.py` (base Worlds unchanged, the superset and its decisions, the
+     densifier and its truth, `grew`, an aggregate reported density-sensitive, masked errors, levels and the worker,
+     `label_cell`, `TaskKeyedContext`, the Recertifier's shown-only counterexamples, P1 repair/hold/reject, concurrent
+     rounds and reservations, a failing step recorded, stored diagnosis, a failing deriver and inapplicable knobs, unique
+     ids and re-keyed archives, labels void under a wrong oracle, a refused knob not re-tried); `test_synth_policy.py::test_taskloop_resolves_through_the_policy` (un-skipped);
+     `test_synth_taskloop.py` (declared knob names; the dispute overruled by executed rules).
 
 ## 8. Layer 4: verification and isolation
 

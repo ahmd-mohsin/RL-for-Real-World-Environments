@@ -239,6 +239,7 @@ def _f2() -> Any:
 
 def cmd_paid(a: argparse.Namespace) -> None:
     from crucible.actors.llm import BudgetExceeded
+    from crucible.synth import policy
     from crucible.synth.archive import Archive
     from crucible.synth.falsify import FalsifyContext
     from crucible.synth.falsify.agents import Panel, PanelMember, calibrate
@@ -288,7 +289,7 @@ def cmd_paid(a: argparse.Namespace) -> None:
                     if "wrong" not in v:
                         good.append(t)
                 p = Panel(members=[PanelMember(n, c) for n, c in roles.panel], lam=0.7, queue=pd / "human_queue.jsonl", tag=f"calibrate:{dom}")
-                rep = await calibrate(p, await _panel_anchors(good, ctx), floor=0.7)
+                rep = await calibrate(p, await _panel_anchors(good, ctx), **policy.panel_calibration())  # R-panel: uncalibrated abstains
                 panels[dom] = p
                 cal[dom] = {"panel": {"lam": rep.lam, "calibrated": rep.calibrated, "rows": rep.rows}}
                 need_twin = any((det_results(x).get("TWIN") and det_results(x)["TWIN"].suspects) for i, x in cands if i.task.domain == dom)
@@ -328,6 +329,7 @@ def cmd_paid(a: argparse.Namespace) -> None:
                                                    alt=_alt_agents(wire, it.key), atk=_atk_agents(wire, it.key), extra=[probe])
                     st, why = status_of(rep)
                     row = {"key": it.key, "status": st, "reasons": why, "report": rep.model_dump(mode="json"), "attempts": paid_rows(rep, sink),
+                           "policy_version": policy.tag(),
                            "panel_log": panel.log + (tpan.log if tpan is not None else []), "seconds": round(time.time() - t0, 1)}
                 except BudgetExceeded as e:
                     stop.append(str(e))
@@ -353,7 +355,18 @@ def cmd_paid(a: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------------------------------------- report
 
 def cmd_report(a: argparse.Namespace) -> None:
-    from crucible.synth.recert import SCHEMA, ManifestRow, attribute, beside, det_verdict, load_det, slug, status_h0, summarize, write_new
+    from crucible.synth.recert import (
+        SCHEMA,
+        ManifestRow,
+        attribute,
+        beside,
+        det_verdict,
+        load_det,
+        slug,
+        status_h0,
+        summarize,
+        write_new,
+    )
 
     d = Path(a.run)
     items = _items(d)
@@ -400,10 +413,11 @@ def cmd_report(a: argparse.Namespace) -> None:
                 write_new(b, cert_doc)
             path = str(b)
         rows.append(ManifestRow(key=it.key, task_id=it.task.id, version=it.task.version, digest=it.task.digest(), domain=it.task.domain, source=it.source,
-                                kinds=it.kinds, task_path=it.old.path, old_status=it.old.status, old_reasons=it.old.reasons, old_certificate=it.old.path,
+                                kinds=it.kinds, task_path=it.task_file or it.old.path, old_status=it.old.status, old_reasons=it.old.reasons, old_certificate=it.old.path,
                                 status=st, reasons=why, certificate=path, heldout=float((doc or {}).get("holdout") or 0.0),
                                 status_h0=st0, outcome=attr["outcome"],
-                                causes=attr["causes"], alt={k: {"passes": v[0], "n": v[1]} for k, v in alt.items()}))
+                                causes=attr["causes"], alt={k: {"passes": v[0], "n": v[1]} for k, v in alt.items()},
+                                policy_version=str((paid or {}).get("policy_version") or ""), remedy=_remedy(it, st, why, doc, a.densify_tries)))
         details.append({"key": it.key, **attr})
     summ = summarize(rows)
     man = {"schema": SCHEMA, "run": str(d), "tag": a.tag, "made": time.strftime("%Y-%m-%d %H:%M:%S"), "summary": summ, "rows": [r.model_dump(mode="json") for r in rows]}
@@ -411,6 +425,19 @@ def cmd_report(a: argparse.Namespace) -> None:
     _save(out, man)
     print(json.dumps(summ, indent=1))
     print(f"manifest: {out}")
+
+
+DENSIFIABLE = {"finance_ap"}  # World families with a superset densifier (synth_wire.finance_ap_denser; synth.densify)
+
+
+def _remedy(it: Any, st: str, why: list[str], doc: dict[str, Any] | None, tries: int) -> dict[str, Any] | None:
+    from crucible.synth.certificate import class_stat
+    from crucible.synth.recert import det_results, underpowered_remedy
+
+    res = det_results(doc) if doc and "error" not in doc else {}
+    n = class_stat(res["MUT"]).n if "MUT" in res else None
+    h = class_stat(res["MUT-HO"]).n if "MUT-HO" in res else None
+    return underpowered_remedy(st, why, n, h, can_densify=it.task.domain in DENSIFIABLE, densify_tries=tries)
 
 
 def cmd_budget(a: argparse.Namespace) -> None:
@@ -441,6 +468,7 @@ def main() -> None:
     rp.add_argument("--run", required=True)
     rp.add_argument("--tag", default="recert-1")
     rp.add_argument("--publish", action="store_true")
+    rp.add_argument("--densify-tries", type=int, default=0, help="densify rounds the run's tasks already had (R-holdout's max_densify)")
     sub.add_parser("budget")
     a = ap.parse_args()
     {"collect": cmd_collect, "det": cmd_det, "paid": cmd_paid, "report": cmd_report, "budget": cmd_budget}[a.cmd](a)

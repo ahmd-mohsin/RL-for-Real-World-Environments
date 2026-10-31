@@ -571,59 +571,12 @@ class Runner:
 
     def default_repairer(self, rec: TaskRecord, ctx: FalsifyContext) -> Callable[[Task, list[Counterexample]], Awaitable[Task | None]]:
         """The repairer role on one task: it sees the counterexamples and the task's own World catalogue."""
-        log_path = self.dir / "tasks" / f"t{rec.n:02d}" / "repairs.jsonl"
-        calls = [0]  # a refused repair leaves the version and its counterexamples as they were: the next round's prompt
-        # is the same, so each call gets its own tag (``repair:<id>#v<version>~<k>``) and, seeded by tag, a new sample (item 22)
 
-        def log(row: dict[str, Any]) -> None:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a") as fh:
-                fh.write(json.dumps(row, default=str) + "\n")
+        async def tools_of(task: Task) -> list[ToolInfo]:
+            return await self.task_tools(task, ctx, rec.seed)
 
-        async def repair(task: Task, cxs: list[Counterexample]) -> Task | None:
-            if not self.cfg.repair:
-                return None
-            tools = await self.task_tools(task, ctx, rec.seed)
-            names = {t.name for t in tools}
-
-            async def valid(o: RepairOut) -> Task | None:
-                row: dict[str, Any] = {"from_version": task.version, "counterexamples": [c.id for c in cxs], "give_up": o.give_up,
-                                       "changed": [k for k in ("instruction", "oracle", "contract", "given", "derive") if getattr(o, k) is not None],
-                                       "notes": o.notes[:500]}
-                try:
-                    if o.give_up:
-                        return None
-                    prog = parse_program(o.oracle, names) if o.oracle else task.oracle
-                    con = parse_contract(o.contract) if o.contract else task.contract
-                    intent = task.intent.model_copy(update={k: v for k, v in (("given", o.given), ("derive", o.derive)) if v is not None})
-                    cand = task.next_version(instruction=(o.instruction or task.instruction).strip(), oracle=prog, contract=con, intent=intent)
-                    r = await ctx.run(cand, prog, taint=True)
-                    probs = run_problems(r)
-                    if probs:
-                        raise ValueError("the repaired reference program was executed and failed:\n" + "\n".join(probs[:14]))
-                    v = grade(r, con)
-                    if not v.passed:
-                        raise ValueError(f"the repaired reference program fails the repaired contract: {v.reasons[:8]}")
-                    row["result"] = "candidate"
-                    return cand
-                except ValueError as e:
-                    row["result"] = f"invalid: {str(e)[:600]}"
-                    raise
-                finally:
-                    log(row)
-
-            try:
-                calls[0] += 1
-                out = await ask(self.roles.repairer, REPAIRER, tag=f"repair:{task.id}#v{task.version}~{calls[0]}", check=valid, retries=2, task=task.instruction,
-                                intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(tools), oracle=program_doc(task.oracle),
-                                contract=contract_doc(task.contract), counterexamples=[cx_view(c) for c in cxs[:12]], defects=DEFECTS_DOC,
-                                program_format=PROGRAM_DOC, contract_format=CONTRACT_DOC)
-            except RoleFailed as e:
-                log({"from_version": task.version, "result": f"role failed: {str(e)[:600]}"})
-                return None
-            return out if isinstance(out, Task) else None
-
-        return repair
+        return make_repairer(self.roles.repairer, ctx, tools_of=tools_of, log_path=self.dir / "tasks" / f"t{rec.n:02d}" / "repairs.jsonl",
+                             enabled=lambda: bool(self.cfg.repair))
 
     async def refine_one(self, rec: TaskRecord, task: Task) -> None:
         t0 = time.time()
@@ -841,3 +794,62 @@ def report_md(rep: RunReport) -> str:
     for r in rep.tasks:
         lines.append(f"| t{r.n:02d} | {r.seed} | {r.status} | {r.rounds} | {r.repairs_accepted} | {r.all_confirmed} | {'; '.join(r.reasons[:3])[:160]} |")
     return "\n".join(lines) + "\n"
+
+
+def make_repairer(client: Any, ctx: FalsifyContext, *, tools_of: Callable[[Task], Awaitable[list[ToolInfo]]], log_path: Path,
+                  enabled: Callable[[], bool] = lambda: True) -> Callable[[Task, list[Counterexample]], Awaitable[Task | None]]:
+    """The ``REPAIRER`` role on one client (the pipeline's repairer; the per-task loop's, DESIGN §7.7 item 23): it sees the
+    counterexamples and the task's own World catalogue; a candidate whose reference program does not run and pass its
+    contract goes back as feedback. Every call is logged to ``log_path``."""
+    calls = [0]  # a refused repair leaves the version and its counterexamples as they were: the next round's prompt
+    # is the same, so each call gets its own tag (``repair:<id>#v<version>~<k>``) and, seeded by tag, a new sample (item 22)
+
+    def log(row: dict[str, Any]) -> None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+
+    async def repair(task: Task, cxs: list[Counterexample]) -> Task | None:
+        if not enabled():
+            return None
+        tools = await tools_of(task)
+        names = {t.name for t in tools}
+
+        async def valid(o: RepairOut) -> Task | None:
+            row: dict[str, Any] = {"task_id": task.id, "from_version": task.version, "counterexamples": [c.id for c in cxs], "give_up": o.give_up,
+                                   "changed": [k for k in ("instruction", "oracle", "contract", "given", "derive") if getattr(o, k) is not None],
+                                   "notes": o.notes[:500]}
+            try:
+                if o.give_up:
+                    return None
+                prog = parse_program(o.oracle, names) if o.oracle else task.oracle
+                con = parse_contract(o.contract) if o.contract else task.contract
+                intent = task.intent.model_copy(update={k: v for k, v in (("given", o.given), ("derive", o.derive)) if v is not None})
+                cand = task.next_version(instruction=(o.instruction or task.instruction).strip(), oracle=prog, contract=con, intent=intent)
+                r = await ctx.run(cand, prog, taint=True)
+                probs = run_problems(r)
+                if probs:
+                    raise ValueError("the repaired reference program was executed and failed:\n" + "\n".join(probs[:14]))
+                v = grade(r, con)
+                if not v.passed:
+                    raise ValueError(f"the repaired reference program fails the repaired contract: {v.reasons[:8]}")
+                row["result"] = "candidate"
+                return cand
+            except ValueError as e:
+                row["result"] = f"invalid: {str(e)[:600]}"
+                raise
+            finally:
+                log(row)
+
+        try:
+            calls[0] += 1
+            out = await ask(client, REPAIRER, tag=f"repair:{task.id}#v{task.version}~{calls[0]}", check=valid, retries=2, task=task.instruction,
+                            intent=task.intent.model_dump(mode="json"), tools=tool_catalogue(tools), oracle=program_doc(task.oracle),
+                            contract=contract_doc(task.contract), counterexamples=[cx_view(c) for c in cxs[:12]], defects=DEFECTS_DOC,
+                            program_format=PROGRAM_DOC, contract_format=CONTRACT_DOC)
+        except RoleFailed as e:
+            log({"task_id": task.id, "from_version": task.version, "result": f"role failed: {str(e)[:600]}"})
+            return None
+        return out if isinstance(out, Task) else None
+
+    return repair

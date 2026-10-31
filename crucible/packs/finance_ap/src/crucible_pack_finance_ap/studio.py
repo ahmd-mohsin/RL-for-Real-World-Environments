@@ -68,9 +68,9 @@ class InvoiceSubgoals:
 
 
 class APTask:
-    def __init__(self, seed: int = 0, n: int | None = None):
+    def __init__(self, seed: int = 0, n: int | None = None, extra: int = 0):
         self.seed = seed
-        self.w = draw(seed, n)
+        self.w = draw(seed, n, extra)  # extra > 0: the denser superset of (seed, n) (world.draw)
         self.root = Path(tempfile.mkdtemp(prefix="finance-ap-"))
         # M14 audit V12: callers that never call cleanup() (pack check's fixture level, bench) leaked one dir per task
         self._finalizer = weakref.finalize(self, shutil.rmtree, str(self.root), True)

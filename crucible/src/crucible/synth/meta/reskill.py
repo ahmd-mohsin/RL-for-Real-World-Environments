@@ -17,6 +17,7 @@ derive value (stating it makes the skill lookup-and-apply, and the label must sa
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -51,14 +52,15 @@ class IntentProposal(CrucibleModel):
 
 INTENT_DERIVER = Role(
     name="intent_deriver", stage="rsi", output=IntentOut, temperature=0.0, max_tokens=2048,
-    sees=("skills", "instruction", "tools", "oracle_program", "taint", "effects", "answer"),
+    sees=("skills", "instruction", "tools", "oracle_program", "taint", "effects", "answer", "written_values"),
     never=("student", "rollouts", "pass_rate", "band", "current_skill", "contract", "gate_code"),
     differs_from=BUILDERS, independent=True,
     system=("You label what a task really asks of an agent. You see the domain's skills (id and description), the task's "
             "instruction, its tools, a reference solution as a program, where every value the solution uses came from "
             "(the instruction, an observation it made, the tool catalogue, a given), and what the solution changed. Choose the ONE "
             "skill id from the list that the solution actually needs, judging only from this evidence. List as derive the values "
-            "the agent must work out itself (values it writes or answers that the instruction does not state), and as given the "
+            "the agent must work out itself (values it writes or answers that the instruction does not state, copied exactly from "
+            "written_values: values such as a status or a reason code, never a field name or an id), and as given the "
             "values handed to it outside the instruction. A value the instruction states is never a derive value: if the task only "
             "looks up and applies what it is told, pick the skill that says so. "
             'Reply {"skill": "<id>", "given": [...], "derive": [...], "why": "<one sentence>"}.'))
@@ -115,7 +117,9 @@ def swarm_deriver(client: Any, skills_of: Callable[[Task], Sequence[dict[str, st
             if bad:
                 raise ValueError("; ".join(bad)[:400])
 
-        out = await ask(client, INTENT_DERIVER, tag=f"{tag}:{task.id}@{task.version}", check=check, retries=1, skills=skills, **ev)
+        wv = sorted({json.dumps(e["new"]) for e in ev.get("effects", []) if e.get("new") is not None})[:30]  # taskloop-1 §2: field names were proposed
+        out = await ask(client, INTENT_DERIVER, tag=f"{tag}:{task.id}@{task.version}", check=check, retries=2, skills=skills,
+                        written_values=[json.loads(x) for x in wv], **ev)
         return IntentProposal(skill=out.skill, given=list(out.given), derive=list(out.derive), why=out.why[:300], by=getattr(client, "family", ""))
 
     return derive

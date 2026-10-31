@@ -343,8 +343,8 @@ def policy_ref(run: Run, model: str, cfg: EpisodeCfg, *, pid: str | None = None,
 def student_backend(run: Run, model: str) -> str | None:
     """The backend tag (``mlx`` | ``vllm`` | ``unknown``) when ``model`` is the served student (``student:<model>``), else
     None. The probe (``factory.student.probe``) runs once per process; its metadata goes to every run's ``student.json``."""
-    from crucible.factory.models import parse_spec
     from crucible.factory import student as st
+    from crucible.factory.models import parse_spec
     from crucible.factory.student import STUDENT_PROVIDER, backend_tag, is_dev_policy, probe, thinking_of
 
     spec = parse_spec(model)

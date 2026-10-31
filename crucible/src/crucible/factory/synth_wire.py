@@ -435,17 +435,28 @@ class ClosingAdapter(CrucibleWorldAdapter):
                 self.pack_task.cleanup()
 
 
-async def finance_ap_world(seed: int, work: str, invoices: int | None = None) -> ClosingAdapter:
+async def finance_ap_world(seed: int, work: str, invoices: int | None = None, extra_invoices: int = 0) -> ClosingAdapter:
     """The ``WorldRef`` factory of the finance_ap domain: the pack's AP World for ``seed``, opened under ``work``.
     ``invoices`` is the density knob (the pack draws 7-14 pending invoices by default; more invoices = more sibling
-    entities, so MUT's neighbourhood reaches n >= 59). It is a different draw of the World, so it names new tasks."""
+    entities, so MUT's neighbourhood reaches n >= 59). It is a different draw of the World, so it names new tasks.
+    ``extra_invoices`` (DESIGN §7.7 item 23) is the **superset** density knob: the World of (seed, invoices) unchanged plus
+    that many more pending invoices on new vendors (``world.draw(extra=)``), so a task stated on the base World keeps its
+    meaning and its reference decision on the denser one (``synth.densify``)."""
     from crucible_pack_finance_ap.studio import APTask
 
-    t = APTask(int(seed), int(invoices) if invoices else None)
+    t = APTask(int(seed), int(invoices) if invoices else None, int(extra_invoices or 0))
     w = await t.open(Path(work) / f"ap-{seed}-{uuid.uuid4().hex[:8]}")
     a = ClosingAdapter(w, seed=int(seed))
     a.pack_task = t
     return a
+
+
+def finance_ap_denser(ref: WorldRef, level: int) -> WorldRef | None:
+    """``synth.densify.Densifier`` of finance_ap: the same World (seed, invoices) with ``level`` more pending invoices
+    on new vendors (``finance_ap_world(extra_invoices=)``, a superset); None for another factory."""
+    if ref.factory.rsplit(":", 1)[-1] != "finance_ap_world" or int(level) <= 0:
+        return None
+    return WorldRef(factory=ref.factory, params={**ref.params, "extra_invoices": int(level)})
 
 
 FINANCE_AP_DESCRIPTION = ("Accounts payable in an ERP: pending supplier invoices are approved, put on hold or rejected under the AP policy "
@@ -478,7 +489,7 @@ def finance_ap_env(work: str | Path, *, seeds: Sequence[int] = (0, 1, 2, 3), inv
                      world=lambda s: WorldRef(factory="crucible.factory.synth_wire:finance_ap_world", params={"seed": int(s), "work": work, **extra}))
 
 
-_AP_TRUTH: dict[tuple[int, int | None], dict[int, tuple[str, str | None]]] = {}
+_AP_TRUTH: dict[tuple[int, int | None, int], dict[int, tuple[str, str | None]]] = {}
 
 
 def finance_ap_truth(task: Mapping[str, Any]) -> str | None:
@@ -511,9 +522,9 @@ def _ap_verdict(task: Mapping[str, Any], wrote: Mapping[int, Mapping[str, Any]])
     w = (task.get("world") or {}).get("params") or {}
     if (task.get("world") or {}).get("factory", "").rsplit(":", 1)[-1] != "finance_ap_world" or not wrote:
         return None
-    k = (int(w.get("seed", 0)), int(w["invoices"]) if w.get("invoices") else None)
+    k = (int(w.get("seed", 0)), int(w["invoices"]) if w.get("invoices") else None, int(w.get("extra_invoices") or 0))
     if k not in _AP_TRUTH:
-        _AP_TRUTH[k] = {c.invoice_id: c.expected for c in draw(k[0], k[1]).cases}
+        _AP_TRUTH[k] = {c.invoice_id: c.expected for c in draw(k[0], k[1], k[2]).cases}
     exp = _AP_TRUTH[k]
     for iid, x in wrote.items():
         e = exp.get(iid)
