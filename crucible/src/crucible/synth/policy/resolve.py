@@ -53,7 +53,12 @@ CONDITIONS: dict[str, tuple[str, list[str]]] = {
                       ["truth_available", "oracle_checked", "unintended_with_evidence", "reskill_attempted", "deriver_available", "easier_knob"]),
     "band_too_easy": ("the student's band is too easy", ["truth_available", "oracle_checked", "unintended_with_evidence", "reskill_attempted",
                                                          "deriver_available", "harder_knob"]),
-    "band_undecided": ("the band test did not decide", ["rollouts", "probe_budget_ok"]),
+    "band_undecided": (("a band measurement does not place the task: it is unconfident, its 1 - alpha interval straddles a band edge, or "
+                        "two measurements of the same task disagree (R-band v2, taskloop-2)"),
+                       ["rollouts", "probe_budget_ok", "measurements", "disagree", "straddles", "lineage_rollouts"]),
+    "lemma_candidate": ("an accepted repair's counterexample class recurs on other lineages: a candidate lemma for the gate (R-lemma-lift)",
+                        ["recurs_tasks", "leak_free", "units_needed", "units_available", "budget_ok"]),
+    "p3_unmeasured": ("P3 has no valid EVID, SWAP or TWIN trial on a candidate edit (R-p3)", ["edit", "executed_check_available"]),
     "mostly_uncertain_rollouts": ("most graded rollouts are uncertain", ["task_evidence_run"]),
     "student_probe_over_cap": ("the student probe cap is reached", []),
     "uncalibrated_panel": ("the panel's lambda is not calibrated", ["executed_check_available", "panel_calibrated", "more_anchors_available"]),
@@ -180,7 +185,19 @@ def _p_student(r: Remedy, c: Condition, pol: Policy) -> list[str]:
     out = _effects(r, "P-student")
     if "spends_student_rollouts" in r.effects and c.facts.get("probe_budget_ok") is not True:
         out.append("student rollouts only within the probe cap")
+    if "spends_student_rollouts" in r.effects and c.kind == "band_undecided" and "R-band" in pol.rules:
+        cap, n = pol.rules["R-band"].params.get("k_cap"), c.facts.get("rollouts")
+        if cap is not None and not (isinstance(n, int | float) and not isinstance(n, bool) and n < cap):
+            out.append(f"a band measurement draws at most k_cap = {cap} rollouts (R-band)")
     return out
+
+
+def _p_more_evidence_first(r: Remedy, c: Condition, pol: Policy) -> list[str]:
+    """An undecided measurement is answered by more evidence or a deferral (taskloop-2: a task the band cannot place is
+    never edited, re-labelled or moved on that band)."""
+    if c.kind == "band_undecided" and r.rung in ("repair", "relabel", "variant"):
+        return [f"{r.action} on an undecided band: only more evidence or a deferral"]
+    return []
 
 
 def _p_equal_budget(r: Remedy, c: Condition, pol: Policy) -> list[str]:
@@ -228,7 +245,7 @@ def _p_ledger(r: Remedy, c: Condition, pol: Policy) -> list[str]:
 
 
 PRINCIPLE_CHECKS: dict[str, Check] = {
-    "P-valid": _p_valid, "P-evidence": _p_evidence, "P-more-evidence-first": lambda r, c, p: [], "P-intent": _p_intent,
+    "P-valid": _p_valid, "P-evidence": _p_evidence, "P-more-evidence-first": _p_more_evidence_first, "P-intent": _p_intent,
     "P-no-delete": _p_no_delete, "P-student": _p_student, "P-equal-budget": _p_equal_budget, "P-family": _p_family,
     "P-person": _p_person, "P-ledger": _p_ledger,
 }

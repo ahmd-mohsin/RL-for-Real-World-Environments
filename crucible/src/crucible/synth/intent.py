@@ -204,6 +204,7 @@ def evidence_sites(task: Task, oracle: Run, *, limit: int = 8) -> list[Site]:
     consts = [v for _, _, v in contract_constants(task.contract)] + [unglob(p.key) for p in task.contract.required if not is_glob(p.key)]
     uses = _uses(task, oracle)
     written = [u.value for u in uses if u.where != "derive"]
+    effects = [ch.new for ch in delta_of(oracle, task.contract) if ch.new is not None and not isinstance(ch.new, dict | list)]
     for u in uses:
         v, where = u.value, u.where
         if _given(v, task) or (isinstance(v, str) and len(v) < 2):
@@ -211,6 +212,11 @@ def evidence_sites(task: Task, oracle: Run, *, limit: int = 8) -> list[Site]:
         if not any(_loose_eq(v, c) for c in consts):
             continue
         if where == "derive" and any(_loose_eq(v, w) for w in written):  # its precise use is the write argument already traced
+            continue
+        if where == "derive" and any(_loose_eq(v, e) for e in effects):
+            # taskloop-2: no argument carries it, yet π*'s write produces it (approve_invoice sets status 'approved'): its
+            # provenance is the write tool, not an observation. A row elsewhere that shows the same word (an older
+            # invoice's status) is a coincidence, and blanking it would "confirm" off intent falsely on a SQL World
             continue
         found = None
         if u.exact:
@@ -527,9 +533,34 @@ def _count(r: ClassResult, *, defect: str | None = None) -> tuple[int, int, int]
     return r.n, sum(1 for f in r.confirmed if defect is None or f.defect == defect), len(r.suspects)
 
 
+class EvidenceContext(FalsifyContext):
+    """``base`` with every World behind the SQL evidence channel (``iface.sql_evidence``; DESIGN §7.7 item 25): EVID can
+    edit the start state of a SQL-backed World. Only P3 uses it; certification keeps the plain context, so PERT and the
+    other classes do not change. Worlds, their keys and their lifetime are the base context's (it closes them)."""
+
+    def __init__(self, base: FalsifyContext):
+        super().__init__(None, exec_registry=base.exec_registry, deadline_s=base.deadline_s, max_mutants=base.max_mutants, seed=base.seed)
+        self.base = base
+        self._wrapped: dict[int, Any] = {}
+
+    async def world(self, task: Task) -> Any:
+        from crucible.synth.iface import sql_evidence
+
+        w = await self.base.world(task)
+        if id(w) not in self._wrapped:
+            self._wrapped[id(w)] = sql_evidence(w)
+        return self._wrapped[id(w)]
+
+    async def close(self) -> None:  # the base context owns the Worlds
+        self._wrapped.clear()
+
+
 async def p3(task: Task, ctx: FalsifyContext, *, pool: Sequence[Task] = (), agents: Sequence[AgentSpec] = (),
-             classes: Sequence[BaseFalsifier] | None = None) -> P3Result:
-    """The on-intent verdict of one task (module docstring)."""
+             classes: Sequence[BaseFalsifier] | None = None, evidence: bool = False) -> P3Result:
+    """The on-intent verdict of one task (module docstring). ``evidence``: run through ``EvidenceContext`` (EVID on a
+    SQL-backed World)."""
+    if evidence and not isinstance(ctx, EvidenceContext):
+        ctx = EvidenceContext(ctx)
     fs = list(classes) if classes is not None else [TAINT(), TWIN(), EVID(agents), SWAP(pool)]
     res = await run_classes(task, fs, ctx)
     out = P3Result(task_id=task.id, version=task.version, on_intent=None)

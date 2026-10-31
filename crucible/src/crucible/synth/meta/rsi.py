@@ -1962,6 +1962,11 @@ TaskMove = Literal["REPAIR", "RESKILL", "DESCEND", "ASCEND", "KEEP", "RESERVE", 
 RANK = {"too_easy": 0, "in_band": 1, "too_hard": 2}
 
 
+def _knob_name(knob: str) -> str:
+    """A ``Knobs`` move's name in R-too-hard's vocabulary (``ComposeKnobs`` calls the undo move ``undo``)."""
+    return {"undo": "undo_harder_knob"}.get(knob, knob)
+
+
 class KnobMove(CrucibleModel):
     knob: str
     direction: Literal["easier", "harder"]
@@ -1990,6 +1995,11 @@ class TaskRules(ProbeRules):
 
     k_diag: int = 8
     looks: tuple[int, ...] = Field(default_factory=_pol("R-band", "looks"))  # acceptance (fresh) rollouts, sequential; the last is k_max
+    # R-band v2 (taskloop-2): an undecided measurement escalates through these looks up to k_cap (fresh rollouts on the same
+    # measurement), within task_rollout_cap rollout indices per lineage; then HOLD
+    escalation_looks: tuple[int, ...] = Field(default_factory=_pol("R-band", "escalation_looks"))
+    k_cap: int = Field(default_factory=_pol("R-band", "k_cap"))
+    task_rollout_cap: int = Field(default_factory=_pol("R-band", "task_rollout_cap"))
     band_lo: float = Field(default_factory=_pol("R-band", "band_lo"))
     band_hi: float = Field(default_factory=_pol("R-band", "band_hi"))
     band_alpha: float = Field(default_factory=_pol("R-band", "alpha"))
@@ -2023,6 +2033,7 @@ class TaskDecision(CrucibleModel):
     policy_version: str = ""  # DESIGN item 24: the policy the decision was resolved under, and the rule
     rule: str = ""
     remedies: list[dict[str, Any]] = Field(default_factory=list)  # every condition raised, its facts, the remedy and what was passed over
+    lessons: dict[str, list[str]] = Field(default_factory=dict)  # lemma -> the candidates an accepted repair touched (R-lemma-lift)
 
 
 class Lineage(CrucibleModel):
@@ -2132,25 +2143,79 @@ class TaskLoop(ProbeLoop):
         self.next_index[root] = i + n
         return list(rs), list(range(i, i + n))
 
+    def _spec(self) -> Any:
+        from crucible.synth.learn import BandSpec
+
+        return BandSpec(lo=self.rules.band_lo, hi=self.rules.band_hi, alpha=self.rules.band_alpha, looks=tuple(self.rules.looks))
+
     def _band(self, passes: int, n: int, *, final: bool) -> Any:
-        from crucible.synth.learn import BandSpec, decide
+        from crucible.synth.learn import decide
 
-        spec = BandSpec(lo=self.rules.band_lo, hi=self.rules.band_hi, alpha=self.rules.band_alpha, looks=tuple(self.rules.looks))
-        return decide(passes, n, spec, final=final)
+        return decide(passes, n, self._spec(), final=final)
 
-    async def _sequential_band(self, task: Task, start: Sequence[Any] = ()) -> tuple[Any, list[Any], list[int]]:
-        """The band on rollouts drawn in looks up to k_max (``start`` counts toward the first look)."""
+    def _settled(self, res: Any) -> bool:
+        from crucible.synth.learn import settled
+
+        return settled(res, self._spec())
+
+    async def _sequential_band(self, task: Task, start: Sequence[Any] = (), *, looks: Sequence[int] | None = None) -> tuple[Any, list[Any], list[int]]:
+        """The band on rollouts drawn in looks up to k_max (``start`` counts toward the first look). It stops at the first
+        settled look (R-band v2: confident and the interval inside one class); at the final look it returns the forced
+        result, which the caller tests with ``_settled``."""
         rolls, idx = list(start), []
-        for look in self.rules.looks:
+        looks = list(looks or self.rules.looks)
+        res = None
+        for look in looks:
             if len(rolls) < look:
                 more, ix = await self._fresh(task, look - len(rolls))
                 rolls += more
                 idx += ix
             graded = [r for r in rolls if getattr(r, "passed", None) is not None]
-            res = self._band(sum(1 for r in graded if r.passed), len(graded), final=look == self.rules.looks[-1])
-            if res is not None:
+            res = self._band(sum(1 for r in graded if r.passed), len(graded), final=look == looks[-1])
+            if res is not None and self._settled(res):
                 return res, rolls, idx
-        return None, rolls, idx
+        return res, rolls, idx
+
+    async def _placed_band(self, dec: TaskDecision, task: Task, start: Sequence[Any] = (), *, label: str, first: Any = None
+                           ) -> tuple[Any, bool, list[int], str]:
+        """One band measurement that may place a task (R-band v2; taskloop-2). The sequential test runs to k_max; a
+        result that is not settled, or that disagrees with ``first`` (an earlier measurement of the same task: a
+        RESKILL's fresh band against the diagnosis band), raises ``band_undecided`` and takes the policy's remedy:
+        more fresh rollouts on THIS measurement (escalation looks up to k_cap; ``start`` and ``first``'s rollouts are never
+        pooled in), else HOLD. Returns (the last result, placed?, the fresh indices drawn, the reason when not placed)."""
+        rolls, idx = list(start), []
+        res, more, ix = await self._sequential_band(task, rolls)
+        rolls, idx = more, list(ix)
+        esc = [k for k in self.rules.escalation_looks if k <= self.rules.k_cap]
+        root = self.of.get(task.id, task.id)
+        while True:
+            ok = self._settled(res)
+            disagree = bool(ok and first is not None and res.decision != first.decision)
+            if ok and not disagree:
+                return res, True, idx, ""
+            n = len([r for r in rolls if getattr(r, "passed", None) is not None])
+            nxt = next((k for k in esc if k > len(rolls)), None)
+            used = self.next_index.get(root, 0)
+            budget = nxt is not None and used + (nxt - len(rolls)) <= self.rules.task_rollout_cap and self._probe_budget_ok()
+            what = (f"disagrees with the {first.decision} diagnosis band" if disagree else
+                    f"is {'unconfident' if res is not None and not res.confident else 'straddling a band edge'}")
+            rem = self._resolve(dec, task, "band_undecided", {"rollouts": n, "probe_budget_ok": bool(budget), "measurements": 1 if first is None else 2,
+                                                             "disagree": disagree, "straddles": not ok, "lineage_rollouts": used, "measurement": label})
+            if rem.action != "more_rollouts" or nxt is None:
+                d = res.decision if res is not None else "none"
+                return res, False, idx, (f"band_undecided: the {label} band ({d}, {res.passes if res is not None else 0}/{n}) {what}; "
+                                         f"{rem.rule}: {rem.action}")
+            res, more, ix = await self._sequential_band(task, rolls, looks=[nxt])
+            rolls, idx = more, idx + list(ix)
+
+    def _probe_budget_ok(self) -> bool:
+        """Whether the student probe may still be called (a probe that reports its own cap; True otherwise: the wire's
+        cap still stops a call past it)."""
+        f = getattr(self.probe, "budget_ok", None)
+        try:
+            return bool(f()) if callable(f) else True
+        except Exception:  # noqa: BLE001 - an unreadable budget is no budget
+            return False
 
     # -- the precondition ------------------------------------------------------------------------------------------
     async def _oracle(self, task: Task, fails: Sequence[ProbeOutcome]) -> dict[str, Any]:
@@ -2182,17 +2247,14 @@ class TaskLoop(ProbeLoop):
         self.ledger.append(Decision(kind="update", round=dec.round, update_id=f"{dec.task_id}@{dec.version}:{dec.move}", component="T", evaluated=True,
                                     accepted=dec.accepted, to_version=dec.new_version, failed=[RuleFailure(rule=x.split(":", 1)[0], detail=x) for x in dec.refused_by],
                                     metrics={"move": dec.move, "why": dec.why[:6], "variant": dec.variant_id, "counted": dec.counted, "reskill": dec.reskill,
-                                             "policy_version": dec.policy_version, "rule": dec.rule, "remedies": dec.remedies}))
+                                             "policy_version": dec.policy_version, "rule": dec.rule, "remedies": dec.remedies, "lessons": dec.lessons}))
         return dec
 
-    async def _variant_checks(self, task: Task, var: Task) -> list[str]:
+    async def _variant_checks(self, task: Task, var: Task, dec: TaskDecision | None = None) -> list[str]:
         why = []
         if var.intent.skill != task.intent.skill or self.cell_of(var) != self.cell_of(task):
             why.append("G2: the variant changes the skill or the cell (what is taught)")
-        if self.p3_check is not None:
-            on, rs = await self.p3_check(var)
-            if on is not True:
-                why.append(f"G2: P3 probes: {'; '.join(rs)[:200] or 'not on intent'}")
+        why += await self._p3(dec, var, "variant", "G2")
         why += [f"G3: {x}" for x in await self.recheck(var)]
         if self.rules.require_alt:
             ok = await self.alt_check(var) if self.alt_check is not None else None
@@ -2299,17 +2361,15 @@ class TaskLoop(ProbeLoop):
             lin.status = "held"  # waits for the panel or a person: re-probing it would only buy more of the same evidence
             dec.move, dec.why = "HOLD", [*dec.why, f"{unc} of {len(graded)} graded rollouts uncertain: the evidence does not decide ({rem.rule} {rem.action})"]
             return self._record(dec)
-        band, _more, ix2 = await self._sequential_band(task, rolls)
+        band, placed, ix2, undecided = await self._placed_band(dec, task, rolls, label="diagnosis")
         dec.rollouts["diagnosis"] += ix2
         dec.band = band.model_dump(mode="json") if band is not None else None
-        if band is None:  # R-band: more fresh rollouts to k_max within the cap (the sequential test already did), else HOLD
-            n = len([r for r in _more if getattr(r, "passed", None) is not None])  # every graded rollout the sequential test drew (to k_max)
-            rem = self._resolve(dec, task, "band_undecided", {"rollouts": n, "probe_budget_ok": n < rules.looks[-1]})
-            lin.status = "held"  # prereg §8.1: a task undecided at k_max is held, never moved (and not re-probed)
-            dec.move, dec.why = "HOLD", [*dec.why, f"the band test did not decide at k_max ({rem.rule} {rem.action})"]
+        if not placed:  # R-band v2: more fresh rollouts on this measurement to k_cap within the caps, else HOLD
+            lin.status = "held"  # prereg §8.1: a task the band cannot place is held, never moved (and not re-probed)
+            dec.move, dec.why = "HOLD", [*dec.why, undecided]
             return self._record(dec)
         if band.decision == "in_band":  # Amendment 1: an in-band task whose evidence shows another label is re-labelled, then kept
-            if await self._try_reskill(task, dec, lin, round):
+            if await self._try_reskill(task, dec, lin, round, first=band):
                 return dec
             lin.status = "kept"
             dec.move, dec.accepted = "KEEP", True
@@ -2324,13 +2384,19 @@ class TaskLoop(ProbeLoop):
         if direction == "easier" and self.alt_check is not None and (await self.alt_check(task)) is False:
             dec.why.append("too hard, and no independent solver solves the original either")
         knobs = [k for k in await self.knobs.moves(task, direction) if k.knob not in lin.refused_knobs]
-        kname = {"undo": "undo_harder_knob"}.get(knobs[0].knob, knobs[0].knob) if knobs else None
+        fam = self._family_knobs(task.domain, direction)
+        if fam is not None:  # R-too-hard family_knobs (taskloop-2): a knob the policy records inapplicable for this family is never tried
+            off = [k.knob for k in knobs if _knob_name(k.knob) not in fam]
+            knobs = [k for k in knobs if _knob_name(k.knob) in fam]
+            if off:
+                dec.why.append(f"R-too-hard family_knobs: {', '.join(off)} inapplicable for {task.domain}")
+        kname = _knob_name(knobs[0].knob) if knobs else None
         kind = "band_too_hard" if direction == "easier" else "band_too_easy"
         facts = {"truth_available": truth, "oracle_checked": True, "unintended_with_evidence": 0, "reskill_attempted": lin.reskilled,
                  "deriver_available": self.derive_intent is not None, ("easier_knob" if direction == "easier" else "harder_knob"): kname}
         rem = self._resolve(dec, task, kind, facts)  # R-too-hard: RESKILL, then DESCEND / ASCEND, then RESERVE
         if rem.action == "reskill":
-            if await self._try_reskill(task, dec, lin, round):
+            if await self._try_reskill(task, dec, lin, round, first=band):
                 return dec
             rem = self._resolve(dec, task, kind, {**facts, "reskill_attempted": True})
         if rem.action not in ("descend", "ascend"):
@@ -2340,7 +2406,7 @@ class TaskLoop(ProbeLoop):
         dec.move = move
         var = None
         for k in knobs:  # the first declared knob that applies to this task's World (taskloop-1 §2: finance_ap's SQL World takes none)
-            if {"undo": "undo_harder_knob"}.get(k.knob, k.knob) not in (self._lawful_knobs(direction) or {k.knob}):
+            if _knob_name(k.knob) not in (self._lawful_knobs(direction) or {k.knob}):
                 continue
             dec.knob = k
             var = await self.knobs.apply(task, k)
@@ -2351,23 +2417,24 @@ class TaskLoop(ProbeLoop):
             dec.move, dec.why = "RESERVE", [*dec.why, f"no declared {direction} knob applies to this task's World ({[k.knob for k in knobs]})"]
             return self._record(dec)
         knobs = [dec.knob] if dec.knob is not None else knobs
-        why = await self._variant_checks(task, var)
+        why = await self._variant_checks(task, var, dec)
         if why:
             lin.refused_knobs.append(dec.knob.knob if dec.knob is not None else "?")
             return self._refuse(dec, lin, why)
         self.of.setdefault(var.id, root)  # its acceptance rollouts come from the lineage's unused indices
-        try:
-            vband, _r, ix3 = await self._sequential_band(var)
+        try:  # R-band v2: the variant's fresh band must be settled (escalated to k_cap if not), never pooled with the diagnosis
+            vband, vplaced, ix3, vund = await self._placed_band(dec, var, label="variant")
         finally:
             self._reserve({self.cell_of(var): 1.0}, -1.0)  # decided below: accepted variants count as pool tasks
         dec.rollouts["acceptance"] = ix3
         dec.acceptance_band = vband.model_dump(mode="json") if vband is not None else None
-        moved = vband is not None and ((RANK[vband.decision] < RANK[band.decision]) if direction == "easier" else (RANK[vband.decision] > RANK[band.decision]))
+        moved = vplaced and ((RANK[vband.decision] < RANK[band.decision]) if direction == "easier" else (RANK[vband.decision] > RANK[band.decision]))
         self.knob_calibration.append({"task": task.id, "knob": knobs[0].knob, "predicted": direction, "before": band.decision,
-                                      "after": vband.decision if vband else None, "moved": moved})
+                                      "after": vband.decision if vplaced else None, "moved": moved})
         if not moved:
             lin.refused_knobs.append(knobs[0].knob)
-            return self._refuse(dec, lin, [f"G4: on fresh rollouts the variant is {vband.decision if vband else 'undecided'}, not {direction} than {band.decision}"])
+            seen = vband.decision if vplaced else f"undecided ({vund})"
+            return self._refuse(dec, lin, [f"G4: on fresh rollouts the variant is {seen}, not {direction} than {band.decision}"])
         dec.accepted, dec.variant_id = True, var.id
         lin.direction = want
         lin.members.append(var.id)
@@ -2376,13 +2443,17 @@ class TaskLoop(ProbeLoop):
         return self._record(dec)
 
     # -- RESKILL (lead, 2026-10-30; meta/reskill.py) ---------------------------------------------------------------
-    async def _try_reskill(self, task: Task, dec: TaskDecision, lin: Lineage, round: int) -> bool:
+    async def _try_reskill(self, task: Task, dec: TaskDecision, lin: Lineage, round: int, *, first: Any = None) -> bool:
         """Re-label a valid task with the skill its evidence shows. RS1 an existing skill of the domain; RS2 the
         derivation reads only the task's evidence (never the student) and its derive values are values π* writes or
         answers that the instruction does not state; RS3 P3 under the new card, LEAK with the new derive set, full
         re-certification under the monotone archive; RS4 novelty in the new cell, and the band on FRESH rollouts places
         the task (in band: KEEP; out of band: RESERVE under its honest label); RS5 the pool's cell KL and entropy with the
         task moved, and a per-round cap; RS6 one attempt per lineage, the old card and version kept for rollback.
+        R-band v2 (taskloop-2): only the card changes, so the student's pass rate cannot; the fresh band places the task
+        only when it is settled AND agrees with ``first`` (the diagnosis band). Otherwise ``band_undecided``: more fresh
+        rollouts on the fresh measurement (never pooled with the diagnosis), then HOLD: the label is kept (it rests on
+        the task's evidence, not the band) and the lineage is held.
         Returns True when the RESKILL was accepted (the decision is recorded)."""
         if self.derive_intent is None or lin.reskilled:
             return False
@@ -2422,10 +2493,7 @@ class TaskLoop(ProbeLoop):
         new = task.next_version(intent=prop.card(notes=f"RESKILL from {old.skill!r} v{task.version}: {prop.why}"[:300]))
         oc, nc = self.cell_of(task), self.cell_of(new)
         if not why:
-            if self.p3_check is not None:
-                on, rs = await self.p3_check(new)
-                if on is not True:
-                    why.append(f"RS3: P3 under the new card: {'; '.join(rs)[:200] or 'not on intent'}")
+            why += await self._p3(dec, new, "reskill", "RS3")
             if self.leak_check is not None:
                 why += [f"RS3: LEAK under the new derive set: {x}" for x in await self.leak_check(new)]
             why += [f"RS3: {x}" for x in await self.recheck(new)]
@@ -2449,14 +2517,14 @@ class TaskLoop(ProbeLoop):
             ok, rs = await self.novel_check(new, nc, pool)
             if not ok:
                 why.append(f"RS4: not novel in {nc!r}: {'; '.join(rs)[:200]}")
-        vband = None
+        vband, placed, undecided = None, False, ""
         if not why:
-            vband, _r, ix = await self._sequential_band(new)
+            self.of.setdefault(new.id, self.of.get(task.id, task.id))
+            vband, placed, ix, undecided = await self._placed_band(dec, new, label="reskill", first=first)
             dec.rollouts["acceptance"] = ix
             dec.acceptance_band = vband.model_dump(mode="json") if vband is not None else None
-            if vband is None:
-                why.append("RS4: the band on fresh rollouts did not decide at k_max")
-        dec.reskill = {"from": old.model_dump(mode="json"), "to": prop.model_dump(mode="json"), "cell": [oc, nc], "refused_by": why}
+        dec.reskill = {"from": old.model_dump(mode="json"), "to": prop.model_dump(mode="json"), "cell": [oc, nc], "refused_by": why,
+                       "placed": placed, **({"band_undecided": undecided} if undecided else {})}
         if held:
             self._reserve(moved, -1.0)  # decided: the accepted move is in ``self.tasks`` below
         if why:
@@ -2468,9 +2536,14 @@ class TaskLoop(ProbeLoop):
         self.originals[task.id] = task
         self.tasks[task.id] = new
         lin.original = {"skill": old.skill, "version": task.version, "card": old.model_dump(mode="json")}
-        lin.status = "kept" if vband.decision == "in_band" else "reserved"
         dec.move, dec.accepted, dec.new_version = "RESKILL", True, new.version
-        dec.why.append(f"RESKILL {old.skill!r} → {prop.skill!r}; fresh band {vband.decision}: {'kept' if lin.status == 'kept' else 'reserved under its honest label'}")
+        if not placed:  # R-band v2: never placed by the second measurement alone; the label stands, the lineage waits
+            lin.status = "held"
+            dec.why.append(f"RESKILL {old.skill!r} → {prop.skill!r}; {undecided}: held under its honest label")
+        else:
+            lin.status = "kept" if vband.decision == "in_band" else "reserved"
+            dec.why.append(f"RESKILL {old.skill!r} → {prop.skill!r}; fresh band {vband.decision} agrees with the diagnosis band: "
+                           f"{'kept' if lin.status == 'kept' else 'reserved under its honest label'}")
         self._record(dec)
         return True
 
@@ -2489,6 +2562,15 @@ class TaskLoop(ProbeLoop):
 
         return set(policy.param("R-too-hard", "easier_knobs" if direction == "easier" else "harder_knobs"))
 
+    @staticmethod
+    def _family_knobs(domain: str, direction: str) -> set[str] | None:
+        """R-too-hard ``family_knobs`` (taskloop-2): the knobs lawful on this World family in this direction, or None when the
+        policy records nothing for the family (every declared knob may be tried)."""
+        from crucible.synth import policy
+
+        fam = (policy.current().rule("R-too-hard").params.get("family_knobs") or {}).get(domain)
+        return None if fam is None else set(fam.get(direction) or [])
+
     def _resolve(self, dec: TaskDecision, task: Task, kind: str, facts: dict[str, Any]) -> Any:
         """Raise a blocking condition with its measured facts and take the policy's lawful remedy (DESIGN item 24,
         R-oracle, R-admission-fixed, R-panel, R-uncertain, R-band, R-too-hard); the version, the rule and what was passed
@@ -2500,6 +2582,24 @@ class TaskLoop(ProbeLoop):
         dec.remedies.append({"condition": kind, "facts": facts, "action": rem.action, "rule": rem.rule, "policy_version": rem.policy_version,
                              "considered": rem.considered[:8]})
         return rem
+
+    async def _p3(self, dec: TaskDecision | None, cand: Task, edit: str, tag: str) -> list[str]:
+        """P3 on a candidate edit (G2 for repairs and variants, RS3 for a RESKILL). Off intent refuses the edit. An
+        UNMEASURED P3 (no valid EVID, SWAP or TWIN trial) is never on intent and never a silent refusal: it raises
+        ``p3_unmeasured`` (R-p3) and takes the policy's remedy. ``p3_check`` has already run every executed P3 probe the
+        World supports (EVID through the SQL evidence channel included, when the caller wired it), so the remedy is HOLD:
+        the edit is not accepted and the condition is recorded on the decision."""
+        if self.p3_check is None:
+            return []
+        on, rs = await self.p3_check(cand)
+        if on is True:
+            return []
+        if on is False:
+            return [f"{tag}: P3 probes: {'; '.join(rs)[:200] or 'not on intent'}"]
+        if dec is None:
+            return [f"{tag}: p3_unmeasured ({'; '.join(rs)[:160]})"]
+        rem = self._resolve(dec, cand, "p3_unmeasured", {"edit": edit, "executed_check_available": False})
+        return [f"{tag}: p3_unmeasured ({'; '.join(rs)[:160] or 'no valid EVID, SWAP or TWIN trial'}): {rem.rule} {rem.action}"]
 
     def _reject(self, dec: TaskDecision, lin: Lineage, why: str) -> TaskDecision:
         lin.status = "rejected"  # invalid and not repairable under the policy: kept with its reasons, never moved, kept or deleted
@@ -2535,10 +2635,7 @@ class TaskLoop(ProbeLoop):
         why2 = await self.decide(task, new, pairs, cxs)
         if self.cell_of(new) != self.cell_of(task) or new.intent.skill != task.intent.skill:
             why2.append("G2: the repair changes the skill or the cell")
-        if self.p3_check is not None:
-            on, rs = await self.p3_check(new)
-            if on is not True:
-                why2.append(f"G2: P3 probes: {'; '.join(rs)[:200] or 'not on intent'}")
+        why2 += await self._p3(dec, new, "repair", "G2")
         if why2:
             return self._refuse(dec, lin, why2, invalid=invalid)
         # G4: acceptance on FRESH rollouts: no unintended outcome of the same mechanism recurs
@@ -2560,8 +2657,10 @@ class TaskLoop(ProbeLoop):
                              unintended_passes=sum(1 for _, k, _ in counted if k == "unintended_pass"),
                              unintended_fails=sum(1 for _, k, _ in counted if k == "unintended_fail"), n_after=len(graded),
                              passes_after=sum(1 for r in graded if r.passed))
-        if self.lift_lemmas is not None:
-            self.lemma_candidates += await self.lift_lemmas(task, new, list(cxs))
+        if self.lift_lemmas is not None:  # G8 / R-lemma-lift: the pair is recorded; a recurring class becomes a gated candidate
+            lem = await self.lift_lemmas(task, new, list(cxs))
+            self.lemma_candidates += lem
+            dec.lessons["lemma"] = [f"{getattr(x, 'id', x)}:{getattr(x, 'key', '')}:{getattr(x, 'status', '')}" for x in lem]
         return self._record(dec)
 
     async def run_typed_round(self, round: int, *, ids: Sequence[str] | None = None, concurrency: int = 1,

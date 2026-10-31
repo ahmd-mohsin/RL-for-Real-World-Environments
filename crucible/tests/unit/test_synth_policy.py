@@ -313,8 +313,11 @@ async def test_taskloop_resolves_through_the_policy(tmp_path):
 
 
 def test_r_band_more_rollouts_within_the_cap_else_hold():
+    """R-band v2 (taskloop-2): an undecided measurement escalates to k_cap (32), then holds."""
+    assert POL.param("R-band", "k_cap") == 32 and POL.param("R-band", "k_max") == 16 and POL.rule("R-band").version == 2
     assert resolve(C("band_undecided", rollouts=8, probe_budget_ok=True)).action == "more_rollouts"
-    assert resolve(C("band_undecided", rollouts=16, probe_budget_ok=True)).action == "hold"
+    assert resolve(C("band_undecided", rollouts=16, probe_budget_ok=True)).action == "more_rollouts"
+    assert resolve(C("band_undecided", rollouts=32, probe_budget_ok=True)).action == "hold"
     assert resolve(C("band_undecided", rollouts=8, probe_budget_ok=False)).action == "hold"
     assert resolve(C("mostly_uncertain_rollouts", task_evidence_run=False)).action == "gather_task_evidence"
     assert resolve(C("mostly_uncertain_rollouts", task_evidence_run=True)).action == "hold"
@@ -467,9 +470,9 @@ def test_a_declined_answer_is_also_a_version(tmp_path):
     led = _ledger(tmp_path)
     esc = resolve(C("sealed_access", path="data/sealed/synth-locked", purpose="tune"), led.policy()).escalation
     assert esc.kind == "sealed_access" and {o["id"] for o in esc.options} == {"grant_once", "deny"}
-    v0 = led.policy().version
+    v0, rules0 = led.policy().version, led.policy().rules
     led.answer(esc, "deny", by="lead", date="2026-10-31", rationale="no")
-    assert led.policy().version == v0 + 1 and led.policy().rules == POL.rules
+    assert led.policy().version == v0 + 1 and led.policy().rules == rules0  # the genesis rules, unchanged by a "no"
     with pytest.raises(PolicyViolation, match="P-person"):
         led.append({"kind": "answer", "escalation": {"kind": "sealed_access"}, "choice": "deny", "source": {"kind": "inferred"}})
 

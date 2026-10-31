@@ -251,6 +251,7 @@ def cmd_loop(a: argparse.Namespace) -> None:
     from crucible.synth.falsify.leak import LeakPanel, LeakProbe, calibrate_leak_panel
     from crucible.synth.falsify.oracle import ORACLE
     from crucible.synth.falsify.twinjudge import calibrate_twin_panel, twin_anchors
+    from crucible.synth.meta.lift import LemmaLift, pairs_from_run, repairer_notes, swarm_abstract
     from crucible.synth.meta.loopkit import DomainClassifier, Recertifier, TaskKeyedContext, label_cell
     from crucible.synth.meta.reskill import leak_checker, novelty_checker, p3_checker, swarm_deriver
     from crucible.synth.meta.rsi import ComposeKnobs, LearnClassifier, ProbeReplay, TaskLoop, TaskRules, replay_program
@@ -278,6 +279,12 @@ def cmd_loop(a: argparse.Namespace) -> None:
     all_rows = list(rows)  # the panels calibrate on the whole pool's valid tasks, also when --only selects a few (taskloop-1 §2)
     if a.only:
         rows = [r for r in rows if any(x in r.key for x in a.only.split(","))]
+    if a.ids:  # exact task ids (taskloop-2: the affected lineages only; a substring of one id can be part of another)
+        want = set(a.ids.split(","))
+        rows = [r for r in rows if r.load_task().id in want]
+        missing = want - {r.load_task().id for r in rows}
+        if missing:
+            raise SystemExit(f"task ids not in the manifest: {sorted(missing)}")
     if a.limit:
         rows = rows[: a.limit]
     tasks = {}
@@ -400,10 +407,18 @@ def cmd_loop(a: argparse.Namespace) -> None:
 
         repair = make_repairer(swarm.client("repairer"), kctx, tools_of=tools_of, log_path=d / "repairs.jsonl") if swarm is not None else (lambda t, c: _none())
         deriver = swarm_deriver(swarm.client("abstractor"), _skills, tag="reskill") if swarm is not None and not a.no_reskill else None
+        # R-lemma-lift (DESIGN item 25): accepted repairs are recorded as pairs; a recurring class becomes a candidate the
+        # abstractor (non-builder) drafts and the gate decides; with no gate budget it is deferred, never admitted
+        lift = LemmaLift(d / "lift", abstract=swarm_abstract(swarm.client("abstractor")) if swarm is not None else None,
+                         gate=None, gate_budget_usd=lambda: float(a.lemma_gate_usd), notes_of=repairer_notes(d / "repairs.jsonl"))
+        if a.lift_seed:
+            seeded = pairs_from_run(Path(a.lift_seed), lift)
+            print(f"lift: {len(seeded)} accepted repair(s) of {a.lift_seed} seeded", flush=True)
+            await lift.seed(seeded)
 
-        async def p3(t: Any) -> tuple[bool | None, list[str]]:
+        async def p3(t: Any) -> tuple[bool | None, list[str]]:  # R-p3: EVID through the SQL evidence channel (item 25)
             pool = [x for x in loop.tasks.values() if x.domain == t.domain and x.id != t.id]
-            return await p3_checker(kctx, pool=pool)(t)
+            return await p3_checker(kctx, pool=pool, evidence=True)(t)
 
         def cell_of(t: Any) -> str:
             return label_cell(t.domain, t.intent.skill, _skills(t))
@@ -414,7 +429,8 @@ def cmd_loop(a: argparse.Namespace) -> None:
                         cell_of=cell_of, archive=archive,
                         rules=TaskRules(student_family="qwen", h_min=round(0.9 * entropy(dict(cells)), 4), max_rounds=a.rounds),
                         derive_intent=deriver, skills_of=lambda t: [x["id"] for x in _skills(t)], leak_check=leak_checker(kctx),
-                        novel_check=novelty_checker(kctx), validity=rec.validity)
+                        novel_check=novelty_checker(kctx), validity=rec.validity, lift_lemmas=lift)
+        lift.lineage_of = lambda tid: loop.of.get(tid, tid)
         loop.stored = stored_rollouts(root, probe)
         loop.add_tasks(t for _, t in tasks.values())
         loop.save()
@@ -439,7 +455,7 @@ def cmd_loop(a: argparse.Namespace) -> None:
         pool.shutdown(wait=False, cancel_futures=True)
         return {"rounds": rounds, "calibration": cal, "recert": [x.model_dump(mode="json") for x in rec.rows.values() if x.source != "manifest"],
                 "summary": loop.typed_summary(), "knob_calibration": loop.knob_calibration, "world_fixes": loop.world_fixes,
-                "outcomes": [r.model_dump(mode="json") for r in clf.records]}
+                "outcomes": [r.model_dump(mode="json") for r in clf.records], "lemmas": lift.summary(), "policy_version": policy.tag()}
 
     async def runner() -> dict[str, Any]:
         try:
@@ -497,6 +513,9 @@ def cmd_report(a: argparse.Namespace) -> None:
         if x.accepted and x.acceptance_band and x.acceptance_band.get("decision"):
             last[x.variant_id or x.task_id] = x.acceptance_band["decision"]
     out["band"] = {"before": dict(Counter(first.values())), "after": dict(Counter(last.values())), "measured_tasks": len(first)}
+    # item 25: the conditions the policy resolved, by (condition, rule, action), and the lemma lift
+    out["conditions"] = dict(Counter(f"{r['condition']}:{r['rule']}:{r['action']}" for x in decs for r in x.remedies))
+    out["lemmas"] = rep.get("lemmas")
     mon = TuningMonitor.model_validate(ps["monitor"]) if ps.get("monitor") else TuningMonitor()
     out["drift"] = {"alarm": mon.alarm(), "rows": mon.rows}
     ex: dict[str, list[dict[str, Any]]] = {}
@@ -560,6 +579,36 @@ def cmd_report(a: argparse.Namespace) -> None:
     _save(d / "report.json", out)
     print(json.dumps({k: v for k, v in out.items() if k not in ("examples", "lessons")}, indent=1, default=str)[:6000])
 
+def cmd_lift(a: argparse.Namespace) -> None:
+    """R-lemma-lift on an earlier loop run (DESIGN item 25): its accepted repairs as (counterexample class, repair) pairs, the
+    recurring classes as candidates, drafted by the abstractor (a non-builder family) and decided by the gate's policy
+    remedy. No student, no task edit. The shared Part 2 total is checked before the abstractor call."""
+    import asyncio
+
+    from crucible.factory.synth_wire import SynthWire, milestone_spent
+    from crucible.synth.meta.lift import LemmaLift, pairs_from_run, swarm_abstract
+
+    root = data_root(a)
+    d = Path(a.out) if a.out else root / "taskloop" / (time.strftime("%Y%m%d-%H%M%S") + "-lift")
+    d.mkdir(parents=True, exist_ok=True)
+    wire = None
+    if not a.dry:
+        if not os.environ.get("MILESTONE_CAP_USD"):
+            raise SystemExit("set MILESTONE_CAP_USD (the shared Part 2 total, 150) in the environment")
+        ms = milestone_spent(root)
+        if ms + a.cap > float(os.environ["MILESTONE_CAP_USD"]) + 1e-9:
+            raise SystemExit("the shared Part 2 total would pass its cap: refusing to start")
+        wire = SynthWire(d / "swarm", cap_usd=a.cap)
+    lift = LemmaLift(d, abstract=swarm_abstract(wire.client("abstractor"), tag="lift") if wire is not None else None,
+                     gate_budget_usd=lambda: float(a.lemma_gate_usd))
+    pairs = pairs_from_run(Path(a.run), lift)
+    asyncio.run(lift.seed(pairs))
+    out = {"run": str(a.run), "pairs": [p.model_dump(mode="json") for p in pairs], "summary": lift.summary(),
+           "candidates": {k: v.model_dump(mode="json") for k, v in lift.candidates.items()}, "cost": wire.cost() if wire is not None else None}
+    _save(d / "lift_report.json", out)
+    print(json.dumps({"pairs": len(pairs), "summary": out["summary"], "cost": out["cost"]}, indent=1, default=str))
+
+
 def stored_rollouts(root: Path, probe: Any) -> Any:
     """prereg §8.1: the learnability store's measured rollouts (``perfect/difficulty.jsonl``) of the exact task version
     (id, version, digest), the same student and simulator, are the round-1 diagnosis; None when the probe is not the
@@ -613,14 +662,23 @@ def main() -> None:
     lp.add_argument("--leak-calls", type=int, default=120)
     lp.add_argument("--det-workers", type=int, default=4)
     lp.add_argument("--only", default="")
+    lp.add_argument("--ids", default="", help="exact task ids (comma-separated): only these lineages")
+    lp.add_argument("--lift-seed", default="", help="an earlier loop run whose accepted repairs seed the lemma lift (R-lemma-lift)")
+    lp.add_argument("--lemma-gate-usd", type=float, default=0.0, help="what the lemma gate may spend (0: an underpowered gate defers)")
     lp.add_argument("--limit", type=int, default=0)
     lp.add_argument("--no-reskill", action="store_true")
     lp.add_argument("--dry", action="store_true", help="a no-op scripted student and no paid classes (wiring only, no spend)")
     rp = sub.add_parser("report")
     rp.add_argument("--run", required=True)
     rp.add_argument("--manifest", default="")
+    lf = sub.add_parser("lift", help="the lemma lift of an earlier loop run's accepted repairs (R-lemma-lift; no student)")
+    lf.add_argument("--run", required=True, help="the loop run whose accepted repairs are lifted")
+    lf.add_argument("--out", default="", help="the lift directory (default: <data-root>/taskloop/<now>-lift)")
+    lf.add_argument("--cap", type=float, default=0.05, help="USD for the abstractor")
+    lf.add_argument("--lemma-gate-usd", type=float, default=0.0)
+    lf.add_argument("--dry", action="store_true", help="no abstractor call")
     a = ap.parse_args()
-    {"densify": cmd_densify, "manifest": cmd_manifest, "loop": cmd_loop, "report": cmd_report}[a.cmd](a)
+    {"densify": cmd_densify, "manifest": cmd_manifest, "loop": cmd_loop, "report": cmd_report, "lift": cmd_lift}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -461,6 +461,38 @@ def decide(passes: int, n: int, spec: BandSpec, prior: tuple[float, float] | Non
                       p_hat=round(passes / n, 4) if n else 0.0, ci=[round(lo, 4), round(hi, 4)])
 
 
+def beta_ppf(q: float, a: float, b: float, *, tol: float = 1e-9) -> float:
+    """The q-quantile of Beta(a, b), by bisection on ``beta_cdf``."""
+    lo, hi = 0.0, 1.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        if beta_cdf(mid, a, b) < q:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return (lo + hi) / 2
+
+
+def credible_interval(passes: int, n: int, spec: BandSpec, prior: tuple[float, float] | None = None) -> tuple[float, float]:
+    """The equal-tailed 1 − α interval of the band test's own posterior (with the default Jeffreys prior this is the
+    Jeffreys interval, a frequentist-calibrated binomial interval)."""
+    a0, b0 = prior or spec.prior
+    a, b = a0 + passes, b0 + n - passes
+    return beta_ppf(spec.alpha / 2, a, b), beta_ppf(1 - spec.alpha / 2, a, b)
+
+
+def settled(res: BandResult | None, spec: BandSpec) -> bool:
+    """R-band v2 (taskloop-2): a band measurement places a task only when it is confident (the decided class holds
+    posterior mass ≥ 1 − α) AND its 1 − α interval lies inside that class (it straddles no band edge). The sequential
+    test forces a class at its final look; such a forced, unconfident or straddling result is undecided."""
+    if res is None or not res.confident or res.n <= 0:
+        return False
+    lo, hi = credible_interval(res.passes, res.n, spec, tuple(res.prior) if res.prior else None)  # type: ignore[arg-type]
+    return band_of(lo, spec.lo, spec.hi) == band_of(hi, spec.lo, spec.hi) == res.decision
+
+
 def _binom(k: int, n: int, p: float) -> float:
     return math.comb(n, k) * (p ** k) * ((1 - p) ** (n - k))
 

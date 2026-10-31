@@ -215,6 +215,13 @@ class PolicyLedger:
         current.cache_clear()
         return entry
 
+    def apply_batch(self, batch: str) -> list[dict[str, Any]]:
+        """Append the drafts of an amendment batch (``policy.amendments``) that this ledger does not hold yet."""
+        from crucible.synth.policy.amendments import drafts
+
+        held = {(e.get("batch"), e.get("draft")) for e in self.entries()}
+        return [self.append(d) for d in drafts(batch) if (d["batch"], d["draft"]) not in held]
+
     def write_genesis(self, entries: Sequence[dict[str, Any]], *, created: str = "2026-10-30T00:00:00Z") -> None:
         if self.entries():
             raise PolicyViolation("P-ledger", f"{self.path} already holds a ledger: append, never rewrite")
@@ -278,12 +285,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m crucible.synth.policy.ledger")
     ap.add_argument("--path", default=str(LEDGER_PATH))
     ap.add_argument("--genesis", action="store_true", help="write the genesis entries into an empty ledger")
+    ap.add_argument("--amend", default="", help="append an amendment batch of policy.amendments (once; a batch already held is skipped)")
     a = ap.parse_args(argv)
     led = PolicyLedger(a.path)
     if a.genesis:
         from crucible.synth.policy.genesis import genesis_entries
 
         led.write_genesis(genesis_entries())
+    if a.amend:
+        for e in led.apply_batch(a.amend):
+            print(f"appended seq {e['seq']}: {e['kind']} {e.get('rule_id') or (e.get('rule') or {}).get('id')} ({e['sha'][:12]})")
     pol = led.policy()
     print(pol.tag, f"{len(pol.principles)} principles, {len(pol.rules)} rules, {len(pol.retired)} retired")
     return 0

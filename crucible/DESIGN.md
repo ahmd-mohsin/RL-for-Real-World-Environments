@@ -2914,6 +2914,68 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      rounds and reservations, a failing step recorded, stored diagnosis, a failing deriver and inapplicable knobs, unique
      ids and re-keyed archives, labels void under a wrong oracle, a refused knob not re-tried); `test_synth_policy.py::test_taskloop_resolves_through_the_policy` (un-skipped);
      `test_synth_taskloop.py` (declared knob names; the dispute overruled by executed rules).
+25. **Part 2 TaskLoop fixes from taskloop-1 (built 2026-10-30; results `docs/research/env-synthesis/runs/taskloop-2.md`).**
+   Four findings of taskloop-1, each settled as a policy rule (ledger batch `taskloop-2`, `synth/policy/amendments.py`,
+   applied by `python -m crucible.synth.policy.ledger --amend taskloop-2`: `policy-v28@d77cf40eeefe`), enforced in code.
+   - **R-band v2, `band_undecided`** (the top finding: 5 of 7 in-band tasks re-labelled by RESKILL were reserved on their
+     fresh band although only the card changed; 6 of the 7 diagnosis bands had been forced at the final look). A band
+     measurement places a task only when it is **settled** (`learn.settled`): confident (posterior class mass ≥ 1 − α)
+     and its equal-tailed 1 − α interval of the test's own posterior (Jeffreys, `learn.credible_interval`) inside that
+     class. Not settled at k_max, or settled but disagreeing with an earlier measurement of the same task (a RESKILL's
+     fresh band against the diagnosis band), raises `band_undecided` with facts (rollouts, probe budget, measurements,
+     disagree, straddles, lineage rollouts) and takes R-band's ladder: `more_rollouts` on THAT measurement (escalation
+     looks to `k_cap` = 32, within `task_rollout_cap` = 96 indices per lineage and the probe cap), else HOLD
+     (`TaskLoop._placed_band`, used by the diagnosis, the RESKILL placement and a variant's G4 band). A second
+     measurement never places a task alone (`place_on_second_alone` false) and diagnosis rollouts never enter
+     acceptance (`pool_diagnosis_into_acceptance` false); both, and `require_settled`, are new validity parameters
+     (P-valid refuses relaxing them, the lead included). A RESKILL whose placement stays undecided keeps its
+     evidence-derived label and its lineage is held. P-more-evidence-first now has a test (an edit, relabel or move on an
+     undecided band is refused) and P-student refuses rollouts past k_cap even when a script proposes them.
+     `R-student-probe.k_max` follows (32).
+   - **R-lemma-lift** (new; `meta/lift.py`, wired as `TaskLoop(lift_lemmas=)` and `synth_taskloop.py lift`). Every
+     accepted repair is a `RepairPair` (the counterexample classes it closed, what it changed, the repairer's notes
+     scrubbed of ids and values). A class repaired on ≥ `min_tasks` = 2 lineages is a `LemmaCandidate`: the abstractor
+     (non-builder family; clusters only) drafts the rule, the deterministic leakage critic refuses one naming its
+     evidence, and the candidate raises `lemma_candidate` (units needed for the exact McNemar gate at α_t 0.005, gain
+     0.2, power 0.8 = 50 paired cells; units the gate budget buys at USD 0.08 a cell per arm). `rerun_control_equal_spend`
+     runs the existing gate (`meta.lemmas.lemma_acceptance`, equal-budget paired build, J under R1–R10); only its accept
+     adds to the `LemmaBank`. Otherwise `no_update`: deferred, never admitted. A candidate is tested once.
+   - **R-p3** (new) and the **SQL evidence channel**. `iface.SqlEvidenceWorld` (via `intent.EvidenceContext`, P3 only;
+     the adapter itself stays without `perturb`, so PERT and certification do not change) edits one field of a `sql`
+     App's start-state row through the App's guarded executor (`set` only; key columns, clones, shuffles, non-SQL Apps,
+     unknown rows or columns refused; the edit is re-read; the next reset restores). EVID now runs on finance_ap where a
+     value is copied from a row. `evidence_sites` no longer takes a derive value that π*'s write tool itself produces
+     (`approve_invoice` → status `approved`) as evidence in an unrelated row (it would "confirm" off intent falsely on
+     every SQL World with a status history). Measured on the pool's 86 valid finance_ap tasks: EVID applies to 3, P3
+     unmeasured 14 → 13; the decisions are rule-derived (no row holds the reason code), so EVID's value-copy model has
+     no site. The unmeasured case is therefore a named condition: `p3_unmeasured` (repair, variant, RESKILL) →
+     `executed_check` when the World offers one more, else HOLD the edit, recorded; unmeasured never counts as on intent
+     (`unmeasured_counts_as_on_intent` false, a validity parameter).
+   - **R-too-hard `family_knobs`**: finance_ap has no lawful knob in either direction, with the reason per knob
+     (distractors: a cloned AP row is a policy input, so the variant's reference decision is no longer certified;
+     paginate: 0 of 27 lineages moved in taskloop-1 and P3 unmeasured on the variants; densify superset: sound but not a
+     difficulty knob for a named-invoice decision; the easier knobs need a variant World finance_ap never gets). The loop
+     filters knobs by family and reserves at once, without applying or re-probing one.
+   - **CLI** (`scripts/synth_taskloop.py`): `loop --ids` (exact task ids), `--lift-seed` (an earlier run's accepted
+     repairs), `--lemma-gate-usd`; P3 through the evidence channel; `lift --run` (offline lift; abstractor only);
+     `report` adds the resolved conditions and the lift.
+   - **Results** (taskloop-2: the 10 affected lineages only, 3 rounds, USD 1.61 of the 6 cap). Before → after on those
+     lineages: kept 2 → 1, reserved 8 → 2, held 0 → 7; the pool: kept 19 → 18, reserved 71 → 65, held 85 → 92, rejected
+     20. Five re-labelled in-band tasks are held at their own diagnosis (18/32, 19/32 ×2 straddle 0.6; 2/32 and 5/32
+     straddle 0.1); the one that reached a fresh band (taskloop-1: "too hard" on 1/16) is in band on both measurements at
+     32 and held only because the second straddles 0.1; one is kept (settled). The two re-repaired tasks went straight
+     to RESERVE in round 2 (no knob tried). One repair and one RESKILL were held on `p3_unmeasured`. The lift turned the
+     3 taskloop-1 repairs into one D9 candidate (a clean contract-writer rule), deferred: the gate needs 50 paired cells,
+     the budget gives 0. Details: `runs/taskloop-2.md`.
+   - Tests: `tests/unit/test_synth_taskloop2.py` (the batch in the shipped ledger and applied once; no later entry relaxes
+     the band, the lead's included; hypothesis: `band_undecided` never relaxes validity or the band edges, never edits or
+     moves, never draws past k_cap or the probe cap; `settled` = confident and inside; RESKILL disagreement escalated
+     then held, agreement placed; a forced final look escalated; the per-lineage cap; hypothesis over pass rates: no
+     placement on an unsettled or disagreeing measurement, no pooling; finance_ap reserves without a knob; p3_unmeasured
+     named; the lift: one lineage no candidate, recurrence deferred when underpowered, only the gate admits, leaking rules
+     never reach it, tested once, the loop records the pair, pairs from an earlier run), `test_synth_iface.py` (the
+     evidence channel's edit, restore and refusals; EVID through `EvidenceContext` only; the derive-effect guard),
+     `test_synth_policy.py` (R-band v2).
 
 ## 8. Layer 4: verification and isolation
 

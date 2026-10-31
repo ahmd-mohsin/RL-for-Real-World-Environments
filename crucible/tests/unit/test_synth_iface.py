@@ -170,3 +170,88 @@ async def test_finance_ap_adapter_restore_reset_and_rep(ap_task):
     raw = task.model_copy(update={"oracle": _oracle_program(t)})
     hidden = (await falsify(raw, TAINT(), FalsifyContext(make_world=lambda _task: a))).confirmed
     assert hidden and {f.defect for f in hidden} == {"D5"} and {f.probe.data["value"] for f in hidden} <= {c.invoice_id for c in t.w.cases}
+
+
+# ---------------------------------------------------------------------------------------------------------- the SQL evidence channel (item 25)
+
+async def test_the_sql_evidence_channel_edits_one_field_of_the_start_state_and_the_reset_restores_it(ap_task):
+    from crucible.synth.iface import SqlEvidenceWorld, sql_evidence
+
+    _t, _w, a, _ = ap_task
+    assert not isinstance(a, Perturbable)  # the adapter itself stays without perturb: PERT does not change on SQL Worlds
+    e = sql_evidence(a)
+    assert isinstance(e, SqlEvidenceWorld) and isinstance(e, Perturbable) and sql_evidence(e) is e
+    await e.reset(0)
+    s0 = await e.canon()
+    vid, row = min(s0.collection("erp", "vendors").items())
+    field = next(f for f, v in sorted(row.items()) if isinstance(v, str) and f not in ("id",) and str(v) != vid)
+    await e.perturb(Perturbation(op="set", app="erp", coll="vendors", key=vid, fields={field: ""}))
+    s1 = await e.canon()
+    assert s1.collection("erp", "vendors")[vid][field] == "" and s1.collection("erp", "vendors")[vid] == {**row, field: ""}
+    assert {k: v for k, v in s1.collection("erp", "vendors").items() if k != vid} == {k: v for k, v in s0.collection("erp", "vendors").items() if k != vid}
+    await e.reset(0)
+    assert (await e.canon()).fingerprint() == s0.fingerprint()  # the next episode starts from the untouched state
+    pk = next(f for f, v in row.items() if str(v) == vid)
+    for bad in (Perturbation(op="clone", app="erp", coll="vendors", key=vid, new_key="V-999"),  # a clone can create a policy fact
+                Perturbation(op="shuffle", app="erp", coll="vendors"),
+                Perturbation(op="set", app="erp", coll="vendors", key=vid, fields={pk: "V-998"}),  # never a key column
+                Perturbation(op="set", app="erp", coll="vendors", key="no-such-row", fields={field: ""}),
+                Perturbation(op="set", app="erp", coll="vendors", key=vid, fields={"no_such_column": ""}),
+                Perturbation(op="set", app="kb", coll="files", key="ap_policy.md", fields={"text": ""})):  # not a SQL App
+        with pytest.raises(ValueError):
+            await e.perturb(bad)
+    assert (await e.canon()).fingerprint() == s0.fingerprint()  # a refused edit leaves nothing behind
+
+
+async def test_evid_runs_on_a_sql_world_only_through_the_evidence_context(ap_task):
+    """EVID needs a perturbable World: on the plain adapter it is not applicable; through ``EvidenceContext`` a value
+    π* reads from a SQL row and answers is removed at its row and the blinded run fails its contract (a valid, clean
+    trial), so P3 is measured."""
+    from crucible.synth.falsify.base import run_classes
+    from crucible.synth.intent import EVID, EvidenceContext, p3
+    from crucible.synth.program import ref
+
+    t, _w, a, _ = ap_task
+    await a.reset(0)
+    s0 = await a.canon()
+    vid, row = min(s0.collection("erp", "vendors").items())
+    field = next(f for f, v in sorted(row.items()) if isinstance(v, str) and len(v) > 3 and str(v) != vid and v not in t.instruction)
+    prog = Program(steps=[Step(id="s1", tool="erp.get_vendor", args={"vendor_id": lit(vid)})], answer=ref(f"s1.{field}"))
+    ins = f"Report the {field.replace('_', ' ')} on file for vendor {vid}."
+    r = await run(a, prog, ins, seed=0)
+    assert r.error is None and r.answer == row[field]
+    task = Task(id="finance_ap/evid", domain="finance-ap", world=WorldRef(factory="adapter"), instruction=ins, contract=skeleton(r), oracle=prog,
+                intent=IntentCard(skill="vendor lookup", derive=[row[field]]))
+    plain = FalsifyContext(make_world=lambda _task: a)
+    (res,) = await run_classes(task, [EVID()], plain)
+    assert not res.applicable and "perturb" in (res.reason or "")
+    ev = EvidenceContext(FalsifyContext(make_world=lambda _task: a))
+    (res,) = await run_classes(task, [EVID()], ev)
+    assert res.applicable and res.n >= 1 and not res.confirmed  # removing the row's value makes the blinded answer fail
+    out = await p3(task, FalsifyContext(make_world=lambda _task: a), evidence=True)
+    assert out.trials.get("EVID", 0) >= 1 and out.on_intent is True
+
+
+async def test_a_derived_status_the_write_tool_sets_has_no_evidence_site_in_other_rows(ap_task, monkeypatch):
+    """taskloop-2: 'approved' on the intent card, set by approve_invoice (no argument carries it), also appears as an
+    older invoice's status. That row is no evidence of the decision; without the guard EVID would blank it, π* would
+    still pass, and P3 would 'confirm' off intent falsely on every SQL World with a status history."""
+
+    import json as _json
+
+    from crucible.synth import intent
+
+    t, _w, a, _ = ap_task
+    s0 = (await a.reset(0), await a.canon())[1]
+    hist = {r["vendor_id"] for r in s0.collection("erp", "invoices").values() if r.get("status") == "approved"}
+    ok = next(c for c in t.w.cases if c.expected[0] == "approved" and c.vendor_id in hist)
+    prog = Program(steps=[Step(id="s1", tool="erp.list_vendor_invoices", args={"vendor_id": lit(ok.vendor_id)}),
+                          Step(id="s2", tool="erp.approve_invoice", args={"invoice_id": lit(ok.invoice_id)})])
+    ins = f"Approve invoice {ok.invoice_id}."
+    r = await run(a, prog, ins, seed=0)
+    assert '"approved"' in _json.dumps(r.calls[0].obs.value)  # the word is in an observation: the coincidence the guard handles
+    task = Task(id="finance_ap/approve", domain="finance-ap", world=WorldRef(factory="adapter"), instruction=ins, contract=skeleton(r), oracle=prog,
+                intent=IntentCard(skill="AP-3", derive=["approved"]))
+    assert not [s for s in intent.evidence_sites(task, r) if s.value == "approved"]
+    monkeypatch.setattr(intent, "delta_of", lambda *_a, **_k: [])  # without the guard (no effect known), the coincidence is a "site"
+    assert [s for s in intent.evidence_sites(task, r) if s.value == "approved"]

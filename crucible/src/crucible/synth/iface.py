@@ -453,3 +453,89 @@ class CrucibleWorldAdapter:
             r = await q(f'SELECT * FROM "{t}"')
             tables[t] = {"columns": r["columns"], "pk": pk, "rows": r["rows"]}
         return canon_sql_tables(app_id, tables, self.natural_keys.get(app_id))
+
+
+# ---------------------------------------------------------------------------------------------------------- the SQL evidence channel
+
+class SqlEvidenceWorld:
+    """A ``CrucibleWorldAdapter`` that can edit fields of its SQL start state: P3's evidence channel (DESIGN §7.7 item 25,
+    R-p3; runs/taskloop-2.md). Everything else is the inner adapter's.
+
+    ``perturb`` takes ``set`` only: overwrite fields of one row of a ``sql`` App, the row named by its canonical key (the
+    key ``canon()`` gives it), through the App's own guarded SQL executor (``UPDATE ... WHERE <primary key>``, on the
+    World's clock), after the reset that starts the episode; the next reset restores the start state. It refuses (a
+    ``ValueError``, which makes the probe no trial): another op (a ``clone`` of a policy row can create a policy fact, a
+    ``shuffle`` has no meaning for an unordered table), a non-SQL App, a table without a primary key, a key column, an
+    unknown row or column, and an edit that does not land exactly (canon re-read). It is a separate wrapper, not a method
+    of the adapter, so certification classes that read ``perturb`` (PERT) do not change on SQL Worlds: only the P3 probes
+    that ask for it (``intent.EvidenceContext``) see it."""
+
+    def __init__(self, inner: Any):
+        self.inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    async def reset(self, seed: int) -> Any:
+        return await self.inner.reset(seed)
+
+    async def tools(self) -> list[ToolInfo]:
+        return await self.inner.tools()
+
+    async def call(self, tool: str, args: dict[str, Any]) -> Obs:
+        return await self.inner.call(tool, args)
+
+    async def snapshot(self) -> Any:
+        return await self.inner.snapshot()
+
+    async def restore(self, ref: Any) -> None:
+        await self.inner.restore(ref)
+
+    async def canon(self) -> CanonState:
+        return await self.inner.canon()
+
+    async def perturb(self, p: Perturbation) -> None:
+        if p.op != "set":
+            raise ValueError(f"the SQL evidence channel edits fields only (set), not {p.op!r}")
+        app = self.inner.world.apps.get(p.app)
+        view = self.inner.world.verifier_view()
+        if app is None or getattr(view.adapter(p.app), "kind", None) != "sql" or not hasattr(app, "db_path"):
+            raise ValueError(f"{p.app!r} is not a SQL App of this World")
+        s0 = await self.inner.canon()  # also reads the primary keys
+        row = s0.collection(p.app, p.coll).get(str(p.key))
+        pk = (self.inner._pk.get(p.app) or {}).get(p.coll) or []
+        if row is None:
+            raise ValueError(f"no row {p.app}.{p.coll}[{p.key}]")
+        if not pk:
+            raise ValueError(f"{p.app}.{p.coll} has no primary key")
+        bad = [f for f in p.fields if f in pk or f not in row]
+        if bad or not p.fields:
+            raise ValueError(f"fields {bad or '[]'} are key columns or not columns of {p.app}.{p.coll}")
+        for f, v in p.fields.items():
+            if isinstance(v, dict | list):
+                raise TypeError(f"field {f}: only scalar values")
+        cols = sorted(p.fields)
+        sql = (f'UPDATE "{p.coll}" SET ' + ", ".join(f'"{c}" = ?' for c in cols) + " WHERE " + " AND ".join(f'"{c}" = ?' for c in pk))
+        from crucible.world.apps.sqlite_app import SQL_SNIPPET
+
+        res = await app.ctx.exec.run_python(SQL_SNIPPET, {"op": "execute", "path": app.db_path, "sql": sql,
+                                                          "params": [p.fields[c] for c in cols] + [row[c] for c in pk], "now": app._now(),
+                                                          "deadline_s": 30})
+        if int((res or {}).get("rowcount", 0)) != 1:
+            raise ValueError(f"the edit of {p.app}.{p.coll}[{p.key}] touched {res.get('rowcount') if res else 0} rows")
+        after = (await self.inner.canon()).collection(p.app, p.coll).get(str(p.key)) or {}
+        if any(after.get(f) != v for f, v in p.fields.items()):
+            raise ValueError(f"the edit of {p.app}.{p.coll}[{p.key}] did not land")
+
+
+def sql_evidence(world: Any) -> Any:
+    """``world`` with the SQL evidence channel when it is a Crucible World with a ``sql`` App and no ``perturb`` of its
+    own; any other World unchanged."""
+    if callable(getattr(world, "perturb", None)) or not isinstance(world, CrucibleWorldAdapter):
+        return world
+    try:
+        view = world.world.verifier_view()
+        kinds = {getattr(view.adapter(a), "kind", None) for a in world.world.apps}
+    except Exception:  # noqa: BLE001 - a World whose apps cannot be listed gets no channel
+        return world
+    return SqlEvidenceWorld(world) if "sql" in kinds else world

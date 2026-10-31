@@ -133,13 +133,18 @@ def domain_skills(spec: Any) -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------------------------------------- the default checks
 
 
-def p3_checker(ctx: FalsifyContext, *, pool: Sequence[Task] = (), agents: Sequence[Any] = ()) -> Callable[[Task], Awaitable[tuple[bool | None, list[str]]]]:
-    """RS3's P3 under the new card: ``intent.p3`` (EVID, SWAP, TAINT, TWIN)."""
+def p3_checker(ctx: FalsifyContext, *, pool: Sequence[Task] = (), agents: Sequence[Any] = (),
+               evidence: bool = False) -> Callable[[Task], Awaitable[tuple[bool | None, list[str]]]]:
+    """RS3's P3 under the new card: ``intent.p3`` (EVID, SWAP, TAINT, TWIN). ``evidence``: EVID through the SQL evidence
+    channel (``intent.EvidenceContext``; DESIGN §7.7 item 25)."""
     from crucible.synth.intent import p3
 
     async def check(task: Task) -> tuple[bool | None, list[str]]:
-        r = await p3(task, ctx, pool=pool, agents=agents)
-        return r.on_intent, list(r.reasons)
+        r = await p3(task, ctx, pool=pool, agents=agents, evidence=evidence)
+        why = list(r.reasons)
+        if r.on_intent is None and r.not_applicable:
+            why += [f"{k} n/a: {v}" for k, v in sorted(r.not_applicable.items())]
+        return r.on_intent, why
 
     return check
 
