@@ -181,6 +181,20 @@ def _actors(app: Path) -> Any:
 
 # ---------------------------------------------------------------------------------------------------------- integrity
 
+def _hkey(v: Any) -> Any:
+    """A hashable stand-in for a cell value (a list or dict as canonical JSON)."""
+    return json.dumps(v, sort_keys=True) if isinstance(v, list | dict) else v
+
+
+def _json_or(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v
+    return v
+
+
 def integrity_gate(fdir: Path, inst: Path) -> GateResult:
     t0 = time.monotonic()
     app = fdir / "app"
@@ -251,8 +265,10 @@ def integrity_gate(fdir: Path, inst: Path) -> GateResult:
         n = len(g.tables.get(t.table, []))
         for f, gen in t.fields.items():
             if gen.get("kind") == "choice" and n >= 30:
-                seen = {r.get(f) for r in g.tables.get(t.table, [])}
-                missing = [v for v in gen["values"] if v not in seen]
+                # an array or object field's values are lists or dicts drawn from JSON text (worlds-2b: PR's line items;
+                # a set of them was a TypeError, so the gate could not run on any PR instance)
+                seen = {_hkey(r.get(f)) for r in g.tables.get(t.table, [])}
+                missing = [v for v in gen["values"] if _hkey(v) not in seen and _hkey(_json_or(v)) not in seen]
                 if missing:
                     unused.append(f"{t.table}.{f}: {missing}")
     return GateResult(gate="integrity", passed=not reasons, reasons=reasons, elapsed_s=round(time.monotonic() - t0, 2),
@@ -759,6 +775,42 @@ def _like_fixture(test: Mapping[str, Any], key: Any, tn: str, seed_tables: Mappi
     return [r[kf] for r in rows[:n]]
 
 
+def _follow_nested(args: Mapping[str, Any], test: Mapping[str, Any], subst: Mapping[str, str], args0: Mapping[str, Any],
+                   seed_tables: Mapping[str, list[dict[str, Any]]], sm: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """The ids of a substituted row's nested items follow the row. A blind test's call names the fixture row's own line
+    items (``lines: [{"line_id": "line-1", ...}]`` for ``po_id: "po-505"``); once ``po_id`` is an instance key, those ids
+    become the instance row's ids at the same position. worlds-2b: purchase requisition's record_goods_receipt kept the
+    fixture's "line-1" on every instance order and was refused on all of them (density 0 for goods receipts)."""
+    mapping: dict[str, Any] = {}
+    for a, tn in subst.items():
+        kf = sm[tn]["key"]
+        fx = next((r for r in (test.get("fixture") or {}).get(tn, []) if str(r.get(kf)) == str(args0.get(a))), None)
+        row = next((r for r in seed_tables.get(tn, []) if str(r.get(kf)) == str(args.get(a))), None)
+        if fx is None or row is None:
+            continue
+        for f, fv in fx.items():
+            rv = row.get(f)
+            if not (isinstance(fv, list) and isinstance(rv, list)):
+                continue
+            for fi, ri in zip(fv, rv, strict=False):
+                if isinstance(fi, dict) and isinstance(ri, dict):
+                    for k, v in fi.items():
+                        if (k == "id" or k.endswith("_id")) and isinstance(v, str | int) and not isinstance(v, bool) and k in ri:
+                            mapping.setdefault(str(v), ri[k])
+    if not mapping:
+        return dict(args)
+
+    def sub(x: Any) -> Any:
+        if isinstance(x, dict):
+            return {k: (mapping.get(str(v), v) if (k == "id" or k.endswith("_id")) and isinstance(v, str | int) and not isinstance(v, bool) else sub(v))
+                    for k, v in x.items()}
+        if isinstance(x, list):
+            return [sub(v) for v in x]
+        return x
+
+    return {k: (sub(v) if isinstance(v, list | dict) else v) for k, v in args.items()}
+
+
 async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 24, seed: int = 0) -> list[dict[str, Any]]:
     """One reference oracle per family write tool (module docstring): its blind-test arguments with every fixture key
     replaced by an instance key of the same table, tried on seeded entities until the call succeeds and changes state."""
@@ -789,6 +841,7 @@ async def reference_programs(inst: Path, world: SynthWorld, *, attempts: int = 2
                 # the instance rows most like the fixture's row first (same status and other short fields: pilot 1's random
                 # draws found no entity in the state record_promise needs), then seeded random ones
                 args = {**args0, **{a: (ranked[a][i] if i < len(ranked[a]) else rng.choice(keys[tn])) for a, tn in subst.items()}}
+                args = _follow_nested(args, test, subst, args0, seed_tables, sm)
                 prog = Program(steps=[Step(id="s1", tool=f"{app}.{t['name']}", args={k: Lit(v=v) for k, v in args.items()})])
                 r = await run(world, prog, f"reference: {t['name']}", seed=0, taint=False)
                 if r.error is None and all(c.obs.ok for c in r.calls) and r.start is not None and r.end is not None and r.start.fingerprint() != r.end.fingerprint():
@@ -1383,6 +1436,12 @@ async def gate_instance(fdir: Path, inst: Path, *, panel: RealismPanel | None = 
 GATE_STAGE = {"build": "debug", "determinism": "datagen", "integrity": "datagen", "surface": "code", "obscurity": "design", "panel": "datagen"}
 
 
+def prior_reseeds(inst: Path) -> int:
+    """How many times R-density's reseed_denser already regenerated this instance (``gates.reseed<k>.json`` kept beside
+    it). The gate runner starts its count here, so a re-gate never reseeds past ``max_reseed``."""
+    return len(list(Path(inst).glob("gates.reseed*.json")))
+
+
 def remedies_for(g: InstanceGates, *, reseed_tries: int = 0, rebuild_tries: int = 0, can_reseed: bool = True, restartable: bool = False) -> list[dict[str, Any]]:
     """R-density's remedies for an instance's failing gates (DESIGN item 24): a failing density gate raises
     ``density_gate_failing`` (facts: can_reseed, reseed_tries), any other ``world_gate_failing`` (gate, restartable,
@@ -1447,6 +1506,7 @@ __all__ = [
     "integrity_gate",
     "listing_problems",
     "obscurity_gate",
+    "prior_reseeds",
     "reference_programs",
     "rejected_anchors",
     "remedies_for",

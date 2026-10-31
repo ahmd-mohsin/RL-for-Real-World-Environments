@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import json
 import math
 import random
 import re
@@ -222,11 +223,22 @@ def rewrite_implies(src: str) -> str:
     return s
 
 
+_B_IF_A = re.compile(r"^\s*(?P<b>.+?)\s+if\s+(?P<a>.+?)\s*$", re.DOTALL)
+
+
 def parse_expr(src: str) -> ast.Expression:
     try:
         tree = ast.parse(rewrite_implies(src.strip()), mode="eval")
     except SyntaxError as e:
-        raise DataSpecError(f"expression {src!r}: {e.msg}") from None
+        # worlds-2b: the purchase-requisition writer stated a rule as "approval_limit >= 0 if approval_limit != null"
+        # (Python's conditional needs an else): a whole "B if A" with no else is "A implies B"
+        m = _B_IF_A.match(src) if not re.search(r"\belse\b", src) else None
+        if m is None:
+            raise DataSpecError(f"expression {src!r}: {e.msg}") from None
+        try:
+            tree = ast.parse(rewrite_implies(f"({m.group('a')}) implies ({m.group('b')})"), mode="eval")
+        except SyntaxError:
+            raise DataSpecError(f"expression {src!r}: {e.msg}") from None
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED):
             raise DataSpecError(f"expression {src!r}: {type(node).__name__} is not allowed")
@@ -624,7 +636,36 @@ def normalize_spec(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]]) -> t
             if na and not nb and otables[a.table].fields[fa].get("kind") == "ref" and otables[b.table].fields[fb].get("kind") == "ref":
                 otables[a.table].fields[fa] = {"kind": "backref", "table": b.table, "fk": fb}
                 notes.append(f"{a.table}.{fa} (a ref to {b.table}, which refers back through {fb}) generated as a backref")
+    # worlds-2b: a whole rule ``ref.f == g`` (or ``g == ref.f``) states that g is a copy of the referenced row's f; the
+    # integrity check already says "generate it with lookup". The purchase-requisition writer wrote
+    # ``requester_id.department_id == department_id`` with department_id sampled on its own (refused on most rows,
+    # a paid attempt lost). g becomes that lookup when the repair is unambiguous: one such rule for g, g not the key,
+    # g not already derived (lookup, calc, sum, count, backref, seq), and f a field of the referenced table.
+    copies: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for t in out.tables:
+        for rule in t.rules:
+            m = _COPY_RULE.match(rule) or _COPY_RULE_R.match(rule)
+            if m:
+                rf, f, g = m.group("rf"), m.group("f"), m.group("g")
+                copies.setdefault((t.table, g), set()).add((rf, f))
+    for (tn, g), srcs in copies.items():
+        t = otables[tn]
+        if len(srcs) != 1 or g not in t.fields:
+            continue
+        rf, f = next(iter(srcs))
+        rg = t.fields.get(rf) or {}
+        target = str(rg.get("table", ""))
+        if (rg.get("kind") != "ref" or g == rf or g == (schema.get(tn) or {}).get("key") or target not in otables
+                or f not in otables[target].fields or t.fields[g].get("kind") in _DERIVED):
+            continue
+        t.fields[g] = {"kind": "lookup", "ref": rf, "field": f}
+        notes.append(f"{tn}.{g} generated as a lookup of {rf}.{f} (its rule says it is a copy)")
     return out, notes
+
+
+_COPY_RULE = re.compile(r"^\s*(?P<rf>\w+)\.(?P<f>\w+)\s*==\s*(?P<g>\w+)\s*$")
+_COPY_RULE_R = re.compile(r"^\s*(?P<g>\w+)\s*==\s*(?P<rf>\w+)\.(?P<f>\w+)\s*$")
+_DERIVED = frozenset({"lookup", "calc", "sum", "count", "backref", "seq"})
 
 
 def rule_holds(v: Any) -> bool:
@@ -669,6 +710,31 @@ def _num(g: Mapping[str, Any], rng: random.Random) -> float:
     return round(v, int(g.get("round", 2)))
 
 
+def reads_aggregate(rule: str, t: TableGen, tables: Mapping[str, TableGen]) -> bool:
+    """Whether ``rule`` reads a ``backref``, ``sum`` or ``count`` field (of ``t``, or at the end of a reference chain).
+    Those are filled after every table is drawn, so a row's rejection sampling cannot see them. worlds-2b: purchase
+    requisition's "status == 'converted_to_po' implies linked_po_id != null" (linked_po_id a backref, null while the row
+    is drawn) refused every converted requisition, so the purchase orders' ``ref where status == converted_to_po``
+    found no row, in every data attempt of two builds."""
+    try:
+        names = expr_names(rule)
+        paths = expr_paths(rule)
+    except DataSpecError:
+        return False
+    if any((t.fields.get(n) or {}).get("kind") in AGGREGATES for n in names):
+        return True
+    for p in paths:
+        cur: TableGen | None = t
+        for seg in p[:-1]:
+            g = (cur.fields.get(seg) or {}) if cur else {}
+            if g.get("kind") in AGGREGATES:
+                return True
+            cur = tables.get(str(g.get("table"))) if g.get("kind") == "ref" else None
+        if cur is not None and (cur.fields.get(p[-1]) or {}).get("kind") in AGGREGATES:
+            return True
+    return False
+
+
 class _Sampler:
     def __init__(self, compiled: list[tuple[TableGen, list[str]]], schema: Mapping[str, Mapping[str, Any]], profile: Profile, seed: int):
         self.compiled, self.schema, self.profile = compiled, schema, profile
@@ -680,6 +746,28 @@ class _Sampler:
         self.capped: dict[str, tuple[int, int]] = {}
         self.idx, self.n_cur, self.free = 0, 0, False
         self.cover: dict[tuple[str, str], list[Any]] = {}
+        self._late: dict[str, frozenset[str]] = {}
+
+    def coerce(self, table: str, f: str, v: Any) -> Any:
+        """A JSON text drawn for an array or object field is that array or object. worlds-2b: the schema's line items
+        (``lines: array`` of objects) have no object generator, so the purchase-requisition writer drew them as JSON text
+        from a choice, and every row was refused as "not a array"."""
+        if not isinstance(v, str):
+            return v
+        base = str((self.schema.get(table) or {}).get("fields", {}).get(f, "")).rstrip("?")
+        if base not in ("array", "object"):
+            return v
+        try:
+            x = json.loads(v)
+        except ValueError:
+            return v
+        return x if isinstance(x, _TYPES[base]) else v
+
+    def late_rules(self, t: TableGen) -> frozenset[str]:
+        if t.table not in self._late:
+            tables = {x.table: x for x, _ in self.compiled}
+            self._late[t.table] = frozenset(r for r in t.rules if reads_aggregate(r, t, tables))
+        return self._late[t.table]
 
     def n_rows(self, t: TableGen) -> int:
         """Rows wanted (scale, the density minimum), capped at what the table's unique pools can name: pilot 1's dense
@@ -843,13 +931,15 @@ class _Sampler:
             row = {}
             try:
                 for f in order:
-                    row[f] = self.gen(t, f, t.fields[f], row)
+                    row[f] = self.coerce(t.table, f, self.gen(t, f, t.fields[f], row))
             except (OverflowError, ZeroDivisionError, TypeError, ValueError) as e:
                 if isinstance(e, DataSpecError):
                     raise
                 raise DataSpecError(f"table {t.table}: a generator failed: {type(e).__name__}: {e}") from None
             ok = True
             for r in t.rules:
+                if r in self.late_rules(t):  # it reads a backref, sum or count, filled after every table: integrity checks it
+                    continue
                 try:
                     ok = rule_holds(eval_expr(r, row, self.resolver(t, row)))
                 except DataSpecError:
@@ -1028,6 +1118,25 @@ def generate(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], *, seed: i
 _TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 
 
+def _names_or_empty(rule: str) -> set[str]:
+    try:
+        return expr_names(rule)
+    except DataSpecError:
+        return set()
+
+
+def _parsed(values: Sequence[Any]) -> list[Any]:
+    """The JSON texts among a choice's values, parsed (an array or object field drawn as JSON text: ``_Sampler.coerce``)."""
+    out = []
+    for x in values:
+        if isinstance(x, str):
+            try:
+                out.append(json.loads(x))
+            except ValueError:
+                continue
+    return out
+
+
 def _type_ok(v: Any, ty: str) -> bool:
     nullable = ty.endswith("?")
     base = ty.rstrip("?")
@@ -1085,7 +1194,7 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                             add(f"{tn}[{k}].{f} has {x!r}, which refers to no {g['table']} row")
                 elif kind == "choice":
                     stale_ok = t.stale is not None and f in t.stale.set and v == t.stale.set[f] and (tn, k) in noise_keys
-                    if v not in g["values"] and not stale_ok:
+                    if v not in g["values"] and not stale_ok and not (isinstance(v, list | dict) and v in _parsed(g["values"])):
                         add(f"{tn}[{k}].{f} = {v!r} is not a declared value {g['values']}")
                 elif kind == "date":
                     if not is_date(v):
@@ -1114,7 +1223,13 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
             def resolve(rf: str, f: str, r: Mapping[str, Any] = r, t: TableGen = t) -> Any:
                 return follow(tables, by_key, t, r, rf, f)
 
+            planted = {c[2] for c in conflicts if c[0] == tn and c[1] == k}
             for rule in t.rules:
+                # a planted conflict (a copy disagreeing with its master, recorded noise) breaks a rule that states the
+                # copy by design. worlds-2b: "department_id == requisition_id.department_id" on purchase orders whose
+                # department_id (a lookup) carried a conflict refused two clean PR generators.
+                if planted and planted & _names_or_empty(rule):
+                    continue
                 try:
                     ok = eval_expr(rule, r, resolve)
                 except DataSpecError as e:
@@ -1122,6 +1237,9 @@ def integrity(spec: DataSpec, schema: Mapping[str, Mapping[str, Any]], gen: Gene
                     continue
                 if not rule_holds(ok):
                     hint = " (an equality to a referenced row's field is a copy: generate it with lookup)" if re.search(r"==\s*\w+\.\w+|\w+\.\w+\s*==", rule) else ""
+                    if reads_aggregate(rule, t, tables):
+                        hint += (" (it reads a backref, sum or count, filled from the child rows after every table is drawn: the child "
+                                 "table must point at every such row, or the rule must not demand it)")
                     add(f"{tn}[{k}]: rule {rule!r} does not hold{hint}")
     # aggregates against a recomputation over the non-noise rows
     if spec.tables:
@@ -1183,6 +1301,7 @@ Generators ({"kind": ...}):
   calc      {"expr": "quantity * unit_price", "round": 2}
   const     {"value": ...}
   list      {"of": <generator>, "min": 0, "max": 3, "unique": true}
+            an array or object field (line items) may take a const or choice of JSON text: "[{\"sku\": \"A1\", \"qty\": 2}]"
   sum       {"table": "<child table>", "fk": "<child field referring here>", "field": "<child number field>"}
   backref   {"table": "<child table>", "fk": "<child field referring here>"}   the child row that points back (a two-way link)
   count     {"table": "<child table>", "fk": "<child field referring here>"}
@@ -1216,6 +1335,7 @@ __all__ = [
     "integrity",
     "near_variant",
     "normalize_spec",
+    "reads_aggregate",
     "rewrite_implies",
     "rule_holds",
     "value_sets",

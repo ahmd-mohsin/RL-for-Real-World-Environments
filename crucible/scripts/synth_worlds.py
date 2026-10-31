@@ -235,7 +235,7 @@ def cmd_gate(a: argparse.Namespace) -> None:
 
     from crucible.synth import policy
     from crucible.synth.families import InstanceConfig, list_instances, make_instance
-    from crucible.synth.worldgates import gate_instance
+    from crucible.synth.worldgates import gate_instance, prior_reseeds
 
     root = worlds_root(a)
     panel = None
@@ -258,7 +258,9 @@ def cmd_gate(a: argparse.Namespace) -> None:
         1.5x the rows per target collection (same seed, profile, policy variant and acting user; the earlier gates
         record is kept beside it) and gates it again, up to max_reseed times; rebuild_stage is recorded in the family's
         rebuild_requests.jsonl (a paid build the operator runs under its own cap); not_used keeps the reasons."""
-        tries = 0
+        # worlds-2b: the count starts at the reseeds already on disk (gates.reseed<k>.json); from 0, re-gating a reseeded
+        # instance reseeded it max_reseed more times, past R-density's limit
+        tries = prior_reseeds(inst)
         while any(r["action"] == "reseed_denser" for r in g.remedies) and tries < max_reseed:
             tries += 1
             info = json.loads((inst / "instance.json").read_text())
@@ -281,7 +283,9 @@ def cmd_gate(a: argparse.Namespace) -> None:
         async def one(fdir: Path, inst: Path) -> None:
             async with sem:
                 t0 = time.monotonic()
-                g = await gate_instance(fdir, inst, panel=panel, k_min=a.k_min, only=only, restartable=a.allow_rebuild)
+                done = prior_reseeds(inst)  # a re-gate counts the reseeds already made (worlds-2b)
+                g = await gate_instance(fdir, inst, panel=panel, k_min=a.k_min, only=only, restartable=a.allow_rebuild, reseed_tries=done,
+                                        can_reseed=done < max_reseed)
                 g = await act_on_remedies(fdir, inst, g)
                 rows.append({"family": fdir.name, "instance": inst.name, "usable": g.usable, "why": g.why, "s": round(time.monotonic() - t0, 1),
                              "remedies": [(r["gate"], r["action"]) for r in g.remedies],

@@ -17,6 +17,7 @@ from crucible.synth.datagen import (
     integrity,
     near_variant,
     normalize_spec,
+    reads_aggregate,
     rewrite_implies,
     rule_holds,
 )
@@ -283,6 +284,34 @@ def test_a_two_way_link_written_as_two_refs_is_normalised_to_a_backref():
     assert normalize_spec(raw, both)[1] == []
 
 
+def test_a_copy_rule_makes_its_field_a_lookup():
+    # worlds-2b: the purchase-requisition writer wrote "requester_id.department_id == department_id" with department_id
+    # sampled on its own; the integrity check refused most rows and said "generate it with lookup"
+    schema = {"dept": {"key": "did", "fields": {"did": "string"}},
+              "emp": {"key": "eid", "fields": {"eid": "string", "dept_id": "string"}},
+              "req": {"key": "rid", "fields": {"rid": "string", "requester_id": "string", "department_id": "string", "cost_centre": "string"}}}
+    raw = DataSpec.model_validate({"tables": [
+        {"table": "dept", "rows": 300, "fields": {"did": {"kind": "seq", "prefix": "D-"}}},  # too many for rejection sampling
+        {"table": "emp", "rows": 20, "fields": {"eid": {"kind": "seq", "prefix": "E-"}, "dept_id": {"kind": "ref", "table": "dept"}}},
+        {"table": "req", "rows": 40, "fields": {"rid": {"kind": "seq", "prefix": "R-"}, "requester_id": {"kind": "ref", "table": "emp"},
+                                                "department_id": {"kind": "ref", "table": "dept"},
+                                                "cost_centre": {"kind": "calc", "expr": "department_id"}},
+         "rules": ["requester_id.dept_id == department_id", "cost_centre == requester_id.dept_id"]}]})
+    g = generate(raw, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert any("generate it with lookup" in p for p in integrity(raw, schema, g))
+    spec, notes = normalize_spec(raw, schema)
+    req = spec.tables[2].fields
+    assert req["department_id"] == {"kind": "lookup", "ref": "requester_id", "field": "dept_id"}
+    assert req["cost_centre"] == {"kind": "calc", "expr": "department_id"}  # already derived: left to the writer
+    assert len(notes) == 1 and "copy" in notes[0]
+    for sd in range(3):
+        g = generate(spec, schema, seed=sd, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+        assert integrity(spec, schema, g) == []
+    two = raw.model_copy(deep=True)  # two copy rules naming different sources: ambiguous, left alone
+    two.tables[2].rules.append("department_id == requester_id.eid")
+    assert normalize_spec(two, schema)[0].tables[2].fields["department_id"] == {"kind": "ref", "table": "dept"}
+
+
 def test_if_then_rules_and_conflicts_never_land_on_a_copied_master():
     # worlds-2: the insurance writer wrote 16 rules as "if A then B"; a conflict planted on a loss notice's insured name
     # (itself a copy of the policy's) broke the claim that copies it
@@ -303,3 +332,71 @@ def test_if_then_rules_and_conflicts_never_land_on_a_copied_master():
         g = generate(spec, schema, seed=sd, profile=Profile(conflict=0.3, near_duplicate=0, stale=0))
         assert integrity(spec, schema, g) == []
         assert {n.table for n in g.noise if n.kind == "conflict"} == {"claim"}  # the notice's name is the claim's master
+
+
+def test_a_planted_conflict_does_not_break_the_copy_rule_it_violates_by_design():
+    # worlds-2b: purchase orders copy their requisition's department (a lookup, stated again as a rule); a conflict
+    # planted on the copy broke the rule on every conflicted row, so two clean generators were refused
+    schema = {"req": {"key": "rid", "fields": {"rid": "string", "dept": "string"}},
+              "po": {"key": "pid", "fields": {"pid": "string", "req_id": "string", "dept": "string", "amount": "number"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "req", "rows": 40, "fields": {"rid": {"kind": "seq", "prefix": "R-"}, "dept": {"kind": "pool", "values": ["Finance", "IT", "Operations"]}}},
+        {"table": "po", "rows": 60, "fields": {"pid": {"kind": "seq", "prefix": "P-"}, "req_id": {"kind": "ref", "table": "req"},
+                                               "dept": {"kind": "lookup", "ref": "req_id", "field": "dept"},
+                                               "amount": {"kind": "number", "min": 10, "max": 100}},
+         "rules": ["dept == req_id.dept", "amount > 0"]}]})
+    g = generate(spec, schema, seed=0, profile=Profile(conflict=0.3, near_duplicate=0, stale=0))
+    assert {n.table for n in g.noise if n.kind == "conflict"} == {"po"}
+    assert integrity(spec, schema, g) == []
+    bad = copy.deepcopy(g)  # a conflicted row still answers to the rules that do not read the conflicted field
+    key = str(next(n.key for n in g.noise if n.kind == "conflict"))
+    next(r for r in bad.tables["po"] if r["pid"] == key)["amount"] = -5
+    assert any("amount > 0" in p for p in integrity(spec, schema, bad))
+
+
+def test_a_rule_on_a_backref_is_left_to_integrity_not_to_rejection_sampling():
+    # worlds-2b: "status == 'converted' implies po_id != null" with po_id a backref (null while the row is drawn) refused
+    # every converted requisition, so the orders' ref where status == 'converted' found no row in every data attempt
+    schema = {"req": {"key": "rid", "fields": {"rid": "string", "status": "string", "po_id": "string?"}},
+              "po": {"key": "pid", "fields": {"pid": "string", "req_id": "string"}}}
+    spec = DataSpec.model_validate({"tables": [
+        {"table": "req", "rows": 30, "fields": {"rid": {"kind": "seq", "prefix": "R-"},
+                                                "status": {"kind": "choice", "values": ["open", "converted"], "weights": [0.7, 0.3]},
+                                                "po_id": {"kind": "backref", "table": "po", "fk": "req_id"}},
+         "rules": ["status == 'converted' implies po_id != null"]},
+        {"table": "po", "rows": 30, "fields": {"pid": {"kind": "seq", "prefix": "P-"},
+                                               "req_id": {"kind": "ref", "table": "req", "where": {"status": "converted"}}}}]})
+    tabs = {t.table: t for t in spec.tables}
+    assert reads_aggregate(spec.tables[0].rules[0], spec.tables[0], tabs)
+    assert not reads_aggregate("status != 'x'", spec.tables[0], tabs)
+    assert reads_aggregate("req_id.po_id != null", spec.tables[1], tabs)  # a chain ending on a backref
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    conv = [r for r in g.tables["req"] if r["status"] == "converted"]
+    assert conv  # drawn (it used to be redrawn away), then judged once the backrefs are filled
+    held = [p for p in integrity(spec, schema, g) if "does not hold" in p]
+    assert all("backref, sum or count" in p for p in held)
+    assert {r["rid"] for r in conv if r["po_id"] is None} == {p.split("[")[1].split("]")[0] for p in held}
+
+
+def test_json_text_for_an_array_field_is_the_array():
+    # worlds-2b: line items (an array of objects) have no object generator; the writer drew them as JSON text from a
+    # choice and every row was refused as "not a array"
+    schema = {"po": {"key": "pid", "fields": {"pid": "string", "lines": "array", "meta": "object?", "note": "string"}}}
+    spec = DataSpec.model_validate({"tables": [{"table": "po", "rows": 10, "fields": {
+        "pid": {"kind": "seq", "prefix": "P-"},
+        "lines": {"kind": "choice", "values": ['[{"sku": "A1", "qty": 2}]', '[{"sku": "B2", "qty": 1}, {"sku": "C3", "qty": 5}]']},
+        "meta": {"kind": "const", "value": '{"terms": "net 30"}'}, "note": {"kind": "const", "value": "[1, 2]"}}}]})
+    g = generate(spec, schema, seed=0, profile=Profile(near_duplicate=0, stale=0, conflict=0))
+    assert integrity(spec, schema, g) == []
+    r = g.tables["po"][0]
+    assert isinstance(r["lines"], list) and r["lines"][0]["sku"] in ("A1", "B2") and r["meta"] == {"terms": "net 30"}
+    assert r["note"] == "[1, 2]"  # a string field keeps its text
+
+
+def test_a_rule_written_b_if_a_reads_as_a_implies_b():
+    # worlds-2b: "approval_limit >= 0 if approval_limit != null" was refused ("expected 'else' after 'if' expression")
+    assert eval_expr("limit >= 0 if limit != null", {"limit": -1}) is False
+    assert eval_expr("limit >= 0 if limit != null", {"limit": None}) is True
+    assert eval_expr("'big' if a > 1 else 'small'", {"a": 0}) == "small"  # a full conditional is unchanged
+    with pytest.raises(DataSpecError):
+        eval_expr("a >= if", {"a": 1})

@@ -163,6 +163,19 @@ def test_failing_gates_resolve_to_the_policy_remedy():
     assert {x["action"] for x in remedies_for(g, rebuild_tries=2, restartable=True, can_reseed=False)} == {"not_used"}
 
 
+def test_a_regate_counts_the_reseeds_already_made(tmp_path):
+    # worlds-2b: the gate runner counted reseeds from 0 on every run, so re-gating a twice-reseeded instance (to re-run
+    # one fixed gate) would have reseeded it twice more, past R-density's max_reseed
+    from crucible.synth.worldgates import GateResult, InstanceGates, prior_reseeds, remedies_for
+
+    assert prior_reseeds(tmp_path) == 0
+    for k in range(2):
+        (tmp_path / f"gates.reseed{k}.json").write_text("{}")
+    n = prior_reseeds(tmp_path)
+    g = InstanceGates(family="f", instance="i00", dir="x", gates={"density": GateResult(gate="density", passed=False)})
+    assert n == 2 and remedies_for(g, reseed_tries=n, can_reseed=n < 2)[0]["action"] == "not_used"
+
+
 async def test_an_uncalibrated_panel_defers_to_the_executed_realism_gates(built, tmp_path):
     from crucible.synth.worldgates import gate_instance
 
@@ -236,3 +249,62 @@ def test_the_clock_is_told_and_a_date_failure_is_hinted_as_a_dispute():
     assert "2026-01-01" in APP_API_DOC and "2026-01-01" in TEST_FORMAT_DOC
     assert "dispute" in _hint("call 0 create_purchase_order: expected success, got error ToolError: INVALID_STATE: requisition expired")
     assert _hint("call 0 x: expected success, got error ToolError: NOT_FOUND: no such row") == ""
+
+
+def test_the_integrity_gate_counts_list_valued_choices():
+    # worlds-2b: PR's line items are a choice of JSON text, drawn as lists; the gate's "declared values never used" set
+    # of them was a TypeError (unhashable list), so the integrity gate could not run on any PR instance
+    from crucible.synth.worldgates import _hkey, _json_or
+
+    rows = [{"lines": [{"line_id": "L1", "qty": 2}]}, {"lines": [{"qty": 1, "line_id": "L2"}]}, {"lines": None}]
+    seen = {_hkey(r["lines"]) for r in rows}
+    declared = ['[{"line_id": "L1", "qty": 2}]', '[{"line_id": "L2", "qty": 1}]', '[{"line_id": "L3", "qty": 9}]', "plain"]
+    assert [v for v in declared if _hkey(v) not in seen and _hkey(_json_or(v)) not in seen] == declared[2:]
+
+
+def test_a_reference_call_takes_the_instance_rows_nested_ids():
+    # worlds-2b: record_goods_receipt's blind test names its fixture order's line "line-1"; on an instance order the
+    # reference oracle kept "line-1" and every call was refused (line_id invalid), so goods receipts had density 0
+    from crucible.synth.worldgates import _follow_nested
+
+    sm = {"po": {"key": "po_id", "fields": {}}}
+    test = {"fixture": {"po": [{"po_id": "po-505", "lines": [{"line_id": "line-1", "quantity": 10}, {"line_id": "line-2", "quantity": 1}]}]}}
+    seed = {"po": [{"po_id": "PO-20001", "lines": [{"line_id": "L1", "quantity": 4}, {"line_id": "L2", "quantity": 2}]}]}
+    args0 = {"po_id": "po-505", "lines": [{"line_id": "line-2", "quantity_received": 1}], "note": "line-1"}
+    out = _follow_nested({**args0, "po_id": "PO-20001"}, test, {"po_id": "po"}, args0, seed, sm)
+    assert out == {"po_id": "PO-20001", "lines": [{"line_id": "L2", "quantity_received": 1}], "note": "line-1"}  # only ids inside nested items
+    assert _follow_nested({**args0, "po_id": "PO-404"}, test, {"po_id": "po"}, args0, seed, sm)["lines"][0]["line_id"] == "line-2"
+
+
+async def test_a_resumed_data_stage_rechecks_the_last_refused_generator_first(tmp_path):
+    # worlds-2b: two PR generators were refused only for a framework bug (a planted conflict on a copy broke the copy's
+    # rule); once fixed, the last one is accepted without a new writer call
+    st = await build_family("desk", tmp_path / "f", family_clients(), cfg=FamilyConfig(density=False))
+    app = tmp_path / "f" / "app"
+    (app / "datagen_refused").mkdir()
+    (app / "datagen_refused" / "20261030-000000-aaaaaa.json").write_text(json.dumps(DATAGEN))
+    redo = ["datagen", "docs", "actors", "base", "freeze"]
+    writer = FakeClient("kimi", const(DATAGEN))
+    st = await build_family("desk", tmp_path / "f", family_clients(data_spec_writer=writer), cfg=FamilyConfig(density=False), redo=redo)
+    assert st.status == "frozen" and writer.calls == []
+    assert "accepted without a new call" in st.stages["datagen"].note
+    # a refused generator that still fails goes to the writer as before (and is not logged again)
+    broken = copy.deepcopy(DATAGEN)
+    broken["tables"] = broken["tables"][:1]
+    (app / "datagen_refused" / "20261030-000001-bbbbbb.json").write_text(json.dumps(broken))
+    writer = FakeClient("kimi", const(DATAGEN))
+    st = await build_family("desk", tmp_path / "f", family_clients(data_spec_writer=writer), cfg=FamilyConfig(density=False), redo=redo)
+    assert st.status == "frozen" and len(writer.calls) == 1
+    assert len(list((app / "datagen_refused").glob("*.json"))) == 2
+    assert list(app.glob("datagen.prev-*.json"))  # a redo asks for a new generator: the accepted one went aside
+    # a stage left open (a budget stop after a density-short generator was accepted): the accepted generator is
+    # re-checked first, before the last refused one, and no call is made
+    s = json.loads((tmp_path / "f" / "state.json").read_text())
+    for k in redo:
+        s["stages"][k]["status"] = "pending"
+    s["status"] = "building"
+    (tmp_path / "f" / "state.json").write_text(json.dumps(s))
+    (app / "world.json").unlink()
+    writer = FakeClient("kimi", const(DATAGEN))
+    st = await build_family("desk", tmp_path / "f", family_clients(data_spec_writer=writer), cfg=FamilyConfig(density=False))
+    assert st.status == "frozen" and writer.calls == [] and "datagen.json" in st.stages["datagen"].note

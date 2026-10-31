@@ -103,3 +103,80 @@ show that this panel, reading a summary, does not see reachability; the executed
 | returns and refunds (design, two code stages: about 0.93 lost to the two listing-check bugs) | 1.18 |
 | panel: 6 insurance ratings + calibration with 12 anchors | 0.24 |
 | **total (receipts under `worlds/` after 2026-10-30 15:47)** | **5.56 of the 6 cap** |
+
+## worlds-2b: purchase requisition finished, returns left (2026-10-30)
+
+Data (gitignored, under `crucible/data/synth/worlds/`): `_worlds2b-build{1..7}-pr.log`, `_worlds2b-instances{,2}-pr.log`,
+`_worlds2b-gate{,2}-pr.log`, `_worlds2b-regate-pr.log`, `_worlds2b-budget.json` (the stage-cap reallocation),
+`_worlds2b-ar-decision.json`, `purchase_requisition_to_order/app/datagen_refused/` (every refused generator, new),
+`purchase_requisition_to_order/instances/i00..i11`. Swarm only: Kimi-K2.6 (data generator), GLM-5.3 (documents),
+DeepSeek-V4.1-Flash (colleagues). No Qwen model in any role. The realism panel was not asked (uncalibrated, R-panel's
+`executed_check` decides), so it cost nothing.
+
+### Headline
+
+| | |
+|---|---|
+| usable instances (all 7 gates) | **21**: insurance claims 6/6, AR collections 6/6, leave and absence 6/6, **purchase requisition 3/12 (new)** |
+| families with usable instances | **4** (the lead's target of ≥ 4 families is **met**) |
+| returns and refunds | not resumed: the budget went to PR; unchanged (code accepted, tests pending) |
+| AR's design | the policy's remedy is `rebuild_stage` (design); deferred, recorded in AR's `rebuild_requests.jsonl` |
+| cost | **USD 2.67 of the 3 cap** (Kimi 2.60, of which 0.20 is a booked estimate for a stopped call; GLM 0.06; DeepSeek 0.01) |
+| shared Part 2 total after this run | USD 118.05 of 150 (includes a parallel agent's spend) |
+
+### Budget through the policy
+
+The worlds stage cap (30) had USD 0.30 left. `policy.resolve(over_budget)` with stage `worlds`, planned 3.0, min useful
+0.5, Part 2 remaining 36.23, one arm: `reallocate_within_total` (R-budget). The ledger entry (inferred; seq 23 when the runs were made,
+`policy-v24@1a2aa9b7`, the version the gate records and the AR decision carry; re-chained as seq 28, `policy-v29@7f0eb05d`, on rebasing onto taskloop-2's entries) raises `stage_caps_usd.worlds` from 30 to 32.70 inside the Part 2 total. Every run then checked
+the shared total (`MILESTONE_CAP_USD=150`) and its own cap.
+
+### Per family
+
+| family | this run's USD | wall-clock | outcome | gates (pass / instances) | density reached (shown / held-out, per collection, usable instances) |
+|---|---|---|---|---|---|
+| purchase requisition to order | 2.67 | builds 46 min (7 runs, 2735 s), instances 4 min, gates 26 min | frozen; 3 of 12 instances usable | build 12, determinism 12, surface 12, obscurity 12, integrity 10, panel 10, **density 3** | Requisition 59-64 / 8-18, PurchaseOrder 80-92 / 30-41, GoodsReceipt 61-79 / 19-25, Invoice 80-92 / 30-41 |
+| returns and refunds | 0 | 0 | not resumed (budget) | none | not measured |
+| AR collections | 0 | under 1 min | design remedy deferred | unchanged (6/6) | unchanged |
+
+PR's data stage: 14 writer calls in this run (13 billed, USD 2.40; one stopped in flight, booked at 0.20), plus three re-checks at no cost. The generator that froze
+was written in build 4 (accepted with GoodsReceipt short) and accepted in build 6 by the re-check, under the fixed
+reference oracle; `--data-attempts 0` let it stand without more writer calls (R-budget's trim: the density gate judges
+each instance, unlowered). Instances: 15-23 s to generate with the actor chosen by execution, 84-170 s for the seven
+gates on CPU. Requisition sits at the bar: the best write tool on it (`escalate_requisition`) reaches 42-64 distinct
+shown mutants. It succeeds on about a quarter of the sibling requisitions it is tried on (the share of requisitions
+in an escalatable state), and R-density's reseeds (1.5×, 2.25× rows) did not move that share. 9 instances are not
+used: density on Requisition (9) and, on 2 of them, a Budget row breaking `committed <= allocation` (integrity). All
+are kept, with their reasons and both reseed records.
+
+### Issues found by real calls and gate runs, and their fixes
+
+| # | found by | issue | fix (with a test) |
+|---|---|---|---|
+| 14 | PR data stage, builds 1-2 (two generators verified by replay, USD 0.34; likely a third in build 1) | conflict noise planted on a lookup field broke the rule that states the copy (`department_id == requisition_id.department_id`), so clean generators were refused | `integrity` skips, on a row with a planted conflict, the rules that read the conflicted field (`test_a_planted_conflict_does_not_break_the_copy_rule_it_violates_by_design`) |
+| 15 | PR data stage, both worlds-2 builds and build 1 | a rule on a backref (`status == 'converted_to_po' implies linked_po_id != null`) was judged during rejection sampling, before backrefs are filled: every converted requisition was redrawn away, so the orders' `ref where status == converted_to_po` found no row | rules that read a backref, sum or count (`reads_aggregate`) are left to `integrity`, which runs after the fill and now says so in its hint |
+| 16 | PR data stage, builds 2-3 | the schema's line items (`lines: array` of objects) have no object generator; the writer drew them as JSON text and every row was refused "not a array" | JSON text drawn for an array or object field is that value (`_Sampler.coerce`; `integrity` accepts the parsed form of a declared choice); stated in `DATAGEN_FORMAT` |
+| 17 | PR data stage, build 1 | a rule written `B if A` (no else) was invalid syntax | read as `A implies B` |
+| 18 | PR data stage, build 1 | `requester_id.department_id == department_id` with `department_id` sampled on its own | `normalize_spec` turns a field a whole copy rule names into that lookup when unambiguous (recorded in the spec's notes) |
+| 19 | the stage log | a refused generator was not kept, so a framework bug could not be told from the writer's error | `datagen_refused/`; a resumed data stage first re-checks the accepted `datagen.json` (a stage left open by a budget stop or a density shortfall), then the last refused generator, at no model cost (`FamilyConfig.recheck_refused`); a redo moves `datagen.json` aside |
+| 20 | PR density probe, builds 3-4 | the reference oracle kept the blind test's nested ids (`lines: [{"line_id": "line-1"}]`) on every instance order: goods receipts measured 0 | the ids inside a substituted row's nested items follow the row (`worldgates._follow_nested`): goods receipts 61-83 shown |
+| 21 | PR gate run | the integrity gate's "declared values never used" set raised TypeError on list values: the gate could not run on any PR instance | a hashable form for list and dict cells (`_hkey`) |
+| 22 | PR re-gate | the gate runner counted reseeds from 0 on every run: re-gating a twice-reseeded instance would reseed it twice more, past `max_reseed` | the count starts at the reseeds on disk (`worldgates.prior_reseeds`) |
+
+### AR's design, decided through the policy
+
+`families.unlisted_targets` on AR's frozen design: `['invoices']`. Raised as `world_gate_failing` (gate `obscurity`,
+whose design-stage form the listing rule is; restartable; 0 rebuilds): R-density's remedy is `rebuild_stage` at
+`design`. Funding it as `over_budget` (planned 1.5, 0.33 left of this run's cap) R-budget would reallocate inside the
+Part 2 total, but the lead's brief caps this work at USD 3 and says to defer when it does not fit, so the remedy is
+recorded as **deferred** (`rebuild_requests.jsonl`, `_worlds2b-ar-decision.json`). AR's 6 instances stay usable: they
+pass the executed obscurity gate (100% of invoices reached through account links) and every other gate. The 1.5
+estimate is low: PR's rebuild from design cost about USD 10 over two runs, insurance's 2.13.
+
+### Not done
+
+| item | why | next step | estimate |
+|---|---|---|---|
+| returns and refunds | budget (PR first: it was one stage from freezing) | `worlds build --keywords "Returns and Refunds"` resumes at tests | USD 1.5-3 (tests, debug, data, docs, at this run's data-stage cost) |
+| PR Requisition density | 3 of 12 instances reach 59; the status mix leaves about a quarter of requisitions escalatable | one more data attempt with the density feedback (`--data-attempts 1`, the re-check runs first) | USD 0.2-0.6 |
+| AR's design | deferred by the brief's cap | `worlds build --keywords "Accounts Receivable Collections" --restart-from design` | USD 2-10 |

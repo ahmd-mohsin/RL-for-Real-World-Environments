@@ -2155,6 +2155,26 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
        and then passed). **18 usable instances from 3 families** (the lead's ≥ 4 families is not met). Returns (new
        design with list tools for customers, refunds and policy exceptions; code accepted on re-check, tests pending) and
        PR (new design, debug passed, datagen stopped at its cap) are unfinished for budget: about USD 1 and 0.5 to finish.
+   - **worlds-2b: purchase requisition finished** (2026-10-30; `runs/worlds-2.md` § worlds-2b; USD 2.67 of the 3 cap; the
+     worlds stage cap raised 30 → 32.70 by `policy.resolve(over_budget)` → `reallocate_within_total`, ledger seq 28).
+     Real calls found eight more framework causes, each fixed with a test (`test_synth_datagen.py`,
+     `test_synth_worlds2.py`): `integrity` skips, on a row carrying planted conflict noise, the rules that read the
+     conflicted field (the copy rule a conflict violates by design refused two clean generators); rules that read a
+     backref, sum or count (`datagen.reads_aggregate`) are left out of rejection sampling and judged by `integrity` after
+     the fill (they were redrawing every converted requisition away); JSON text drawn for an array or object field is
+     that value (`_Sampler.coerce`; line items have no object generator); `B if A` reads as `A implies B`;
+     `normalize_spec` turns a field named by a whole copy rule (`ref.f == g`) into that lookup when unambiguous; every
+     refused generator is kept (`app/datagen_refused/`) and a resumed data stage first re-checks the accepted
+     `datagen.json`, then the last refused one, at no model cost (`FamilyConfig.recheck_refused`; a redo moves
+     `datagen.json` aside); the reference oracle maps a substituted row's nested item ids onto the instance row
+     (`worldgates._follow_nested`: goods receipts went from 0 to 61-83 shown); the integrity gate hashes list cells;
+     the gate runner counts reseeds already on disk (`worldgates.prior_reseeds`), so a re-gate never passes
+     `max_reseed`. PR froze with its density-short generator standing (`--data-attempts 0`, R-budget's trim; the gate
+     judges each instance, unlowered): **3 of 12 instances usable** (Requisition 59-64 shown; the other 9 reach 42-58
+     on Requisition even after two reseeds). **21 usable instances from 4 families**: the ≥ 4 families target is met.
+     Returns was not resumed (budget). AR's listing-rule failure resolves to `rebuild_stage` (design) under R-density;
+     deferred under the brief's cap and recorded in AR's `rebuild_requests.jsonl`; its instances pass every executed gate
+     and stay usable.
 19. **Part 2 learnability, novelty, frontier (P2–P4, the perfect-task check, the K loop, the student-probe outcome
    classifier; built 2026-10-29).** Modules `synth/{learn,intent,novelty,perfect,frontier,outcome}.py`; the Tinker and
    debug-lane binding `factory/synth_student_wire.py`; CLI `scripts/synth_perfect.py` registered into `scripts/synth.py`

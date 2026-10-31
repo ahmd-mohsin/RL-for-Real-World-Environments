@@ -377,10 +377,36 @@ def check_docs(docs: DocsOut, spec: DomainSpec, *, stale_values: list[str] | Non
         raise ValueError("the data_standards document does not say which source wins when two records disagree (the master record)")
 
 
-def _log_attempt(app: Path, attempt: int, problem: str) -> None:
-    """Every refused data generator, with its problem (``app/datagen_attempts.jsonl``): the record of why a stage spent."""
+def _log_attempt(app: Path, attempt: int, problem: str, spec: DataSpec | None = None) -> None:
+    """Every refused data generator, with its problem (``app/datagen_attempts.jsonl``): the record of why a stage spent.
+    The refused generator itself is kept beside it (``app/datagen_refused/``; worlds-2b: without it a problem the
+    framework's normalisation should have caught could not be told from the writer's)."""
+    row: dict[str, Any] = {"t": time.time(), "attempt": attempt, "problem": problem[:3000]}
+    if spec is not None:
+        d = app / "datagen_refused"
+        d.mkdir(exist_ok=True)
+        f = d / f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.json"
+        _jwrite(f, spec.model_dump(mode="json"))
+        row["spec"] = f.name
     with (app / "datagen_attempts.jsonl").open("a") as fh:
-        fh.write(json.dumps({"t": time.time(), "attempt": attempt, "problem": problem[:3000]}) + "\n")
+        fh.write(json.dumps(row) + "\n")
+
+
+def _last_refused_name(app: Path) -> str:
+    d = app / "datagen_refused"
+    names = sorted(p.name for p in d.glob("*.json")) if d.exists() else []
+    return names[-1] if names else ""
+
+
+def _last_refused(app: Path) -> DataSpec | None:
+    """The last refused data generator kept by ``_log_attempt`` (None if there is none or it no longer parses)."""
+    name = _last_refused_name(app)
+    if not name:
+        return None
+    try:
+        return DataSpec.model_validate(_jread(app / "datagen_refused" / name))
+    except ValueError:
+        return None
 
 
 def _history(app: Path, latest: str, k: int = 4) -> str:
@@ -580,6 +606,7 @@ class FamilyConfig(_M):
     k_min: int = int(policy.param("R-density", "k_min"))  # rows per targetable collection in every instance (R-density)
     data_attempts: int = 3
     density: bool = True  # measure the shown-mutant density at the data stage and feed it back (worlds-2)
+    recheck_refused: bool = True  # a resumed data stage re-checks the last refused generator first, at no model cost (worlds-2b)
     actors: bool = True
     guidance: str = ""
 
@@ -620,6 +647,11 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         if "datagen" in reset and (app / "datagen_attempts.jsonl").exists() and set(reset) & {"design", "schema", "code"}:
             # a new design: the old generator's problems are about tables that may no longer exist (worlds-2)
             (app / "datagen_attempts.jsonl").replace(app / f"datagen_attempts.prev-{stamp}.jsonl")
+        if "datagen" in reset and (app / "datagen_refused").exists() and set(reset) & {"design", "schema", "code"}:
+            (app / "datagen_refused").replace(app / f"datagen_refused.prev-{stamp}")
+        if "datagen" in reset and (app / "datagen.json").exists():
+            # a rebuilt data stage asks for a new generator: the accepted one is not re-checked (worlds-2b)
+            (app / "datagen.json").replace(app / f"datagen.prev-{stamp}.json")
         for s in reset:
             if s in st.stages:
                 st.stages[s].status = "pending"
@@ -765,8 +797,8 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
         log = app / "datagen_attempts.jsonl"
         if log.exists() and log.read_text().strip():  # a resumed stage: start from the logged problems (the wire samples at a fixed seed,
             feedback = _history(app, "")  # so the same prompt would return the same refused generator: pilot 1, insurance, twice)
-        for attempt in range(cfg.data_attempts):
-            def chk(x: DataSpec, attempt: int = attempt) -> DataSpec:
+        def chk_for(attempt: int, log: bool = True) -> Callable[[DataSpec], DataSpec]:
+            def chk(x: DataSpec) -> DataSpec:
                 missing = sorted(set(data_tables) - {t.table for t in x.tables})
                 if missing:
                     raise ValueError(f"no generator for tables {missing}")
@@ -788,21 +820,15 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
                             if not _ref_candidates(g, data_tables, p):
                                 raise DataSpecError(f"policy parameter {p.name}: no {p.table} row matches {p.where}")
                     except DataSpecError as e:
-                        _log_attempt(app, attempt, f"{pname}: {e}")
+                        if log:
+                            _log_attempt(app, attempt, f"{pname}: {e}", spec=x)
                         raise
                 return x
+            return chk
 
-            try:
-                ds: DataSpec = await ask(clients["data_spec_writer"], DATA_SPEC_WRITER, tag="family:datagen", check=chk, retries=2,
-                                         domain_spec=sp.model_dump(mode="json", exclude={"apps"}), design=design_doc(d, sp), schema=s.model_dump(mode="json"),
-                                         datagen_format=DATAGEN_FORMAT, feedback=feedback or None)
-            except RoleFailed as e:  # a fresh conversation with the last problem (pilot 1: one long repair thread kept failing)
-                feedback = _history(app, f"An earlier generator was refused: {str(e)[-1200:]}")
-                _log_attempt(app, attempt, feedback)
-                if attempt == cfg.data_attempts - 1:
-                    raise ValueError(f"data generator: {e}") from None
-                continue
-
+        async def evaluate(ds: DataSpec, attempt: int) -> bool:
+            """Smoke test and density probe of an accepted generator; True when the stage is done."""
+            nonlocal feedback, best
             ds = DataSpec(tables=[t for t in ds.tables if t.table in data_tables], notes=ds.notes)
             _jwrite(app / "datagen.json", ds.model_dump(mode="json"))
             # loaded and smoke-tested with the kit tables of a default instance (no documents yet: an empty library)
@@ -815,9 +841,9 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
             if probs:
                 feedback = "The sampled start state broke the application: " + "; ".join(probs[:6])
                 _log_attempt(app, attempt, feedback)
-                continue
+                return False
             if not cfg.density:
-                return
+                return True
             # density by design (worlds-2): the reference oracles' shown distinct mutants measured on this start state;
             # a collection below the bar goes back to the writer with the rows its tools succeed on and why they refuse
             dens = await density_probe(app, probe, sp, s, InstanceConfig(family=st.family, index=0, seed=0, profile="standard"), k_min=cfg.k_min)
@@ -826,9 +852,47 @@ async def build_family(keyword: str, fdir: str | Path, clients: Mapping[str, Rol
             if best is None or deficit < best[0]:
                 best = (deficit, ds, dens)
             if not dens["short"]:
-                return
+                return True
             feedback = dens["feedback"]
             _log_attempt(app, attempt, feedback)
+            return False
+
+        # worlds-2b: a resumed stage first re-checks, under the current framework and at no model cost, the generator it
+        # last accepted (a budget stop or a density shortfall left the stage open: PR's goods receipts measured 0 only
+        # because the reference oracle kept the blind test's line ids, fixed since) and then the last refused one (two PR
+        # generators were refused only for a planted-conflict bug); a new call would return a different generator with
+        # problems of its own
+        cands: list[tuple[str, DataSpec]] = []
+        if cfg.recheck_refused and (app / "datagen.json").exists():
+            try:
+                cands.append(("the accepted generator datagen.json", DataSpec.model_validate(_jread(app / "datagen.json"))))
+            except ValueError:
+                pass
+        last = _last_refused(app) if cfg.recheck_refused else None
+        if last is not None:
+            cands.append((f"the refused generator {_last_refused_name(app)}", last))
+        for what, cand in cands:
+            try:
+                ok = chk_for(-1, log=False)(cand)
+            except (ValueError, DataSpecError):
+                continue
+            _log_attempt(app, -1, f"re-check: {what} passes the data checks now")
+            if await evaluate(ok, -1):
+                st.stages["datagen"].note = f"re-checked {what} under the fixed framework: accepted without a new call"
+                return
+        for attempt in range(cfg.data_attempts):
+            try:
+                ds: DataSpec = await ask(clients["data_spec_writer"], DATA_SPEC_WRITER, tag="family:datagen", check=chk_for(attempt), retries=2,
+                                         domain_spec=sp.model_dump(mode="json", exclude={"apps"}), design=design_doc(d, sp), schema=s.model_dump(mode="json"),
+                                         datagen_format=DATAGEN_FORMAT, feedback=feedback or None)
+            except RoleFailed as e:  # a fresh conversation with the last problem (pilot 1: one long repair thread kept failing)
+                feedback = _history(app, f"An earlier generator was refused: {str(e)[-1200:]}")
+                _log_attempt(app, attempt, feedback)
+                if attempt == cfg.data_attempts - 1:
+                    raise ValueError(f"data generator: {e}") from None
+                continue
+            if await evaluate(ds, attempt):
+                return
         if best is not None:  # the densest accepted generator stands; the density gate judges each instance
             _jwrite(app / "datagen.json", best[1].model_dump(mode="json"))
             st.stages["datagen"].note = f"density short after {cfg.data_attempts} attempts: {best[2]['short']}"
