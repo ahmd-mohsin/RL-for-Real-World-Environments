@@ -683,22 +683,30 @@ ARM_PRESETS = {
     "a0": {},  # the M4 prompts and pipeline (baseline)
     "a1": {"variant": "v2", "oracle_sees_derive": False, "alt_finish_nudge": True, "pre": True, "agree": "reconcile"},
     "a1c": {"variant": "v2", "oracle_sees_derive": False, "alt_finish_nudge": True, "pre": True, "agree": "reconcile", "clarity": True},
+    # pilot-10x10: a1 certified by R-ALT-whole's L0 certifying set on the v3 harness (the set the loop's re-certification
+    # uses), so a task's certificate and its re-certification are decided by the same solvers
+    "a1v3": {"variant": "v2", "oracle_sees_derive": False, "alt_finish_nudge": True, "pre": True, "agree": "reconcile", "alt_variant": "v3",
+             "alt_progress": True, "alt_window": 16, "alt_set": 0},
 }
 
 
 def yield_cap(a: argparse.Namespace, root: Path, arms: int) -> float:
-    """Each arm's hard cap: ``--cap``, clipped so that every arm fits in what the milestone budget and ``YIELD_CAP_USD``
-    (every receipt under ``<root>/yield/``) have left."""
+    """Each arm's hard cap: ``--cap``, clipped so that every arm fits in what the milestone budget and the work's stage cap
+    (``--work``: ``yield``, ``YIELD_CAP_USD`` over every receipt under ``<root>/yield/``; another work reads its own
+    R-budget stage cap from the policy ledger over every receipt under ``<root>/<work>/``) have left."""
     from crucible.factory.synth_wire import MILESTONE_CAP_USD, YIELD_CAP_USD, milestone_spent
+    from crucible.synth import policy
 
+    work = getattr(a, "work", "yield") or "yield"
     # the shared Part 2 total: MILESTONE_CAP_USD from the environment when the lead set it there (the Part 2 budget is 150;
     # the module's 60 was M4's), else the module's value
     shared_cap = float(os.environ.get("MILESTONE_CAP_USD") or MILESTONE_CAP_USD)
+    stage_cap = YIELD_CAP_USD if work == "yield" else float((policy.param("R-budget", "stage_caps_usd") or {}).get(work, 0.0))
     ms = milestone_spent(root)
-    ys = milestone_spent(root / "yield") if (root / "yield").exists() else 0.0
-    left = min(shared_cap - ms, YIELD_CAP_USD - ys)
+    ys = milestone_spent(root / work) if (root / work).exists() else 0.0
+    left = min(shared_cap - ms, stage_cap - ys)
     cap = min(float(a.cap), round(left / max(1, arms), 4))
-    print(f"shared spend {ms:.4f} of {shared_cap}; yield work {ys:.4f} of {YIELD_CAP_USD}; per-arm cap {cap:.4f} x {arms}", flush=True)
+    print(f"shared spend {ms:.4f} of {shared_cap}; {work} work {ys:.4f} of {stage_cap} ({policy.tag()}); per-arm cap {cap:.4f} x {arms}", flush=True)
     if cap < 0.05:
         raise SystemExit("the yield budget is spent: refusing to start")
     if not os.environ.get("TINKER_API_KEY"):
@@ -721,7 +729,7 @@ def _batch_domains(a: argparse.Namespace, work: Path):
         if (w / "instance.json").exists():  # a World instance of a family (synth.families): its DomainSpec's cells, its builders
             from crucible.synth.families import InstanceDomain
 
-            inst = InstanceDomain(w, work / "work", name=dom)
+            inst = InstanceDomain(w, work / "work", name=dom, n_cells=getattr(a, "cells", None) or 24)
             out.append(BatchDomain(inst.env, cells=inst.cells, quota=a.quota, max_proposals=a.max_per_cell))
             continue
         rep = json.loads((w / "worldgen_report.json").read_text())
@@ -735,7 +743,7 @@ def _batch_domains(a: argparse.Namespace, work: Path):
 def cmd_batch(a: argparse.Namespace) -> None:
     """The batch runner (``synth.batch``): arms side by side at equal caps over the cell grid; resumable with the same
     ``--run``."""
-    from crucible.factory.synth_wire import SynthWire
+    from crucible.factory.synth_wire import SYNTH_ROLES, SynthWire, ladder_models
     from crucible.synth.batch import Arm, ArmSetup, BatchConfig, report_md, run_batch
     from crucible.synth.falsify.agents import AgentBudget
     from crucible.synth.pipeline import RunConfig
@@ -743,7 +751,7 @@ def cmd_batch(a: argparse.Namespace) -> None:
     root = data_root(a)
     names = [x for x in a.arms.split(",") if x]
     cap = yield_cap(a, root, len(names))
-    d = root / "yield" / a.run
+    d = root / (a.work or "yield") / a.run
     d.mkdir(parents=True, exist_ok=True)
     stage_caps = {k: float(v) for k, v in (x.split("=") for x in a.stage_cap)} if a.stage_cap else None
     lemmas = json.loads(Path(a.lemmas).read_text()) if a.lemmas else []
@@ -751,11 +759,13 @@ def cmd_batch(a: argparse.Namespace) -> None:
     for n in names:
         base, _, lem = n.partition("+")
         kw = dict(ARM_PRESETS[base])
+        alt_rung = kw.pop("alt_set", None)
+        table = dict(SYNTH_ROLES) | ({"alt_solver": ladder_models(alt_rung)} if alt_rung is not None else {})
         if lem == "lemmas":
             kw["lemmas"] = tuple(x["rule"] for x in lemmas if x.get("applies_to", "proposer") != "contract_writer")
             kw["writer_lemmas"] = tuple(x["rule"] for x in lemmas if x.get("applies_to") == "contract_writer")
         arm = Arm(name=n.replace("+", "_"), **kw)
-        wire = SynthWire(d / arm.name, cap_usd=cap, stage_caps=stage_caps, seed_by_tag=not a.same_seed)
+        wire = SynthWire(d / arm.name, cap_usd=cap, stage_caps=stage_caps, seed_by_tag=not a.same_seed, table=table)
         setups.append(ArmSetup(arm=arm, roles=wire.run_roles(), cost=wire.cost, usage_path=wire.usage.path,
                                clarity=wire.client("clarity_checker") if arm.clarity else None, families=wire.families()))
     rc = RunConfig(max_rounds=a.rounds, calibrate=not a.no_calibrate, alt_budget=AgentBudget(max_calls=a.alt_calls, max_turns=a.alt_calls + 4),
@@ -770,7 +780,7 @@ def cmd_batch(a: argparse.Namespace) -> None:
 def cmd_batch_report(a: argparse.Namespace) -> None:
     from crucible.synth.batch import report_md
 
-    d = data_root(a) / "yield" / a.run
+    d = data_root(a) / (a.work or "yield") / a.run
     out = json.loads((d / "batch.json").read_text())
     print(report_md(out, f"batch {a.run}"))
 
@@ -964,6 +974,8 @@ def main() -> None:
 
     bt = sub.add_parser("batch", help="the batch runner: arms at equal caps over the cell grid (yield work; resumable by --run)")
     bt.add_argument("--run", required=True)
+    bt.add_argument("--work", default="yield", help="the work's directory under the data root and its R-budget stage cap (yield: YIELD_CAP_USD)")
+    bt.add_argument("--cells", type=int, default=None, help="cells per World instance (a family instance's DomainSpec draw; default 24)")
     bt.add_argument("--domains", default="finance_ap")
     bt.add_argument("--world", action="append", default=[], help="name=<worldgen dir> for a generated domain")
     bt.add_argument("--seeds", default="0,1,2,3", help="finance_ap World instances (start-state seeds)")
@@ -992,6 +1004,7 @@ def main() -> None:
 
     br = sub.add_parser("batch-report")
     br.add_argument("--run", required=True)
+    br.add_argument("--work", default="yield")
     br.set_defaults(fn=cmd_batch_report)
 
     fl = sub.add_parser("failures", help="why proposals fail, by stage and reason (run dirs relative to the data root)")

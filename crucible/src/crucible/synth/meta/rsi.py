@@ -2063,9 +2063,15 @@ class TaskLoop(ProbeLoop):
                  leak_check: Callable[[Task], Awaitable[list[str]]] | None = None,
                  novel_check: Callable[[Task, str, Sequence[Task]], Awaitable[tuple[bool, list[str]]]] | None = None,
                  validity: Callable[[Task], Awaitable[tuple[str, list[Counterexample]]]] | None = None,
-                 stored: Callable[[Task], Sequence[Any] | None] | None = None):
+                 stored: Callable[[Task], Sequence[Any] | None] | None = None,
+                 panel_calibrated: Callable[[Task], bool] | None = None,
+                 readjudicate: Callable[[Task], Awaitable[None]] | None = None):
         self.derive_intent, self.skills_of, self.leak_check, self.novel_check = derive_intent, skills_of, leak_check, novel_check
         self.validity = validity  # P1 (item 23): (certificate status, the shown counterexamples of a rejected version)
+        # R-panel on an on-hold certificate (pilot-10x10: the fact was hard-coded False, so a calibrated panel never decided
+        # the suspects): ``panel_calibrated(task)`` is the measured fact; ``readjudicate(task)`` drops the stored status so
+        # ``validity`` re-certifies the version with the calibrated panels
+        self.panel_calibrated, self.readjudicate = panel_calibrated, readjudicate
         self.stored = stored  # prereg §8.1: rollouts measured before on this exact version (the learnability store) diagnose round 1
         self._reserved: dict[str, float] = {}  # cells of in-flight moves (concurrent steps: G7 and RS5 count them)
         self._gate = asyncio.Lock()
@@ -2334,6 +2340,12 @@ class TaskLoop(ProbeLoop):
             self.world_fixes.append({"task_id": task.id, "kind": "oracle_review", "dispute": orc["dispute"], "round": round})
             return self._record(dec)
         status, vcx = (await self.validity(task)) if self.validity is not None else ("certified", [])
+        if status == "on_hold" and self.panel_calibrated is not None and self.readjudicate is not None and self.panel_calibrated(task):
+            rem = self._resolve(dec, task, "open_suspects", {"executed_check_available": False, "panel_calibrated": True, "more_anchors_available": False})
+            if rem.action == "panel_decide":  # R-panel: the calibrated panel decides the open suspects (a full re-certification)
+                await self.readjudicate(task)
+                status, vcx = await self.validity(task)
+                dec.why.append(f"R-panel panel_decide: the calibrated panel re-certified the on-hold version: {status}")
         dec.oracle["certificate"] = status
         if status == "rejected":  # P1 (item 23), R-admission-fixed: repaired from its own counterexamples, else rejected; never moved or kept
             rem = self._resolve(dec, task, "confirmed_counterexample", {"cls": sorted({c.cls for c in vcx}), "repairer_available": bool(vcx),
@@ -2352,7 +2364,8 @@ class TaskLoop(ProbeLoop):
                 self.archive.add_all(cxs)
             return await self._repair(task, dec, counted, cxs, lin, why=f"{len(unintended)} unintended outcome(s) with evidence")
         if status not in ("certified", "provisional"):  # R-panel: open suspects wait for a calibrated panel or a person
-            rem = self._resolve(dec, task, "open_suspects", {"executed_check_available": False, "panel_calibrated": False, "more_anchors_available": False})
+            cal = bool(self.panel_calibrated(task)) if self.panel_calibrated is not None else False
+            rem = self._resolve(dec, task, "open_suspects", {"executed_check_available": False, "panel_calibrated": cal, "more_anchors_available": False})
             lin.status = "held"
             dec.move, dec.why = "HOLD", [*dec.why, f"P1: the certificate is {status} (undecided suspects): {rem.rule} {rem.action}"]
             return self._record(dec)

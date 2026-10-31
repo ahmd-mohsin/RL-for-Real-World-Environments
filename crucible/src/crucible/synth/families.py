@@ -67,7 +67,7 @@ from crucible.synth.roles import (
 )
 from crucible.synth.sandbox import SANDBOX_KIND, SandboxError, check_code
 from crucible.synth.worldgen import WorldgenReport, check_design, check_schema, check_tests, smoke_world, test_and_debug
-from crucible.synth.worldkit import KIT_API_DOC, KIT_NAMES, kit_tables, placeholders, render
+from crucible.synth.worldkit import KIT_API_DOC, KIT_NAMES, KIT_TABLES, kit_tables, placeholders, render
 
 FAMILY_ROLES = ("domain_spec_writer", "family_designer", "schema_deriver", "app_coder", "blind_tester", "debugger", "test_approver",
                 "data_spec_writer", "doc_writer", "actor_writer")
@@ -1200,6 +1200,63 @@ BUILDER_ROLES = ("domain_spec_writer", "family_designer", "schema_deriver", "app
                  "actor_writer")
 
 
+FAMILY_SLICE_CHARS = 48_000  # what the proposer and the oracle programmer are shown of a family World instance (characters)
+
+
+def family_slice(limit: int = FAMILY_SLICE_CHARS) -> Callable[[Any], Awaitable[dict[str, Any]]]:
+    """What the proposer and the oracle programmer are shown of a family World (``DomainEnv.slice``), within ``limit``
+    characters: the kit tables first and whole (the policy documents, the policy parameters, the colleagues: the rules a
+    task's decision follows), then every other table, each with an equal share of what is left (rows in key order, the
+    rest counted). pilot-10x10: the default slice (40 rows per table, cut at 24,000 characters) showed a dense instance's
+    first 25-30% in table order; the documents and policy parameters were never shown to the oracle programmer, and 5 of
+    the first 15 insurance oracles died on records the proposer had not seen."""
+    from crucible.synth.roles import cjson
+
+    async def make(world: Any) -> dict[str, Any]:
+        c = await world.canon()
+        if c is None:
+            return {}
+        kit: dict[str, Any] = {}
+        rest: list[tuple[str, list[tuple[str, Any]]]] = []
+        for app, colls in c.apps.items():
+            for coll, rows in colls.items():
+                if coll in KIT_TABLES:
+                    kit[f"{app}.{coll}"] = dict(rows)
+                else:
+                    rest.append((f"{app}.{coll}", list(rows.items())))
+        used = len(cjson(kit))
+        if used > limit // 2:  # very long documents: each body cut to an equal share of half the limit
+            docs = [k for k in kit if k.endswith(".documents")]
+            for k in docs:
+                share = max(800, (limit // 2) // max(1, sum(len(kit[d]) for d in docs)))
+                kit[k] = {i: ({**r, "body": str(r.get("body", ""))[:share] + ("...<cut>" if len(str(r.get("body", ""))) > share else "")}
+                              if isinstance(r, dict) else r) for i, r in kit[k].items()}
+            used = len(cjson(kit))
+        out: dict[str, Any] = dict(kit)
+        per = max(600, (limit - used - 200) // max(1, len(rest)))
+        for name, items in rest:
+            shown: dict[str, Any] = {}
+            size = 2
+            for k, r in items:
+                n = len(cjson({k: r}))
+                if shown and size + n > per:
+                    break
+                shown[k] = r
+                size += n
+            out[name] = shown
+        # within the limit by construction (``compact`` would otherwise cut the JSON text in key order): a row at a time
+        # from the table showing the most characters
+        while len(cjson(out)) > limit - 80 * len(rest) and any(len(out[n]) > 1 for n, _ in rest):
+            big = max((n for n, _ in rest if len(out[n]) > 1), key=lambda n: len(cjson(out[n])))
+            out[big].pop(next(reversed(out[big])))
+        for name, items in rest:
+            if len(items) > len(out[name]):
+                out[name]["..."] = f"{len(items) - len(out[name])} more rows (the paged list tools show them)"
+        return out
+
+    return make
+
+
 class InstanceDomain:
     """A World instance as the batch runner takes it (``synth.batch.batch_domains``: an object with ``env`` and
     ``cells``): the instance's ``DomainEnv`` (its DomainSpec's description, the family's builder families as
@@ -1217,13 +1274,23 @@ class InstanceDomain:
         thin = set(((gates.get("gates") or {}).get("density") or {}).get("details", {}).get("thin_tools") or [])
         self.usable = bool(gates.get("usable"))
         self.thin = sorted(thin)
-        cells = [c for c in spec.sample_cells(max(n_cells * 2, n_cells), seed)
-                 if not (thin and (sk := next((s for s in spec.skills if s.id == c.skill), None)) and sk.tools and set(sk.tools) <= thin)]
-        self.cells = [spec.cell_text(c) for c in cells[:n_cells]]
+        # the draw is large enough that the thin filter still leaves n_cells (pilot-10x10: a purchase-requisition instance
+        # with 6 of 9 skills on thin tools only got 6 of the 10 cells asked from a draw of 2 x 10); repeated texts count once
+        draw = max(n_cells * 2, n_cells * max(1, len(spec.skills)))
+        texts: list[str] = []
+        for c in spec.sample_cells(draw, seed):
+            if thin and (sk := next((s for s in spec.skills if s.id == c.skill), None)) and sk.tools and set(sk.tools) <= thin:
+                continue
+            t = spec.cell_text(c)
+            if t not in texts:
+                texts.append(t)
+            if len(texts) >= n_cells:
+                break
+        self.cells = texts
         d, w = str(inst), str(Path(work).resolve())
         self.env = DomainEnv(name=name or f"{man.get('family', inst.parent.parent.name)}-{inst.name}", description=spec.environment_text(),
                              world=lambda s: WorldRef(factory="crucible.synth.worldgen:open_world", params={"dir": d, "work": w}), seeds=(0,),
-                             cells=tuple(self.cells),
+                             cells=tuple(self.cells), slice=family_slice(FAMILY_SLICE_CHARS), slice_chars=FAMILY_SLICE_CHARS,
                              built_by=frozenset(f for r, f in (man.get("families") or {}).items() if r in BUILDER_ROLES))
 
 

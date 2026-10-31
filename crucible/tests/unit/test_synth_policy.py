@@ -460,9 +460,9 @@ def test_r_budget_caps_come_from_the_ledger_and_only_the_total_reaches_a_person(
     assert led.policy().version == v0 + 1 and led.policy().param("R-budget", "part2_total_usd") == pytest.approx(150.0 + 68.0)
     assert entry["kind"] == "answer" and entry["source"]["kind"] == "person" and q.open() == []
     with pytest.raises(PolicyViolation):  # a stage cap may rise only inside the recorded remainder
-        led.append({"kind": "amend_rule", "rule_id": "R-budget", "set": {"stage_caps_usd": {**POL.param("R-budget", "stage_caps_usd"), "rsi": 400.0}},
+        led.append({"kind": "amend_rule", "rule_id": "R-budget", "set": {"stage_caps_usd": {**led.policy().param("R-budget", "stage_caps_usd"), "rsi": 400.0}},
                     "source": {"kind": "inferred"}, "data": {"part2_remaining_usd": 10.0}})
-    led.append({"kind": "amend_rule", "rule_id": "R-budget", "set": {"stage_caps_usd": {**POL.param("R-budget", "stage_caps_usd"), "rsi": 45.0}},
+    led.append({"kind": "amend_rule", "rule_id": "R-budget", "set": {"stage_caps_usd": {**led.policy().param("R-budget", "stage_caps_usd"), "rsi": 45.0}},
                 "source": {"kind": "inferred"}, "data": {"part2_remaining_usd": 10.0}})
 
 

@@ -2996,6 +2996,55 @@ ONL: item 14); composition, dependency depth and the difficulty knobs (part of M
      never reach it, tested once, the loop records the pair, pairs from an earlier run), `test_synth_iface.py` (the
      evidence channel's edit, restore and refusals; EVID through `EvidenceContext` only; the derive-effect guard),
      `test_synth_policy.py` (R-band v2).
+26. **Part 2 10 × 10 pilot: 10 family World instances × 10 tasks, end to end, quality and speed (built 2026-10-31;
+   results `docs/research/env-synthesis/runs/pilot-10x10.md`).** The lead's goal: 10 environments × 10 tasks, and how fast
+   the framework makes them. The stages are the framework's own (the batch runner, the ALT ladder, the per-task loop);
+   `scripts/synth_pilot.py` only funds, orders and reports them. Real runs on the four World families found 18 causes,
+   each fixed in code with a test (`tests/unit/test_synth_pilot.py`):
+   - **What builders see of a family World** (`families.family_slice`, `DomainEnv.slice_chars`): the kit tables (policy
+     documents, policy parameters, colleagues) whole, every other table an equal share of what is left, the rest counted,
+     within the limit by construction (48,000 characters for family Worlds). The default slice, cut at 24,000 characters in
+     key order, showed 25-30% of a dense instance and never its rules. `InstanceDomain` draws enough cells that the thin-tool
+     filter still leaves `n_cells`.
+   - **The oracle DSL**: a `$ref`/`$fn` inside a literal list or object is resolved (`list(...)`, new `obj(key, value, ...)`
+     whose keys are structural for taint; a container without refs stays a literal); `date_add(date, days)` and
+     `days_between(a, b)` for rule-derived dates (a literal date was TAINT D5). PROPOSER_V2: `derive` never holds a value the
+     instruction states.
+   - **ALT as the policy names it** (`factory/synth_wire.LADDER_MODELS`, `ladder_models(rung)`, `ladder_configs(wire)`; arm
+     preset `a1v3`, `Arm`/`RunConfig.alt_variant`): the batch certifies with R-ALT-whole's L0 set on the v3 harness (the set
+     the loop's re-certification uses) while builders keep v2; `synth_pilot.py ladder` wires the ladder: `resolve(
+     no_solver_pass)` → `solvers.escalate_alt` from L1 at the rule's equal per-configuration budget, failed attempts to the
+     calibrated panel, `certificate.with_ladder` written beside the batch's certificate. Solver harness: a notes-only turn
+     is told its notes are kept, and `max_malformed` (4, `solvers.MAX_MALFORMED`) ends an ALT/ATK attempt that never calls
+     (the student probe keeps `None`).
+   - **The batch under caps and restarts** (`synth/batch.py`): `budget` candidates re-open on resume (a stage cap left them
+     done and unbuilt); R-panel's `add_calibration_anchors` (`BatchConfig.calib_max_tasks`, `calibration_remedies.jsonl`):
+     an uncalibrated domain panel is calibrated again on more built tasks while more can come, then abstains;
+     `Runner.calibrate_panel(limit=)` and, with no anchor, λ above 1 instead of the default 0.7; calibration readiness per
+     domain (no pending build, no open cell), not the global proposing flag; on resume, anchors come from the stored tasks'
+     executed oracles (a domain built before a stop deadlocked: refine waited for anchors, the proposer for the backlog).
+     `synth.py batch --work <stage> --cells N` (the ledger's stage cap over `<data>/<stage>`), `batch-report --work`.
+   - **Budget one level down** (`synth_pilot.py budget`): the pilot's stage is funded by `resolve(over_budget)` →
+     `reallocate_within_total` (ledger seq 29, `stage_caps_usd["pilot-10x10"] = 24`, `policy-v30@cb93cf57a9c1`); a batch's
+     own `--stage-cap` that binds is resolved the same way with the arm's hard cap as the enclosing total
+     (`budget-run-stages.jsonl`; a run setting, not a ledger parameter).
+   - **The loop on a stored pool** (`recert.stored_rows`, `world_builders`, `synth_pilot.py manifest`): the batch's tasks
+     enter `TaskLoop` with their stored certificates, no paid re-certification; a rejection on open suspects only is
+     `on_hold` (the recert statuses). `synth_taskloop.py loop --work`, `--calibrate-per family` (default; instances of a
+     family share Apps, tools and documents) and `--anchor-statuses no-confirmed` (certified, provisional and on-hold oracles
+     anchor calibration): per instance on valid tasks only, no panel of the pilot calibrated. `TaskLoop(panel_calibrated=,
+     readjudicate=)`: the loop raised `open_suspects` with `panel_calibrated` hard-coded False, so R-panel's `panel_decide`
+     never ran; now a calibrated panel re-certifies an on-hold version (`Recertifier.readjudicate`). The taskloop report
+     reads every domain's PROBE records. `test_synth_policy.py`'s R-budget test reads its own ledger.
+   - **Results** (p3, `policy-v30@cb93cf57a9c1`, USD 19.11 of the 24 cap; the shared Part 2 total 118.05 → 137.16):
+     100 attempted (10 per World, 4 families) in 25.7 min of active wall clock (165 per hour; serial-equivalent 5.4×,
+     refine the bound); 54 valid, **0 certified, 1 provisional**, 10 on hold, 43 rejected, 26 filtered, 20 dead oracles;
+     first admitted task at 19.5 min. The per-task loop: 42 P1 repairs, none accepted (T4 74, T5 32, G2 16); 4
+     `panel_decide`; kept 0, reserved 1 (too easy, no lawful harder knob on family Worlds), held 50, rejected 3; **0 perfect
+     tasks**; 488 probe rollouts (unintended fails all hidden information: contracts that pin exact note text and values
+     the World writes). What sets the yield: ALT (no L0 pass on 37 of 54; 13 failed attempts judged valid: D6), contracts
+     over-pinning free text (TAINT on 33), panels that cannot calibrate on a few anchors per family (suspects stay open),
+     and diagnosis rollouts bought before P1 (USD ~4 of the student's 5.21). No validity rule was relaxed.
 
 ## 8. Layer 4: verification and isolation
 

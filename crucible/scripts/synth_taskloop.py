@@ -218,6 +218,14 @@ def _recert_mod() -> Any:
     return m
 
 
+def family_of(task: Any) -> str:
+    """A family World instance's family (its instance directory's grandparent); any other World: its domain."""
+    d = task.world.params.get("dir")
+    if d and (Path(str(d)) / "instance.json").exists():
+        return Path(str(d)).parent.parent.name
+    return task.domain
+
+
 def _skills(task: Any) -> list[dict[str, str]]:
     from crucible.synth.domain import finance_ap_spec, spec_from_world
     from crucible.synth.meta.reskill import domain_skills
@@ -269,6 +277,13 @@ def cmd_loop(a: argparse.Namespace) -> None:
     ms = milestone_spent(root)
     done_here = milestone_spent(d)
     cap = round(a.cap - done_here, 4)  # a resumed run's cap is what is left of it
+    if a.work:  # a piece of work with its own R-budget stage cap (pilot-10x10): every receipt under <root>/<work>
+        from crucible.synth import policy
+
+        stage = float((policy.param("R-budget", "stage_caps_usd") or {}).get(a.work, 0.0))
+        ws = milestone_spent(root / a.work) if (root / a.work).exists() else 0.0
+        cap = min(cap, round(stage - ws, 4))
+        print(f"{a.work} work {ws:.4f} of its stage cap {stage} ({policy.tag()})", flush=True)
     print(f"shared Part 2 spend {ms:.4f} of {shared}; this run spent {done_here:.4f}; cap now {cap:.4f}", flush=True)
     if not a.dry and ms + cap > shared + 1e-9:
         raise SystemExit("the shared Part 2 total would pass its cap: refusing to start")
@@ -341,25 +356,37 @@ def cmd_loop(a: argparse.Namespace) -> None:
 
     async def go() -> dict[str, Any]:
         doms = sorted({t.domain for _, t in tasks.values()})
-        valid = {dom: [r.load_task() for r in all_rows if r.domain == dom and r.status in ("certified", "provisional")] for dom in doms}
+        # the panel calibrates per World FAMILY (the instances of a family share its Apps, tools and documents) on the tasks
+        # with no confirmed counterexample (certified, provisional, on hold). pilot-10x10: per instance, on certified and
+        # provisional tasks only, the 10 instances had 1 such task between them and every panel abstained
+        anchor_ok = ("certified", "provisional") if a.anchor_statuses == "valid" else ("certified", "provisional", "on_hold")
+        fam = {r.domain: family_of(r.load_task()) for r in all_rows}
+        valid = {dom: [r.load_task() for r in all_rows if r.domain == dom and r.status in anchor_ok] for dom in doms}
+        groups: dict[str, list[str]] = {}
+        for dom in doms:
+            groups.setdefault(fam.get(dom, dom) if a.calibrate_per == "family" else dom, []).append(dom)
         panels, twins, opanels, cal = {}, {}, {}, {}
         leak = None
         if swarm is not None:
             roles = swarm.run_roles()
             c0 = make_ctx()
             try:
-                for dom in doms:
-                    good = [t for t in valid[dom] if "wrong" not in [f(t) for f in ORACLE(resolve_truths(truths.get(dom, []))).truths]] or valid[dom]
+                for g, gdoms in sorted(groups.items()):
+                    pool_g = [t for r in all_rows if (fam.get(r.domain, r.domain) if a.calibrate_per == "family" else r.domain) == g
+                              and r.status in anchor_ok for t in [r.load_task()]]
+                    good = [t for t in pool_g if "wrong" not in [f(t) for f in ORACLE(resolve_truths(truths.get(t.domain, []))).truths]] or pool_g
                     anc = await rc._panel_anchors(good, c0, k=6)
-                    p = Panel(members=[PanelMember(n, c) for n, c in roles.panel], lam=0.7, queue=d / "human_queue.jsonl", tag=f"calibrate:{dom}")
+                    p = Panel(members=[PanelMember(n, c) for n, c in roles.panel], lam=0.7, queue=d / "human_queue.jsonl", tag=f"calibrate:{g}")
                     rep = rep2 = await calibrate(p, anc, **policy.panel_calibration())  # R-panel (item 24): an uncalibrated panel abstains
-                    panels[dom] = opanels[dom] = p
-                    tp = Panel(members=p.members, lam=p.lam, queue=d / "human_queue.jsonl", tag=f"calibrate:twin:{dom}")
+                    tp = Panel(members=p.members, lam=p.lam, queue=d / "human_queue.jsonl", tag=f"calibrate:twin:{g}")
                     tanc = (await twin_anchors(good, c0))[:9] + anc[:9]
                     trep = await calibrate_twin_panel(tp, tanc, min_decided=6)
-                    twins[dom] = tp
-                    cal[dom] = {"panel": {"lam": rep.lam, "calibrated": rep.calibrated}, "outcome_panel": {"lam": rep2.lam, "calibrated": rep2.calibrated},
-                                "twin": {"lam": trep.lam, "calibrated": trep.calibrated, "anchors": len(tanc)}}
+                    for dom in gdoms:
+                        panels[dom] = opanels[dom] = p
+                        twins[dom] = tp
+                    cal[g] = {"domains": gdoms, "anchor_tasks": len(good[:6]), "anchors": len(anc), "panel": {"lam": rep.lam, "calibrated": rep.calibrated},
+                              "outcome_panel": {"lam": rep2.lam, "calibrated": rep2.calibrated},
+                              "twin": {"lam": trep.lam, "calibrated": trep.calibrated, "anchors": len(tanc)}}
             finally:
                 await c0.close()
             srcs = [t for dom in doms for t in valid[dom] if t.intent.derive]
@@ -429,7 +456,8 @@ def cmd_loop(a: argparse.Namespace) -> None:
                         cell_of=cell_of, archive=archive,
                         rules=TaskRules(student_family="qwen", h_min=round(0.9 * entropy(dict(cells)), 4), max_rounds=a.rounds),
                         derive_intent=deriver, skills_of=lambda t: [x["id"] for x in _skills(t)], leak_check=leak_checker(kctx),
-                        novel_check=novelty_checker(kctx), validity=rec.validity, lift_lemmas=lift)
+                        novel_check=novelty_checker(kctx), validity=rec.validity, lift_lemmas=lift,
+                        panel_calibrated=lambda t: t.domain in panels and panels[t.domain].lam <= 1.0, readjudicate=rec.readjudicate)
         lift.lineage_of = lambda tid: loop.of.get(tid, tid)
         loop.stored = stored_rollouts(root, probe)
         loop.add_tasks(t for _, t in tasks.values())
@@ -528,7 +556,9 @@ def cmd_report(a: argparse.Namespace) -> None:
                           "oracle": x.oracle.get("status"), "certificate": x.oracle.get("certificate")})
     out["examples"] = ex
     arch = Archive(d / "archive")
-    probe = [c for dom in ("finance_ap", "it_helpdesk") if arch.path(dom).exists() for c in arch.records(dom) if c.cls == "PROBE"]
+    # every domain of the pool (pilot-10x10: the family Worlds' PROBE counterexamples were never read by a fixed two-domain list)
+    doms = sorted({t.domain for t in tasks.values()})
+    probe = [c for dom in doms if arch.path(dom).exists() for c in arch.records(dom) if c.cls == "PROBE"]
     cl = natural_clusters(probe)
     out["lessons"] = {"probe_counterexamples": len(probe), "clusters": [{"defect": c.defect, "view": c.view, "members": len(c.members)} for c in cl],
                       "world_fixes": ps.get("world_fixes", []),
@@ -668,6 +698,11 @@ def main() -> None:
     lp.add_argument("--limit", type=int, default=0)
     lp.add_argument("--no-reskill", action="store_true")
     lp.add_argument("--dry", action="store_true", help="a no-op scripted student and no paid classes (wiring only, no spend)")
+    lp.add_argument("--calibrate-per", default="family", choices=["family", "domain"],
+                    help="panel calibration groups: a World family's instances together (default), or each domain (taskloop-1/2)")
+    lp.add_argument("--anchor-statuses", default="no-confirmed", choices=["no-confirmed", "valid"],
+                    help="tasks whose oracle traces anchor calibration: no confirmed counterexample (certified, provisional, on hold), or valid only")
+    lp.add_argument("--work", default="", help="a work with its own R-budget stage cap (e.g. pilot-10x10): the cap is clipped to it")
     rp = sub.add_parser("report")
     rp.add_argument("--run", required=True)
     rp.add_argument("--manifest", default="")

@@ -70,6 +70,7 @@ from crucible.synth.roles import (
     tool_catalogue,
     variant,
 )
+from crucible.synth.solvers import MAX_MALFORMED
 from crucible.synth.task import IntentCard, Task, WorldRef
 
 STAGES = ("propose", "oracle", "contract", "calibrate", "repair", "ALT", "ATK", "adjudicate", "abstract")
@@ -93,6 +94,7 @@ class DomainEnv:
     normalizers: Normalizers | None = None
     slice: Callable[[SynthWorld], Awaitable[dict[str, Any]]] | None = None
     max_rows: int = 40
+    slice_chars: int = 24000  # the slice is cut to this many characters for the proposer and the oracle programmer
     cells: Sequence[str] | None = None  # the proposer's cells (default ``CELLS``); compose.py's follow-up links pass their own
     built_by: frozenset[str] = frozenset()  # families that built the World (a worldgen App): never ALT/ATK on its tasks
 
@@ -141,6 +143,9 @@ class RunConfig:
     # solver harness v3 (compose-2): a progress check before finishing and a windowed history (None: the whole history)
     alt_progress: bool = False
     alt_window: int | None = None
+    # the ALT solver's prompt variant when it differs from the builders' (None: ``variant``); pilot-10x10: the batch
+    # certifies with R-ALT-whole's L0 set on the v3 harness while the builders keep v2, as the loop's re-certification does
+    alt_variant: str | None = None
     # R-panel (DESIGN §7.7 item 24): "policy" calibrates with the ledger's strict rule (>= min_decided decided anchors of both
     # truths, else lambda > 1: the panel abstains and suspects go to the human queue); "m4" is the M4 rule (measurement only)
     panel_rule: str = "policy"
@@ -367,7 +372,7 @@ class Runner:
             want = min(self.cfg.batch, self.cfg.n_tasks - len(recs))
             try:
                 out = await ask(self.roles.proposer, variant("proposer", self.cfg.variant), tag=f"propose:batch{b}", retries=1, domain=self.env.description,
-                                tools=tool_catalogue(self.tools[seed]), world=compact(self.slices[seed], 24000), cell=cell,
+                                tools=tool_catalogue(self.tools[seed]), world=compact(self.slices[seed], self.env.slice_chars), cell=cell,
                                 existing=[p["instruction"] for p in proposals if "instruction" in p] or None, count=want,
                                 lemmas=list(self.cfg.lemmas) or None)
             except BudgetExceeded as e:
@@ -424,7 +429,7 @@ class Runner:
                 prog, r = await ask(self.roles.oracle_programmer, variant("oracle_programmer", self.cfg.variant), tag=f"oracle:{rec.id}", check=executed,
                                     retries=self.cfg.oracle_retries, task=p["instruction"],
                                     intent={"skill": p.get("skill"), "given": p.get("given"), **({"derive": p.get("derive")} if self.cfg.oracle_sees_derive else {})},
-                                    tools=tool_catalogue(self.tools[rec.seed]), world=compact(self.slices[rec.seed], 24000), program_format=PROGRAM_DOC)
+                                    tools=tool_catalogue(self.tools[rec.seed]), world=compact(self.slices[rec.seed], self.env.slice_chars), program_format=PROGRAM_DOC)
             except RoleFailed as e:
                 rec.status, rec.reasons, rec.note = "dropped", ["oracle:dead"], str(e)[:600]
                 return
@@ -497,15 +502,19 @@ class Runner:
         return Panel(members=[PanelMember(n, c) for n, c in self.roles.panel], lam=self.cfg.lam, queue=self.dir / "human_queue.jsonl",
                      show_reasons=self.cfg.show_reasons)
 
-    async def calibrate_panel(self, ready: Sequence[tuple[TaskRecord, Task, Run]] | None = None) -> None:
+    async def calibrate_panel(self, ready: Sequence[tuple[TaskRecord, Task, Run]] | None = None, limit: int | None = None) -> None:
         """``ready``: the built tasks to take anchors from (default ``self.ready``; synth.batch passes its own, so that
-        tasks other builds append meanwhile are never touched)."""
+        tasks other builds append meanwhile are never touched); ``limit`` tasks of them (default ``calib_tasks``)."""
         self.panel = self.make_panel()
         src = list(self.ready if ready is None else ready)
-        if self.panel is None or not self.cfg.calibrate or not src:
+        if self.panel is None or not self.cfg.calibrate:
+            return
+        if not src:  # nothing to calibrate on: under R-panel an uncalibrated panel abstains (it decided at the default λ before)
+            if self.cfg.panel_rule == "policy" and policy_panel_calibration().get("refuse_uncalibrated"):
+                self.panel.lam = 1.01
             return
         anchors: list[Anchor] = []
-        for rec, task, r in src[: self.cfg.calib_tasks]:
+        for rec, task, r in src[: limit or self.cfg.calib_tasks]:
             anchors.append(Anchor(task=task, attempt=Attempt(trace=trace_view(r.calls), answer=r.answer, reasons=[]), valid=True, kind="oracle"))
             anchors.append(Anchor(task=task, attempt=Attempt(trace=[], answer=None, reasons=[]), valid=False, kind="noop"))
             writes = [i for i, c in enumerate(r.calls) if not c.read_only]
@@ -518,7 +527,7 @@ class Runner:
         except BudgetExceeded as e:
             self.stop = f"budget: {e}"
             return
-        self.report.calibration = cal.model_dump(mode="json")
+        self.report.calibration = cal.model_dump(mode="json") | {"anchor_tasks": len(src[: limit or self.cfg.calib_tasks])}
         _jwrite(self.dir / "calibration.json", self.report.calibration)
 
     async def calibrate_twin(self, tasks: Sequence[Task], *, min_decided: int = 6, max_anchors: int = 18) -> None:
@@ -590,10 +599,11 @@ class Runner:
             hook = self.agent_log
             return lambda row: hook(rec, name, row)
 
-        alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}#{n}",
-                        finish_nudge=self.cfg.alt_finish_nudge, progress_check=self.cfg.alt_progress, window=self.cfg.alt_window, log=sink(n))
+        alts = [llm_alt(n, c, role=variant("alt_solver", self.cfg.alt_variant or self.cfg.variant), budget=self.cfg.alt_budget, tag=f"ALT:{rec.id}#{n}",
+                        finish_nudge=self.cfg.alt_finish_nudge, progress_check=self.cfg.alt_progress, window=self.cfg.alt_window, log=sink(n),
+                        max_malformed=MAX_MALFORMED)
                 for n, c in self.roles.alt]
-        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}#{n}", log=sink(n)) for n, c in self.roles.atk]
+        atks = [llm_atk(n, c, budget=self.cfg.atk_budget, tag=f"ATK:{rec.id}#{n}", log=sink(n), max_malformed=MAX_MALFORMED) for n, c in self.roles.atk]
         paid = [x for x in (ALT(alts, exclude_families=builders) if alts else None, ATK(atks, exclude_families=builders) if atks else None) if x]
         if not self.cfg.paid:
             paid = []

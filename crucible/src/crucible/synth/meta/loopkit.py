@@ -149,6 +149,11 @@ class Recertifier:
                 fh.write(json.dumps(row.model_dump(mode="json")) + "\n")
         return row
 
+    async def readjudicate(self, task: Task) -> None:
+        """Forget the stored status of ``task`` (a manifest row or an earlier certification), so the next ``validity`` or
+        ``recheck`` re-certifies it in full: R-panel's ``panel_decide`` once the panel is calibrated."""
+        self.rows.pop(self.key(task), None)
+
     async def recheck(self, task: Task) -> list[str]:
         """G3 / T5 / RS3: [] when the version is certified or provisional, else its reasons."""
         row = await self.certify(task)

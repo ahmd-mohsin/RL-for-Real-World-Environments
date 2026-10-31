@@ -203,6 +203,30 @@ def _concat(*xs: Any) -> Any:
     return "".join(str(x) for x in xs)
 
 
+def _obj(*a: Any) -> dict[str, Any]:
+    if len(a) % 2:
+        raise LibraryError("obj takes key, value pairs")
+    return {str(k): v for k, v in zip(a[0::2], a[1::2], strict=True)}
+
+
+def _date(x: Any) -> Any:
+    from datetime import date
+
+    try:
+        return date.fromisoformat(str(x)[:10])
+    except ValueError as e:
+        raise LibraryError(f"not a date: {x!r}") from e
+
+
+def _date_add(d: Any, days: Any) -> str:
+    from datetime import timedelta
+
+    n = _nums([days])[0]
+    if int(n) != n:
+        raise LibraryError(f"not a whole number of days: {days!r}")
+    return (_date(d) + timedelta(days=int(n))).isoformat()
+
+
 def _div(a: Any, b: Any) -> Any:
     a, b = _nums([a, b])
     if b == 0:
@@ -225,6 +249,13 @@ LIBRARY: dict[str, Callable[..., Any]] = {
     "mul": lambda a, b: _nums([a])[0] * _nums([b])[0],
     "div": _div,
     "list": lambda *a: list(a),  # a composed task's answer: one element per part that reports (synth/compose.py)
+    # an object built from values read earlier: key, value pairs (the keys are schema). pilot-10x10: a literal object or list
+    # holding a $ref was refused at parse time, and 2 of the first 8 insurance oracles died on it after four attempts each
+    "obj": _obj,
+    # dates a rule derives from a date read earlier ("follow up 5 days after the promise date"). pilot-10x10: with no date
+    # arithmetic the oracle wrote such dates as literals, and TAINT rightly called them unsourced (D5)
+    "date_add": _date_add,  # date_add(date, days) -> ISO date (a timestamp's date part; days may be negative)
+    "days_between": lambda a, b: (_date(b) - _date(a)).days,  # whole days from a to b
     # select by a value read earlier (``select``'s filter is a literal; compose-1: refs inside it were the commonest dead oracle)
     "select_eq": lambda lst, f, v: _select(lst, {str(f): v}),
 }
@@ -473,7 +504,7 @@ class _Interp:
         vals = []
         for i, x in enumerate(a.args):
             sub = f"{loc}/fn:{a.name}[{i}]"
-            role = STRUCTURAL_ARGS.get(a.name, {}).get(i)
+            role = STRUCTURAL_ARGS.get(a.name, {}).get(i) or ("schema" if a.name == "obj" and i % 2 == 0 else None)
             if isinstance(x, Lit) and role == "schema":  # a path, a field name, a digit count: schema, not task information
                 if record:
                     self.taint.append(TaintEntry(loc=sub, value=x.v, sources=[TaintSource(kind="structural")]))

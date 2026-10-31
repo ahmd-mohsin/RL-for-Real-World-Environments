@@ -420,6 +420,43 @@ def milestone_spent(data_root: str | Path) -> float:
     return round(tot, 6)
 
 
+# R-ALT-whole's solver ladder (the policy ledger) names configurations; the wire knows their models and harnesses. Until
+# pilot-10x10 nothing mapped them, so the ladder was never wired and the batch certified with another ALT set (Ultra x2 +
+# gpt-oss v2) than the policy's L0 certifying set, which the loop's re-certification uses.
+LADDER_MODELS: dict[str, tuple[str, str]] = {
+    "gpt-oss-120b:v3": (GPT_OSS, "v3"),
+    "nemotron-3-super:v3": (NEMOTRON, "v3"),
+    "inkling-small:v3": (INKLING_SMALL, "v3"),
+    "nemotron-3-ultra:v2": (NEMOTRON_ULTRA, "v2"),
+    "inkling:v3": (INKLING, "v3"),
+}
+
+
+def ladder_models(rung: int | None = None) -> tuple[str, ...]:
+    """The distinct models of one rung of R-ALT-whole's ladder (``None``: of every rung), in ladder order."""
+    from crucible.synth.solvers import ladder_rungs
+
+    out: list[str] = []
+    for i, r in enumerate(ladder_rungs()):
+        if rung is not None and i != rung:
+            continue
+        for n in r.configs:
+            m = LADDER_MODELS[n][0]
+            if m not in out:
+                out.append(m)
+    return tuple(out)
+
+
+def ladder_configs(wire: SynthWire) -> dict[str, Any]:
+    """R-ALT-whole's configurations (name -> ``solvers.SolverConfig``) on ``wire``'s ``alt_solver`` clients: every ladder
+    model the wire's table holds."""
+    from crucible.synth.solvers import SolverConfig
+
+    models = list(wire.table.get("alt_solver") or ())
+    return {name: SolverConfig(name=name.replace(":", "-"), client=wire.client("alt_solver", models.index(m)), harness=h)
+            for name, (m, h) in LADDER_MODELS.items() if m in models}
+
+
 # ---------------------------------------------------------------------------------------------------------- domains
 
 class ClosingAdapter(CrucibleWorldAdapter):

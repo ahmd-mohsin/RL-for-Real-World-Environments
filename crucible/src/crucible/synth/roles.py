@@ -345,7 +345,9 @@ An <arg> is one of:
 - {"$fn": "<name>", "args": [<arg>, ...]}: a pure function: sum, min, max, round(x, digits), len, concat,
   select(list, {field: value | {"op": "eq|ne|lt|le|gt|ge|in", "v": value}}) -> the matching items (literal values only),
   select_eq(list, "field", value) -> the items whose field equals value (value may be a $ref or $fn),
-  get(obj, "path") -> a value inside obj, pluck(list, "field"), add, sub, mul, div.
+  get(obj, "path") -> a value inside obj, pluck(list, "field"), add, sub, mul, div,
+  date_add(date, days) -> the ISO date that many days later (negative: earlier), days_between(a, b) -> whole days from a to b.
+  A list or object argument may hold $ref / $fn values: they are resolved (built by list(...) / obj(key, value, ...)).
 Rules:
 - Straight line: no branches or loops. You resolve every decision now, from the data you are shown.
 - Read before you act, as an agent who has never seen the data would: list or search first, then refer to what you read.
@@ -728,7 +730,12 @@ PROPOSER_V2 = PROPOSER.model_copy(update={"system": PROPOSER.system + (
     "rule-by-rule check in the rationale, and give in derive the decision it reaches. If the rules do not decide the case "
     "unambiguously from the records, pick another entity. Write the instruction so that an agent who sees only it and the "
     "tools knows what is wanted: which entity, which kind of decision or change, under which rules or document, and whether "
-    "to apply the change in the system.")})
+    "to apply the change in the system.\n"
+    # pilot-10x10: on the family Worlds 14 of the first 48 proposals listed in derive a value their own instruction states (a
+    # policy number or claim id it names, a filter such as a loss cause), and the pre-filter refused them as leaks
+    "derive lists ONLY what the agent must work out. A value the instruction states (an entity it names, a filter, a status or "
+    "category it gives) is not derived: leave it out of derive. Describe only records that exist in the start state shown, in "
+    "the state they are in there.")})
 
 ORACLE_PROGRAMMER_V2 = ORACLE_PROGRAMMER.model_copy(update={"system": (
     "You write the reference solution of a task as a tool program that is executed against the real system. Read the task, "
@@ -897,10 +904,22 @@ def _arg(v: Any, where: str) -> Lit | Ref | Fn:
             if v["op"] == "ref":
                 return Ref(path=str(v.get("path")))
             return Fn(name=str(v.get("name")), args=[_arg(a, f"{where}/{v.get('name')}[{i}]") for i, a in enumerate(v.get("args") or [])])
+        if _holds_ref(v):  # an object holding values read earlier: built by obj(key, value, ...) so every ref is resolved
+            return Fn(name="obj", args=[a for k, x in v.items() for a in (Lit(v=str(k)), _arg(x, f"{where}.{k}"))])
         return Lit(v={k: _plain(x, f"{where}.{k}") for k, x in v.items()})
     if isinstance(v, list):
+        if _holds_ref(v):  # a list holding values read earlier: list(...) resolves every element
+            return Fn(name="list", args=[_arg(x, f"{where}[{i}]") for i, x in enumerate(v)])
         return Lit(v=[_plain(x, f"{where}[{i}]") for i, x in enumerate(v)])
     return Lit(v=v)
+
+
+def _holds_ref(v: Any) -> bool:
+    if isinstance(v, dict):
+        return "$ref" in v or "$fn" in v or any(_holds_ref(x) for x in v.values())
+    if isinstance(v, list):
+        return any(_holds_ref(x) for x in v)
+    return False
 
 
 def _plain(v: Any, where: str) -> Any:

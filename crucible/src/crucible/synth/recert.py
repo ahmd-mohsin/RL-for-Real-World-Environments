@@ -604,6 +604,50 @@ def underpowered_remedy(status: str, reasons: Sequence[str], mut_n: int | None, 
             "facts": {"shown_n": mut_n, "heldout_n": heldout_n, "can_densify": can_densify, "densify_tries": densify_tries}}
 
 
+def world_builders(task: Task) -> list[str]:
+    """The families that built a task's World instance (a family World's ``world.json``; none for a pack World)."""
+    from crucible.synth.families import BUILDER_ROLES
+
+    d = task.world.params.get("dir")
+    p = Path(str(d)) / "world.json" if d else None
+    if p is None or not p.exists():
+        return []
+    fams = (json.loads(p.read_text()).get("families") or {})
+    return sorted({f for r, f in fams.items() if r in BUILDER_ROLES and f})
+
+
+def stored_rows(items: Sequence[Item], *, can_densify: bool = False) -> list[ManifestRow]:
+    """Manifest rows from each item's STORED certificate, without re-certifying (pilot-10x10: a batch that certified under
+    the current policy hands its tasks to the per-task loop as they are). Status, reasons, ALT's passes, the policy version,
+    the held-out share and R-holdout's remedy are the certificate's; ``status_h0`` and ``outcome`` are left empty (no
+    second measurement was made)."""
+    from crucible.synth.certificate import HELDOUT
+    from crucible.synth.policy import holdout as policy_holdout
+
+    rows = []
+    for it in items:
+        raw = json.loads(Path(it.old.path).read_text())
+        cert = raw.get("certificate") or {}
+        cls = cert.get("classes") or {}
+        alt = cls.get("ALT") or {}
+        mut, ho = cls.get("MUT") or {}, cls.get(HELDOUT) or {}
+        # the pipeline's certificate says "rejected" for open suspects too; R-panel holds such a task (the recert statuses):
+        # no confirmed counterexample and no rule failure, only suspects an uncalibrated panel could not decide
+        status = it.old.status
+        hard = [r for r in it.old.reasons if ":suspects=" not in r and not r.startswith("MUT:upper")]
+        if status == "rejected" and not hard and any(":suspects=" in r for r in it.old.reasons):
+            status = "on_hold"
+        rows.append(ManifestRow(key=it.key, task_id=it.task.id, version=it.task.version, digest=it.task.digest(), domain=it.task.domain, source=it.source,
+                                kinds=it.kinds, task_path=it.task_file or it.old.path, old_status=it.old.status, old_reasons=it.old.reasons,
+                                old_certificate=it.old.path, status=status, reasons=list(it.old.reasons), certificate=it.old.path,
+                                heldout=policy_holdout() if ho.get("applicable") else 0.0,
+                                alt={"ALT": {"passes": int(alt.get("passes") or 0), "n": int(alt.get("n") or 0)}} if alt.get("applicable") else {},
+                                policy_version=str(cert.get("policy_version") or ""),
+                                remedy=underpowered_remedy(it.old.status, it.old.reasons, mut.get("n") if mut.get("applicable") else None,
+                                                           ho.get("n") if ho.get("applicable") else None, can_densify=can_densify)))
+    return rows
+
+
 def write_new(path: Path, doc: dict[str, Any]) -> Path:
     """Write a new file and never overwrite one (old and new certificates are kept): ``FileExistsError`` otherwise."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -638,4 +682,4 @@ def summarize(rows: Sequence[ManifestRow]) -> dict[str, Any]:
 
 __all__ = ["ADMITTED", "CAUSES", "SCHEMA", "STATUSES", "Item", "ManifestRow", "OldCert", "Recorder", "Source", "Stored", "attribute", "beside", "certify_paid",
            "classify_reason", "collect", "copy_archive", "det_job", "det_policy", "det_population", "det_results", "det_run", "det_verdict", "load_det",
-           "load_manifest", "paid_rows", "resolve_truths", "save_det", "slug", "status_h0", "status_of", "summarize", "underpowered_remedy", "work_world", "write_new"]
+           "load_manifest", "paid_rows", "resolve_truths", "save_det", "slug", "status_h0", "status_of", "stored_rows", "summarize", "underpowered_remedy", "work_world", "world_builders", "write_new"]

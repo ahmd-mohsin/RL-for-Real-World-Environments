@@ -89,7 +89,7 @@ def test_parse_program_and_round_trip():
         parse_program({"steps": [{"id": "s1", "tool": "desk.nope"}]}, {"desk.list_tickets"})
     with pytest.raises(ValueError, match="unknown function"):
         parse_program({"steps": [{"id": "s1", "tool": "t", "args": {"x": {"$fn": "eval", "args": []}}}]})
-    with pytest.raises(ValueError, match="not resolved"):
+    with pytest.raises(ValueError, match="names no earlier step"):  # a ref inside a literal list is resolved, so checked (pilot-10x10)
         parse_program({"steps": [{"id": "s1", "tool": "t", "args": {"x": [{"$ref": "s0.a"}]}}]})
     with pytest.raises(ValueError, match="names no earlier step"):
         parse_program({"steps": [{"id": "s1", "tool": "t", "args": {"x": {"$ref": "s2.a"}}}]})

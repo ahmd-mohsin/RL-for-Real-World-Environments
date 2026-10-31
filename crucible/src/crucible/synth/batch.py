@@ -83,6 +83,9 @@ class Arm:
     clarity: bool = False  # the instruction-clarity self-check (one CLARITY_CHECKER call per candidate)
     lemmas: tuple[str, ...] = ()
     writer_lemmas: tuple[str, ...] = ()
+    alt_variant: str | None = None  # the ALT harness when it differs from ``variant`` (v3: progress check and a window)
+    alt_progress: bool = False
+    alt_window: int | None = None
 
     @classmethod
     def baseline(cls, name: str = "a0") -> Arm:
@@ -155,6 +158,10 @@ class BatchConfig:
     prior_yield: float = 0.2
     near_dup: float = 0.8
     serial: bool = False
+    # R-panel (``uncalibrated_panel`` -> ``add_calibration_anchors``): an uncalibrated domain panel is calibrated again on
+    # more built tasks, up to this many (pilot-10x10: on 4 tasks one wrong vote of 9-10 left every insurance panel short of
+    # the 0.9 target, and the batch calibrated only once)
+    calib_max_tasks: int = 12
 
     def effective(self) -> BatchConfig:
         if not self.serial:
@@ -290,6 +297,7 @@ class ArmRun:
         self.world_text: dict[tuple[str, int], str] = {}
         self.calibrated: dict[str, asyncio.Event] = {}
         self.anchors: dict[str, list[tuple[TaskRecord, Task, Run]]] = defaultdict(list)
+        self.cal_used: dict[str, int] = defaultdict(int)  # anchor tasks the last calibration used (R-panel's more-anchors rounds)
         self.cal_lock = asyncio.Lock()
         self.build_q: asyncio.Queue[Cand | None] = asyncio.Queue()
         self.refine_q: asyncio.Queue[Cand | None] = asyncio.Queue()
@@ -340,6 +348,8 @@ class ArmRun:
         for name, d in self.domains.items():
             cfg = RunConfig(**{**rc.__dict__, "variant": self.arm.variant, "oracle_sees_derive": self.arm.oracle_sees_derive,
                                "alt_finish_nudge": self.arm.alt_finish_nudge, "lemmas": tuple(self.arm.lemmas) or rc.lemmas,
+                               "alt_variant": self.arm.alt_variant or rc.alt_variant, "alt_progress": self.arm.alt_progress or rc.alt_progress,
+                               "alt_window": self.arm.alt_window if self.arm.alt_window is not None else rc.alt_window,
                                "writer_lemmas": tuple(self.arm.writer_lemmas) or rc.writer_lemmas})
             r = Runner(d.env, self.roles, cfg, self.dir / _safe(name), self.dir / "archive", run_id=f"{self.cfg.run}-{self.arm.name}",
                        cost=self.s.cost, families=self.s.families)
@@ -361,11 +371,35 @@ class ArmRun:
                 if r.panel is not None:
                     r.panel.lam = float(json.loads(cal.read_text()).get("lam", rc.lam))
                 r.report.calibration = json.loads(cal.read_text())
-                self.calibrated[name].set()
+                if r.report.calibration.get("calibrated") is False and self.cfg.calib_max_tasks > rc.calib_tasks and r.panel is not None:
+                    # R-panel: more anchors (from the built tasks, below), then calibrate again
+                    self.cal_used[name] = int(r.report.calibration.get("anchor_tasks") or rc.calib_tasks)
+                else:
+                    self.calibrated[name].set()
             elif not rc.calibrate or len(self.roles.panel) < 2:
                 r.panel = r.make_panel()
                 self.calibrated[name].set()
         self.resume()
+        # anchors are a function of the stored tasks (their oracles executed again, CPU): a resumed domain that was not
+        # calibrated yet, or whose calibration R-panel wants more anchors for. pilot-10x10: a domain whose tasks were built
+        # before a restart sent them straight to refine with no anchor; refine waited for a calibration that waited for
+        # anchors, and the proposer waited on the backlog those refines held (a deadlock)
+        for name in sorted(n for n, ev in self.calibrated.items() if not ev.is_set()):
+            await self._reanchor(name)
+
+    async def _reanchor(self, domain: str) -> None:
+        from crucible.synth.falsify import FalsifyContext
+
+        ctx = FalsifyContext()
+        try:
+            for c in sorted(self.cands.values(), key=lambda x: x.n):
+                if c.domain != domain or c.task is None or len(self.anchors[domain]) >= self.cfg.calib_max_tasks:
+                    continue
+                t = Task.model_validate(c.task)
+                with contextlib.suppress(Exception):
+                    self.anchors[domain].append((self._rec(c), t, await ctx.oracle(t)))
+        finally:
+            await ctx.close()
 
     async def _world_text(self, env: DomainEnv, seed: int) -> str:
         w = await env.world(seed).build()
@@ -395,6 +429,16 @@ class ArmRun:
             ck, _, k = doc["batch_key"].rpartition("-b")
             self.batches[ck] = max(self.batches[ck], int(k) + 1)
         for c in sorted(self.cands.values(), key=lambda x: x.n):
+            if c.status == "budget":  # a cap stopped it, no verdict: it is picked up again (pilot-10x10: a stage cap that bound left
+                # its candidates "done" and a resumed run never built or refined them)
+                c.status, c.reasons = "pending", []
+                if c.task is None:
+                    c.stage = "proposed"
+                else:
+                    if (c.times.get("refine") or [0.0])[0]:  # its refine had started: a fresh attempt id, as for a cut-off refine
+                        c.attempt += 1
+                    c.stage = "built"
+                self.save(c)
             if c.status != "pending":
                 continue
             if c.stage == "proposed":
@@ -458,7 +502,7 @@ class ArmRun:
             try:
                 out: ProposalOut = await ask(self.roles.proposer, variant("proposer", self.arm.variant), tag=f"propose:{self.arm.name}/{cell.key}-b{k}",
                                              retries=1, domain=r.env.description, tools=tool_catalogue(r.tools[cell.instance]),
-                                             world=compact(r.slices[cell.instance], 24000), cell=cell.kind, existing=existing[-30:] or None, count=want,
+                                             world=compact(r.slices[cell.instance], r.env.slice_chars), cell=cell.kind, existing=existing[-30:] or None, count=want,
                                              lemmas=list(self.arm.lemmas) or None)
                 tasks = [t.model_dump(mode="json") for t in out.tasks[:want]]
                 err = None
@@ -575,24 +619,52 @@ class ArmRun:
                 await self.maybe_calibrate(c.domain)
 
     async def maybe_calibrate(self, domain: str, force: bool = False) -> None:
+        """Calibrate the domain's panel once ``calib_tasks`` tasks are built (or nothing more will be built). Uncalibrated,
+        R-panel decides: ``add_calibration_anchors`` while more built tasks can come (up to ``calib_max_tasks``) calibrates
+        again on all of them; otherwise the panel abstains (λ above 1) and refine goes on."""
         ev = self.calibrated[domain]
         if ev.is_set():
             return
-        k = self.cfg.run_cfg.calib_tasks
+        used, n = self.cal_used[domain], len(self.anchors[domain])
+        k = self.cfg.run_cfg.calib_tasks + used
         pending = any(c.domain == domain and c.status == "pending" and c.stage == "proposed" for c in self.cands.values())
-        if not (force or len(self.anchors[domain]) >= k or (self.proposing_done.is_set() and not pending)):
+        # no more anchors can come for THIS domain: nothing of it is being built and none of its cells takes a proposal (a
+        # global "proposing done" kept a finished domain's refines waiting while other domains still proposed)
+        adm, prop, _ = self.counts()
+        cells_open = not self.proposing_done.is_set() and not self.stop and any(
+            c.domain == domain and adm[c.key] < c.quota and prop[c.key] < c.max_proposals for c in self.cells)
+        final = not pending and not cells_open
+        if used and n <= used and (force or final):  # no new anchor can come now: the last calibration stands (no deadlock)
+            ev.set()
+            return
+        if not (force or n >= k or final):
             return
         async with self.cal_lock:
             if ev.is_set():
                 return
             r = self.runners[domain]
+            more = False
             try:
-                await r.calibrate_panel(ready=list(self.anchors[domain][:k]))
+                await r.calibrate_panel(ready=list(self.anchors[domain][: self.cfg.calib_max_tasks]), limit=self.cfg.calib_max_tasks)
+                cal = r.report.calibration or {}
+                if cal and cal.get("calibrated") is False and not r.stop:
+                    from crucible.synth import policy
+                    from crucible.synth.policy import Condition
+
+                    avail = n < self.cfg.calib_max_tasks and not final and not force
+                    rem = policy.resolve(Condition(kind="uncalibrated_panel", subject=domain, raised_by="synth.batch.ArmRun.maybe_calibrate",
+                                                   facts={"executed_check_available": False, "panel_calibrated": False, "more_anchors_available": avail}))
+                    row = {"domain": domain, "anchor_tasks": min(n, self.cfg.calib_max_tasks), "lam": cal.get("lam"), "action": rem.action, "rule": rem.rule,
+                           "policy_version": rem.policy_version, "t": round(time.time(), 3)}
+                    with (self.dir / "calibration_remedies.jsonl").open("a") as fh:
+                        fh.write(json.dumps(row) + "\n")
+                    more = rem.action == "add_calibration_anchors"
+                self.cal_used[domain] = n
             finally:
-                self.anchors[domain] = []
                 if r.stop and not self.stop:
                     self.stop = r.stop
-                ev.set()
+                if not more or self.stop:
+                    ev.set()
 
     # -- refine -------------------------------------------------------------------------------------------------------
     async def refine_worker(self) -> None:

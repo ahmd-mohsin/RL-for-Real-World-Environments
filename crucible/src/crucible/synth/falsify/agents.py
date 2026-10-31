@@ -235,7 +235,7 @@ def _shorten(entry: dict[str, Any], chars: int) -> dict[str, Any]:
 
 def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudget | None = None, strategies: Sequence[str] = ATTACK_STRATEGIES,
               tag: str = "", finish_nudge: bool = False, log: Callable[[dict[str, Any]], None] | None = None, progress_check: bool = False,
-              window: int | None = None, block: int = 8, short_chars: int = 300) -> AgentRunner:
+              window: int | None = None, block: int = 8, short_chars: int = 300, max_malformed: int | None = None) -> AgentRunner:
     """An ``AgentRunner`` that drives ``client`` through the JSON tool protocol of ``role`` (``ALT_SOLVER`` or
     ``ATTACKER``). The budget ends the attempt; the answer is whatever the model finalised (None when it ran out).
     ``finish_nudge``: an attempt that finishes after calls none of which was a successful write is told so once
@@ -249,7 +249,9 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
       against the instruction.
     - ``window``: tool results older than the last ``window`` calls are cut to ``short_chars``. The cut moves in steps
       of ``block`` calls, so the prompt prefix stays the same between steps and the provider's prompt cache keeps
-      working."""
+      working.
+    - ``max_malformed``: that many replies in a row that are neither a call nor a finish end the attempt (None: never; the
+      student probe keeps None, so its rollouts are unchanged). A notes-only turn is told its notes are kept."""
     b = budget or AgentBudget()
     attacker = role.name == ATTACKER.name
     keep_notes = "notes" in role.sees
@@ -267,7 +269,7 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
         ro = {t.name: t.read_only for t in view.tools}
         history: list[dict[str, Any]] = []
         notes, cut = "", 0
-        calls, nudged, wrote, write_nudged, checked = 0, False, False, False, False
+        calls, nudged, wrote, write_nudged, checked, malformed = 0, False, False, False, False, 0
         for turn_no in range(b.max_turns):
             if window is not None and len(history) - cut >= window + block:
                 new_cut = len(history) - window
@@ -289,9 +291,18 @@ def llm_agent(client: RoleClient, role: Role = ALT_SOLVER, *, budget: AgentBudge
             if turn.is_final() and not (turn.done or "final" in doc):
                 # neither a call nor a finish (compose-2: bare arguments with no tool, {"invoice_id": ...}): a malformed
                 # turn, said so, never taken as the end of the attempt
-                history.append({"note": 'That reply was neither a tool call {"call": {"tool": ..., "args": {...}}} nor a finish {"done": true, '
-                                        '"final": ...}. Reply with one of the two.'})
+                malformed += 1
+                if max_malformed is not None and malformed >= max_malformed:
+                    return None  # pilot-10x10: Super on the v3 harness sent its plan as notes-only turns until the turn budget ran out
+                if keep_notes and turn.notes:
+                    history.append({"note": "Your notes are saved and shown to you every turn; do not send them alone again. Reply now with the "
+                                            'next tool call {"call": {"tool": ..., "args": {...}}} (notes may ride along), or finish {"done": true, '
+                                            '"final": ...}.'})
+                else:
+                    history.append({"note": 'That reply was neither a tool call {"call": {"tool": ..., "args": {...}}} nor a finish {"done": true, '
+                                            '"final": ...}. Reply with one of the two.'})
                 continue
+            malformed = 0
             if turn.is_final():
                 if calls == 0 and not nudged:  # finishing before any call reads nothing and changes nothing: say so once
                     nudged = True

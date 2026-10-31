@@ -42,6 +42,8 @@ from crucible.synth.falsify.base import FalsifyContext
 from crucible.synth.roles import RoleClient, variant
 from crucible.synth.task import Task
 
+MAX_MALFORMED = 4  # replies in a row that are neither a call nor a finish end a solver's attempt (pilot-10x10)
+
 
 @dataclass
 class SolverConfig:
@@ -66,7 +68,7 @@ class SolverConfig:
         role = variant("alt_solver", "v3" if v3 else "v2")
         return AgentSpec(name=self.name, family=self.family,
                          runner=llm_agent(self.client, role, budget=self.budget(horizon), tag=tag, finish_nudge=True, progress_check=v3,
-                                          window=self.window if v3 else None, log=log))
+                                          window=self.window if v3 else None, log=log, max_malformed=MAX_MALFORMED))
 
 
 class AttemptRow(CrucibleModel):
